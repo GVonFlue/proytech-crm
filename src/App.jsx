@@ -24,6 +24,7 @@ const DEFAULT_OPTIONS={
   source:['Referral','Garrett','Logan','Cold Outreach','Instagram','Networking','Realtor Breakfast','Walk-in','Website','Other'],
   service:['Web Design','AI Integration','Both','Unknown','Missed-Call Text-Back','AI Receptionist','Booking / Scheduling','CRM Setup','Full Front Office'],
   nextAction:['Schedule Coffee','Schedule Sit Down','Text in 1 Week','Visit and Introduce','Send Proposal','Follow Up Call','Close','—'],
+  owner:['Garrett','Logan','ProyTech'],
 };
 const DEFAULT_STAGES=[
   {key:'new',      label:'New Lead',      color:'#6B73C9', prob:0.10, open:true,  won:false, lost:false},
@@ -34,7 +35,7 @@ const DEFAULT_STAGES=[
   {key:'lost',     label:'Closed Lost',   color:'#B0606A', prob:0.00, open:false, won:false, lost:true},
 ];
 const PRIORITIES={high:{label:'High',color:'#E0662B',bg:'rgba(224,102,43,.12)',rank:0},medium:{label:'Medium',color:COBALT,bg:'rgba(43,77,224,.10)',rank:1},low:{label:'Low',color:'#8E89A8',bg:'#F0F1F7',rank:2}};
-const OWNERS=['Garrett','Logan'];
+const OWNERS=['Garrett','Logan','ProyTech'];
 const ACT_TYPES=[{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox}];
 const fmtCustom=(v,type)=>{if(v===undefined||v==='')return '—';if(type==='checkbox')return v?'✓':'—';return String(v);};
 const DEFAULT_LEAD_COLS=[
@@ -178,7 +179,7 @@ const CSS=`
 .colmenu .cm-name{flex:1;font-size:13px;color:#3a3658}
 .colmenu .cm-lock{font-size:10.5px;color:#B6B2CC;text-transform:uppercase;letter-spacing:.04em}
 .colmenu input[type=checkbox]{width:15px;height:15px;accent-color:${COBALT};cursor:pointer}
-.tbl th{text-align:left;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#928DAD;font-weight:600;padding:13px 14px;border-bottom:1px solid #E8E9F2;background:#FBFBFE;cursor:pointer;user-select:none;white-space:nowrap;position:sticky;top:0}
+.tbl th{text-align:left;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:#9C98B4;font-weight:500;padding:13px 14px;border-bottom:1px solid #E8E9F2;background:#FBFBFE;cursor:pointer;user-select:none;white-space:nowrap;position:sticky;top:0}
 .tbl th .ar{opacity:.4;margin-left:4px}.tbl th.sorted{color:${COBALT}}.tbl th.sorted .ar{opacity:1}
 .tbl td{padding:13px 14px;border-bottom:1px solid #F0F0F6;color:#3a3658;white-space:nowrap}
 .tbl tbody tr{cursor:pointer}.tbl tbody tr:hover td{background:#FAFAFD}.tbl tr:last-child td{border-bottom:none}
@@ -607,6 +608,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads}){
       <OptionEditor label="Lead Source" items={settings.options.source} onChange={a=>setOptions('source',a)}/>
       <OptionEditor label="Business Type" items={settings.options.businessType} onChange={a=>setOptions('businessType',a)}/>
       <OptionEditor label="Next Action" items={settings.options.nextAction} onChange={a=>setOptions('nextAction',a)}/>
+      <OptionEditor label="Owner" items={settings.options.owner||['Garrett','Logan','ProyTech']} onChange={a=>setOptions('owner',a)}/>
     </div>
 
     {/* stages */}
@@ -734,7 +736,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,onClose,updateLead,addAc
             {F({label:'Name',k:'name'})}{F({label:'Company',k:'company'})}
             {Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
             {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
-            {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}{Sel({label:'Owner',k:'owner',opts:OWNERS})}
+            {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}{Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
             {F({label:'Follow-up Date',k:'followUp',type:'date'})}{F({label:'Expected Close',k:'expectedClose',type:'date'})}
             {F({label:'Next Steps',k:'nextSteps',full:true})}
           </div>
@@ -768,7 +770,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,onClose,updateLead,addAc
             <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{key}</button>)}</div>
             <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
-              <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{OWNERS.map(o=><option key={o} value={o}>{o}</option>)}</select>
+              <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>
               <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {atype}</button>
             </div>
             <div className="afilter" style={{marginTop:16}}>
