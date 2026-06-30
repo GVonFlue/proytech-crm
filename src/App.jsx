@@ -8,7 +8,7 @@ import {
   Menu, Plus, X, Phone, Mail, Globe, Flag, Search, Trash2, Download, Upload,
   MessageSquare, PhoneCall, CalendarClock, StickyNote, Mailbox, Lock, Repeat,
   CheckCircle2, AlertTriangle, ArrowUpDown, Percent, Target, Award,
-  Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, List, SlidersHorizontal,
+  Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut
 } from 'lucide-react';
 import { auth, db } from './lib/supabase';
@@ -216,7 +216,7 @@ const CSS=`
 .m-head .qa{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
 .qbtn{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:${COBALT};background:rgba(43,77,224,.08);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;text-decoration:none}
 .qbtn:hover{background:rgba(43,77,224,.15)}
-.m-x{background:#F0F1F7;border:none;border-radius:9px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a;flex:none}.m-x:hover{background:#E6E7F1}
+.m-x{background:#F0F1F7;border:none;border-radius:9px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a;flex:none}.m-x:hover{background:#E6E7F1}.m-x:disabled{opacity:.35;cursor:default}
 .m-grid{display:grid;grid-template-columns:1.15fr .85fr;overflow:hidden;flex:1;min-height:0}
 .m-left{padding:20px 22px;overflow-y:auto}.m-right{padding:20px 22px;overflow-y:auto;background:#fff;border-left:1px solid #E8E9F2;display:flex;flex-direction:column}
 @media(max-width:760px){.m-grid{grid-template-columns:1fr;overflow-y:auto}.m-left,.m-right{overflow:visible}.m-right{border-left:none;border-top:1px solid #E8E9F2}}
@@ -295,6 +295,8 @@ export default function App(){
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
+  const [navIds,setNavIds]=useState(null);
+  const openLead=(id,order)=>{ setActiveId(id); setNavIds(order&&order.length?order:null); };
 
   useEffect(()=>{ auth.session().then(s=>setSession(s||null)); const {data:sub}=auth.onChange(s=>setSession(s||null)); return ()=>sub?.subscription?.unsubscribe?.(); },[]);
 
@@ -355,15 +357,15 @@ export default function App(){
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
-          page==='dash'?<Dashboard leads={leads} stages={stages} open={setActiveId}/>:
-          page==='pipeline'?<Pipeline leads={leads} stages={stages} open={setActiveId} updateLead={updateLead}/>:
-          page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={setActiveId} saveSettings={saveSettings}/>:
-          page==='clients'?<Clients leads={leads} stages={stages} open={setActiveId}/>:
+          page==='dash'?<Dashboard leads={leads} stages={stages} open={openLead}/>:
+          page==='pipeline'?<Pipeline leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
+          page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings}/>:
+          page==='clients'?<Clients leads={leads} stages={stages} open={openLead}/>:
           page==='money'?<Money leads={leads} stages={stages}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads}/>}
       </div>
     </div>
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
   </div></>);
 }
 
@@ -502,7 +504,7 @@ function Leads({leads,settings,stages,open,saveSettings}){
     </div>
     <div className="tbl-wrap"><table className="tbl"><thead><tr>
       <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}
-    </tr></thead><tbody>{rows.map(l=>(<tr key={l.id} onClick={()=>open(l.id)}>
+    </tr></thead><tbody>{rows.map(l=>(<tr key={l.id} onClick={()=>open(l.id,rows.map(r=>r.id))}>
       <td><div className="namecell">{l.name}</div><div className="subcell">{l.company}</div></td>
       {visCols.map(c=><td key={c.key}>{defs[c.key].render(l)}</td>)}
     </tr>))}</tbody></table>{!rows.length&&<div className="empty">No leads match. Adjust filters or add a new lead.</div>}</div>
@@ -696,7 +698,9 @@ function CustomFieldEditor({fields,onChange}){
 }
 
 /* ===================== MODAL ===================== */
-function Modal({lead,isNew,settings,stages,addOption,me,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
+function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
+  const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
+  const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
   const blank={id:uid(),name:'',company:'',businessType:opt.businessType[0],phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:opt.nextAction[0],nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
@@ -727,7 +731,14 @@ function Modal({lead,isNew,settings,stages,addOption,me,onClose,updateLead,addAc
             {draft.website&&<a className="qbtn" href={draft.website.startsWith('http')?draft.website:'https://'+draft.website} target="_blank" rel="noreferrer"><Globe size={12}/>Site</a>}
           </div>}
         </div>
-        <button className="m-x" onClick={onClose}><X size={18}/></button>
+        <div style={{display:'flex',alignItems:'center',gap:8,flex:'none'}}>
+          {!isNew&&_list.length>1&&<>
+            <button className="m-x" disabled={!prevId} onClick={()=>prevId&&onNav(prevId)} title="Previous lead"><ChevronLeft size={18}/></button>
+            <span style={{fontSize:12,fontWeight:600,color:'#928DAD',minWidth:46,textAlign:'center'}}>{_idx+1} / {_list.length}</span>
+            <button className="m-x" disabled={!nextId} onClick={()=>nextId&&onNav(nextId)} title="Next lead"><ChevronRight size={18}/></button>
+          </>}
+          <button className="m-x" onClick={onClose}><X size={18}/></button>
+        </div>
       </div>
       <div className="m-grid">
         <div className="m-left">
