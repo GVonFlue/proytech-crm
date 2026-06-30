@@ -580,7 +580,7 @@ function ClientRoadmap({clients,tracks,open}){
     <div className="rmap-rows">{wp.map(({l,o})=>(<div className="rmap-row" key={l.id} onClick={()=>open(l.id)}>
       <div className="rr-name"><div className="namecell">{l.company||l.name}</div><div className="subcell">{Math.round(o.pct*100)}% · {o.phase}</div></div>
       <div className="rr-tracks">{o.tracks.map(tr=>{const p=trackProgress(l,tr);return (
-        <div className="rr-track" key={tr.key}><span className="rr-tl">{tr.label}</span><div className="rr-dots">{tr.ms.map(m=>{const done=!!p.done[m];return <span key={m} className={'rdot'+(done?' on':'')} title={m+(done?' ✓':' (pending)')}/>;})}</div></div>);})}
+        <div className="rr-track" key={tr.key}><span className="rr-tl">{tr.label}</span><div className="rr-dots">{p.ms.map(m=>{const done=!!p.done[m];return <span key={m} className={'rdot'+(done?' on':'')} title={m+(done?' ✓':' (pending)')}/>;})}</div></div>);})}
       </div>
     </div>))}</div>
   </div>);
@@ -876,7 +876,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToC
               {tracks.map(tr=>{ const p=trackProgress(draft,tr); return (<div className="track" key={tr.key}>
                 <div className="track-h"><b>{tr.label}</b><span className="phase">{p.current?p.current:'Delivered ✓'}</span></div>
                 <div className="pbar"><div style={{width:Math.round(p.pct*100)+'%'}}/></div>
-                <div className="mslist">{tr.ms.map(m=>{ const done=!!p.done[m]; return (<div className={'ms'+(done?' on':'')} key={m} onClick={()=>toggleMilestone(draft.id,tr.key,m)}>
+                <div className="mslist">{p.ms.map(m=>{ const done=!!p.done[m]; return (<div className={'ms'+(done?' on':'')} key={m} onClick={()=>toggleMilestone(draft.id,tr.key,m)}>
                   {done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color="#C9C5D9"/>}
                   <span className="mtxt">{m}</span>{done&&<span className="mdate">{fmtDate(p.done[m])}</span>}
                 </div>); })}</div>
