@@ -246,6 +246,21 @@ const CSS=`
 .chip.on{border-color:${COBALT};background:rgba(43,77,224,.1);color:${COBALT}}
 .chip.add{border-style:dashed;color:#928DAD}
 .toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13.5px;color:${INK};font-weight:500;margin-top:11px}
+.extras{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.extra-row{display:flex;align-items:center;gap:8px}
+.extra-row .ex-label{flex:1;padding:9px 11px;border:1px solid #DEDFEA;border-radius:9px;font-size:13px;font-family:'Inter';color:${INK};background:#fff}
+.extra-row .ex-label:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
+.ex-amt-w{display:flex;align-items:center;gap:4px;border:1px solid #DEDFEA;border-radius:9px;padding:0 10px;background:#fff;width:120px}
+.ex-amt-w span{color:#928DAD;font-size:13px}
+.ex-amt-w:focus-within{border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
+.ex-amt{border:none;outline:none;width:100%;padding:9px 0;font-size:13.5px;font-family:'Inter';color:${INK};background:transparent}
+.ex-del{border:none;background:#F2F2F8;color:#928DAD;width:34px;height:34px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none}
+.ex-del:hover{background:rgba(209,67,67,.1);color:${RED}}
+.addline{margin-top:10px;background:none;border:1px dashed #CFD0E0;color:${COBALT};font-weight:600;font-size:12.5px;padding:8px 12px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.addline:hover{background:rgba(43,77,224,.05);border-color:${COBALT}}
+.deal-total{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:11px 13px;background:#F6F7FB;border-radius:10px}
+.deal-total span{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#928DAD}
+.deal-total b{font-family:'Space Grotesk';font-size:17px;color:${INK}}
 .sw{width:42px;height:24px;border-radius:14px;background:#D9DAE6;position:relative;transition:.18s;flex:none}.sw.on{background:${GREEN}}
 .sw b{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.2)}.sw.on b{left:21px}
 .sw.sm{width:34px;height:20px}.sw.sm b{width:14px;height:14px}.sw.sm.on b{left:17px}
@@ -865,6 +880,11 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToC
   const addCustomAction=()=>{const v=window.prompt('New Next Action:');if(v&&v.trim()){addOption('nextAction',v.trim());set({nextAction:v.trim()});}};
   const addCustomSvc=()=>{const v=window.prompt('New Service Interest:');if(v&&v.trim()){addOption('service',v.trim());toggleSvc(v.trim());}};
   const F=({label,k,type,full})=>(<div className={'field'+(full?' full':'')}><label>{label}</label><input type={type||'text'} value={draft[k]??''} onChange={e=>set({[k]:e.target.value})}/></div>);
+  const dealBreak=(draft.deal&&typeof draft.deal==='object')
+    ? {setup:draft.deal.setup??'',website:draft.deal.website??'',integration:draft.deal.integration??'',extras:Array.isArray(draft.deal.extras)?draft.deal.extras:[]}
+    : {setup:(draft.dealValue||''),website:'',integration:'',extras:[]};
+  const dealSum=d=>num(d.setup)+num(d.website)+num(d.integration)+(d.extras||[]).reduce((a,e)=>a+num(e.amount),0);
+  const setDeal=next=>set({deal:next,dealValue:dealSum(next)});
   const Sel=({label,k,opts})=>(<div className="field"><label>{label}</label><select value={draft[k]} onChange={e=>set({[k]:e.target.value})}>{opts.map(o=>typeof o==='string'?<option key={o} value={o}>{o||'—'}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}</select></div>);
   const logIt=()=>{if(!atext.trim())return;addActivity(draft.id,atype,atext,who);setAtext('');};
   const create=()=>{if(!draft.name.trim()){window.alert('Add a name first.');return;}createNew({...draft,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Lead created.',who}]});};
@@ -934,7 +954,20 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToC
           <div className="fgrid">{F({label:'Phone',k:'phone'})}{F({label:'Email',k:'email'})}{F({label:'Website',k:'website',full:true})}</div>
 
           <div className="dh mt"><DollarSign size={13}/>Deal</div>
-          <div className="fgrid">{F({label:'Setup / Deal $',k:'dealValue',type:'number'})}{F({label:'Monthly Retainer $',k:'retainer',type:'number'})}</div>
+          <div className="fgrid">
+            <div className="field"><label>Setup $</label><input type="number" value={dealBreak.setup} onChange={e=>setDeal({...dealBreak,setup:e.target.value})}/></div>
+            <div className="field"><label>Website $</label><input type="number" value={dealBreak.website} onChange={e=>setDeal({...dealBreak,website:e.target.value})}/></div>
+            <div className="field"><label>Integration $</label><input type="number" value={dealBreak.integration} onChange={e=>setDeal({...dealBreak,integration:e.target.value})}/></div>
+            {F({label:'Monthly Retainer $',k:'retainer',type:'number'})}
+          </div>
+          {dealBreak.extras.length>0&&<div className="extras">{dealBreak.extras.map((ex,i)=>(
+            <div className="extra-row" key={ex.id||i}>
+              <input className="ex-label" placeholder="Line item (e.g. Extra web page)" value={ex.label||''} onChange={e=>{const x=dealBreak.extras.slice();x[i]={...x[i],label:e.target.value};setDeal({...dealBreak,extras:x});}}/>
+              <div className="ex-amt-w"><span>$</span><input className="ex-amt" type="number" placeholder="0" value={ex.amount||''} onChange={e=>{const x=dealBreak.extras.slice();x[i]={...x[i],amount:e.target.value};setDeal({...dealBreak,extras:x});}}/></div>
+              <button className="ex-del" title="Remove" onClick={()=>{const x=dealBreak.extras.filter((_,j)=>j!==i);setDeal({...dealBreak,extras:x});}}><X size={14}/></button>
+            </div>))}</div>}
+          <button className="addline" onClick={()=>setDeal({...dealBreak,extras:[...dealBreak.extras,{id:uid(),label:'',amount:''}]})}><Plus size={13}/>Add line item</button>
+          <div className="deal-total"><span>One-time total</span><b>{usd(dealSum(dealBreak))}</b></div>
           <div className="toggle" onClick={()=>set({retainerActive:!draft.retainerActive})}><span className={'sw '+(draft.retainerActive?'on':'')}><b/></span>{draft.retainerActive?'On monthly retainer':'Not on retainer'}</div>
 
           {customFields.length>0&&<><div className="dh mt"><Tag size={13}/>Custom Fields</div><div className="fgrid">
