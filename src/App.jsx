@@ -7,7 +7,7 @@ import {
   LayoutDashboard, KanbanSquare, Contact2, Building2, DollarSign, Settings,
   Menu, Plus, X, Phone, Mail, Globe, Flag, Search, Trash2, Download, Upload,
   MessageSquare, PhoneCall, CalendarClock, StickyNote, Mailbox, Lock, Repeat,
-  CheckCircle2, AlertTriangle, ArrowUpDown, Percent, Target, Award,
+  CheckCircle2, Circle, AlertTriangle, ArrowUpDown, Percent, Target, Award, Rocket, UserCheck,
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut
 } from 'lucide-react';
@@ -93,6 +93,17 @@ function mergeLeadCols(saved,customFields){
   (customFields||[]).forEach(f=>{const k='cf:'+f.id;if(!cols.find(c=>c.key===k))cols.push({key:k,visible:false});});
   return cols;
 }
+
+/* ===================== delivery (post-sale fulfillment) ===================== */
+const DEFAULT_DELIVERY_TRACKS=[
+  { key:'website', label:'Website', services:['Web Design','Website','Both','Full Front Office'],
+    milestones:['Discovery call complete','Website dev pending','Website V1 sent','Revisions','Final proof sent','Website approved by client'] },
+  { key:'ai', label:'AI / Integrations', services:['AI Integration','AI Receptionist','Missed-Call Text-Back','Booking / Scheduling','CRM Setup','Both','Full Front Office'],
+    milestones:['Discovery & scoping','Integrations started','Build & configuration','Testing','Integrations delivered'] },
+];
+const activeTracks=(lead,tracks)=>{ const svc=lead.serviceInterest||[]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]); };
+const trackProgress=(lead,track)=>{ const done=(lead.delivery&&lead.delivery[track.key])||{}; const ms=track.milestones||[]; const completed=ms.filter(m=>done[m]); const current=ms.find(m=>!done[m])||null; return {done,ms,completedCount:completed.length,total:ms.length,pct:ms.length?completed.length/ms.length:0,current}; };
+const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase=''; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;if(p.current&&!phase)phase=`${tr.label}: ${p.current}`;}); return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts}; };
 
 /* ===================== seed (your real board) ===================== */
 function mkLead(o){
@@ -258,6 +269,22 @@ const CSS=`
 .swatch{width:26px;height:26px;border-radius:7px;border:1px solid #E0E0EC;flex:none;cursor:pointer;padding:0}
 .logo-drop{border:2px dashed #DEDFEA;border-radius:14px;padding:26px;text-align:center;cursor:pointer;color:#8E89A8;transition:.15s}.logo-drop:hover{border-color:${COBALT};color:${COBALT};background:rgba(43,77,224,.03)}
 .note{background:#FBF6E9;border:1px solid #EBDCB5;border-radius:12px;padding:14px 16px;font-size:13px;color:#7a6320;line-height:1.5}.note b{color:#5e4c12}
+.convert-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;background:linear-gradient(135deg,rgba(43,77,224,.08),rgba(59,52,112,.08));border:1px solid #D9DCF2;border-radius:14px;padding:14px 16px;margin-bottom:18px}
+.convert-banner b{font-family:'Space Grotesk';font-size:15px;color:${INK}}
+.deliv{background:#fff;border:1px solid #E8E9F2;border-radius:14px;padding:16px 18px;margin-bottom:18px}
+.track{padding:12px 0;border-bottom:1px solid #F0F0F6}.track:last-of-type{border-bottom:none}
+.track-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.track-h b{font-family:'Space Grotesk';font-size:14px;color:${INK}}
+.track-h .phase{font-size:11.5px;font-weight:600;color:${COBALT};background:rgba(43,77,224,.09);padding:3px 9px;border-radius:20px}
+.pbar{height:7px;background:#ECECF4;border-radius:6px;overflow:hidden;margin-bottom:10px}
+.pbar>div{height:100%;border-radius:6px;background:linear-gradient(90deg,${COBALT},${GREEN});transition:width .4s}
+.mslist{display:flex;flex-direction:column;gap:2px}
+.ms{display:flex;align-items:center;gap:9px;padding:7px 6px;border-radius:8px;cursor:pointer;font-size:13.5px;color:#3a3658}
+.ms:hover{background:#FAFAFD}.ms .mtxt{flex:1}.ms.on .mtxt{color:#8E89A8;text-decoration:line-through}
+.ms .mdate{font-size:11px;color:#A6A2BC;font-weight:600}
+.linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
+.cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
+.cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
 .iconbtn{background:#F1F2F8;border:none;border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a;flex:none}.iconbtn:hover{background:#E6E7F1}.iconbtn:disabled{opacity:.35;cursor:default}
 @media(max-width:820px){
   .sb{position:fixed;left:0;top:0;transform:translateX(-100%);transition:transform .25s;box-shadow:0 0 60px rgba(0,0,0,.4)}.sb.open{transform:none}.hamb{display:block}
@@ -291,7 +318,7 @@ export default function App(){
   const [session,setSession]=useState(undefined);
   const [loaded,setLoaded]=useState(false);
   const [leads,setLeads]=useState([]);
-  const [settings,setSettings]=useState({logo:'',options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS});
+  const [settings,setSettings]=useState({logo:'',options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS});
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
@@ -304,9 +331,9 @@ export default function App(){
     try{
       let s=await db.getLeads(); let st=await db.getSettings();
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
-      if(!st){ st={logo:'',options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS}; await db.saveSettings(st); }
+      if(!st){ st={logo:'',options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS}; await db.saveSettings(st); }
       setLeads(s);
-      setSettings({logo:st.logo||'',options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS});
+      setSettings({logo:st.logo||'',options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -330,6 +357,9 @@ export default function App(){
   const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
+  const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:true,convertedAt:todayISO(),delivery:l.delivery||{},activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Converted to client — delivery started.',who:me},...l.activities]}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
+  const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
+  const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; if(tr[milestone]) delete tr[milestone]; else tr[milestone]=todayISO(); d[trackKey]=tr; updateLead(id,{delivery:d}); };
   const active=activeId&&activeId!=='new'?leads.find(l=>l.id===activeId):null;
 
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2><p>Loading…</p></div></div></>);
@@ -360,12 +390,12 @@ export default function App(){
           page==='dash'?<Dashboard leads={leads} stages={stages} open={openLead}/>:
           page==='pipeline'?<Pipeline leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
           page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings}/>:
-          page==='clients'?<Clients leads={leads} stages={stages} open={openLead}/>:
+          page==='clients'?<Clients leads={leads} stages={stages} settings={settings} open={openLead}/>:
           page==='money'?<Money leads={leads} stages={stages}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads}/>}
       </div>
     </div>
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
   </div></>);
 }
 
@@ -512,24 +542,33 @@ function Leads({leads,settings,stages,open,saveSettings}){
 }
 
 /* ===================== CLIENTS ===================== */
-function Clients({leads,stages,open}){
-  const won=leads.filter(l=>sOf(l.stage,stages).won);const retainer=won.filter(l=>l.retainerActive);const oneoff=won.filter(l=>!l.retainerActive);
+function Clients({leads,stages,settings,open}){
+  const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS;
+  const clients=leads.filter(l=>l.isClient);
+  const retainer=clients.filter(l=>l.retainerActive);const oneoff=clients.filter(l=>!l.retainerActive);
   const mrr=retainer.reduce((a,l)=>a+num(l.retainer),0);
+  const wonNotConverted=leads.filter(l=>sOf(l.stage,stages).won&&!l.isClient);
+  const inDelivery=clients.filter(l=>{const o=clientOverall(l,tracks);return o.pct<1;}).length;
+  const Prog=({l})=>{const o=clientOverall(l,tracks);return (<div className="cli-prog"><div className="pbar"><div style={{width:Math.round(o.pct*100)+'%'}}/></div><span className="pp">{Math.round(o.pct*100)}%</span></div>);};
   const Section=({title,list,showR})=>(<div className="tbl-wrap" style={{marginBottom:18}}>
     <div style={{padding:'14px 16px',borderBottom:'1px solid #E8E9F2',fontWeight:600,color:INK,fontFamily:'Space Grotesk'}}>{title} · {list.length}</div>
-    {list.length?<table className="tbl"><thead><tr><th>Client</th><th>Service</th><th>Setup</th>{showR&&<th>Retainer</th>}<th>Owner</th></tr></thead><tbody>{list.map(l=>(<tr key={l.id} onClick={()=>open(l.id)}>
+    {list.length?<table className="tbl"><thead><tr><th>Client</th><th>Service</th><th>Delivery</th><th>Phase</th><th>Setup</th>{showR&&<th>Retainer</th>}<th>Owner</th></tr></thead><tbody>{list.map(l=>{const o=clientOverall(l,tracks);return (<tr key={l.id} onClick={()=>open(l.id)}>
       <td><div className="namecell">{l.company||l.name}</div><div className="subcell">{l.name}</div></td>
       <td className="subcell">{(l.serviceInterest||[]).join(', ')||l.businessType}</td>
+      <td><Prog l={l}/></td>
+      <td className="subcell">{o.phase}</td>
       <td style={{fontWeight:600,color:INK}}>{usd(l.dealValue)}</td>{showR&&<td style={{fontWeight:600,color:GREEN}}>{usd(l.retainer)}/mo</td>}<td className="subcell">{l.owner}</td>
-    </tr>))}</tbody></table>:<div className="empty">None yet.</div>}</div>);
+    </tr>);})}</tbody></table>:<div className="empty">None yet.</div>}</div>);
   return (<>
     <div className="kgrid">
+      <Kpi variant="accent" label="Total Clients" value={clients.length} icon={<Award size={14}/>} d={`${inDelivery} in delivery`}/>
       <Kpi variant="green" label="Active Retainers" value={retainer.length} icon={<Repeat size={14}/>} d={`${usd(mrr)} MRR`}/>
       <Kpi label="One-off Clients" value={oneoff.length} icon={<Building2 size={14}/>} d="website / setup only"/>
-      <Kpi variant="accent" label="Total Clients" value={won.length} icon={<Award size={14}/>} d="all closed-won"/>
     </div>
+    {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} closed-won {wonNotConverted.length===1?'lead is':'leads are'} not converted yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b> to start delivery tracking: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
     <Section title="On Monthly Retainer" list={retainer} showR/>
     <Section title="One-off / Website Only" list={oneoff}/>
+    {!clients.length&&<div className="empty">No clients yet. Open a closed lead and hit <b>Convert to Client</b> to begin.</div>}
   </>);
 }
 
@@ -591,7 +630,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:3,exportedAt:new Date().toISOString(),leads,settings};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[]});window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS});window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
     {/* logo */}
@@ -618,6 +657,13 @@ function SettingsPage({settings,saveSettings,leads,saveLeads}){
       <div className="sec-title"><Layers size={15}/>Pipeline Stages</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Rename, recolor, reorder, or add stages. Mark one or more as <b>Won</b> (counts as closed revenue) or <b>Lost</b>.</div>
       <StageEditor stages={settings.stages} onChange={s=>saveSettings({...settings,stages:s})}/>
+    </div>
+
+    {/* delivery tracks */}
+    <div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><Rocket size={15}/>Delivery Tracks</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>The fulfillment steps clients move through after converting. Each track shows only for clients who bought a matching service.</div>
+      <DeliveryEditor tracks={settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS} services={settings.options.service} onChange={t=>saveSettings({...settings,deliveryTracks:t})}/>
     </div>
 
     {/* custom fields */}
@@ -697,8 +743,41 @@ function CustomFieldEditor({fields,onChange}){
   </div>);
 }
 
+function DeliveryEditor({tracks,services,onChange}){
+  const upd=(i,patch)=>onChange(tracks.map((t,j)=>j===i?{...t,...patch}:t));
+  const addTrack=()=>onChange([...tracks,{key:'track'+uid(),label:'New Track',services:[],milestones:['Step 1']}]);
+  const delTrack=i=>{if(window.confirm('Delete this delivery track?'))onChange(tracks.filter((_,j)=>j!==i));};
+  const toggleSvc=(i,s)=>{const cur=tracks[i].services||[];upd(i,{services:cur.includes(s)?cur.filter(x=>x!==s):[...cur,s]});};
+  const Milestones=({i})=>{const [v,setV]=useState('');const ms=tracks[i].milestones||[];
+    const addM=()=>{const x=v.trim();if(!x||ms.includes(x))return;upd(i,{milestones:[...ms,x]});setV('');};
+    const moveM=(k,d)=>{const j=k+d;if(j<0||j>=ms.length)return;const a=ms.slice();[a[k],a[j]]=[a[j],a[k]];upd(i,{milestones:a});};
+    return (<div style={{marginTop:8}}>
+      {ms.map((m,k)=>(<div key={m} style={{display:'flex',alignItems:'center',gap:6,padding:'4px 0'}}>
+        <span style={{flex:1,fontSize:13,color:'#3a3658'}}>{k+1}. {m}</span>
+        <button className="iconbtn" style={{width:24,height:24}} onClick={()=>moveM(k,-1)} disabled={k===0}><ChevronUp size={13}/></button>
+        <button className="iconbtn" style={{width:24,height:24}} onClick={()=>moveM(k,1)} disabled={k===ms.length-1}><ChevronDown size={13}/></button>
+        <button className="iconbtn" style={{width:24,height:24}} onClick={()=>upd(i,{milestones:ms.filter(x=>x!==m)})}><Trash2 size={12}/></button>
+      </div>))}
+      <div className="addrow"><input placeholder="Add milestone…" value={v} onChange={e=>setV(e.target.value)} onKeyDown={e=>e.key==='Enter'&&addM()} style={{flex:1,minWidth:160}}/><button className="btn btn-g btn-sm" onClick={addM}><Plus size={14}/>Add</button></div>
+    </div>);
+  };
+  return (<div>
+    {tracks.map((t,i)=>(<div key={t.key} style={{border:'1px solid #E8E9F2',borderRadius:12,padding:'14px 16px',marginBottom:12}}>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
+        <input style={{flex:1,padding:'9px 11px',border:'1px solid #DEDFEA',borderRadius:8,fontSize:14,fontFamily:'Inter',fontWeight:600}} value={t.label} onChange={e=>upd(i,{label:e.target.value})}/>
+        <button className="iconbtn" onClick={()=>delTrack(i)}><Trash2 size={14}/></button>
+      </div>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase',color:'#928DAD',marginBottom:7}}>Shows for services</div>
+      <div className="chips">{services.map(s=><span key={s} className={'chip '+((t.services||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(i,s)}>{s}</span>)}</div>
+      <div style={{fontSize:11,fontWeight:700,letterSpacing:'.05em',textTransform:'uppercase',color:'#928DAD',margin:'14px 0 0'}}>Milestones</div>
+      <Milestones i={i}/>
+    </div>))}
+    <button className="btn btn-g btn-sm" onClick={addTrack}><Plus size={14}/>Add track</button>
+  </div>);
+}
+
 /* ===================== MODAL ===================== */
-function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
+function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToClient,revertClient,toggleMilestone,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -742,6 +821,24 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,onClose,up
       </div>
       <div className="m-grid">
         <div className="m-left">
+          {!isNew&&!draft.isClient&&<div className="convert-banner">
+            <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'#56527a',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
+            <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
+          </div>}
+          {!isNew&&draft.isClient&&(()=>{ const tracks=activeTracks(draft,settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const ov=clientOverall(draft,settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS);
+            return (<div className="dr-sec deliv">
+              <div className="dh" style={{justifyContent:'space-between',display:'flex'}}><span style={{display:'flex',alignItems:'center',gap:8}}><Rocket size={13}/>Delivery</span><span style={{fontSize:11,color:'#928DAD',fontWeight:600}}>Client since {fmtDate(draft.convertedAt)}</span></div>
+              {tracks.map(tr=>{ const p=trackProgress(draft,tr); return (<div className="track" key={tr.key}>
+                <div className="track-h"><b>{tr.label}</b><span className="phase">{p.current?p.current:'Delivered ✓'}</span></div>
+                <div className="pbar"><div style={{width:Math.round(p.pct*100)+'%'}}/></div>
+                <div className="mslist">{tr.ms.map(m=>{ const done=!!p.done[m]; return (<div className={'ms'+(done?' on':'')} key={m} onClick={()=>toggleMilestone(draft.id,tr.key,m)}>
+                  {done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color="#C9C5D9"/>}
+                  <span className="mtxt">{m}</span>{done&&<span className="mdate">{fmtDate(p.done[m])}</span>}
+                </div>); })}</div>
+              </div>); })}
+              <button className="linkbtn" onClick={()=>{ if(window.confirm('Revert this client back to a lead? Delivery progress is kept.')) revertClient(draft.id); }}>Revert to lead</button>
+            </div>);
+          })()}
           <div className="dh"><Contact2 size={13}/>Details</div>
           <div className="fgrid">
             {F({label:'Name',k:'name'})}{F({label:'Company',k:'company'})}
