@@ -52,4 +52,13 @@ export const db = {
     const { error } = await supabase.from('app_settings').upsert({ id: 'main', data: obj });
     if (error) throw error;
   },
+  async getInvoices() {
+    const { data, error } = await supabase.from('app_settings').select('data').eq('id', 'invoices').maybeSingle();
+    if (error) throw error;
+    return (data?.data?.list) || [];
+  },
+  async saveInvoices(list) {
+    const { error } = await supabase.from('app_settings').upsert({ id: 'invoices', data: { list } });
+    if (error) throw error;
+  },
 };
