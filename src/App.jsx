@@ -382,31 +382,31 @@ const CSS=`
 .iie-row input{padding:8px 9px;border:1px solid #DEDFEA;border-radius:8px;font-size:13px;font-family:'Inter';color:${INK};background:#fff;width:100%}
 .iie-row input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .iie-amt{font-size:13px;font-weight:600;color:${INK};text-align:right}
-.inv-preview{background:#fff;border-radius:12px;padding:40px 42px;box-shadow:0 10px 40px -18px rgba(0,0,0,.25);font-size:11.5px;color:#3a3850;line-height:1.5}
-.ip-top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:18px}
-.ip-logo{max-height:46px;max-width:200px;object-fit:contain;display:block;margin-bottom:10px}
-.ip-name{font-family:'Space Grotesk';font-size:20px;font-weight:600;color:${INK};margin-bottom:10px;letter-spacing:-.01em}
-.ip-bizmeta{font-size:10.5px;color:#8b88a0;line-height:1.65}
+.inv-preview{background:#fff;border-radius:12px;padding:30px 32px;box-shadow:0 10px 40px -18px rgba(0,0,0,.25);font-size:10.5px;color:#3a3850;line-height:1.45}
+.ip-top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:12px}
+.ip-logo{max-height:42px;max-width:190px;object-fit:contain;display:block;margin-bottom:8px}
+.ip-name{font-family:'Space Grotesk';font-size:16px;font-weight:600;color:${INK};margin-bottom:7px;letter-spacing:-.01em}
+.ip-bizmeta{font-size:9.5px;color:#8b88a0;line-height:1.55}
 .ip-meta{text-align:right;flex:none}
-.ip-title{font-family:'Space Grotesk';font-size:20px;font-weight:700;letter-spacing:.22em;color:${COBALT}}
-.ip-num{font-size:11px;font-weight:600;color:#8b88a0;margin-top:4px;letter-spacing:.02em}
-.ip-dates{margin-top:14px;font-size:10.5px;color:${INK}}.ip-dates div{display:flex;gap:14px;justify-content:flex-end;margin-top:3px}.ip-dates span{color:#aaa6bd;text-transform:uppercase;letter-spacing:.05em;font-size:9.5px;font-weight:600}
-.ip-stamp{display:inline-block;margin-top:12px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:3px 11px;border-radius:20px}
-.ip-rule{height:2px;width:100%;border-radius:2px;margin:0 0 22px;opacity:.9}
-.ip-billto{margin-bottom:26px;font-size:11px;line-height:1.6;color:#5a5874}
-.ip-billto .ip-lbl{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#aaa6bd;margin-bottom:6px}
-.ip-billto .ip-btname{font-weight:700;font-size:13px;color:${INK};letter-spacing:-.01em}
-.ip-table{width:100%;border-collapse:collapse;margin-bottom:20px}
-.ip-table th{text-align:left;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#aaa6bd;border-bottom:1.5px solid ${INK};padding:0 0 9px}
+.ip-title{font-family:'Space Grotesk';font-size:14px;font-weight:700;letter-spacing:.16em;color:${COBALT};line-height:1}
+.ip-num{font-size:9.5px;font-weight:600;color:#8b88a0;margin-top:3px;letter-spacing:.03em}
+.ip-dates{margin-top:9px;font-size:9.5px;color:${INK}}.ip-dates div{display:flex;gap:12px;justify-content:flex-end;margin-top:2px}.ip-dates span{color:#aaa6bd;text-transform:uppercase;letter-spacing:.05em;font-size:8.5px;font-weight:600}
+.ip-stamp{display:inline-block;margin-top:8px;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:2px 9px;border-radius:20px}
+.ip-rule{height:1.5px;width:100%;border-radius:2px;margin:0 0 14px;opacity:.9}
+.ip-billto{margin-bottom:16px;font-size:10px;line-height:1.45;color:#6a6788}
+.ip-billto .ip-lbl{font-size:8px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#aaa6bd;margin-bottom:3px}
+.ip-billto .ip-btname{font-weight:700;font-size:11.5px;color:${INK};letter-spacing:-.01em}
+.ip-table{width:100%;border-collapse:collapse;margin-bottom:14px}
+.ip-table th{text-align:left;font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#aaa6bd;border-bottom:1.5px solid ${INK};padding:0 0 6px}
 .ip-table th:nth-child(2),.ip-table th:nth-child(3),.ip-table th:nth-child(4){text-align:right}
-.ip-table td{padding:11px 0;border-bottom:1px solid #F0F0F4;font-size:11.5px;font-variant-numeric:tabular-nums}
+.ip-table td{padding:7px 0;border-bottom:1px solid #F2F2F6;font-size:10.5px;font-variant-numeric:tabular-nums}
 .ip-table td:nth-child(2),.ip-table td:nth-child(3),.ip-table td:nth-child(4){text-align:right;white-space:nowrap}
 .ip-table td:first-child{padding-right:14px;color:${INK}}
-.ip-totals{margin-left:auto;width:240px}
-.ip-tr{display:flex;justify-content:space-between;padding:6px 0;font-size:11.5px;color:#5a5874;font-variant-numeric:tabular-nums}.ip-tr span{color:#8b88a0}.ip-tr b{font-weight:600;color:${INK}}
-.ip-grand{border-top:1.5px solid ${INK};margin-top:6px;padding-top:12px;font-size:14px}.ip-grand span{color:${INK};font-weight:700;font-family:'Space Grotesk';letter-spacing:.01em}.ip-grand b{font-family:'Space Grotesk';font-size:17px;color:${COBALT}}
-.ip-pay{margin-top:26px;font-size:11px;color:#5a5874;word-break:break-all}.ip-pay a{color:${COBALT};font-weight:600}
-.ip-notes{margin-top:16px;padding-top:16px;border-top:1px solid #F0F0F4;font-size:10.5px;color:#8b88a0;white-space:pre-wrap;line-height:1.6}
+.ip-totals{margin-left:auto;width:210px}
+.ip-tr{display:flex;justify-content:space-between;padding:4px 0;font-size:10.5px;color:#6a6788;font-variant-numeric:tabular-nums}.ip-tr span{color:#9b98ad}.ip-tr b{font-weight:600;color:${INK}}
+.ip-grand{border-top:1.5px solid ${INK};margin-top:5px;padding-top:9px;font-size:12px}.ip-grand span{color:${INK};font-weight:700;font-family:'Space Grotesk';letter-spacing:.01em}.ip-grand b{font-family:'Space Grotesk';font-size:14px;color:${COBALT}}
+.ip-pay{margin-top:16px;font-size:10px;color:#6a6788;word-break:break-all}.ip-pay a{color:${COBALT};font-weight:600}
+.ip-notes{margin-top:12px;padding-top:12px;border-top:1px solid #F2F2F6;font-size:9.5px;color:#9b98ad;white-space:pre-wrap;line-height:1.5}
 .acc-row{display:flex;gap:8px;align-items:center}
 .acc-row input[type=color]{width:42px;height:38px;padding:2px;border:1px solid #DEDFEA;border-radius:9px;background:#fff;cursor:pointer;flex:none}
 .acc-row input:not([type=color]){flex:1}
