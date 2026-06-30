@@ -287,6 +287,13 @@ const CSS=`
 .addrow input,.addrow select{padding:9px 11px;border:1px solid #DEDFEA;border-radius:9px;font-size:13.5px;font-family:'Inter'}
 .swatch{width:26px;height:26px;border-radius:7px;border:1px solid #E0E0EC;flex:none;cursor:pointer;padding:0}
 .logo-drop{border:2px dashed #DEDFEA;border-radius:14px;padding:26px;text-align:center;cursor:pointer;color:#8E89A8;transition:.15s}.logo-drop:hover{border-color:${COBALT};color:${COBALT};background:rgba(43,77,224,.03)}
+.logosize{margin-top:14px;max-width:340px}
+.logosize-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+.logosize-h span{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#928DAD}
+.logosize-h b{font-family:'Space Grotesk';font-size:13px;color:${INK}}
+.logosize input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:6px;border-radius:6px;background:#E4E5EF;outline:none}
+.logosize input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:50%;background:${COBALT};cursor:pointer;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.logosize input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:${COBALT};cursor:pointer;border:3px solid #fff}
 .note{background:#FBF6E9;border:1px solid #EBDCB5;border-radius:12px;padding:14px 16px;font-size:13px;color:#7a6320;line-height:1.5}.note b{color:#5e4c12}
 .convert-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;background:linear-gradient(135deg,rgba(43,77,224,.08),rgba(59,52,112,.08));border:1px solid #D9DCF2;border-radius:14px;padding:14px 16px;margin-bottom:18px}
 .convert-banner b{font-family:'Space Grotesk';font-size:15px;color:${INK}}
@@ -353,7 +360,7 @@ const StageBadge=({k,stages})=>{const s=sOf(k,stages);return <span className="pi
 const PriBadge=({p})=>{const x=PRIORITIES[p]||PRIORITIES.medium;return <span className="pill" style={{background:x.bg,color:x.color}}><Flag size={11}/>{x.label}</span>;};
 const Due=({iso})=>{if(!iso)return <span className="subcell">—</span>;const d=daysUntil(iso);let c='far',t=fmtDate(iso);if(d<0){c='over';t='Overdue · '+fmtDate(iso);}else if(d===0){c='today';t='Today';}else if(d<=7){c='soon';t=fmtDate(iso);}return <span className={'due '+c}>{t}</span>;};
 const tipStyle={borderRadius:10,border:'1px solid #E8E9F2',fontFamily:'Inter',fontSize:12,boxShadow:'0 8px 24px -12px rgba(0,0,0,.3)'};
-const Brand=({logo,sub})=>(<div className="sb-brand">{logo?<img src={logo} alt="ProyTech"/>:<><span className="nucleus"/><div><b>ProyTech</b><span>{sub}</span></div></>}</div>);
+const Brand=({logo,sub,size})=>(<div className="sb-brand">{logo?<img src={logo} alt="ProyTech" style={{maxHeight:size||34,maxWidth:(size||34)*5}}/>:<><span className="nucleus"/><div><b>ProyTech</b><span>{sub}</span></div></>}</div>);
 
 /* ===================== login ===================== */
 function Login(){
@@ -374,7 +381,7 @@ export default function App(){
   const [session,setSession]=useState(undefined);
   const [loaded,setLoaded]=useState(false);
   const [leads,setLeads]=useState([]);
-  const [settings,setSettings]=useState({logo:'',options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS});
+  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS});
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
@@ -387,9 +394,9 @@ export default function App(){
     try{
       let s=await db.getLeads(); let st=await db.getSettings();
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
-      if(!st){ st={logo:'',options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS}; await db.saveSettings(st); }
+      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS}; await db.saveSettings(st); }
       setLeads(s);
-      setSettings({logo:st.logo||'',options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -428,7 +435,7 @@ export default function App(){
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
-      <Brand logo={settings.logo} sub="Client CRM"/>
+      <Brand logo={settings.logo} size={settings.logoSize||34} sub="Client CRM"/>
       {NAV.map(([k,l,ic])=><button key={k} className={'nav-i '+(page===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>)}
       <button className="nav-i" style={{marginTop:8,background:'rgba(43,77,224,.16)',color:'#fff'}} onClick={()=>setActiveId('new')}><Plus size={18}/>New Lead</button>
       <button className="nav-i" onClick={()=>auth.logout()}><LogOut size={18}/>Sign out ({me})</button>
@@ -719,14 +726,18 @@ function SettingsPage({settings,saveSettings,leads,saveLeads}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:3,exportedAt:new Date().toISOString(),leads,settings};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS});window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS});window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
     {/* logo */}
     <div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><ImageIcon size={15}/>Brand / Logo</div>
-      {settings.logo&&<div style={{marginBottom:14,padding:'16px',background:INK,borderRadius:12,display:'inline-block'}}><img src={settings.logo} alt="logo" style={{maxHeight:40,maxWidth:200,objectFit:'contain'}}/></div>}
+      {settings.logo&&<div style={{marginBottom:14,padding:'16px',background:INK,borderRadius:12,display:'inline-block'}}><img src={settings.logo} alt="logo" style={{maxHeight:(settings.logoSize||34),maxWidth:(settings.logoSize||34)*5,objectFit:'contain',display:'block'}}/></div>}
       <label className="logo-drop"><ImageIcon size={22} style={{marginBottom:6}}/><div style={{fontWeight:600}}>{settings.logo?'Replace logo':'Upload your ProyTech logo'}</div><div style={{fontSize:12,marginTop:4}}>PNG or SVG, transparent background ideal</div><input type="file" accept="image/*" onChange={onLogo} style={{display:'none'}}/></label>
+      {settings.logo&&<div className="logosize">
+        <div className="logosize-h"><span>Logo size</span><b>{settings.logoSize||34}px</b></div>
+        <input type="range" min="20" max="90" step="1" value={settings.logoSize||34} onChange={e=>saveSettings({...settings,logoSize:Number(e.target.value)})}/>
+      </div>}
       {settings.logo&&<button className="btn btn-d" style={{marginTop:12}} onClick={()=>saveSettings({...settings,logo:''})}><Trash2 size={15}/>Remove logo</button>}
     </div>
 
