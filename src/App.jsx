@@ -304,6 +304,7 @@ const CSS=`
 .badge.done{color:${GREEN};background:rgba(31,157,85,.1)}
 .badge.over{color:${RED};background:rgba(209,67,67,.1)}
 .deliv-done{display:flex;align-items:center;gap:8px;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(31,157,85,.08);color:#157a41;font-size:12.5px;font-weight:600}
+.rtag{display:inline-block;margin-left:8px;font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${GREEN};background:rgba(31,157,85,.1);padding:2px 7px;border-radius:20px;vertical-align:middle}
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
@@ -585,7 +586,7 @@ function Leads({leads,settings,stages,open,saveSettings}){
 /* ===================== CLIENTS ===================== */
 function ClientRoadmap({clients,tracks,open}){
   if(!clients.length) return null;
-  const PHASES=[['Not Started',p=>p<=0],['Kickoff',p=>p>0&&p<.26],['In Progress',p=>p>=.26&&p<.6],['Review',p=>p>=.6&&p<1],['Delivered',p=>p>=1]];
+  const PHASES=[['Not Started',p=>p<=0],['Kickoff',p=>p>0&&p<.26],['In Progress',p=>p>=.26&&p<.6],['Review',p=>p>=.6&&p<1]];
   const wp=clients.map(l=>({l,o:clientOverall(l,tracks)}));
   return (<div className="card" style={{marginBottom:18}}>
     <div className="sec-title" style={{margin:'0 0 14px'}}><Rocket size={15}/>Delivery Roadmap</div>
@@ -612,36 +613,35 @@ function ClientRoadmap({clients,tracks,open}){
 function Clients({leads,stages,settings,open}){
   const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS;
   const clients=leads.filter(l=>l.isClient);
-  const retainer=clients.filter(l=>l.retainerActive);
-  const proj=clients.filter(l=>!l.retainerActive);
-  const inDeliveryList=proj.filter(l=>!clientOverall(l,tracks).delivered);
-  const completed=proj.filter(l=>clientOverall(l,tracks).delivered);
-  const mrr=retainer.reduce((a,l)=>a+num(l.retainer),0);
+  const active=clients.filter(l=>!clientOverall(l,tracks).delivered);
+  const done=clients.filter(l=>clientOverall(l,tracks).delivered);
+  const retainerClients=clients.filter(l=>l.retainerActive);
+  const mrr=retainerClients.reduce((a,l)=>a+num(l.retainer),0);
   const wonNotConverted=leads.filter(l=>sOf(l.stage,stages).won&&!l.isClient);
-  const inDelivery=clients.filter(l=>!clientOverall(l,tracks).delivered).length;
   const Prog=({l})=>{const o=clientOverall(l,tracks);return (<div className="cli-prog"><div className="pbar"><div style={{width:Math.round(o.pct*100)+'%'}}/></div><span className="pp">{Math.round(o.pct*100)}%</span></div>);};
   const Status=({o})=>o.delivered?<span className="badge done"><CheckCircle2 size={12}/>Delivered{o.doneDate?' · '+fmtDate(o.doneDate):''}</span>:o.overdue>0?<span className="badge over">{o.overdue} overdue</span>:<span className="subcell">{o.phase}</span>;
-  const Section=({title,list,showR})=>(<div className="tbl-wrap" style={{marginBottom:18}}>
+  const Section=({title,list})=>(<div className="tbl-wrap" style={{marginBottom:18}}>
     <div className="tbl-cap">{title} · {list.length}</div>
-    {list.length?<table className="tbl"><thead><tr><th>Client</th><th>Service</th><th>Delivery</th><th>Status</th><th>Setup</th>{showR&&<th>Retainer</th>}<th>Owner</th></tr></thead><tbody>{list.map(l=>{const o=clientOverall(l,tracks);return (<tr key={l.id} onClick={()=>open(l.id)}>
-      <td><div className="namecell">{l.company||l.name}</div><div className="subcell">{l.name}</div></td>
+    {list.length?<table className="tbl"><thead><tr><th>Client</th><th>Service</th><th>Delivery</th><th>Status</th><th>Setup</th><th>Retainer</th><th>Owner</th></tr></thead><tbody>{list.map(l=>{const o=clientOverall(l,tracks);return (<tr key={l.id} onClick={()=>open(l.id)}>
+      <td><div className="namecell">{l.company||l.name}{l.retainerActive&&<span className="rtag">retainer</span>}</div><div className="subcell">{l.name}</div></td>
       <td className="subcell">{(l.serviceInterest||[]).join(', ')||l.businessType}</td>
       <td><Prog l={l}/></td>
       <td><Status o={o}/></td>
-      <td style={{fontWeight:600,color:INK}}>{usd(l.dealValue)}</td>{showR&&<td style={{fontWeight:600,color:GREEN}}>{usd(l.retainer)}/mo</td>}<td className="subcell">{l.owner}</td>
+      <td style={{fontWeight:600,color:INK}}>{usd(l.dealValue)}</td>
+      <td>{l.retainerActive?<span style={{fontWeight:600,color:GREEN}}>{usd(l.retainer)}/mo</span>:<span className="subcell">—</span>}</td>
+      <td className="subcell">{l.owner}</td>
     </tr>);})}</tbody></table>:<div className="empty">None yet.</div>}</div>);
   return (<>
     <div className="kgrid">
-      <Kpi variant="accent" label="Total Clients" value={clients.length} icon={<Award size={14}/>} d={`${retainer.length} on retainer`}/>
-      <Kpi variant="green" label="Active Retainers" value={retainer.length} icon={<Repeat size={14}/>} d={`${usd(mrr)} MRR`}/>
-      <Kpi label="In Delivery" value={inDelivery} icon={<Rocket size={14}/>} d="active projects"/>
-      <Kpi label="Completed" value={completed.length} icon={<CheckCircle2 size={14}/>} d="delivered & closed"/>
+      <Kpi variant="accent" label="Total Clients" value={clients.length} icon={<Award size={14}/>} d={`${retainerClients.length} on retainer`}/>
+      <Kpi variant="green" label="Active Retainers" value={retainerClients.length} icon={<Repeat size={14}/>} d={`${usd(mrr)} MRR`}/>
+      <Kpi label="In Delivery" value={active.length} icon={<Rocket size={14}/>} d="active projects"/>
+      <Kpi label="Completed" value={done.length} icon={<CheckCircle2 size={14}/>} d="fully delivered"/>
     </div>
     {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} closed-won {wonNotConverted.length===1?'lead is':'leads are'} not converted yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b> to start delivery tracking: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
-    <ClientRoadmap clients={clients} tracks={tracks} open={open}/>
-    <Section title="On Monthly Retainer" list={retainer} showR/>
-    <Section title="In Delivery" list={inDeliveryList}/>
-    <Section title="Completed" list={completed}/>
+    <ClientRoadmap clients={active} tracks={tracks} open={open}/>
+    <Section title="In Delivery" list={active}/>
+    <Section title="Completed" list={done}/>
     {!clients.length&&<div className="empty">No clients yet. Open a closed lead and hit <b>Convert to Client</b> to begin.</div>}
   </>);
 }
