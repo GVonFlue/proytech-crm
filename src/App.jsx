@@ -107,7 +107,7 @@ const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[trac
   ms.forEach(m=>{ const e=normEntry(raw[m]); entries[m]=e; if(e.done) completed++; else if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } });
   const current=ms.find(m=>!entries[m].done)||null;
   return {entries,ms,completedCount:completed,total:ms.length,pct:ms.length?completed/ms.length:0,current,overdue,nextDue}; };
-const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase='',overdue=0,nextDue=null; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;overdue+=p.overdue; if(p.nextDue&&(!nextDue||p.nextDue<nextDue))nextDue=p.nextDue; if(p.current&&!phase)phase=`${tr.label}: ${p.current}`;}); return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts,overdue,nextDue}; };
+const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase='',overdue=0,nextDue=null,lastDone=null; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;overdue+=p.overdue; if(p.nextDue&&(!nextDue||p.nextDue<nextDue))nextDue=p.nextDue; if(p.current&&!phase)phase=`${tr.label}: ${p.current}`; Object.values(p.entries).forEach(e=>{ if(e.done&&(!lastDone||e.done>lastDone)) lastDone=e.done; }); }); const delivered=t>0&&c>=t; return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts,overdue,nextDue,completed:c,total:t,delivered,doneDate:lastDone}; };
 
 /* ===================== seed (your real board) ===================== */
 function mkLead(o){
@@ -299,6 +299,11 @@ const CSS=`
 .track-h .phase.od{color:${RED};background:rgba(209,67,67,.1)}
 .rdot.over{background:${RED};border-color:${RED}}
 .od-tag{color:${RED};font-weight:700}.due-tag{color:${COBALT};font-weight:600}
+.tbl-cap{padding:14px 16px;border-bottom:1px solid #E8E9F2;font-weight:600;color:${INK};font-family:'Space Grotesk'}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:20px;white-space:nowrap}
+.badge.done{color:${GREEN};background:rgba(31,157,85,.1)}
+.badge.over{color:${RED};background:rgba(209,67,67,.1)}
+.deliv-done{display:flex;align-items:center;gap:8px;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(31,157,85,.08);color:#157a41;font-size:12.5px;font-weight:600}
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
@@ -607,30 +612,36 @@ function ClientRoadmap({clients,tracks,open}){
 function Clients({leads,stages,settings,open}){
   const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS;
   const clients=leads.filter(l=>l.isClient);
-  const retainer=clients.filter(l=>l.retainerActive);const oneoff=clients.filter(l=>!l.retainerActive);
+  const retainer=clients.filter(l=>l.retainerActive);
+  const proj=clients.filter(l=>!l.retainerActive);
+  const inDeliveryList=proj.filter(l=>!clientOverall(l,tracks).delivered);
+  const completed=proj.filter(l=>clientOverall(l,tracks).delivered);
   const mrr=retainer.reduce((a,l)=>a+num(l.retainer),0);
   const wonNotConverted=leads.filter(l=>sOf(l.stage,stages).won&&!l.isClient);
-  const inDelivery=clients.filter(l=>{const o=clientOverall(l,tracks);return o.pct<1;}).length;
+  const inDelivery=clients.filter(l=>!clientOverall(l,tracks).delivered).length;
   const Prog=({l})=>{const o=clientOverall(l,tracks);return (<div className="cli-prog"><div className="pbar"><div style={{width:Math.round(o.pct*100)+'%'}}/></div><span className="pp">{Math.round(o.pct*100)}%</span></div>);};
+  const Status=({o})=>o.delivered?<span className="badge done"><CheckCircle2 size={12}/>Delivered{o.doneDate?' · '+fmtDate(o.doneDate):''}</span>:o.overdue>0?<span className="badge over">{o.overdue} overdue</span>:<span className="subcell">{o.phase}</span>;
   const Section=({title,list,showR})=>(<div className="tbl-wrap" style={{marginBottom:18}}>
-    <div style={{padding:'14px 16px',borderBottom:'1px solid #E8E9F2',fontWeight:600,color:INK,fontFamily:'Space Grotesk'}}>{title} · {list.length}</div>
-    {list.length?<table className="tbl"><thead><tr><th>Client</th><th>Service</th><th>Delivery</th><th>Phase</th><th>Setup</th>{showR&&<th>Retainer</th>}<th>Owner</th></tr></thead><tbody>{list.map(l=>{const o=clientOverall(l,tracks);return (<tr key={l.id} onClick={()=>open(l.id)}>
+    <div className="tbl-cap">{title} · {list.length}</div>
+    {list.length?<table className="tbl"><thead><tr><th>Client</th><th>Service</th><th>Delivery</th><th>Status</th><th>Setup</th>{showR&&<th>Retainer</th>}<th>Owner</th></tr></thead><tbody>{list.map(l=>{const o=clientOverall(l,tracks);return (<tr key={l.id} onClick={()=>open(l.id)}>
       <td><div className="namecell">{l.company||l.name}</div><div className="subcell">{l.name}</div></td>
       <td className="subcell">{(l.serviceInterest||[]).join(', ')||l.businessType}</td>
       <td><Prog l={l}/></td>
-      <td className="subcell">{o.phase}</td>
+      <td><Status o={o}/></td>
       <td style={{fontWeight:600,color:INK}}>{usd(l.dealValue)}</td>{showR&&<td style={{fontWeight:600,color:GREEN}}>{usd(l.retainer)}/mo</td>}<td className="subcell">{l.owner}</td>
     </tr>);})}</tbody></table>:<div className="empty">None yet.</div>}</div>);
   return (<>
     <div className="kgrid">
-      <Kpi variant="accent" label="Total Clients" value={clients.length} icon={<Award size={14}/>} d={`${inDelivery} in delivery`}/>
+      <Kpi variant="accent" label="Total Clients" value={clients.length} icon={<Award size={14}/>} d={`${retainer.length} on retainer`}/>
       <Kpi variant="green" label="Active Retainers" value={retainer.length} icon={<Repeat size={14}/>} d={`${usd(mrr)} MRR`}/>
-      <Kpi label="One-off Clients" value={oneoff.length} icon={<Building2 size={14}/>} d="website / setup only"/>
+      <Kpi label="In Delivery" value={inDelivery} icon={<Rocket size={14}/>} d="active projects"/>
+      <Kpi label="Completed" value={completed.length} icon={<CheckCircle2 size={14}/>} d="delivered & closed"/>
     </div>
     {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} closed-won {wonNotConverted.length===1?'lead is':'leads are'} not converted yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b> to start delivery tracking: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
     <ClientRoadmap clients={clients} tracks={tracks} open={open}/>
     <Section title="On Monthly Retainer" list={retainer} showR/>
-    <Section title="One-off / Website Only" list={oneoff}/>
+    <Section title="In Delivery" list={inDeliveryList}/>
+    <Section title="Completed" list={completed}/>
     {!clients.length&&<div className="empty">No clients yet. Open a closed lead and hit <b>Convert to Client</b> to begin.</div>}
   </>);
 }
@@ -901,6 +912,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToC
                     : <label className="msdue-w"><span className="msdue-l">{od?'overdue':'due'}</span><input type="date" className={'msdue'+(od?' over':'')} value={e.due||''} onClick={ev=>ev.stopPropagation()} onChange={ev=>setMilestoneDue(draft.id,tr.key,m,ev.target.value)}/></label>}
                 </div>); })}</div>
               </div>); })}
+              {ov.delivered&&<div className="deliv-done"><CheckCircle2 size={15} color={GREEN}/>All delivery steps complete{ov.doneDate?` · ${fmtDate(ov.doneDate)}`:''} — client marked completed.</div>}
               <button className="linkbtn" onClick={()=>{ if(window.confirm('Revert this client back to a lead? Delivery progress is kept.')) revertClient(draft.id); }}>Revert to lead</button>
             </div>);
           })()}
