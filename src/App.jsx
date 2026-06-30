@@ -458,7 +458,8 @@ export default function App(){
 
   useEffect(()=>{ if(!session){setLoaded(false);return;} (async()=>{
     try{
-      let s=await db.getLeads(); let st=await db.getSettings(); let iv=await db.getInvoices();
+      let s=await db.getLeads(); let st=await db.getSettings();
+      let iv=[]; try{ if(typeof db.getInvoices==='function') iv=await db.getInvoices(); }catch(err){ console.error('invoices load failed',err); }
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
       if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING}; await db.saveSettings(st); }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]);
@@ -471,7 +472,7 @@ export default function App(){
   const me=cap(auth.username(session))||'Garrett';
   const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await db.upsertMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
   const saveSettings=n=>{ setSettings(n); db.saveSettings(n).catch(console.error); };
-  const saveInvoices=n=>{ setInvoices(n); db.saveInvoices(n).catch(console.error); };
+  const saveInvoices=n=>{ setInvoices(n); if(typeof db.saveInvoices==='function') db.saveInvoices(n).catch(console.error); };
   const upsertInvoice=inv=>{ const exists=invoices.some(x=>x.id===inv.id); saveInvoices(exists?invoices.map(x=>x.id===inv.id?inv:x):[inv,...invoices]); };
   const deleteInvoice=id=>{ saveInvoices(invoices.filter(x=>x.id!==id)); setInvId(null); };
   const newInvoice=(lead)=>{ const ivset=settings.invoicing||DEFAULT_INVOICING; const number=(ivset.prefix||'INV-')+String(ivset.seq||1).padStart(4,'0'); saveSettings({...settings,invoicing:{...ivset,seq:(ivset.seq||1)+1}}); const issue=todayISO(); const inv={ id:uid(), number, clientId:lead?lead.id:'', billTo:lead?{name:lead.name||'',company:lead.company||'',email:lead.email||'',address:''}:{name:'',company:'',email:'',address:''}, issueDate:issue, dueDate:addDays(issue,ivset.terms||14), items:lead?itemsFromLead(lead):[{id:uid(),label:'',qty:1,amount:0}], taxRate:num(ivset.taxRate), notes:ivset.notes||'', paymentLink:ivset.paymentLink||'', status:'draft', paidDate:'', createdAt:new Date().toISOString() }; upsertInvoice(inv); setInvId(inv.id); };
