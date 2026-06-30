@@ -211,7 +211,7 @@ const CSS=`
 .modal{width:960px;max-width:96vw;max-height:90vh;background:#F4F6FB;border-radius:22px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 40px 100px -30px rgba(0,0,0,.6);animation:pop .18s ease}
 @keyframes pop{from{transform:scale(.97);opacity:.5}to{transform:none;opacity:1}}
 .m-head{background:#fff;border-bottom:1px solid #E8E9F2;padding:18px 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
-.m-head h2{font-size:21px;color:${INK}}.m-head .co{font-size:13px;color:#777296;margin-top:2px}
+.m-head h2{font-size:21px;color:${INK}}.m-head .co{font-size:16px;font-weight:500;color:#5A5680;margin-top:4px}
 .m-head .meta{font-size:11.5px;color:#A6A2BC;margin-top:6px}
 .m-head .qa{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
 .qbtn{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:${COBALT};background:rgba(43,77,224,.08);border:none;border-radius:8px;padding:6px 10px;cursor:pointer;text-decoration:none}
