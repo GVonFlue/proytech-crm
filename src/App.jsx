@@ -102,8 +102,12 @@ const DEFAULT_DELIVERY_TRACKS=[
     milestones:['Discovery & scoping','Integrations started','Build & configuration','Testing','Integrations delivered'] },
 ];
 const activeTracks=(lead,tracks)=>{ const svc=lead.serviceInterest||[]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]); };
-const trackProgress=(lead,track)=>{ const done=(lead.delivery&&lead.delivery[track.key])||{}; const ms=track.milestones||[]; const completed=ms.filter(m=>done[m]); const current=ms.find(m=>!done[m])||null; return {done,ms,completedCount:completed.length,total:ms.length,pct:ms.length?completed.length/ms.length:0,current}; };
-const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase=''; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;if(p.current&&!phase)phase=`${tr.label}: ${p.current}`;}); return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts}; };
+const normEntry=v=>{ if(!v) return {done:null,due:null}; if(typeof v==='string') return {done:v,due:null}; return {done:v.done||null,due:v.due||null}; };
+const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[track.key])||{}; const ms=track.milestones||[]; const entries={}; let completed=0,overdue=0,nextDue=null;
+  ms.forEach(m=>{ const e=normEntry(raw[m]); entries[m]=e; if(e.done) completed++; else if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } });
+  const current=ms.find(m=>!entries[m].done)||null;
+  return {entries,ms,completedCount:completed,total:ms.length,pct:ms.length?completed/ms.length:0,current,overdue,nextDue}; };
+const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase='',overdue=0,nextDue=null; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;overdue+=p.overdue; if(p.nextDue&&(!nextDue||p.nextDue<nextDue))nextDue=p.nextDue; if(p.current&&!phase)phase=`${tr.label}: ${p.current}`;}); return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts,overdue,nextDue}; };
 
 /* ===================== seed (your real board) ===================== */
 function mkLead(o){
@@ -279,9 +283,22 @@ const CSS=`
 .pbar{height:7px;background:#ECECF4;border-radius:6px;overflow:hidden;margin-bottom:10px}
 .pbar>div{height:100%;border-radius:6px;background:linear-gradient(90deg,${COBALT},${GREEN});transition:width .4s}
 .mslist{display:flex;flex-direction:column;gap:2px}
-.ms{display:flex;align-items:center;gap:9px;padding:7px 6px;border-radius:8px;cursor:pointer;font-size:13.5px;color:#3a3658}
-.ms:hover{background:#FAFAFD}.ms .mtxt{flex:1}.ms.on .mtxt{color:#8E89A8;text-decoration:line-through}
-.ms .mdate{font-size:11px;color:#A6A2BC;font-weight:600}
+.ms{display:flex;align-items:center;gap:9px;padding:7px 6px;border-radius:8px;font-size:13.5px;color:#3a3658}
+.ms:hover{background:#FAFAFD}
+.ms .mcheck{display:flex;align-items:center;gap:9px;flex:1;cursor:pointer;min-width:0}
+.ms .mtxt{flex:1}.ms.on .mtxt{color:#8E89A8;text-decoration:line-through}
+.ms.over .mtxt{color:${RED}}
+.ms .mdate{font-size:11px;color:#A6A2BC;font-weight:600;white-space:nowrap}
+.ms .mdate.done{color:${GREEN}}
+.msdue-w{display:flex;align-items:center;gap:6px}
+.msdue-l{font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#A6A2BC}
+.ms.over .msdue-l{color:${RED}}
+.msdue{font-size:11.5px;font-weight:600;color:#56527a;border:1px solid #E0E1EE;border-radius:7px;padding:3px 6px;background:#fff;font-family:inherit;cursor:pointer}
+.msdue:hover{border-color:#C9CBE0}
+.msdue.over{border-color:${RED};color:${RED};background:rgba(209,67,67,.05)}
+.track-h .phase.od{color:${RED};background:rgba(209,67,67,.1)}
+.rdot.over{background:${RED};border-color:${RED}}
+.od-tag{color:${RED};font-weight:700}.due-tag{color:${COBALT};font-weight:600}
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
@@ -377,7 +394,8 @@ export default function App(){
   const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
   const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:true,convertedAt:todayISO(),delivery:l.delivery||{},activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Converted to client — delivery started.',who:me},...l.activities]}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
   const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
-  const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; if(tr[milestone]) delete tr[milestone]; else tr[milestone]=todayISO(); d[trackKey]=tr; updateLead(id,{delivery:d}); };
+  const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done?null:todayISO(),due:cur.due||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; updateLead(id,{delivery:d}); };
+  const setMilestoneDue=(id,trackKey,milestone,date)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done||null,due:date||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; updateLead(id,{delivery:d}); };
   const active=activeId&&activeId!=='new'?leads.find(l=>l.id===activeId):null;
 
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2><p>Loading…</p></div></div></>);
@@ -413,7 +431,7 @@ export default function App(){
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads}/>}
       </div>
     </div>
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
   </div></>);
 }
 
@@ -578,9 +596,9 @@ function ClientRoadmap({clients,tracks,open}){
       </div>);})}
     </div>
     <div className="rmap-rows">{wp.map(({l,o})=>(<div className="rmap-row" key={l.id} onClick={()=>open(l.id)}>
-      <div className="rr-name"><div className="namecell">{l.company||l.name}</div><div className="subcell">{Math.round(o.pct*100)}% · {o.phase}</div></div>
+      <div className="rr-name"><div className="namecell">{l.company||l.name}</div><div className="subcell">{Math.round(o.pct*100)}% · {o.phase}{o.overdue>0?<span className="od-tag"> · {o.overdue} overdue</span>:o.nextDue?<span className="due-tag"> · next due {fmtDate(o.nextDue)}</span>:''}</div></div>
       <div className="rr-tracks">{o.tracks.map(tr=>{const p=trackProgress(l,tr);return (
-        <div className="rr-track" key={tr.key}><span className="rr-tl">{tr.label}</span><div className="rr-dots">{p.ms.map(m=>{const done=!!p.done[m];return <span key={m} className={'rdot'+(done?' on':'')} title={m+(done?' ✓':' (pending)')}/>;})}</div></div>);})}
+        <div className="rr-track" key={tr.key}><span className="rr-tl">{tr.label}</span><div className="rr-dots">{p.ms.map(m=>{const e=p.entries[m];const done=!!e.done;const od=!done&&e.due&&daysUntil(e.due)<0;return <span key={m} className={'rdot'+(done?' on':'')+(od?' over':'')} title={m+(done?' ✓ '+fmtDate(e.done):e.due?(od?' overdue '+fmtDate(e.due):' due '+fmtDate(e.due)):' (no date)')}/>;})}</div></div>);})}
       </div>
     </div>))}</div>
   </div>);
@@ -822,7 +840,7 @@ function DeliveryEditor({tracks,services,onChange}){
 }
 
 /* ===================== MODAL ===================== */
-function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToClient,revertClient,toggleMilestone,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
+function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -874,11 +892,13 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToC
             return (<div className="dr-sec deliv">
               <div className="dh" style={{justifyContent:'space-between',display:'flex'}}><span style={{display:'flex',alignItems:'center',gap:8}}><Rocket size={13}/>Delivery</span><span style={{fontSize:11,color:'#928DAD',fontWeight:600}}>Client since {fmtDate(draft.convertedAt)}</span></div>
               {tracks.map(tr=>{ const p=trackProgress(draft,tr); return (<div className="track" key={tr.key}>
-                <div className="track-h"><b>{tr.label}</b><span className="phase">{p.current?p.current:'Delivered ✓'}</span></div>
+                <div className="track-h"><b>{tr.label}</b>{p.overdue>0?<span className="phase od">{p.overdue} overdue</span>:p.nextDue?<span className="phase">Next due {fmtDate(p.nextDue)}</span>:<span className="phase">{p.current?p.current:'Delivered ✓'}</span>}</div>
                 <div className="pbar"><div style={{width:Math.round(p.pct*100)+'%'}}/></div>
-                <div className="mslist">{p.ms.map(m=>{ const done=!!p.done[m]; return (<div className={'ms'+(done?' on':'')} key={m} onClick={()=>toggleMilestone(draft.id,tr.key,m)}>
-                  {done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color="#C9C5D9"/>}
-                  <span className="mtxt">{m}</span>{done&&<span className="mdate">{fmtDate(p.done[m])}</span>}
+                <div className="mslist">{p.ms.map(m=>{ const e=p.entries[m]; const done=!!e.done; const od=!done&&e.due&&daysUntil(e.due)<0; return (<div className={'ms'+(done?' on':'')+(od?' over':'')} key={m}>
+                  <span className="mcheck" onClick={()=>toggleMilestone(draft.id,tr.key,m)}>{done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color={od?'#D14343':'#C9C5D9'}/>}<span className="mtxt">{m}</span></span>
+                  {done
+                    ? <span className="mdate done">✓ {fmtDate(e.done)}</span>
+                    : <label className="msdue-w"><span className="msdue-l">{od?'overdue':'due'}</span><input type="date" className={'msdue'+(od?' over':'')} value={e.due||''} onClick={ev=>ev.stopPropagation()} onChange={ev=>setMilestoneDue(draft.id,tr.key,m,ev.target.value)}/></label>}
                 </div>); })}</div>
               </div>); })}
               <button className="linkbtn" onClick={()=>{ if(window.confirm('Revert this client back to a lead? Delivery progress is kept.')) revertClient(draft.id); }}>Revert to lead</button>
