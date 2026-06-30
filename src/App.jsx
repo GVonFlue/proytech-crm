@@ -537,6 +537,8 @@ function Login(){
 /* ===================== main ===================== */
 export default function App(){
   const [session,setSession]=useState(undefined);
+  const [bootErr,setBootErr]=useState(false);
+  const sessionResolved=React.useRef(false);
   const [loaded,setLoaded]=useState(false);
   const [leads,setLeads]=useState([]);
   const [invoices,setInvoices]=useState([]);
@@ -548,7 +550,11 @@ export default function App(){
   const [navIds,setNavIds]=useState(null);
   const openLead=(id,order)=>{ setActiveId(id); setNavIds(order&&order.length?order:null); };
 
-  useEffect(()=>{ auth.session().then(s=>setSession(s||null)); const {data:sub}=auth.onChange(s=>setSession(s||null)); return ()=>sub?.subscription?.unsubscribe?.(); },[]);
+  useEffect(()=>{ const ok=s=>{sessionResolved.current=true;setSession(s||null);};
+    auth.session().then(ok).catch(()=>ok(null));
+    const {data:sub}=auth.onChange(ok);
+    const wd=setTimeout(()=>{ if(!sessionResolved.current) setBootErr(true); },8000);
+    return ()=>{clearTimeout(wd);sub?.subscription?.unsubscribe?.();}; },[]);
 
   useEffect(()=>{ if(!session){setLoaded(false);return;} (async()=>{
     try{
@@ -565,7 +571,8 @@ export default function App(){
   const stages=settings.stages?.length?settings.stages:DEFAULT_STAGES;
   const me=cap(auth.username(session))||'Garrett';
   const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await db.upsertMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
-  const saveSettings=n=>{ setSettings(n); db.saveSettings(n).catch(console.error); };
+  const settingsTimer=React.useRef(null);
+  const saveSettings=n=>{ setSettings(n); if(settingsTimer.current)clearTimeout(settingsTimer.current); settingsTimer.current=setTimeout(()=>{ db.saveSettings(n).catch(console.error); },700); };
   const saveInvoices=n=>{ setInvoices(n); if(typeof db.saveInvoices==='function') db.saveInvoices(n).catch(console.error); };
   const upsertInvoice=inv=>{ const exists=invoices.some(x=>x.id===inv.id); saveInvoices(exists?invoices.map(x=>x.id===inv.id?inv:x):[inv,...invoices]); };
   const deleteInvoice=id=>{ saveInvoices(invoices.filter(x=>x.id!==id)); setInvId(null); };
@@ -591,7 +598,7 @@ export default function App(){
   const setMilestoneDue=(id,trackKey,milestone,date)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done||null,due:date||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; updateLead(id,{delivery:d}); };
   const active=activeId&&activeId!=='new'?leads.find(l=>l.id===activeId):null;
 
-  if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2><p>Loading…</p></div></div></>);
+  if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
 
   const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
