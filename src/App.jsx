@@ -376,7 +376,9 @@ const CSS=`
 .inv-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .inv-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:0;overflow:auto;flex:1}
 .inv-edit{padding:20px 22px;overflow:auto;border-right:1px solid #E8E9F2}
-.inv-preview-wrap{padding:24px;background:#ECEEF5;overflow:auto;display:flex;justify-content:center;align-items:flex-start}
+.inv-preview-wrap{padding:24px;background:#ECEEF5;overflow:auto;display:flex;flex-direction:column;align-items:center}
+.inv-design-stage{border:1px solid #E3E4EE;border-radius:14px;overflow:hidden;margin-top:4px}
+.inv-design-stage .inv-preview-wrap{max-height:78vh}
 .inv-page-tools{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;width:100%;max-width:660px;margin:0 auto 14px}
 .sec-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;border:1px solid #DEDFEA;border-radius:10px;padding:6px 10px;box-shadow:0 4px 16px -8px rgba(0,0,0,.18)}
 .sec-tl{font-size:11px;font-weight:800;color:${INK};letter-spacing:.01em}
@@ -1012,18 +1014,15 @@ function Invoices({invoices,leads,settings,onNew,open}){
   </>);
 }
 
-function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClose}){
-  const [inv,setInv]=useState(invoice);
-  useEffect(()=>setInv(invoice),[invoice.id]);
-  const patch=p=>{const n={...inv,...p};setInv(n);onSave(n);};
+function InvoicePreview({inv,settings,saveSettings}){
   const iv=settings.invoicing||DEFAULT_INVOICING; const biz=iv.biz||DEFAULT_INVOICING.biz;
   const accent=iv.accent||'#2B4DE0'; const logoH=iv.logoH||46;
   const layout=iv.layout||DEFAULT_INVOICING.layout;
+  const sections={...DEFAULT_INV_SECTIONS,...(iv.sections||{})};
   const [order,setOrder]=useState(layout.order||DEFAULT_INVOICING.layout.order);
   const [dragK,setDragK]=useState(null);
   const [sel,setSel]=useState(null);
-  const sections={...DEFAULT_INV_SECTIONS,...(iv.sections||{})};
-  useEffect(()=>{setOrder((iv.layout||DEFAULT_INVOICING.layout).order||DEFAULT_INVOICING.layout.order);setSel(null);},[invoice.id]);
+  useEffect(()=>{setOrder((iv.layout||DEFAULT_INVOICING.layout).order||DEFAULT_INVOICING.layout.order);},[((iv.layout||{}).order||[]).join(',')]);
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const secStyle=k=>{const s=sections[k]||DEFAULT_INV_SECTIONS[k];return {fontSize:s.fz+'px',lineHeight:s.lh};};
   const adj=(k,dfz,dlh)=>{ const cur=sections[k]||DEFAULT_INV_SECTIONS[k]; const next={fz:clamp(+(cur.fz+dfz).toFixed(1),6,30),lh:clamp(+(cur.lh+dlh).toFixed(2),1,2.6)}; if(saveSettings) saveSettings({...settings,invoicing:{...iv,sections:{...sections,[k]:next}}}); };
@@ -1031,6 +1030,53 @@ function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClo
   const onSecOver=(e,key)=>{ e.preventDefault(); if(!dragK||dragK===key)return; setOrder(o=>{const a=o.filter(k=>k!==dragK);const i=a.indexOf(key);a.splice(i<0?a.length:i,0,dragK);return a;}); };
   const onSecDrop=()=>{ setDragK(null); saveLayout({order}); };
   const swapHeader=()=>saveLayout({headerSwap:!layout.headerSwap});
+  const bt=inv.billTo||{}; const items=inv.items||[];
+  const sub=invSubtotal(inv),tax=invTax(inv),total=invTotal(inv),st=invState(inv);
+  const cap=s=>s?s[0].toUpperCase()+s.slice(1):s;
+  return (<div className="inv-preview-wrap">
+          <div className="inv-page-tools">
+            {sel?(()=>{const s=sections[sel]||DEFAULT_INV_SECTIONS[sel];const NAME={headerLeft:'Header · left',headerRight:'Header · right',billto:'Bill To',items:'Line items',totals:'Totals',pay:'Payment link',notes:'Notes'};return(
+              <div className="sec-toolbar">
+                <span className="sec-tl">{NAME[sel]}</span>
+                <span className="sec-grp">Font<button className="stp" onClick={()=>adj(sel,-0.5,0)}>−</button><span className="val">{s.fz}</span><button className="stp" onClick={()=>adj(sel,0.5,0)}>+</button></span>
+                <span className="sec-grp">Spacing<button className="stp" onClick={()=>adj(sel,0,-0.05)}>−</button><span className="val">{s.lh.toFixed(2)}</span><button className="stp" onClick={()=>adj(sel,0,0.05)}>+</button></span>
+                <button className="sec-done" onClick={()=>setSel(null)}>Done</button>
+              </div>);})():<span className="sec-hint">Tap any section to resize its text &amp; spacing · hover to drag</span>}
+            <button className="swapbtn" onClick={swapHeader} title="Swap header sides"><ArrowUpDown size={13} style={{transform:'rotate(90deg)'}}/>Swap header</button>
+          </div>
+          <div className="inv-preview" id="invprint">
+            {(()=>{ const bizBlock=(<div key="biz" className={'ip-biz ip-sec'+(sel==='headerLeft'?' sel':'')} style={secStyle('headerLeft')} onClick={e=>{e.stopPropagation();setSel('headerLeft');}}>
+                {(iv.showLogo!==false&&settings.logo)?<img src={settings.logo} alt="logo" className="ip-logo" style={{maxHeight:logoH,maxWidth:logoH*4.5}}/>:<div className="ip-name">{biz.name||'ProyTech'}</div>}
+                <div className="ip-bizmeta">{(biz.address||'').split('\n').map((l,i)=><div key={i}>{l}</div>)}{biz.email&&<div>{biz.email}</div>}{biz.phone&&<div>{biz.phone}</div>}</div>
+              </div>);
+              const metaBlock=(<div key="meta" className={'ip-meta ip-sec'+(layout.headerSwap?' left':'')+(sel==='headerRight'?' sel':'')} style={secStyle('headerRight')} onClick={e=>{e.stopPropagation();setSel('headerRight');}}>
+                <div className="ip-title" style={{color:accent}}>INVOICE</div>
+                <div className="ip-num">{inv.number}</div>
+                <div className="ip-dates"><div><span>Issued</span>{fmtDate(inv.issueDate)}</div><div><span>Due</span>{fmtDate(inv.dueDate)}</div></div>
+                <div className={'ip-stamp inv-'+st}>{cap(st)}</div>
+              </div>);
+              return <div className="ip-top">{layout.headerSwap?[metaBlock,bizBlock]:[bizBlock,metaBlock]}</div>; })()}
+            <div className="ip-rule" style={{background:accent}}/>
+            {(()=>{ const blocks={
+                billto:(<div className="ip-billto" style={secStyle('billto')}><div className="ip-lbl">Bill To</div><div className="ip-btname">{bt.company||bt.name||'—'}</div>{bt.company&&bt.name&&<div>{bt.name}</div>}{(bt.address||'').split('\n').map((l,i)=>l&&<div key={i}>{l}</div>)}{bt.email&&<div>{bt.email}</div>}</div>),
+                items:(<table className="ip-table" style={secStyle('items')}><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>{items.map((it,i)=>(<tr key={it.id||i}><td>{it.label||'—'}</td><td>{num(it.qty)}</td><td>{usd(it.amount)}</td><td>{usd(num(it.qty)*num(it.amount))}</td></tr>))}</tbody></table>),
+                totals:(<div className="ip-totals" style={secStyle('totals')}><div className="ip-tr"><span>Subtotal</span><b>{usd(sub)}</b></div>{num(inv.taxRate)>0&&<div className="ip-tr"><span>Tax ({num(inv.taxRate)}%)</span><b>{usd(tax)}</b></div>}<div className="ip-tr ip-grand"><span>Total Due</span><b style={{color:accent}}>{usd(total)}</b></div></div>),
+                pay:(iv.showPay!==false&&inv.paymentLink)?(<div className="ip-pay" style={secStyle('pay')}>Pay online: <a href={inv.paymentLink} style={{color:accent}}>{inv.paymentLink}</a></div>):null,
+                notes:(iv.showNotes!==false&&inv.notes)?(<div className="ip-notes" style={secStyle('notes')}>{inv.notes}</div>):null,
+              };
+              return order.filter(k=>blocks[k]).map(key=>(<div key={key} className={'ip-block ip-sec'+(dragK===key?' dragk':'')+(sel===key?' sel':'')} draggable onDragStart={()=>setDragK(key)} onDragOver={e=>onSecOver(e,key)} onDragEnd={onSecDrop} onClick={e=>{e.stopPropagation();setSel(key);}}>
+                <span className="ip-drag" title="Drag to reorder"><GripVertical size={13}/></span>
+                {blocks[key]}
+              </div>)); })()}
+          </div>
+        </div>);
+}
+
+function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClose}){
+  const [inv,setInv]=useState(invoice);
+  useEffect(()=>setInv(invoice),[invoice.id]);
+  const patch=p=>{const n={...inv,...p};setInv(n);onSave(n);};
+  const iv=settings.invoicing||DEFAULT_INVOICING;
   const bt=inv.billTo||{};
   const setBT=p=>patch({billTo:{...bt,...p}});
   const items=inv.items||[];
@@ -1089,43 +1135,7 @@ function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClo
           <button className="btn btn-d btn-sm" style={{marginTop:14}} onClick={()=>{if(window.confirm('Delete invoice '+inv.number+'? This cannot be undone.'))onDelete(inv.id);}}><Trash2 size={14}/>Delete invoice</button>
         </div>
 
-        <div className="inv-preview-wrap">
-          <div className="inv-page-tools">
-            {sel?(()=>{const s=sections[sel]||DEFAULT_INV_SECTIONS[sel];const NAME={headerLeft:'Header · left',headerRight:'Header · right',billto:'Bill To',items:'Line items',totals:'Totals',pay:'Payment link',notes:'Notes'};return(
-              <div className="sec-toolbar">
-                <span className="sec-tl">{NAME[sel]}</span>
-                <span className="sec-grp">Font<button className="stp" onClick={()=>adj(sel,-0.5,0)}>−</button><span className="val">{s.fz}</span><button className="stp" onClick={()=>adj(sel,0.5,0)}>+</button></span>
-                <span className="sec-grp">Spacing<button className="stp" onClick={()=>adj(sel,0,-0.05)}>−</button><span className="val">{s.lh.toFixed(2)}</span><button className="stp" onClick={()=>adj(sel,0,0.05)}>+</button></span>
-                <button className="sec-done" onClick={()=>setSel(null)}>Done</button>
-              </div>);})():<span className="sec-hint">Tap any section to resize its text &amp; spacing · hover to drag</span>}
-            <button className="swapbtn" onClick={swapHeader} title="Swap header sides"><ArrowUpDown size={13} style={{transform:'rotate(90deg)'}}/>Swap header</button>
-          </div>
-          <div className="inv-preview" id="invprint">
-            {(()=>{ const bizBlock=(<div key="biz" className={'ip-biz ip-sec'+(sel==='headerLeft'?' sel':'')} style={secStyle('headerLeft')} onClick={e=>{e.stopPropagation();setSel('headerLeft');}}>
-                {(iv.showLogo!==false&&settings.logo)?<img src={settings.logo} alt="logo" className="ip-logo" style={{maxHeight:logoH,maxWidth:logoH*4.5}}/>:<div className="ip-name">{biz.name||'ProyTech'}</div>}
-                <div className="ip-bizmeta">{(biz.address||'').split('\n').map((l,i)=><div key={i}>{l}</div>)}{biz.email&&<div>{biz.email}</div>}{biz.phone&&<div>{biz.phone}</div>}</div>
-              </div>);
-              const metaBlock=(<div key="meta" className={'ip-meta ip-sec'+(layout.headerSwap?' left':'')+(sel==='headerRight'?' sel':'')} style={secStyle('headerRight')} onClick={e=>{e.stopPropagation();setSel('headerRight');}}>
-                <div className="ip-title" style={{color:accent}}>INVOICE</div>
-                <div className="ip-num">{inv.number}</div>
-                <div className="ip-dates"><div><span>Issued</span>{fmtDate(inv.issueDate)}</div><div><span>Due</span>{fmtDate(inv.dueDate)}</div></div>
-                <div className={'ip-stamp inv-'+st}>{cap(st)}</div>
-              </div>);
-              return <div className="ip-top">{layout.headerSwap?[metaBlock,bizBlock]:[bizBlock,metaBlock]}</div>; })()}
-            <div className="ip-rule" style={{background:accent}}/>
-            {(()=>{ const blocks={
-                billto:(<div className="ip-billto" style={secStyle('billto')}><div className="ip-lbl">Bill To</div><div className="ip-btname">{bt.company||bt.name||'—'}</div>{bt.company&&bt.name&&<div>{bt.name}</div>}{(bt.address||'').split('\n').map((l,i)=>l&&<div key={i}>{l}</div>)}{bt.email&&<div>{bt.email}</div>}</div>),
-                items:(<table className="ip-table" style={secStyle('items')}><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>{items.map((it,i)=>(<tr key={it.id||i}><td>{it.label||'—'}</td><td>{num(it.qty)}</td><td>{usd(it.amount)}</td><td>{usd(num(it.qty)*num(it.amount))}</td></tr>))}</tbody></table>),
-                totals:(<div className="ip-totals" style={secStyle('totals')}><div className="ip-tr"><span>Subtotal</span><b>{usd(sub)}</b></div>{num(inv.taxRate)>0&&<div className="ip-tr"><span>Tax ({num(inv.taxRate)}%)</span><b>{usd(tax)}</b></div>}<div className="ip-tr ip-grand"><span>Total Due</span><b style={{color:accent}}>{usd(total)}</b></div></div>),
-                pay:(iv.showPay!==false&&inv.paymentLink)?(<div className="ip-pay" style={secStyle('pay')}>Pay online: <a href={inv.paymentLink} style={{color:accent}}>{inv.paymentLink}</a></div>):null,
-                notes:(iv.showNotes!==false&&inv.notes)?(<div className="ip-notes" style={secStyle('notes')}>{inv.notes}</div>):null,
-              };
-              return order.filter(k=>blocks[k]).map(key=>(<div key={key} className={'ip-block ip-sec'+(dragK===key?' dragk':'')+(sel===key?' sel':'')} draggable onDragStart={()=>setDragK(key)} onDragOver={e=>onSecOver(e,key)} onDragEnd={onSecDrop} onClick={e=>{e.stopPropagation();setSel(key);}}>
-                <span className="ip-drag" title="Drag to reorder"><GripVertical size={13}/></span>
-                {blocks[key]}
-              </div>)); })()}
-          </div>
-        </div>
+        <InvoicePreview inv={inv} settings={settings} saveSettings={saveSettings}/>
       </div>
     </div>
   </div>);
@@ -1175,6 +1185,11 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
         <label className="invtog"><input type="checkbox" checked={iv.showLogo!==false} onChange={e=>setIv({showLogo:e.target.checked})}/>Show logo</label>
         <label className="invtog"><input type="checkbox" checked={iv.showNotes!==false} onChange={e=>setIv({showNotes:e.target.checked})}/>Show notes / terms</label>
         <label className="invtog"><input type="checkbox" checked={iv.showPay!==false} onChange={e=>setIv({showPay:e.target.checked})}/>Show payment link</label>
+      </div>
+      <div className="ch-sub" style={{margin:'20px 0 8px',fontWeight:700,color:INK,textTransform:'uppercase',letterSpacing:'.05em',fontSize:11}}>Page layout &amp; text sizes</div>
+      <div className="ch-sub" style={{marginTop:-2,marginBottom:10}}>Tap any section in this sample to set its font size &amp; spacing. Drag sections to reorder, or swap the header. Whatever you set here becomes the default on every new invoice — no need to redo it each time.</div>
+      <div className="inv-design-stage">
+        <InvoicePreview settings={settings} saveSettings={saveSettings} inv={{number:(iv.prefix||'INV-')+String(iv.seq||1).padStart(4,'0'),issueDate:todayISO(),dueDate:addDays(todayISO(),iv.terms||14),status:'sent',taxRate:num(iv.taxRate),paymentLink:iv.paymentLink||'https://buy.stripe.com/your-link',notes:iv.notes||'Thank you for your business.',billTo:{company:'Acme Realty Group',name:'Jordan Blake',email:'jordan@acmerealty.com',address:'88 Douglas Ave\nWichita, KS 67202'},items:[{id:'s1',label:'Website foundation — design & build',qty:1,amount:1200},{id:'s2',label:'AI front office — monthly retainer',qty:1,amount:199}]}}/>
       </div>
     </div>); })()}
 
