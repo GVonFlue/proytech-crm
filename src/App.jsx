@@ -285,6 +285,24 @@ const CSS=`
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
+.rmap-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(152px,1fr);gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:18px}
+.rmap-col{background:#F6F7FB;border-radius:12px;padding:8px;min-height:60px}
+.rmap-colh{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#56527a;padding:4px 6px 10px;text-transform:uppercase;letter-spacing:.04em}
+.rmap-colh span{color:#928DAD}
+.rmap-card{background:#fff;border:1px solid #E8E9F2;border-radius:10px;padding:10px;margin-bottom:8px;cursor:pointer}
+.rmap-card:hover{border-color:#D9DBEC}
+.rc-n{font-weight:600;font-size:13px;color:${INK}}.rc-ph{font-size:11px;color:#777296;margin-top:4px}
+.rmap-empty{text-align:center;color:#C9C5D9;font-size:12px;padding:6px}
+.rmap-rows{border-top:1px solid #F0F0F6}
+.rmap-row{display:flex;align-items:center;gap:16px;padding:12px 4px;border-bottom:1px solid #F0F0F6;cursor:pointer}
+.rmap-row:last-child{border-bottom:none}.rmap-row:hover{background:#FAFAFD}
+.rr-name{width:180px;flex:none}
+.rr-tracks{display:flex;gap:22px;flex-wrap:wrap}
+.rr-track{display:flex;align-items:center;gap:9px}
+.rr-tl{font-size:10.5px;font-weight:700;color:#928DAD;text-transform:uppercase;letter-spacing:.04em;min-width:64px}
+.rr-dots{display:flex;gap:6px}
+.rdot{width:11px;height:11px;border-radius:50%;background:#E4E4EE;border:1px solid #D2D2E0}
+.rdot.on{background:${GREEN};border-color:${GREEN}}
 .iconbtn{background:#F1F2F8;border:none;border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a;flex:none}.iconbtn:hover{background:#E6E7F1}.iconbtn:disabled{opacity:.35;cursor:default}
 @media(max-width:820px){
   .sb{position:fixed;left:0;top:0;transform:translateX(-100%);transition:transform .25s;box-shadow:0 0 60px rgba(0,0,0,.4)}.sb.open{transform:none}.hamb{display:block}
@@ -542,6 +560,32 @@ function Leads({leads,settings,stages,open,saveSettings}){
 }
 
 /* ===================== CLIENTS ===================== */
+function ClientRoadmap({clients,tracks,open}){
+  if(!clients.length) return null;
+  const PHASES=[['Not Started',p=>p<=0],['Kickoff',p=>p>0&&p<.26],['In Progress',p=>p>=.26&&p<.6],['Review',p=>p>=.6&&p<1],['Delivered',p=>p>=1]];
+  const wp=clients.map(l=>({l,o:clientOverall(l,tracks)}));
+  return (<div className="card" style={{marginBottom:18}}>
+    <div className="sec-title" style={{margin:'0 0 14px'}}><Rocket size={15}/>Delivery Roadmap</div>
+    <div className="rmap-board">{PHASES.map(([label,test])=>{const items=wp.filter(x=>test(x.o.pct));return (
+      <div className="rmap-col" key={label}>
+        <div className="rmap-colh">{label}<span>{items.length}</span></div>
+        {items.map(({l,o})=>(<div className="rmap-card" key={l.id} onClick={()=>open(l.id)}>
+          <div className="rc-n">{l.company||l.name}</div>
+          <div className="pbar" style={{margin:'7px 0 0'}}><div style={{width:Math.round(o.pct*100)+'%'}}/></div>
+          <div className="rc-ph">{o.phase}</div>
+        </div>))}
+        {!items.length&&<div className="rmap-empty">—</div>}
+      </div>);})}
+    </div>
+    <div className="rmap-rows">{wp.map(({l,o})=>(<div className="rmap-row" key={l.id} onClick={()=>open(l.id)}>
+      <div className="rr-name"><div className="namecell">{l.company||l.name}</div><div className="subcell">{Math.round(o.pct*100)}% · {o.phase}</div></div>
+      <div className="rr-tracks">{o.tracks.map(tr=>{const p=trackProgress(l,tr);return (
+        <div className="rr-track" key={tr.key}><span className="rr-tl">{tr.label}</span><div className="rr-dots">{tr.ms.map(m=>{const done=!!p.done[m];return <span key={m} className={'rdot'+(done?' on':'')} title={m+(done?' ✓':' (pending)')}/>;})}</div></div>);})}
+      </div>
+    </div>))}</div>
+  </div>);
+}
+
 function Clients({leads,stages,settings,open}){
   const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS;
   const clients=leads.filter(l=>l.isClient);
@@ -566,6 +610,7 @@ function Clients({leads,stages,settings,open}){
       <Kpi label="One-off Clients" value={oneoff.length} icon={<Building2 size={14}/>} d="website / setup only"/>
     </div>
     {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} closed-won {wonNotConverted.length===1?'lead is':'leads are'} not converted yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b> to start delivery tracking: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
+    <ClientRoadmap clients={clients} tracks={tracks} open={open}/>
     <Section title="On Monthly Retainer" list={retainer} showR/>
     <Section title="One-off / Website Only" list={oneoff}/>
     {!clients.length&&<div className="empty">No clients yet. Open a closed lead and hit <b>Convert to Client</b> to begin.</div>}
