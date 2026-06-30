@@ -219,8 +219,8 @@ const CSS=`
 .searchbox input{border:none;outline:none;font-size:14px;width:100%;font-family:'Inter';color:${INK}}
 .selctl{padding:9px 12px;border:1px solid #DEDFEA;border-radius:10px;font-size:13.5px;font-family:'Inter';background:#fff;color:#56527a;cursor:pointer}
 /* kanban (cleaner) */
-.kanban{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(256px,1fr);gap:14px;overflow-x:auto;padding-bottom:10px}
-.kcol{background:#fff;border:1px solid #E8E9F2;border-radius:16px;display:flex;flex-direction:column;min-height:140px;overflow:hidden;box-shadow:0 12px 30px -28px rgba(24,21,48,.5)}
+.kanban{display:flex;gap:14px;overflow-x:auto;padding-bottom:10px;align-items:stretch}
+.kcol{background:#fff;border:1px solid #E8E9F2;border-radius:16px;display:flex;flex-direction:column;min-height:140px;overflow:hidden;box-shadow:0 12px 30px -28px rgba(24,21,48,.5);flex:1 0 260px;min-width:260px}
 .kcol.drag{outline:2px dashed ${COBALT};outline-offset:-2px}
 .kbar{height:4px;width:100%}
 .kcol-h{display:flex;align-items:center;justify-content:space-between;padding:13px 14px 4px}
@@ -235,6 +235,27 @@ const CSS=`
 .kcard .ktags{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
 .kcard .kmeta{display:flex;align-items:center;justify-content:space-between;gap:6px}
 .kdrop{font-size:12px;color:#B6B2CC;text-align:center;padding:16px 0;border:1.5px dashed #E4E5F0;border-radius:10px;margin:2px 4px 8px}
+.kcol.drag{outline:2px dashed ${COBALT};outline-offset:-3px;box-shadow:0 0 0 4px rgba(43,77,224,.1),0 12px 30px -22px ${COBALT}}
+.kcard.dragging{opacity:.55;transform:rotate(2deg) scale(.98);box-shadow:0 18px 36px -14px rgba(24,21,48,.6)}
+.kcard.od{border-left:3px solid ${RED}}
+.kcard-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.kown{flex:none;width:22px;height:22px;border-radius:50%;background:${INDIGO};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk'}
+.kvals{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.kdv{font-size:12.5px;font-weight:700;color:${INK}}
+.kmrr{font-size:10.5px;font-weight:700;color:${GREEN};background:rgba(31,157,85,.1);padding:2px 7px;border-radius:20px}
+.kstale{display:inline-flex;align-items:center;gap:4px;margin-top:8px;font-size:10.5px;font-weight:700;color:#A9732B;background:rgba(200,135,40,.12);padding:3px 8px;border-radius:20px}
+.kmove{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:10px;padding-top:9px;border-top:1px solid #F1F1F7}
+.kmv{flex:none;width:30px;height:28px;border-radius:8px;border:1px solid #E4E5F0;background:#fff;color:${COBALT};display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.13s}
+.kmv:hover:not(:disabled){background:${COBALT};color:#fff;border-color:${COBALT}}
+.kmv:disabled{color:#D2D2DE;cursor:default}
+.kmv-s{flex:1;text-align:center;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:#A6A2BC;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kwtd{color:#B6B2CC;font-weight:600}
+.kcoll-x{border:none;background:#F1F2F8;color:#928DAD;width:22px;height:22px;border-radius:7px;cursor:pointer;display:flex;align-items:center;justify-content:center}.kcoll-x:hover{background:#E4E5F0}
+.kcollapsed{flex:0 0 58px;min-width:58px;max-width:58px;cursor:pointer;align-items:stretch}
+.kcollapsed:hover{border-color:#D9DBEC;box-shadow:0 12px 30px -20px rgba(24,21,48,.5)}
+.kcoll-body{flex:1;display:flex;flex-direction:column;align-items:center;gap:10px;padding:12px 0}
+.kcoll-exp{color:#B6B2CC}
+.kcoll-label{writing-mode:vertical-rl;transform:rotate(180deg);font-family:'Space Grotesk';font-weight:600;font-size:13px;color:${INK};letter-spacing:.02em}
 /* modal */
 .scrim2{position:fixed;inset:0;background:rgba(24,21,48,.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:24px}
 .modal{width:960px;max-width:96vw;max-height:90vh;background:#F4F6FB;border-radius:22px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 40px 100px -30px rgba(0,0,0,.6);animation:pop .18s ease}
@@ -685,24 +706,57 @@ function Dashboard({leads,stages,open}){
 
 /* ===================== PIPELINE (cleaner kanban) ===================== */
 function Pipeline({leads,stages,open,updateLead}){
-  const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);
+  const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);const [expanded,setExpanded]=useState({});
   const drop=stage=>{if(dragId)updateLead(dragId,{stage});setDragId(null);setOver(null);};
-  return (<div className="kanban">{stages.map(s=>{const items=leads.filter(l=>l.stage===s.key);const val=items.reduce((a,l)=>a+num(l.dealValue),0);
-    return (<div key={s.key} className={'kcol '+(over===s.key?'drag':'')} onDragOver={e=>{e.preventDefault();setOver(s.key);}} onDragLeave={()=>setOver(c=>c===s.key?null:c)} onDrop={()=>drop(s.key)}>
-      <div className="kbar" style={{background:s.color}}/>
-      <div className="kcol-h"><span className="kt">{s.label}</span><span className="kc">{items.length}</span></div>
-      <div className="kcol-v">{val>0?usd(val)+' in stage':'—'}</div>
-      <div className="kcol-body">
-        {items.map(l=>(<div key={l.id} className="kcard" draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>open(l.id)}>
-          <div className="kn"><span className="dot" style={{background:(PRIORITIES[l.priority]||PRIORITIES.medium).color}}/>{l.name}</div>
-          <div className="kco">{l.company||l.businessType}</div>
-          {(l.serviceInterest||[]).length>0&&<div className="ktags">{(l.serviceInterest||[]).slice(0,2).map(s2=><span key={s2} className="tag">{s2}</span>)}</div>}
-          <div className="kmeta"><span className="subcell">{l.dealValue>0?usd(l.dealValue):''}</span>{l.followUp&&<Due iso={l.followUp}/>}</div>
-        </div>))}
-        {dragId&&over===s.key&&<div className="kdrop">Release to move here</div>}
-        {!items.length&&!(dragId&&over===s.key)&&<div className="kdrop">No leads</div>}
+  const move=(l,dir)=>{const i=sIdx(l.stage,stages);const j=i+dir;if(j<0||j>=stages.length)return;updateLead(l.id,{stage:stages[j].key});};
+  const openLeads=leads.filter(l=>sOf(l.stage,stages).open);
+  const totalOpen=openLeads.reduce((a,l)=>a+num(l.dealValue),0);
+  const weighted=openLeads.reduce((a,l)=>a+num(l.dealValue)*(sOf(l.stage,stages).prob||0),0);
+  const wonC=leads.filter(l=>sOf(l.stage,stages).won).length;
+  const lostC=leads.filter(l=>sOf(l.stage,stages).lost).length;
+  const winRate=(wonC+lostC)?Math.round(wonC/(wonC+lostC)*100):0;
+  const Card=({l})=>{ const i=sIdx(l.stage,stages); const st=sOf(l.stage,stages); const od=l.followUp&&daysUntil(l.followUp)<0; const stale=st.open&&daysSince(lastContact(l))>=7;
+    return (<div className={'kcard'+(od?' od':'')+(dragId===l.id?' dragging':'')} draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>open(l.id)}>
+      <div className="kcard-top">
+        <div className="kn"><span className="dot" style={{background:(PRIORITIES[l.priority]||PRIORITIES.medium).color}}/>{l.name||'(no name)'}</div>
+        {l.owner&&<span className="kown" title={l.owner}>{l.owner[0].toUpperCase()}</span>}
       </div>
-    </div>);})}</div>);
+      <div className="kco">{l.company||l.businessType}</div>
+      {(l.serviceInterest||[]).length>0&&<div className="ktags">{(l.serviceInterest||[]).slice(0,2).map(s2=><span key={s2} className="tag">{s2}</span>)}</div>}
+      <div className="kmeta">
+        <span className="kvals">{l.dealValue>0&&<span className="kdv">{usd(l.dealValue)}</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>
+        {l.followUp&&<Due iso={l.followUp}/>}
+      </div>
+      {stale&&<div className="kstale"><AlertTriangle size={11}/>{daysSince(lastContact(l))}d no contact</div>}
+      <div className="kmove" onClick={e=>e.stopPropagation()}>
+        <button className="kmv" disabled={i<=0} onClick={()=>move(l,-1)} title="Move back a stage"><ChevronLeft size={16}/></button>
+        <span className="kmv-s">{st.label}</span>
+        <button className="kmv" disabled={i>=stages.length-1} onClick={()=>move(l,1)} title="Advance a stage"><ChevronRight size={16}/></button>
+      </div>
+    </div>);
+  };
+  return (<>
+    <div className="kgrid" style={{marginBottom:18}}>
+      <Kpi variant="accent" label="Open Pipeline" value={usd(totalOpen)} icon={<KanbanSquare size={14}/>} d={`${openLeads.length} open deal${openLeads.length===1?'':'s'}`}/>
+      <Kpi variant="green" label="Weighted Forecast" value={usd(weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
+      <Kpi label="Win Rate" value={winRate+'%'} icon={<Award size={14}/>} d={`${wonC} won · ${lostC} lost`}/>
+    </div>
+    <div className="kanban">{stages.map(s=>{const items=leads.filter(l=>l.stage===s.key).sort((a,b)=>num(b.dealValue)-num(a.dealValue)||(a.followUp||'9999').localeCompare(b.followUp||'9999'));const val=items.reduce((a,l)=>a+num(l.dealValue),0);const wtd=val*(s.prob||0);const isClosed=!s.open;const collapsed=isClosed&&!expanded[s.key];
+      if(collapsed){ return (<div key={s.key} className="kcol kcollapsed" title={`${s.label} — tap to expand`} onClick={()=>setExpanded(e=>({...e,[s.key]:true}))} onDragOver={e=>{e.preventDefault();setOver(s.key);}} onDragLeave={()=>setOver(c=>c===s.key?null:c)} onDrop={()=>drop(s.key)}>
+        <div className="kbar" style={{background:s.color}}/>
+        <div className="kcoll-body"><ChevronRight size={15} className="kcoll-exp"/><span className="kcoll-label">{s.label}</span><span className="kc">{items.length}</span></div>
+      </div>); }
+      return (<div key={s.key} className={'kcol '+(over===s.key?'drag':'')} onDragOver={e=>{e.preventDefault();setOver(s.key);}} onDragLeave={()=>setOver(c=>c===s.key?null:c)} onDrop={()=>drop(s.key)}>
+        <div className="kbar" style={{background:s.color}}/>
+        <div className="kcol-h"><span className="kt">{s.label}</span><span style={{display:'flex',alignItems:'center',gap:6}}><span className="kc">{items.length}</span>{isClosed&&<button className="kcoll-x" title="Collapse" onClick={e=>{e.stopPropagation();setExpanded(e2=>({...e2,[s.key]:false}));}}><ChevronLeft size={13}/></button>}</span></div>
+        <div className="kcol-v">{val>0?usd(val):'—'}{s.open&&val>0&&<span className="kwtd"> · {usd(wtd)} weighted</span>}</div>
+        <div className="kcol-body">
+          {items.map(l=><Card key={l.id} l={l}/>)}
+          {dragId&&over===s.key&&<div className="kdrop">Release to move here</div>}
+          {!items.length&&!(dragId&&over===s.key)&&<div className="kdrop">No leads</div>}
+        </div>
+      </div>);})}</div>
+  </>);
 }
 
 /* ===================== LEADS ===================== */
