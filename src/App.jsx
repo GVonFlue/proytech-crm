@@ -110,7 +110,7 @@ const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[trac
 const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase='',overdue=0,nextDue=null,lastDone=null; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;overdue+=p.overdue; if(p.nextDue&&(!nextDue||p.nextDue<nextDue))nextDue=p.nextDue; if(p.current&&!phase)phase=`${tr.label}: ${p.current}`; Object.values(p.entries).forEach(e=>{ if(e.done&&(!lastDone||e.done>lastDone)) lastDone=e.done; }); }); const delivered=t>0&&c>=t; return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts,overdue,nextDue,completed:c,total:t,delivered,doneDate:lastDone}; };
 
 /* ===================== invoicing ===================== */
-const DEFAULT_INVOICING={ biz:{ name:'ProyTech', address:'150 N Main St\nWichita, KS 67202', email:'getproytech@gmail.com', phone:'' }, prefix:'INV-', seq:1, taxRate:0, terms:14, notes:'Thank you for your business.', paymentLink:'', accent:'#2B4DE0', logoH:46, showNotes:true, showPay:true, showLogo:true };
+const DEFAULT_INVOICING={ biz:{ name:'ProyTech', address:'150 N Main St\nWichita, KS 67202', email:'getproytech@gmail.com', phone:'' }, prefix:'INV-', seq:1, taxRate:0, terms:14, notes:'Thank you for your business.', paymentLink:'', accent:'#2B4DE0', logoH:46, showNotes:true, showPay:true, showLogo:true, layout:{order:['billto','items','totals','pay','notes'],headerSwap:false} };
 const invSubtotal=inv=>(inv.items||[]).reduce((a,it)=>a+num(it.qty)*num(it.amount),0);
 const invTax=inv=>invSubtotal(inv)*num(inv.taxRate)/100;
 const invTotal=inv=>invSubtotal(inv)+invTax(inv);
@@ -375,19 +375,29 @@ const CSS=`
 .inv-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .inv-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:0;overflow:auto;flex:1}
 .inv-edit{padding:20px 22px;overflow:auto;border-right:1px solid #E8E9F2}
-.inv-preview-wrap{padding:20px;background:#ECEEF5;overflow:auto}
+.inv-preview-wrap{padding:24px;background:#ECEEF5;overflow:auto;display:flex;justify-content:center;align-items:flex-start}
+.inv-page-tools{display:flex;justify-content:flex-end;width:100%;max-width:612px;margin:0 auto 12px}
+.swapbtn{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#56527a;background:#fff;border:1px solid #DEDFEA;border-radius:8px;padding:6px 11px;cursor:pointer}
+.swapbtn:hover{border-color:${COBALT};color:${COBALT}}
 .inv-items-edit{display:flex;flex-direction:column;gap:7px}
 .iie-h,.iie-row{display:grid;grid-template-columns:1fr 56px 84px 76px 30px;gap:8px;align-items:center}
 .iie-h{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#928DAD;padding:0 2px}
 .iie-row input{padding:8px 9px;border:1px solid #DEDFEA;border-radius:8px;font-size:13px;font-family:'Inter';color:${INK};background:#fff;width:100%}
 .iie-row input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .iie-amt{font-size:13px;font-weight:600;color:${INK};text-align:right}
-.inv-preview{background:#fff;border-radius:12px;padding:30px 32px;box-shadow:0 10px 40px -18px rgba(0,0,0,.25);font-size:10.5px;color:#3a3850;line-height:1.45}
+.inv-preview{background:#fff;border-radius:3px;padding:46px 50px;box-shadow:0 12px 44px -16px rgba(0,0,0,.32);font-size:10.5px;color:#3a3850;line-height:1.45;width:100%;max-width:612px;min-height:792px;box-sizing:border-box}
+.ip-block{position:relative}
+.ip-block.dragk{opacity:.45}
+.ip-drag{position:absolute;left:-30px;top:0;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#C4C1D6;cursor:grab;opacity:0;transition:.13s}
+.ip-block:hover .ip-drag{opacity:1}
+.ip-drag:hover{color:${COBALT};background:#F1F2F8}
+.ip-block.over{box-shadow:0 -2px 0 ${COBALT}}
 .ip-top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:12px}
 .ip-logo{max-height:42px;max-width:190px;object-fit:contain;display:block;margin-bottom:8px}
 .ip-name{font-family:'Space Grotesk';font-size:16px;font-weight:600;color:${INK};margin-bottom:7px;letter-spacing:-.01em}
 .ip-bizmeta{font-size:9.5px;color:#8b88a0;line-height:1.55}
 .ip-meta{text-align:right;flex:none}
+.ip-meta.left{text-align:left}
 .ip-title{font-family:'Space Grotesk';font-size:14px;font-weight:700;letter-spacing:.16em;color:${COBALT};line-height:1}
 .ip-num{font-size:9.5px;font-weight:600;color:#8b88a0;margin-top:3px;letter-spacing:.03em}
 .ip-dates{margin-top:9px;font-size:9.5px;color:${INK}}.ip-dates div{display:flex;gap:12px;justify-content:flex-end;margin-top:2px}.ip-dates span{color:#aaa6bd;text-transform:uppercase;letter-spacing:.05em;font-size:8.5px;font-weight:600}
@@ -421,6 +431,8 @@ const CSS=`
   #invprint,#invprint *{visibility:visible!important}
   #invprint{position:absolute!important;left:0;top:0;width:100%;box-shadow:none!important;border-radius:0!important;padding:0!important}
   .scrim2{position:static!important;background:none!important;padding:0!important}
+  .ip-drag,.inv-page-tools{display:none!important}
+  #invprint{box-shadow:none!important;min-height:0!important;padding:0!important}
 }
 .fu-hero{display:flex;align-items:center;gap:22px;background:linear-gradient(120deg,${INDIGO} 0%,${COBALT} 100%);border-radius:18px;padding:22px 26px;margin-bottom:22px;color:#fff;box-shadow:0 14px 40px -20px ${COBALT}}
 .fu-hero-l{flex:none}.fu-hero-n{font-family:'Space Grotesk';font-size:46px;font-weight:600;line-height:1}
@@ -599,7 +611,7 @@ export default function App(){
       </div>
     </div>
     {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
-    {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
+    {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
 
@@ -986,12 +998,20 @@ function Invoices({invoices,leads,settings,onNew,open}){
   </>);
 }
 
-function InvoiceModal({invoice,leads,settings,onSave,onDelete,onClose}){
+function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClose}){
   const [inv,setInv]=useState(invoice);
   useEffect(()=>setInv(invoice),[invoice.id]);
   const patch=p=>{const n={...inv,...p};setInv(n);onSave(n);};
   const iv=settings.invoicing||DEFAULT_INVOICING; const biz=iv.biz||DEFAULT_INVOICING.biz;
   const accent=iv.accent||'#2B4DE0'; const logoH=iv.logoH||46;
+  const layout=iv.layout||DEFAULT_INVOICING.layout;
+  const [order,setOrder]=useState(layout.order||DEFAULT_INVOICING.layout.order);
+  const [dragK,setDragK]=useState(null);
+  useEffect(()=>{setOrder((iv.layout||DEFAULT_INVOICING.layout).order||DEFAULT_INVOICING.layout.order);},[invoice.id]);
+  const saveLayout=next=>{ if(saveSettings) saveSettings({...settings,invoicing:{...iv,layout:{...layout,...next}}}); };
+  const onSecOver=(e,key)=>{ e.preventDefault(); if(!dragK||dragK===key)return; setOrder(o=>{const a=o.filter(k=>k!==dragK);const i=a.indexOf(key);a.splice(i<0?a.length:i,0,dragK);return a;}); };
+  const onSecDrop=()=>{ setDragK(null); saveLayout({order}); };
+  const swapHeader=()=>saveLayout({headerSwap:!layout.headerSwap});
   const bt=inv.billTo||{};
   const setBT=p=>patch({billTo:{...bt,...p}});
   const items=inv.items||[];
@@ -1051,30 +1071,31 @@ function InvoiceModal({invoice,leads,settings,onSave,onDelete,onClose}){
         </div>
 
         <div className="inv-preview-wrap">
+          <div className="inv-page-tools"><button className="swapbtn" onClick={swapHeader} title="Swap header sides"><ArrowUpDown size={13} style={{transform:'rotate(90deg)'}}/>Swap header</button></div>
           <div className="inv-preview" id="invprint">
-            <div className="ip-top">
-              <div className="ip-biz">
+            {(()=>{ const bizBlock=(<div className="ip-biz" key="biz">
                 {(iv.showLogo!==false&&settings.logo)?<img src={settings.logo} alt="logo" className="ip-logo" style={{maxHeight:logoH,maxWidth:logoH*4.5}}/>:<div className="ip-name">{biz.name||'ProyTech'}</div>}
                 <div className="ip-bizmeta">{(biz.address||'').split('\n').map((l,i)=><div key={i}>{l}</div>)}{biz.email&&<div>{biz.email}</div>}{biz.phone&&<div>{biz.phone}</div>}</div>
-              </div>
-              <div className="ip-meta">
+              </div>);
+              const metaBlock=(<div className={'ip-meta'+(layout.headerSwap?' left':'')} key="meta">
                 <div className="ip-title" style={{color:accent}}>INVOICE</div>
                 <div className="ip-num">{inv.number}</div>
                 <div className="ip-dates"><div><span>Issued</span>{fmtDate(inv.issueDate)}</div><div><span>Due</span>{fmtDate(inv.dueDate)}</div></div>
                 <div className={'ip-stamp inv-'+st}>{cap(st)}</div>
-              </div>
-            </div>
+              </div>);
+              return <div className="ip-top">{layout.headerSwap?[metaBlock,bizBlock]:[bizBlock,metaBlock]}</div>; })()}
             <div className="ip-rule" style={{background:accent}}/>
-            <div className="ip-billto"><div className="ip-lbl">Bill To</div><div className="ip-btname">{bt.company||bt.name||'—'}</div>{bt.company&&bt.name&&<div>{bt.name}</div>}{(bt.address||'').split('\n').map((l,i)=>l&&<div key={i}>{l}</div>)}{bt.email&&<div>{bt.email}</div>}</div>
-            <table className="ip-table"><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
-              <tbody>{items.map((it,i)=>(<tr key={it.id||i}><td>{it.label||'—'}</td><td>{num(it.qty)}</td><td>{usd(it.amount)}</td><td>{usd(num(it.qty)*num(it.amount))}</td></tr>))}</tbody></table>
-            <div className="ip-totals">
-              <div className="ip-tr"><span>Subtotal</span><b>{usd(sub)}</b></div>
-              {num(inv.taxRate)>0&&<div className="ip-tr"><span>Tax ({num(inv.taxRate)}%)</span><b>{usd(tax)}</b></div>}
-              <div className="ip-tr ip-grand"><span>Total Due</span><b style={{color:accent}}>{usd(total)}</b></div>
-            </div>
-            {iv.showPay!==false&&inv.paymentLink&&<div className="ip-pay">Pay online: <a href={inv.paymentLink} style={{color:accent}}>{inv.paymentLink}</a></div>}
-            {iv.showNotes!==false&&inv.notes&&<div className="ip-notes">{inv.notes}</div>}
+            {(()=>{ const blocks={
+                billto:(<div className="ip-billto"><div className="ip-lbl">Bill To</div><div className="ip-btname">{bt.company||bt.name||'—'}</div>{bt.company&&bt.name&&<div>{bt.name}</div>}{(bt.address||'').split('\n').map((l,i)=>l&&<div key={i}>{l}</div>)}{bt.email&&<div>{bt.email}</div>}</div>),
+                items:(<table className="ip-table"><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>{items.map((it,i)=>(<tr key={it.id||i}><td>{it.label||'—'}</td><td>{num(it.qty)}</td><td>{usd(it.amount)}</td><td>{usd(num(it.qty)*num(it.amount))}</td></tr>))}</tbody></table>),
+                totals:(<div className="ip-totals"><div className="ip-tr"><span>Subtotal</span><b>{usd(sub)}</b></div>{num(inv.taxRate)>0&&<div className="ip-tr"><span>Tax ({num(inv.taxRate)}%)</span><b>{usd(tax)}</b></div>}<div className="ip-tr ip-grand"><span>Total Due</span><b style={{color:accent}}>{usd(total)}</b></div></div>),
+                pay:(iv.showPay!==false&&inv.paymentLink)?(<div className="ip-pay">Pay online: <a href={inv.paymentLink} style={{color:accent}}>{inv.paymentLink}</a></div>):null,
+                notes:(iv.showNotes!==false&&inv.notes)?(<div className="ip-notes">{inv.notes}</div>):null,
+              };
+              return order.filter(k=>blocks[k]).map(key=>(<div key={key} className={'ip-block'+(dragK===key?' dragk':'')} draggable onDragStart={()=>setDragK(key)} onDragOver={e=>onSecOver(e,key)} onDragEnd={onSecDrop}>
+                <span className="ip-drag" title="Drag to reorder"><GripVertical size={13}/></span>
+                {blocks[key]}
+              </div>)); })()}
           </div>
         </div>
       </div>
