@@ -9,7 +9,7 @@ import {
   MessageSquare, PhoneCall, CalendarClock, StickyNote, Mailbox, Lock, Repeat,
   CheckCircle2, Circle, AlertTriangle, ArrowUpDown, Percent, Target, Award, Rocket, UserCheck,
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
-  Layers, FileText, Tag, LogOut, Receipt, Printer, Send
+  Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles
 } from 'lucide-react';
 import { auth, db } from './lib/supabase';
 
@@ -391,6 +391,41 @@ const CSS=`
   #invprint{position:absolute!important;left:0;top:0;width:100%;box-shadow:none!important;border-radius:0!important;padding:0!important}
   .scrim2{position:static!important;background:none!important;padding:0!important}
 }
+.fu-hero{display:flex;align-items:center;gap:22px;background:linear-gradient(120deg,${INDIGO} 0%,${COBALT} 100%);border-radius:18px;padding:22px 26px;margin-bottom:22px;color:#fff;box-shadow:0 14px 40px -20px ${COBALT}}
+.fu-hero-l{flex:none}.fu-hero-n{font-family:'Space Grotesk';font-size:46px;font-weight:600;line-height:1}
+.fu-hero-lbl{font-size:13px;color:rgba(255,255,255,.78);margin-top:2px}
+.fu-hero-stats{display:flex;flex-wrap:wrap;gap:9px;flex:1}
+.fu-stat{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;background:rgba(255,255,255,.14);padding:6px 12px;border-radius:20px;color:#fff}
+.fu-stat b{font-weight:700}.fu-stat.od{background:rgba(255,255,255,.16)}.fu-stat.od svg{color:#FFC9C9}.fu-stat.done svg{color:#9DEFC0}
+.fu-ring{width:70px;height:70px;border-radius:50%;background:conic-gradient(#fff calc(var(--p,0)*1%),rgba(255,255,255,.22) 0);display:flex;align-items:center;justify-content:center;flex:none}
+.fu-ring span{width:54px;height:54px;border-radius:50%;background:${INDIGO};display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;font-family:'Space Grotesk';color:#fff}
+.fu-band{display:flex;align-items:center;gap:8px;font-family:'Space Grotesk';font-weight:600;font-size:13px;color:${INK};margin:18px 0 12px;text-transform:uppercase;letter-spacing:.04em}
+.fu-band.od{color:${RED}}
+.fu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.fu-card{background:#fff;border:1px solid #E8E9F2;border-radius:14px;padding:16px;cursor:pointer;transition:transform .18s,box-shadow .18s,opacity .42s,scale .42s;display:flex;flex-direction:column;gap:11px}
+.fu-card:hover{transform:translateY(-3px);box-shadow:0 14px 30px -18px rgba(24,21,48,.4);border-color:#D9DBEC}
+.fu-card.od{border-left:4px solid ${RED}}
+.fu-card.leaving{opacity:0;scale:.88;transform:translateX(60px);pointer-events:none}
+.fu-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.fu-name{font-family:'Space Grotesk';font-weight:600;font-size:15px;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fu-meta{font-size:12.5px;color:#6a6788}
+.fu-act{display:flex;flex-direction:column;gap:10px;border-top:1px solid #F0F0F6;padding-top:11px}
+.fu-quick{display:flex;gap:8px}
+.fu-ic{width:34px;height:34px;border-radius:9px;background:#F4F5FB;color:${COBALT};display:flex;align-items:center;justify-content:center;text-decoration:none;transition:.14s}
+.fu-ic:hover{background:${COBALT};color:#fff}
+.fu-chips{display:flex;flex-wrap:wrap;gap:7px}
+.fu-chip{position:relative;border:1px solid #DEDFEA;background:#fff;color:${INK};font-size:12px;font-weight:600;font-family:'Inter';padding:7px 11px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:.14s}
+.fu-chip:hover{border-color:${COBALT};background:rgba(43,77,224,.06);color:${COBALT}}
+.fu-date{padding:7px 10px;color:#56527a}
+.fu-date input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.fu-done{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:70px 20px}
+.fu-done-burst{position:relative;margin-bottom:10px}
+.fu-done-ring{width:108px;height:108px;border-radius:50%;background:rgba(31,157,85,.1);display:flex;align-items:center;justify-content:center}
+.fu-done-burst .s1,.fu-done-burst .s2,.fu-done-burst .s3{position:absolute;color:${GOLD};animation:twk 1.8s ease-in-out infinite}
+.fu-done-burst .s1{top:-4px;right:6px;animation-delay:0s}.fu-done-burst .s2{bottom:6px;left:-2px;color:${COBALT};animation-delay:.5s}.fu-done-burst .s3{top:18px;right:-8px;color:${GREEN};animation-delay:1s}
+@keyframes twk{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+.fu-done h2{font-family:'Space Grotesk';font-size:24px;color:${INK};margin:14px 0 6px}
+.fu-done p{font-size:14px;color:#6a6788;max-width:420px;line-height:1.5}
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
@@ -500,8 +535,8 @@ export default function App(){
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2><p>Loading…</p></div></div></>);
   if(!session) return <Login/>;
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
-  const titles={dash:['Dashboard','The whole board at a glance'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
@@ -523,6 +558,7 @@ export default function App(){
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
           page==='dash'?<Dashboard leads={leads} stages={stages} open={openLead}/>:
+          page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
           page==='pipeline'?<Pipeline leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
           page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings}/>:
           page==='clients'?<Clients leads={leads} stages={stages} settings={settings} open={openLead}/>:
@@ -555,6 +591,62 @@ function useMetrics(leads,stages){
 }
 
 /* ===================== DASHBOARD ===================== */
+/* ===================== FOLLOW-UP ===================== */
+function FollowUp({leads,stages,open,updateLead}){
+  const [leaving,setLeaving]=useState({});
+  const [cleared,setCleared]=useState(0);
+  const t=todayISO();
+  const due=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<=0).sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
+  const ids=due.map(l=>l.id);
+  const overdue=due.filter(l=>daysUntil(l.followUp)<0);
+  const today=due.filter(l=>daysUntil(l.followUp)===0);
+  const remaining=due.length;
+  const total=remaining+cleared;
+  const pct=total?Math.round(cleared/total*100):0;
+  const reschedule=(l,date)=>{ if(leaving[l.id]||!date)return; setLeaving(s=>({...s,[l.id]:true})); setCleared(c=>c+1); setTimeout(()=>updateLead(l.id,{followUp:date}),430); };
+  const QUICK=[['Tomorrow',1],['+3 days',3],['Next week',7],['+2 weeks',14]];
+  const Card=({l})=>{ const d=daysUntil(l.followUp); const od=d<0; const lv=!!leaving[l.id];
+    const lastTouch=(l.activities||[]).find(a=>a.type&&a.type!=='Note');
+    return (<div className={'fu-card'+(od?' od':'')+(lv?' leaving':'')} onClick={()=>!lv&&open(l.id,ids)}>
+      <div className="fu-top">
+        <div style={{minWidth:0}}><div className="fu-name">{l.name||'(no name)'}</div><div className="subcell">{l.company||l.businessType||'—'}</div></div>
+        <span className={'badge '+(od?'inv-overdue':'inv-sent')}>{od?Math.abs(d)+'d overdue':'Due today'}</span>
+      </div>
+      <div className="fu-meta">{l.nextAction||'Follow up'}{lastTouch?' · last touch '+fmtDate(lastTouch.ts):''}</div>
+      <div className="fu-act" onClick={e=>e.stopPropagation()}>
+        <div className="fu-quick">
+          {l.phone&&<a className="fu-ic" href={'tel:'+l.phone} title="Call"><Phone size={15}/></a>}
+          {l.phone&&<a className="fu-ic" href={'sms:'+l.phone} title="Text"><MessageSquare size={15}/></a>}
+          {l.email&&<a className="fu-ic" href={'mailto:'+l.email} title="Email"><Mail size={15}/></a>}
+          {!l.phone&&!l.email&&<span className="subcell" style={{fontSize:11}}>no contact info</span>}
+        </div>
+        <div className="fu-chips">
+          {QUICK.map(([lbl,n])=><button key={lbl} className="fu-chip" onClick={()=>reschedule(l,addDays(t,n))}>{lbl}</button>)}
+          <label className="fu-chip fu-date" title="Pick a date"><CalendarClock size={13}/><input type="date" min={t} onClick={e=>e.stopPropagation()} onChange={e=>reschedule(l,e.target.value)}/></label>
+        </div>
+      </div>
+    </div>);
+  };
+  if(!due.length){ return (<div className="fu-done">
+    <div className="fu-done-burst"><Sparkles size={20} className="s1"/><Sparkles size={14} className="s2"/><Sparkles size={16} className="s3"/><div className="fu-done-ring"><CheckCircle2 size={54} color={GREEN}/></div></div>
+    <h2>{cleared>0?'Inbox zero. Nice work.':'All caught up'}</h2>
+    <p>{cleared>0?`You cleared ${cleared} follow-up${cleared>1?'s':''} today — every lead's been handled.`:'Nothing is due or overdue right now. Set follow-up dates on your leads and they\u2019ll show up here the day they\u2019re due.'}</p>
+  </div>); }
+  return (<>
+    <div className="fu-hero">
+      <div className="fu-hero-l"><div className="fu-hero-n">{remaining}</div><div className="fu-hero-lbl">lead{remaining>1?'s':''} to clear</div></div>
+      <div className="fu-hero-stats">
+        {overdue.length>0&&<span className="fu-stat od"><AlertTriangle size={13}/><b>{overdue.length}</b> overdue</span>}
+        {today.length>0&&<span className="fu-stat"><CalendarClock size={13}/><b>{today.length}</b> due today</span>}
+        {cleared>0&&<span className="fu-stat done"><CheckCircle2 size={13}/><b>{cleared}</b> cleared</span>}
+      </div>
+      <div className="fu-ring" style={{'--p':pct}}><span>{pct}%</span></div>
+    </div>
+    {overdue.length>0&&<><div className="fu-band od"><AlertTriangle size={14}/>Overdue · {overdue.length}</div><div className="fu-grid">{overdue.map(l=><Card key={l.id} l={l}/>)}</div></>}
+    {today.length>0&&<><div className="fu-band"><CalendarClock size={14}/>Due Today · {today.length}</div><div className="fu-grid">{today.map(l=><Card key={l.id} l={l}/>)}</div></>}
+  </>);
+}
+
 function Dashboard({leads,stages,open}){
   const m=useMetrics(leads,stages);
   const stageData=stages.filter(s=>s.open).map(s=>({name:s.label,Leads:m.byStage[s.key]?.count||0,color:s.color}));
