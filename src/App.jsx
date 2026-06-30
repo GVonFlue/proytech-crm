@@ -110,7 +110,7 @@ const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[trac
 const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase='',overdue=0,nextDue=null,lastDone=null; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;overdue+=p.overdue; if(p.nextDue&&(!nextDue||p.nextDue<nextDue))nextDue=p.nextDue; if(p.current&&!phase)phase=`${tr.label}: ${p.current}`; Object.values(p.entries).forEach(e=>{ if(e.done&&(!lastDone||e.done>lastDone)) lastDone=e.done; }); }); const delivered=t>0&&c>=t; return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts,overdue,nextDue,completed:c,total:t,delivered,doneDate:lastDone}; };
 
 /* ===================== invoicing ===================== */
-const DEFAULT_INVOICING={ biz:{ name:'ProyTech', address:'105 N Main St\nWichita, KS 67202', email:'getproytech@gmail.com', phone:'' }, prefix:'INV-', seq:1, taxRate:0, terms:14, notes:'Thank you for your business.', paymentLink:'' };
+const DEFAULT_INVOICING={ biz:{ name:'ProyTech', address:'150 N Main St\nWichita, KS 67202', email:'getproytech@gmail.com', phone:'' }, prefix:'INV-', seq:1, taxRate:0, terms:14, notes:'Thank you for your business.', paymentLink:'', accent:'#2B4DE0', logoH:46, showNotes:true, showPay:true, showLogo:true };
 const invSubtotal=inv=>(inv.items||[]).reduce((a,it)=>a+num(it.qty)*num(it.amount),0);
 const invTax=inv=>invSubtotal(inv)*num(inv.taxRate)/100;
 const invTotal=inv=>invSubtotal(inv)+invTax(inv);
@@ -382,30 +382,40 @@ const CSS=`
 .iie-row input{padding:8px 9px;border:1px solid #DEDFEA;border-radius:8px;font-size:13px;font-family:'Inter';color:${INK};background:#fff;width:100%}
 .iie-row input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .iie-amt{font-size:13px;font-weight:600;color:${INK};text-align:right}
-.inv-preview{background:#fff;border-radius:12px;padding:34px 36px;box-shadow:0 10px 40px -18px rgba(0,0,0,.25);font-size:13px;color:#2c2942}
-.ip-top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:26px}
-.ip-logo{max-height:46px;max-width:200px;object-fit:contain;display:block;margin-bottom:8px}
-.ip-name{font-family:'Space Grotesk';font-size:24px;font-weight:600;color:${INK};margin-bottom:8px}
-.ip-bizmeta{font-size:12px;color:#6a6788;line-height:1.5}
+.inv-preview{background:#fff;border-radius:12px;padding:40px 42px;box-shadow:0 10px 40px -18px rgba(0,0,0,.25);font-size:11.5px;color:#3a3850;line-height:1.5}
+.ip-top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:18px}
+.ip-logo{max-height:46px;max-width:200px;object-fit:contain;display:block;margin-bottom:10px}
+.ip-name{font-family:'Space Grotesk';font-size:20px;font-weight:600;color:${INK};margin-bottom:10px;letter-spacing:-.01em}
+.ip-bizmeta{font-size:10.5px;color:#8b88a0;line-height:1.65}
 .ip-meta{text-align:right;flex:none}
-.ip-title{font-family:'Space Grotesk';font-size:26px;font-weight:600;letter-spacing:.04em;color:${COBALT}}
-.ip-num{font-size:13px;font-weight:600;color:#56527a;margin-top:2px}
-.ip-dates{margin-top:12px;font-size:12px;color:#2c2942}.ip-dates div{display:flex;gap:10px;justify-content:flex-end;margin-top:2px}.ip-dates span{color:#928DAD}
-.ip-stamp{display:inline-block;margin-top:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:4px 12px;border-radius:20px}
-.ip-billto{margin-bottom:22px;font-size:12.5px;line-height:1.55;color:#2c2942}
-.ip-billto .ip-lbl{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#928DAD;margin-bottom:5px}
-.ip-billto .ip-btname{font-weight:700;font-size:14px;color:${INK}}
-.ip-table{width:100%;border-collapse:collapse;margin-bottom:18px}
-.ip-table th{text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#928DAD;border-bottom:2px solid ${INK};padding:0 0 8px}
+.ip-title{font-family:'Space Grotesk';font-size:20px;font-weight:700;letter-spacing:.22em;color:${COBALT}}
+.ip-num{font-size:11px;font-weight:600;color:#8b88a0;margin-top:4px;letter-spacing:.02em}
+.ip-dates{margin-top:14px;font-size:10.5px;color:${INK}}.ip-dates div{display:flex;gap:14px;justify-content:flex-end;margin-top:3px}.ip-dates span{color:#aaa6bd;text-transform:uppercase;letter-spacing:.05em;font-size:9.5px;font-weight:600}
+.ip-stamp{display:inline-block;margin-top:12px;font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:3px 11px;border-radius:20px}
+.ip-rule{height:2px;width:100%;border-radius:2px;margin:0 0 22px;opacity:.9}
+.ip-billto{margin-bottom:26px;font-size:11px;line-height:1.6;color:#5a5874}
+.ip-billto .ip-lbl{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#aaa6bd;margin-bottom:6px}
+.ip-billto .ip-btname{font-weight:700;font-size:13px;color:${INK};letter-spacing:-.01em}
+.ip-table{width:100%;border-collapse:collapse;margin-bottom:20px}
+.ip-table th{text-align:left;font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#aaa6bd;border-bottom:1.5px solid ${INK};padding:0 0 9px}
 .ip-table th:nth-child(2),.ip-table th:nth-child(3),.ip-table th:nth-child(4){text-align:right}
-.ip-table td{padding:10px 0;border-bottom:1px solid #EEE;font-size:13px}
+.ip-table td{padding:11px 0;border-bottom:1px solid #F0F0F4;font-size:11.5px;font-variant-numeric:tabular-nums}
 .ip-table td:nth-child(2),.ip-table td:nth-child(3),.ip-table td:nth-child(4){text-align:right;white-space:nowrap}
-.ip-table td:first-child{padding-right:14px}
-.ip-totals{margin-left:auto;width:260px}
-.ip-tr{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:#2c2942}.ip-tr span{color:#6a6788}
-.ip-grand{border-top:2px solid ${INK};margin-top:4px;padding-top:10px;font-size:16px}.ip-grand span{color:${INK};font-weight:700;font-family:'Space Grotesk'}.ip-grand b{font-family:'Space Grotesk';color:${COBALT}}
-.ip-pay{margin-top:22px;font-size:12.5px;color:#2c2942;word-break:break-all}.ip-pay a{color:${COBALT}}
-.ip-notes{margin-top:14px;padding-top:14px;border-top:1px solid #EEE;font-size:12px;color:#6a6788;white-space:pre-wrap}
+.ip-table td:first-child{padding-right:14px;color:${INK}}
+.ip-totals{margin-left:auto;width:240px}
+.ip-tr{display:flex;justify-content:space-between;padding:6px 0;font-size:11.5px;color:#5a5874;font-variant-numeric:tabular-nums}.ip-tr span{color:#8b88a0}.ip-tr b{font-weight:600;color:${INK}}
+.ip-grand{border-top:1.5px solid ${INK};margin-top:6px;padding-top:12px;font-size:14px}.ip-grand span{color:${INK};font-weight:700;font-family:'Space Grotesk';letter-spacing:.01em}.ip-grand b{font-family:'Space Grotesk';font-size:17px;color:${COBALT}}
+.ip-pay{margin-top:26px;font-size:11px;color:#5a5874;word-break:break-all}.ip-pay a{color:${COBALT};font-weight:600}
+.ip-notes{margin-top:16px;padding-top:16px;border-top:1px solid #F0F0F4;font-size:10.5px;color:#8b88a0;white-space:pre-wrap;line-height:1.6}
+.acc-row{display:flex;gap:8px;align-items:center}
+.acc-row input[type=color]{width:42px;height:38px;padding:2px;border:1px solid #DEDFEA;border-radius:9px;background:#fff;cursor:pointer;flex:none}
+.acc-row input:not([type=color]){flex:1}
+.invrange{width:100%;-webkit-appearance:none;appearance:none;height:6px;border-radius:6px;background:#E4E5EF;outline:none;margin-top:8px}
+.invrange::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:${COBALT};cursor:pointer;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.invrange::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:${COBALT};cursor:pointer;border:3px solid #fff}
+.inv-toggles{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px}
+.invtog{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:${INK};cursor:pointer}
+.invtog input{width:16px;height:16px;accent-color:${COBALT};cursor:pointer}
 @media print{
   body *{visibility:hidden!important}
   #invprint,#invprint *{visibility:visible!important}
@@ -981,6 +991,7 @@ function InvoiceModal({invoice,leads,settings,onSave,onDelete,onClose}){
   useEffect(()=>setInv(invoice),[invoice.id]);
   const patch=p=>{const n={...inv,...p};setInv(n);onSave(n);};
   const iv=settings.invoicing||DEFAULT_INVOICING; const biz=iv.biz||DEFAULT_INVOICING.biz;
+  const accent=iv.accent||'#2B4DE0'; const logoH=iv.logoH||46;
   const bt=inv.billTo||{};
   const setBT=p=>patch({billTo:{...bt,...p}});
   const items=inv.items||[];
@@ -1013,8 +1024,9 @@ function InvoiceModal({invoice,leads,settings,onSave,onDelete,onClose}){
             <div className="field"><label>Email</label><input value={bt.email||''} onChange={e=>setBT({email:e.target.value})}/></div>
             <div className="field full"><label>Address</label><textarea rows={2} value={bt.address||''} onChange={e=>setBT({address:e.target.value})}/></div>
           </div>
-          <div className="dh mt"><CalendarClock size={13}/>Dates</div>
+          <div className="dh mt"><CalendarClock size={13}/>Invoice details</div>
           <div className="fgrid">
+            <div className="field"><label>Invoice #</label><input value={inv.number||''} onChange={e=>patch({number:e.target.value})}/></div>
             <div className="field"><label>Issue date</label><input type="date" value={inv.issueDate||''} onChange={e=>patch({issueDate:e.target.value})}/></div>
             <div className="field"><label>Due date</label><input type="date" value={inv.dueDate||''} onChange={e=>patch({dueDate:e.target.value})}/></div>
           </div>
@@ -1042,26 +1054,27 @@ function InvoiceModal({invoice,leads,settings,onSave,onDelete,onClose}){
           <div className="inv-preview" id="invprint">
             <div className="ip-top">
               <div className="ip-biz">
-                {settings.logo?<img src={settings.logo} alt="logo" className="ip-logo"/>:<div className="ip-name">{biz.name||'ProyTech'}</div>}
+                {(iv.showLogo!==false&&settings.logo)?<img src={settings.logo} alt="logo" className="ip-logo" style={{maxHeight:logoH,maxWidth:logoH*4.5}}/>:<div className="ip-name">{biz.name||'ProyTech'}</div>}
                 <div className="ip-bizmeta">{(biz.address||'').split('\n').map((l,i)=><div key={i}>{l}</div>)}{biz.email&&<div>{biz.email}</div>}{biz.phone&&<div>{biz.phone}</div>}</div>
               </div>
               <div className="ip-meta">
-                <div className="ip-title">INVOICE</div>
+                <div className="ip-title" style={{color:accent}}>INVOICE</div>
                 <div className="ip-num">{inv.number}</div>
                 <div className="ip-dates"><div><span>Issued</span>{fmtDate(inv.issueDate)}</div><div><span>Due</span>{fmtDate(inv.dueDate)}</div></div>
                 <div className={'ip-stamp inv-'+st}>{cap(st)}</div>
               </div>
             </div>
+            <div className="ip-rule" style={{background:accent}}/>
             <div className="ip-billto"><div className="ip-lbl">Bill To</div><div className="ip-btname">{bt.company||bt.name||'—'}</div>{bt.company&&bt.name&&<div>{bt.name}</div>}{(bt.address||'').split('\n').map((l,i)=>l&&<div key={i}>{l}</div>)}{bt.email&&<div>{bt.email}</div>}</div>
             <table className="ip-table"><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
               <tbody>{items.map((it,i)=>(<tr key={it.id||i}><td>{it.label||'—'}</td><td>{num(it.qty)}</td><td>{usd(it.amount)}</td><td>{usd(num(it.qty)*num(it.amount))}</td></tr>))}</tbody></table>
             <div className="ip-totals">
               <div className="ip-tr"><span>Subtotal</span><b>{usd(sub)}</b></div>
               {num(inv.taxRate)>0&&<div className="ip-tr"><span>Tax ({num(inv.taxRate)}%)</span><b>{usd(tax)}</b></div>}
-              <div className="ip-tr ip-grand"><span>Total Due</span><b>{usd(total)}</b></div>
+              <div className="ip-tr ip-grand"><span>Total Due</span><b style={{color:accent}}>{usd(total)}</b></div>
             </div>
-            {inv.paymentLink&&<div className="ip-pay">Pay online: <a href={inv.paymentLink}>{inv.paymentLink}</a></div>}
-            {inv.notes&&<div className="ip-notes">{inv.notes}</div>}
+            {iv.showPay!==false&&inv.paymentLink&&<div className="ip-pay">Pay online: <a href={inv.paymentLink} style={{color:accent}}>{inv.paymentLink}</a></div>}
+            {iv.showNotes!==false&&inv.notes&&<div className="ip-notes">{inv.notes}</div>}
           </div>
         </div>
       </div>
@@ -1103,6 +1116,16 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
         <div className="field"><label>Default tax rate (%)</label><input type="number" value={iv.taxRate??0} onChange={e=>setIv({taxRate:num(e.target.value)})}/></div>
         <div className="field full"><label>Payment link (Stripe / PayPal / etc.)</label><input placeholder="https://…" value={iv.paymentLink||''} onChange={e=>setIv({paymentLink:e.target.value})}/></div>
         <div className="field full"><label>Default notes / terms</label><textarea rows={2} value={iv.notes||''} onChange={e=>setIv({notes:e.target.value})}/></div>
+      </div>
+      <div className="ch-sub" style={{margin:'18px 0 12px',fontWeight:700,color:INK,textTransform:'uppercase',letterSpacing:'.05em',fontSize:11}}>Invoice design</div>
+      <div className="fgrid">
+        <div className="field"><label>Brand accent color</label><div className="acc-row"><input type="color" value={iv.accent||'#2B4DE0'} onChange={e=>setIv({accent:e.target.value})}/><input value={iv.accent||'#2B4DE0'} onChange={e=>setIv({accent:e.target.value})}/></div></div>
+        <div className="field"><label>Invoice logo size — {iv.logoH||46}px</label><input type="range" className="invrange" min="24" max="80" value={iv.logoH||46} onChange={e=>setIv({logoH:Number(e.target.value)})}/></div>
+      </div>
+      <div className="inv-toggles">
+        <label className="invtog"><input type="checkbox" checked={iv.showLogo!==false} onChange={e=>setIv({showLogo:e.target.checked})}/>Show logo</label>
+        <label className="invtog"><input type="checkbox" checked={iv.showNotes!==false} onChange={e=>setIv({showNotes:e.target.checked})}/>Show notes / terms</label>
+        <label className="invtog"><input type="checkbox" checked={iv.showPay!==false} onChange={e=>setIv({showPay:e.target.checked})}/>Show payment link</label>
       </div>
     </div>); })()}
 
