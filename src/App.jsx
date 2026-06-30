@@ -9,7 +9,7 @@ import {
   MessageSquare, PhoneCall, CalendarClock, StickyNote, Mailbox, Lock, Repeat,
   CheckCircle2, Circle, AlertTriangle, ArrowUpDown, Percent, Target, Award, Rocket, UserCheck,
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
-  Layers, FileText, Tag, LogOut
+  Layers, FileText, Tag, LogOut, Receipt, Printer, Send
 } from 'lucide-react';
 import { auth, db } from './lib/supabase';
 
@@ -108,6 +108,20 @@ const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[trac
   const current=ms.find(m=>!entries[m].done)||null;
   return {entries,ms,completedCount:completed,total:ms.length,pct:ms.length?completed/ms.length:0,current,overdue,nextDue}; };
 const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase='',overdue=0,nextDue=null,lastDone=null; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;overdue+=p.overdue; if(p.nextDue&&(!nextDue||p.nextDue<nextDue))nextDue=p.nextDue; if(p.current&&!phase)phase=`${tr.label}: ${p.current}`; Object.values(p.entries).forEach(e=>{ if(e.done&&(!lastDone||e.done>lastDone)) lastDone=e.done; }); }); const delivered=t>0&&c>=t; return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts,overdue,nextDue,completed:c,total:t,delivered,doneDate:lastDone}; };
+
+/* ===================== invoicing ===================== */
+const DEFAULT_INVOICING={ biz:{ name:'ProyTech', address:'105 N Main St\nWichita, KS 67202', email:'getproytech@gmail.com', phone:'' }, prefix:'INV-', seq:1, taxRate:0, terms:14, notes:'Thank you for your business.', paymentLink:'' };
+const invSubtotal=inv=>(inv.items||[]).reduce((a,it)=>a+num(it.qty)*num(it.amount),0);
+const invTax=inv=>invSubtotal(inv)*num(inv.taxRate)/100;
+const invTotal=inv=>invSubtotal(inv)+invTax(inv);
+const invState=inv=>{ if(inv.status==='paid') return 'paid'; if(inv.dueDate&&daysUntil(inv.dueDate)<0) return 'overdue'; return inv.status||'draft'; };
+const addDays=(iso,n)=>{ const d=new Date((iso||todayISO())+'T00:00:00'); d.setDate(d.getDate()+num(n)); return d.toISOString().slice(0,10); };
+function itemsFromLead(l){ const items=[]; const d=(l&&l.deal&&typeof l.deal==='object')?l.deal:null;
+  if(d){ if(num(d.setup)) items.push({id:uid(),label:'Setup',qty:1,amount:num(d.setup)}); if(num(d.website)) items.push({id:uid(),label:'Website',qty:1,amount:num(d.website)}); if(num(d.integration)) items.push({id:uid(),label:'AI / Integration',qty:1,amount:num(d.integration)}); (d.extras||[]).forEach(e=>{ if(num(e.amount)) items.push({id:uid(),label:e.label||'Line item',qty:1,amount:num(e.amount)}); }); }
+  else if(l&&num(l.dealValue)){ items.push({id:uid(),label:'Project',qty:1,amount:num(l.dealValue)}); }
+  if(l&&l.retainerActive&&num(l.retainer)) items.push({id:uid(),label:'Monthly retainer',qty:1,amount:num(l.retainer)});
+  if(!items.length) items.push({id:uid(),label:'',qty:1,amount:0});
+  return items; }
 
 /* ===================== seed (your real board) ===================== */
 function mkLead(o){
@@ -238,7 +252,9 @@ const CSS=`
 .dh{font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${COBALT};margin:2px 0 12px;display:flex;align-items:center;gap:8px}.dh.mt{margin-top:22px}
 .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
 .field label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#928DAD;margin-bottom:5px}
-.field input,.field select{width:100%;padding:9px 11px;border:1px solid #DEDFEA;border-radius:9px;font-size:13.5px;font-family:'Inter';color:${INK};background:#fff}
+.field input,.field select,.field textarea{width:100%;padding:9px 11px;border:1px solid #DEDFEA;border-radius:9px;font-size:13.5px;font-family:'Inter';color:${INK};background:#fff}
+.field textarea{resize:vertical}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .field input:focus,.field select:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .field.full{grid-column:1/-1}
 .chips{display:flex;flex-wrap:wrap;gap:7px}
@@ -327,6 +343,54 @@ const CSS=`
 .badge.over{color:${RED};background:rgba(209,67,67,.1)}
 .deliv-done{display:flex;align-items:center;gap:8px;margin-top:12px;padding:10px 12px;border-radius:10px;background:rgba(31,157,85,.08);color:#157a41;font-size:12.5px;font-weight:600}
 .rtag{display:inline-block;margin-left:8px;font-size:9.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:${GREEN};background:rgba(31,157,85,.1);padding:2px 7px;border-radius:20px;vertical-align:middle}
+.btn-s{background:#fff;color:${INK};border:1px solid #DEDFEA}.btn-s:hover{background:#F4F5FB;border-color:#CBCDDF}
+.inv-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.seg{display:inline-flex;background:#EEEFF6;border-radius:11px;padding:3px;gap:2px}
+.seg-b{border:none;background:none;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;color:#56527a;cursor:pointer;font-family:'Inter'}
+.seg-b.on{background:#fff;color:${COBALT};box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.badge.inv-draft{color:#56527a;background:#EAEBF3}.badge.inv-sent{color:${COBALT};background:rgba(43,77,224,.1)}
+.badge.inv-paid{color:${GREEN};background:rgba(31,157,85,.1)}.badge.inv-overdue{color:${RED};background:rgba(209,67,67,.1)}
+.inv-modal{width:1080px}
+.inv-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.inv-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:0;overflow:auto;flex:1}
+.inv-edit{padding:20px 22px;overflow:auto;border-right:1px solid #E8E9F2}
+.inv-preview-wrap{padding:20px;background:#ECEEF5;overflow:auto}
+.inv-items-edit{display:flex;flex-direction:column;gap:7px}
+.iie-h,.iie-row{display:grid;grid-template-columns:1fr 56px 84px 76px 30px;gap:8px;align-items:center}
+.iie-h{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#928DAD;padding:0 2px}
+.iie-row input{padding:8px 9px;border:1px solid #DEDFEA;border-radius:8px;font-size:13px;font-family:'Inter';color:${INK};background:#fff;width:100%}
+.iie-row input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
+.iie-amt{font-size:13px;font-weight:600;color:${INK};text-align:right}
+.inv-preview{background:#fff;border-radius:12px;padding:34px 36px;box-shadow:0 10px 40px -18px rgba(0,0,0,.25);font-size:13px;color:#2c2942}
+.ip-top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;margin-bottom:26px}
+.ip-logo{max-height:46px;max-width:200px;object-fit:contain;display:block;margin-bottom:8px}
+.ip-name{font-family:'Space Grotesk';font-size:24px;font-weight:600;color:${INK};margin-bottom:8px}
+.ip-bizmeta{font-size:12px;color:#6a6788;line-height:1.5}
+.ip-meta{text-align:right;flex:none}
+.ip-title{font-family:'Space Grotesk';font-size:26px;font-weight:600;letter-spacing:.04em;color:${COBALT}}
+.ip-num{font-size:13px;font-weight:600;color:#56527a;margin-top:2px}
+.ip-dates{margin-top:12px;font-size:12px;color:#2c2942}.ip-dates div{display:flex;gap:10px;justify-content:flex-end;margin-top:2px}.ip-dates span{color:#928DAD}
+.ip-stamp{display:inline-block;margin-top:12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:4px 12px;border-radius:20px}
+.ip-billto{margin-bottom:22px;font-size:12.5px;line-height:1.55;color:#2c2942}
+.ip-billto .ip-lbl{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#928DAD;margin-bottom:5px}
+.ip-billto .ip-btname{font-weight:700;font-size:14px;color:${INK}}
+.ip-table{width:100%;border-collapse:collapse;margin-bottom:18px}
+.ip-table th{text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:#928DAD;border-bottom:2px solid ${INK};padding:0 0 8px}
+.ip-table th:nth-child(2),.ip-table th:nth-child(3),.ip-table th:nth-child(4){text-align:right}
+.ip-table td{padding:10px 0;border-bottom:1px solid #EEE;font-size:13px}
+.ip-table td:nth-child(2),.ip-table td:nth-child(3),.ip-table td:nth-child(4){text-align:right;white-space:nowrap}
+.ip-table td:first-child{padding-right:14px}
+.ip-totals{margin-left:auto;width:260px}
+.ip-tr{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;color:#2c2942}.ip-tr span{color:#6a6788}
+.ip-grand{border-top:2px solid ${INK};margin-top:4px;padding-top:10px;font-size:16px}.ip-grand span{color:${INK};font-weight:700;font-family:'Space Grotesk'}.ip-grand b{font-family:'Space Grotesk';color:${COBALT}}
+.ip-pay{margin-top:22px;font-size:12.5px;color:#2c2942;word-break:break-all}.ip-pay a{color:${COBALT}}
+.ip-notes{margin-top:14px;padding-top:14px;border-top:1px solid #EEE;font-size:12px;color:#6a6788;white-space:pre-wrap}
+@media print{
+  body *{visibility:hidden!important}
+  #invprint,#invprint *{visibility:visible!important}
+  #invprint{position:absolute!important;left:0;top:0;width:100%;box-shadow:none!important;border-radius:0!important;padding:0!important}
+  .scrim2{position:static!important;background:none!important;padding:0!important}
+}
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
@@ -381,7 +445,9 @@ export default function App(){
   const [session,setSession]=useState(undefined);
   const [loaded,setLoaded]=useState(false);
   const [leads,setLeads]=useState([]);
-  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS});
+  const [invoices,setInvoices]=useState([]);
+  const [invId,setInvId]=useState(null);
+  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING});
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
@@ -392,11 +458,11 @@ export default function App(){
 
   useEffect(()=>{ if(!session){setLoaded(false);return;} (async()=>{
     try{
-      let s=await db.getLeads(); let st=await db.getSettings();
+      let s=await db.getLeads(); let st=await db.getSettings(); let iv=await db.getInvoices();
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
-      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS}; await db.saveSettings(st); }
-      setLeads(s);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS});
+      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING}; await db.saveSettings(st); }
+      setLeads(s); setInvoices(Array.isArray(iv)?iv:[]);
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -405,6 +471,10 @@ export default function App(){
   const me=cap(auth.username(session))||'Garrett';
   const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await db.upsertMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
   const saveSettings=n=>{ setSettings(n); db.saveSettings(n).catch(console.error); };
+  const saveInvoices=n=>{ setInvoices(n); db.saveInvoices(n).catch(console.error); };
+  const upsertInvoice=inv=>{ const exists=invoices.some(x=>x.id===inv.id); saveInvoices(exists?invoices.map(x=>x.id===inv.id?inv:x):[inv,...invoices]); };
+  const deleteInvoice=id=>{ saveInvoices(invoices.filter(x=>x.id!==id)); setInvId(null); };
+  const newInvoice=(lead)=>{ const ivset=settings.invoicing||DEFAULT_INVOICING; const number=(ivset.prefix||'INV-')+String(ivset.seq||1).padStart(4,'0'); saveSettings({...settings,invoicing:{...ivset,seq:(ivset.seq||1)+1}}); const issue=todayISO(); const inv={ id:uid(), number, clientId:lead?lead.id:'', billTo:lead?{name:lead.name||'',company:lead.company||'',email:lead.email||'',address:''}:{name:'',company:'',email:'',address:''}, issueDate:issue, dueDate:addDays(issue,ivset.terms||14), items:lead?itemsFromLead(lead):[{id:uid(),label:'',qty:1,amount:0}], taxRate:num(ivset.taxRate), notes:ivset.notes||'', paymentLink:ivset.paymentLink||'', status:'draft', paidDate:'', createdAt:new Date().toISOString() }; upsertInvoice(inv); setInvId(inv.id); };
   const addOption=(listKey,val)=>{const v=(val||'').trim();if(!v)return;const cur=settings.options[listKey]||[];if(cur.includes(v))return;saveSettings({...settings,options:{...settings.options,[listKey]:[...cur,v]}});};
 
   const updateLead=(id,patch)=>{ let updated=null; setLeads(leads.map(l=>{
@@ -429,7 +499,7 @@ export default function App(){
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2><p>Loading…</p></div></div></>);
   if(!session) return <Login/>;
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
   const titles={dash:['Dashboard','The whole board at a glance'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
@@ -455,11 +525,13 @@ export default function App(){
           page==='pipeline'?<Pipeline leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
           page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings}/>:
           page==='clients'?<Clients leads={leads} stages={stages} settings={settings} open={openLead}/>:
+          page==='invoices'?<Invoices invoices={invoices} leads={leads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           page==='money'?<Money leads={leads} stages={stages}/>:
-          <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads}/>}
+          <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices}/>}
       </div>
     </div>
     {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
+    {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
 
@@ -722,11 +794,139 @@ function Money({leads,stages}){
 }
 
 /* ===================== SETTINGS ===================== */
-function SettingsPage({settings,saveSettings,leads,saveLeads}){
+/* ===================== INVOICES ===================== */
+function Invoices({invoices,leads,settings,onNew,open}){
+  const [filter,setFilter]=useState('all');
+  const rows=(invoices||[]).map(inv=>({inv,st:invState(inv),total:invTotal(inv)}));
+  const outstanding=rows.filter(r=>r.st!=='paid').reduce((a,r)=>a+r.total,0);
+  const paid=rows.filter(r=>r.st==='paid').reduce((a,r)=>a+r.total,0);
+  const overdue=rows.filter(r=>r.st==='overdue').length;
+  const tabs=[['all','All'],['draft','Draft'],['sent','Sent'],['overdue','Overdue'],['paid','Paid']];
+  const shown=rows.filter(r=>filter==='all'?true:r.st===filter).sort((a,b)=>(b.inv.issueDate||'').localeCompare(a.inv.issueDate||''));
+  const cap=s=>s?s[0].toUpperCase()+s.slice(1):s;
+  return (<>
+    <div className="kgrid">
+      <Kpi variant="accent" label="Outstanding" value={usd(outstanding)} icon={<Receipt size={14}/>} d={`${rows.filter(r=>r.st!=='paid').length} unpaid`}/>
+      <Kpi variant="green" label="Collected" value={usd(paid)} icon={<CheckCircle2 size={14}/>} d={`${rows.filter(r=>r.st==='paid').length} paid`}/>
+      <Kpi label="Overdue" value={overdue} icon={<AlertTriangle size={14}/>} d="past due date"/>
+    </div>
+    <div className="inv-bar">
+      <div className="seg">{tabs.map(([k,l])=><button key={k} className={'seg-b '+(filter===k?'on':'')} onClick={()=>setFilter(k)}>{l}</button>)}</div>
+      <button className="btn btn-p" onClick={()=>onNew()}><Plus size={15}/>New Invoice</button>
+    </div>
+    <div className="tbl-wrap">
+      {shown.length?<table className="tbl"><thead><tr><th>Invoice</th><th>Client</th><th>Issued</th><th>Due</th><th>Amount</th><th>Status</th></tr></thead>
+      <tbody>{shown.map(({inv,st,total})=>(<tr key={inv.id} onClick={()=>open(inv.id)}>
+        <td style={{fontWeight:600,color:INK}}>{inv.number}</td>
+        <td><div className="namecell">{inv.billTo?.company||inv.billTo?.name||'—'}</div>{inv.billTo?.company&&inv.billTo?.name&&<div className="subcell">{inv.billTo.name}</div>}</td>
+        <td className="subcell">{fmtDate(inv.issueDate)}</td>
+        <td className="subcell">{fmtDate(inv.dueDate)}</td>
+        <td style={{fontWeight:600,color:INK}}>{usd(total)}</td>
+        <td><span className={'badge inv-'+st}>{cap(st)}</span></td>
+      </tr>))}</tbody></table>
+      :<div className="empty">No invoices yet. Hit <b>New Invoice</b> to bill a client.</div>}
+    </div>
+  </>);
+}
+
+function InvoiceModal({invoice,leads,settings,onSave,onDelete,onClose}){
+  const [inv,setInv]=useState(invoice);
+  useEffect(()=>setInv(invoice),[invoice.id]);
+  const patch=p=>{const n={...inv,...p};setInv(n);onSave(n);};
+  const iv=settings.invoicing||DEFAULT_INVOICING; const biz=iv.biz||DEFAULT_INVOICING.biz;
+  const bt=inv.billTo||{};
+  const setBT=p=>patch({billTo:{...bt,...p}});
+  const items=inv.items||[];
+  const setItem=(i,p)=>{const a=items.slice();a[i]={...a[i],...p};patch({items:a});};
+  const addItem=()=>patch({items:[...items,{id:uid(),label:'',qty:1,amount:0}]});
+  const delItem=i=>patch({items:items.filter((_,j)=>j!==i)});
+  const pickClient=id=>{const l=leads.find(x=>x.id===id); if(!l){patch({clientId:''});return;} patch({clientId:id,billTo:{name:l.name||'',company:l.company||'',email:l.email||'',address:bt.address||''},items:itemsFromLead(l)});};
+  const sub=invSubtotal(inv),tax=invTax(inv),total=invTotal(inv),st=invState(inv);
+  const cap=s=>s?s[0].toUpperCase()+s.slice(1):s;
+  return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal inv-modal" onMouseDown={e=>e.stopPropagation()}>
+      <div className="m-head">
+        <div style={{minWidth:0}}><h2>{inv.number}</h2><div className="meta">Invoice · {cap(st)}</div></div>
+        <div className="inv-actions">
+          {inv.status!=='paid'&&inv.status!=='sent'&&<button className="btn btn-s btn-sm" onClick={()=>patch({status:'sent'})}><Send size={14}/>Mark sent</button>}
+          {inv.status!=='paid'
+            ? <button className="btn btn-p btn-sm" onClick={()=>patch({status:'paid',paidDate:todayISO()})}><CheckCircle2 size={14}/>Mark paid</button>
+            : <button className="btn btn-s btn-sm" onClick={()=>patch({status:'sent',paidDate:''})}>Unmark paid</button>}
+          <button className="btn btn-s btn-sm" onClick={()=>window.print()}><Printer size={14}/>Print / PDF</button>
+          <button className="m-x" onClick={onClose}><X size={18}/></button>
+        </div>
+      </div>
+      <div className="inv-body">
+        <div className="inv-edit">
+          <div className="dh"><Contact2 size={13}/>Bill To</div>
+          <div className="field" style={{marginBottom:10}}><label>Client (auto-fills)</label><select value={inv.clientId||''} onChange={e=>pickClient(e.target.value)}><option value="">— Manual / no client —</option>{leads.map(l=><option key={l.id} value={l.id}>{l.company||l.name}</option>)}</select></div>
+          <div className="fgrid">
+            <div className="field"><label>Company</label><input value={bt.company||''} onChange={e=>setBT({company:e.target.value})}/></div>
+            <div className="field"><label>Contact name</label><input value={bt.name||''} onChange={e=>setBT({name:e.target.value})}/></div>
+            <div className="field"><label>Email</label><input value={bt.email||''} onChange={e=>setBT({email:e.target.value})}/></div>
+            <div className="field full"><label>Address</label><textarea rows={2} value={bt.address||''} onChange={e=>setBT({address:e.target.value})}/></div>
+          </div>
+          <div className="dh mt"><CalendarClock size={13}/>Dates</div>
+          <div className="fgrid">
+            <div className="field"><label>Issue date</label><input type="date" value={inv.issueDate||''} onChange={e=>patch({issueDate:e.target.value})}/></div>
+            <div className="field"><label>Due date</label><input type="date" value={inv.dueDate||''} onChange={e=>patch({dueDate:e.target.value})}/></div>
+          </div>
+          <div className="dh mt"><DollarSign size={13}/>Line Items</div>
+          <div className="inv-items-edit">
+            <div className="iie-h"><span>Description</span><span>Qty</span><span>Rate</span><span>Amount</span><span/></div>
+            {items.map((it,i)=>(<div className="iie-row" key={it.id||i}>
+              <input className="iie-label" value={it.label||''} placeholder="Description" onChange={e=>setItem(i,{label:e.target.value})}/>
+              <input className="iie-qty" type="number" value={it.qty??1} onChange={e=>setItem(i,{qty:e.target.value})}/>
+              <input className="iie-rate" type="number" value={it.amount??0} onChange={e=>setItem(i,{amount:e.target.value})}/>
+              <span className="iie-amt">{usd(num(it.qty)*num(it.amount))}</span>
+              <button className="ex-del" onClick={()=>delItem(i)}><X size={14}/></button>
+            </div>))}
+            <button className="addline" onClick={addItem}><Plus size={13}/>Add item</button>
+          </div>
+          <div className="fgrid" style={{marginTop:12}}>
+            <div className="field"><label>Tax rate (%)</label><input type="number" value={inv.taxRate??0} onChange={e=>patch({taxRate:num(e.target.value)})}/></div>
+            <div className="field"><label>Payment link</label><input placeholder="https://…" value={inv.paymentLink||''} onChange={e=>patch({paymentLink:e.target.value})}/></div>
+            <div className="field full"><label>Notes / terms</label><textarea rows={2} value={inv.notes||''} onChange={e=>patch({notes:e.target.value})}/></div>
+          </div>
+          <button className="btn btn-d btn-sm" style={{marginTop:14}} onClick={()=>{if(window.confirm('Delete invoice '+inv.number+'? This cannot be undone.'))onDelete(inv.id);}}><Trash2 size={14}/>Delete invoice</button>
+        </div>
+
+        <div className="inv-preview-wrap">
+          <div className="inv-preview" id="invprint">
+            <div className="ip-top">
+              <div className="ip-biz">
+                {settings.logo?<img src={settings.logo} alt="logo" className="ip-logo"/>:<div className="ip-name">{biz.name||'ProyTech'}</div>}
+                <div className="ip-bizmeta">{(biz.address||'').split('\n').map((l,i)=><div key={i}>{l}</div>)}{biz.email&&<div>{biz.email}</div>}{biz.phone&&<div>{biz.phone}</div>}</div>
+              </div>
+              <div className="ip-meta">
+                <div className="ip-title">INVOICE</div>
+                <div className="ip-num">{inv.number}</div>
+                <div className="ip-dates"><div><span>Issued</span>{fmtDate(inv.issueDate)}</div><div><span>Due</span>{fmtDate(inv.dueDate)}</div></div>
+                <div className={'ip-stamp inv-'+st}>{cap(st)}</div>
+              </div>
+            </div>
+            <div className="ip-billto"><div className="ip-lbl">Bill To</div><div className="ip-btname">{bt.company||bt.name||'—'}</div>{bt.company&&bt.name&&<div>{bt.name}</div>}{(bt.address||'').split('\n').map((l,i)=>l&&<div key={i}>{l}</div>)}{bt.email&&<div>{bt.email}</div>}</div>
+            <table className="ip-table"><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead>
+              <tbody>{items.map((it,i)=>(<tr key={it.id||i}><td>{it.label||'—'}</td><td>{num(it.qty)}</td><td>{usd(it.amount)}</td><td>{usd(num(it.qty)*num(it.amount))}</td></tr>))}</tbody></table>
+            <div className="ip-totals">
+              <div className="ip-tr"><span>Subtotal</span><b>{usd(sub)}</b></div>
+              {num(inv.taxRate)>0&&<div className="ip-tr"><span>Tax ({num(inv.taxRate)}%)</span><b>{usd(tax)}</b></div>}
+              <div className="ip-tr ip-grand"><span>Total Due</span><b>{usd(total)}</b></div>
+            </div>
+            {inv.paymentLink&&<div className="ip-pay">Pay online: <a href={inv.paymentLink}>{inv.paymentLink}</a></div>}
+            {inv.notes&&<div className="ip-notes">{inv.notes}</div>}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>);
+}
+
+function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
-  const exportAll=()=>{const data={app:'proytech-crm',version:3,exportedAt:new Date().toISOString(),leads,settings};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS});window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
     {/* logo */}
@@ -740,6 +940,24 @@ function SettingsPage({settings,saveSettings,leads,saveLeads}){
       </div>}
       {settings.logo&&<button className="btn btn-d" style={{marginTop:12}} onClick={()=>saveSettings({...settings,logo:''})}><Trash2 size={15}/>Remove logo</button>}
     </div>
+
+    {/* invoicing defaults */}
+    {(()=>{ const iv=settings.invoicing||DEFAULT_INVOICING; const biz=iv.biz||DEFAULT_INVOICING.biz; const setIv=patch=>saveSettings({...settings,invoicing:{...iv,...patch}}); const setBiz=patch=>setIv({biz:{...biz,...patch}});
+      return (<div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><Receipt size={15}/>Invoicing</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Your business details and defaults. These fill in automatically on every new invoice.</div>
+      <div className="fgrid">
+        <div className="field"><label>Business name</label><input value={biz.name||''} onChange={e=>setBiz({name:e.target.value})}/></div>
+        <div className="field"><label>Email</label><input value={biz.email||''} onChange={e=>setBiz({email:e.target.value})}/></div>
+        <div className="field full"><label>Business address</label><textarea rows={2} value={biz.address||''} onChange={e=>setBiz({address:e.target.value})}/></div>
+        <div className="field"><label>Invoice prefix</label><input value={iv.prefix||''} onChange={e=>setIv({prefix:e.target.value})}/></div>
+        <div className="field"><label>Next invoice #</label><input type="number" value={iv.seq||1} onChange={e=>setIv({seq:Math.max(1,Math.round(num(e.target.value)))})}/></div>
+        <div className="field"><label>Payment terms (days)</label><input type="number" value={iv.terms??14} onChange={e=>setIv({terms:Math.round(num(e.target.value))})}/></div>
+        <div className="field"><label>Default tax rate (%)</label><input type="number" value={iv.taxRate??0} onChange={e=>setIv({taxRate:num(e.target.value)})}/></div>
+        <div className="field full"><label>Payment link (Stripe / PayPal / etc.)</label><input placeholder="https://…" value={iv.paymentLink||''} onChange={e=>setIv({paymentLink:e.target.value})}/></div>
+        <div className="field full"><label>Default notes / terms</label><textarea rows={2} value={iv.notes||''} onChange={e=>setIv({notes:e.target.value})}/></div>
+      </div>
+    </div>); })()}
 
     {/* dropdown options */}
     <div className="card" style={{marginBottom:18}}>
