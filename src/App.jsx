@@ -501,7 +501,7 @@ export default function App(){
   if(!session) return <Login/>;
 
   const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
-  const titles={dash:['Dashboard','The whole board at a glance'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const titles={dash:['Dashboard','The whole board at a glance'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
@@ -516,7 +516,7 @@ export default function App(){
       <div className="top">
         <div style={{display:'flex',alignItems:'center',gap:14}}>
           <button className="hamb" onClick={()=>setSbOpen(true)}><Menu size={22}/></button>
-          <div><h1>{titles[page][0]}</h1><div className="sub">{titles[page][1]}</div></div>
+          <div><h1>{(titles[page]||[page,''])[0]}</h1><div className="sub">{(titles[page]||['',''])[1]}</div></div>
         </div>
         <button className="btn btn-p" onClick={()=>setActiveId('new')}><Plus size={16}/>New Lead</button>
       </div>
