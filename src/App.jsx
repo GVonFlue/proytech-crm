@@ -110,7 +110,8 @@ const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[trac
 const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase='',overdue=0,nextDue=null,lastDone=null; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;overdue+=p.overdue; if(p.nextDue&&(!nextDue||p.nextDue<nextDue))nextDue=p.nextDue; if(p.current&&!phase)phase=`${tr.label}: ${p.current}`; Object.values(p.entries).forEach(e=>{ if(e.done&&(!lastDone||e.done>lastDone)) lastDone=e.done; }); }); const delivered=t>0&&c>=t; return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts,overdue,nextDue,completed:c,total:t,delivered,doneDate:lastDone}; };
 
 /* ===================== invoicing ===================== */
-const DEFAULT_INVOICING={ biz:{ name:'ProyTech', address:'150 N Main St\nWichita, KS 67202', email:'getproytech@gmail.com', phone:'' }, prefix:'INV-', seq:1, taxRate:0, terms:14, notes:'Thank you for your business.', paymentLink:'', accent:'#2B4DE0', logoH:46, showNotes:true, showPay:true, showLogo:true, layout:{order:['billto','items','totals','pay','notes'],headerSwap:false} };
+const DEFAULT_INV_SECTIONS={ headerLeft:{fz:10,lh:1.55}, headerRight:{fz:10,lh:1.4}, billto:{fz:10,lh:1.45}, items:{fz:10.5,lh:1.5}, totals:{fz:10.5,lh:1.5}, pay:{fz:10,lh:1.45}, notes:{fz:9.5,lh:1.5} };
+const DEFAULT_INVOICING={ biz:{ name:'ProyTech', address:'150 N Main St\nWichita, KS 67202', email:'getproytech@gmail.com', phone:'' }, prefix:'INV-', seq:1, taxRate:0, terms:14, notes:'Thank you for your business.', paymentLink:'', accent:'#2B4DE0', logoH:46, showNotes:true, showPay:true, showLogo:true, layout:{order:['billto','items','totals','pay','notes'],headerSwap:false}, sections:DEFAULT_INV_SECTIONS };
 const invSubtotal=inv=>(inv.items||[]).reduce((a,it)=>a+num(it.qty)*num(it.amount),0);
 const invTax=inv=>invSubtotal(inv)*num(inv.taxRate)/100;
 const invTotal=inv=>invSubtotal(inv)+invTax(inv);
@@ -376,7 +377,15 @@ const CSS=`
 .inv-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:0;overflow:auto;flex:1}
 .inv-edit{padding:20px 22px;overflow:auto;border-right:1px solid #E8E9F2}
 .inv-preview-wrap{padding:24px;background:#ECEEF5;overflow:auto;display:flex;justify-content:center;align-items:flex-start}
-.inv-page-tools{display:flex;justify-content:flex-end;width:100%;max-width:612px;margin:0 auto 12px}
+.inv-page-tools{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;width:100%;max-width:660px;margin:0 auto 14px}
+.sec-toolbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#fff;border:1px solid #DEDFEA;border-radius:10px;padding:6px 10px;box-shadow:0 4px 16px -8px rgba(0,0,0,.18)}
+.sec-tl{font-size:11px;font-weight:800;color:${INK};letter-spacing:.01em}
+.sec-grp{display:flex;align-items:center;gap:5px;font-size:10px;font-weight:700;color:#8b88a0;text-transform:uppercase;letter-spacing:.04em}
+.sec-grp .stp{width:22px;height:22px;border-radius:6px;border:1px solid #DEDFEA;background:#F7F8FC;color:${COBALT};font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+.sec-grp .stp:hover{background:${COBALT};color:#fff;border-color:${COBALT}}
+.sec-grp .val{min-width:30px;text-align:center;font-size:11px;font-weight:700;color:${INK};text-transform:none}
+.sec-done{font-size:11px;font-weight:700;color:#fff;background:${COBALT};border:none;border-radius:7px;padding:6px 12px;cursor:pointer}
+.sec-hint{font-size:11px;color:#9b98ad;font-weight:500}
 .swapbtn{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#56527a;background:#fff;border:1px solid #DEDFEA;border-radius:8px;padding:6px 11px;cursor:pointer}
 .swapbtn:hover{border-color:${COBALT};color:${COBALT}}
 .inv-items-edit{display:flex;flex-direction:column;gap:7px}
@@ -385,38 +394,42 @@ const CSS=`
 .iie-row input{padding:8px 9px;border:1px solid #DEDFEA;border-radius:8px;font-size:13px;font-family:'Inter';color:${INK};background:#fff;width:100%}
 .iie-row input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .iie-amt{font-size:13px;font-weight:600;color:${INK};text-align:right}
-.inv-preview{background:#fff;border-radius:3px;padding:46px 50px;box-shadow:0 12px 44px -16px rgba(0,0,0,.32);font-size:10.5px;color:#3a3850;line-height:1.45;width:100%;max-width:612px;min-height:792px;box-sizing:border-box}
-.ip-block{position:relative}
-.ip-block.dragk{opacity:.45}
-.ip-drag{position:absolute;left:-30px;top:0;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#C4C1D6;cursor:grab;opacity:0;transition:.13s}
+.inv-preview{background:#fff;border-radius:3px;padding:6.5% 7%;box-shadow:0 14px 50px -16px rgba(0,0,0,.34);color:#3a3850;width:100%;max-width:660px;aspect-ratio:8.5/11;box-sizing:border-box}
+.ip-block{position:relative;margin-bottom:20px}
+.ip-block:last-child{margin-bottom:0}
+.ip-block.dragk{opacity:.4}
+.ip-drag{position:absolute;left:-26px;top:1px;width:20px;height:20px;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#C4C1D6;cursor:grab;opacity:0;transition:.13s}
 .ip-block:hover .ip-drag{opacity:1}
 .ip-drag:hover{color:${COBALT};background:#F1F2F8}
-.ip-block.over{box-shadow:0 -2px 0 ${COBALT}}
-.ip-top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:12px}
-.ip-logo{max-height:42px;max-width:190px;object-fit:contain;display:block;margin-bottom:8px}
-.ip-name{font-family:'Space Grotesk';font-size:16px;font-weight:600;color:${INK};margin-bottom:7px;letter-spacing:-.01em}
-.ip-bizmeta{font-size:9.5px;color:#8b88a0;line-height:1.55}
+.ip-sec{cursor:pointer;border-radius:5px;transition:box-shadow .12s;outline-offset:3px}
+.ip-sec:hover{box-shadow:0 0 0 1px #DCDEEE}
+.ip-sec.sel{box-shadow:0 0 0 2px ${COBALT}}
+.ip-top{display:flex;justify-content:space-between;align-items:flex-start;gap:24px;margin-bottom:14px}
+.ip-top .ip-sec{padding:4px 6px;margin:-4px -6px}
+.ip-logo{max-height:42px;max-width:190px;object-fit:contain;display:block;margin-bottom:.7em}
+.ip-name{font-family:'Space Grotesk';font-size:1.65em;font-weight:600;color:${INK};margin-bottom:.45em;letter-spacing:-.01em}
+.ip-bizmeta{font-size:.95em;color:#8b88a0}
 .ip-meta{text-align:right;flex:none}
 .ip-meta.left{text-align:left}
-.ip-title{font-family:'Space Grotesk';font-size:14px;font-weight:700;letter-spacing:.16em;color:${COBALT};line-height:1}
-.ip-num{font-size:9.5px;font-weight:600;color:#8b88a0;margin-top:3px;letter-spacing:.03em}
-.ip-dates{margin-top:9px;font-size:9.5px;color:${INK}}.ip-dates div{display:flex;gap:12px;justify-content:flex-end;margin-top:2px}.ip-dates span{color:#aaa6bd;text-transform:uppercase;letter-spacing:.05em;font-size:8.5px;font-weight:600}
-.ip-stamp{display:inline-block;margin-top:8px;font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:2px 9px;border-radius:20px}
-.ip-rule{height:1.5px;width:100%;border-radius:2px;margin:0 0 14px;opacity:.9}
-.ip-billto{margin-bottom:16px;font-size:10px;line-height:1.45;color:#6a6788}
-.ip-billto .ip-lbl{font-size:8px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#aaa6bd;margin-bottom:3px}
-.ip-billto .ip-btname{font-weight:700;font-size:11.5px;color:${INK};letter-spacing:-.01em}
-.ip-table{width:100%;border-collapse:collapse;margin-bottom:14px}
-.ip-table th{text-align:left;font-size:8px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#aaa6bd;border-bottom:1.5px solid ${INK};padding:0 0 6px}
+.ip-title{font-family:'Space Grotesk';font-size:1.4em;font-weight:700;letter-spacing:.16em;color:${COBALT};line-height:1}
+.ip-num{font-size:.95em;font-weight:600;color:#8b88a0;margin-top:.3em;letter-spacing:.03em}
+.ip-dates{margin-top:.9em;font-size:.95em;color:${INK}}.ip-dates div{display:flex;gap:1.3em;justify-content:flex-end;margin-top:.25em}.ip-meta.left .ip-dates div{justify-content:flex-start}.ip-dates span{color:#aaa6bd;text-transform:uppercase;letter-spacing:.05em;font-size:.82em;font-weight:600}
+.ip-stamp{display:inline-block;margin-top:.8em;font-size:.82em;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:.25em 1em;border-radius:20px}
+.ip-rule{height:1.5px;width:100%;border-radius:2px;margin:0 0 16px;opacity:.9}
+.ip-billto{color:#6a6788}
+.ip-billto .ip-lbl{font-size:.8em;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#aaa6bd;margin-bottom:.35em}
+.ip-billto .ip-btname{font-weight:700;font-size:1.15em;color:${INK};letter-spacing:-.01em}
+.ip-table{width:100%;border-collapse:collapse}
+.ip-table th{text-align:left;font-size:.78em;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#aaa6bd;border-bottom:1.5px solid ${INK};padding:0 0 .6em}
 .ip-table th:nth-child(2),.ip-table th:nth-child(3),.ip-table th:nth-child(4){text-align:right}
-.ip-table td{padding:7px 0;border-bottom:1px solid #F2F2F6;font-size:10.5px;font-variant-numeric:tabular-nums}
+.ip-table td{padding:.65em 0;border-bottom:1px solid #F2F2F6;font-variant-numeric:tabular-nums}
 .ip-table td:nth-child(2),.ip-table td:nth-child(3),.ip-table td:nth-child(4){text-align:right;white-space:nowrap}
-.ip-table td:first-child{padding-right:14px;color:${INK}}
-.ip-totals{margin-left:auto;width:210px}
-.ip-tr{display:flex;justify-content:space-between;padding:4px 0;font-size:10.5px;color:#6a6788;font-variant-numeric:tabular-nums}.ip-tr span{color:#9b98ad}.ip-tr b{font-weight:600;color:${INK}}
-.ip-grand{border-top:1.5px solid ${INK};margin-top:5px;padding-top:9px;font-size:12px}.ip-grand span{color:${INK};font-weight:700;font-family:'Space Grotesk';letter-spacing:.01em}.ip-grand b{font-family:'Space Grotesk';font-size:14px;color:${COBALT}}
-.ip-pay{margin-top:16px;font-size:10px;color:#6a6788;word-break:break-all}.ip-pay a{color:${COBALT};font-weight:600}
-.ip-notes{margin-top:12px;padding-top:12px;border-top:1px solid #F2F2F6;font-size:9.5px;color:#9b98ad;white-space:pre-wrap;line-height:1.5}
+.ip-table td:first-child{padding-right:1.3em;color:${INK}}
+.ip-totals{margin-left:auto;width:56%;min-width:200px}
+.ip-tr{display:flex;justify-content:space-between;padding:.35em 0;color:#6a6788;font-variant-numeric:tabular-nums}.ip-tr span{color:#9b98ad}.ip-tr b{font-weight:600;color:${INK}}
+.ip-grand{border-top:1.5px solid ${INK};margin-top:.45em;padding-top:.7em}.ip-grand span{color:${INK};font-weight:700;font-family:'Space Grotesk';letter-spacing:.01em}.ip-grand b{font-family:'Space Grotesk';font-size:1.32em;color:${COBALT}}
+.ip-pay{color:#6a6788;word-break:break-all}.ip-pay a{color:${COBALT};font-weight:600}
+.ip-notes{padding-top:12px;border-top:1px solid #F2F2F6;color:#9b98ad;white-space:pre-wrap}
 .acc-row{display:flex;gap:8px;align-items:center}
 .acc-row input[type=color]{width:42px;height:38px;padding:2px;border:1px solid #DEDFEA;border-radius:9px;background:#fff;cursor:pointer;flex:none}
 .acc-row input:not([type=color]){flex:1}
@@ -432,6 +445,7 @@ const CSS=`
   #invprint{position:absolute!important;left:0;top:0;width:100%;box-shadow:none!important;border-radius:0!important;padding:0!important}
   .scrim2{position:static!important;background:none!important;padding:0!important}
   .ip-drag,.inv-page-tools{display:none!important}
+  .ip-sec{box-shadow:none!important;cursor:default!important}
   #invprint{box-shadow:none!important;min-height:0!important;padding:0!important}
 }
 .fu-hero{display:flex;align-items:center;gap:22px;background:linear-gradient(120deg,${INDIGO} 0%,${COBALT} 100%);border-radius:18px;padding:22px 26px;margin-bottom:22px;color:#fff;box-shadow:0 14px 40px -20px ${COBALT}}
@@ -1007,7 +1021,12 @@ function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClo
   const layout=iv.layout||DEFAULT_INVOICING.layout;
   const [order,setOrder]=useState(layout.order||DEFAULT_INVOICING.layout.order);
   const [dragK,setDragK]=useState(null);
-  useEffect(()=>{setOrder((iv.layout||DEFAULT_INVOICING.layout).order||DEFAULT_INVOICING.layout.order);},[invoice.id]);
+  const [sel,setSel]=useState(null);
+  const sections={...DEFAULT_INV_SECTIONS,...(iv.sections||{})};
+  useEffect(()=>{setOrder((iv.layout||DEFAULT_INVOICING.layout).order||DEFAULT_INVOICING.layout.order);setSel(null);},[invoice.id]);
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const secStyle=k=>{const s=sections[k]||DEFAULT_INV_SECTIONS[k];return {fontSize:s.fz+'px',lineHeight:s.lh};};
+  const adj=(k,dfz,dlh)=>{ const cur=sections[k]||DEFAULT_INV_SECTIONS[k]; const next={fz:clamp(+(cur.fz+dfz).toFixed(1),6,30),lh:clamp(+(cur.lh+dlh).toFixed(2),1,2.6)}; if(saveSettings) saveSettings({...settings,invoicing:{...iv,sections:{...sections,[k]:next}}}); };
   const saveLayout=next=>{ if(saveSettings) saveSettings({...settings,invoicing:{...iv,layout:{...layout,...next}}}); };
   const onSecOver=(e,key)=>{ e.preventDefault(); if(!dragK||dragK===key)return; setOrder(o=>{const a=o.filter(k=>k!==dragK);const i=a.indexOf(key);a.splice(i<0?a.length:i,0,dragK);return a;}); };
   const onSecDrop=()=>{ setDragK(null); saveLayout({order}); };
@@ -1071,13 +1090,22 @@ function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClo
         </div>
 
         <div className="inv-preview-wrap">
-          <div className="inv-page-tools"><button className="swapbtn" onClick={swapHeader} title="Swap header sides"><ArrowUpDown size={13} style={{transform:'rotate(90deg)'}}/>Swap header</button></div>
+          <div className="inv-page-tools">
+            {sel?(()=>{const s=sections[sel]||DEFAULT_INV_SECTIONS[sel];const NAME={headerLeft:'Header · left',headerRight:'Header · right',billto:'Bill To',items:'Line items',totals:'Totals',pay:'Payment link',notes:'Notes'};return(
+              <div className="sec-toolbar">
+                <span className="sec-tl">{NAME[sel]}</span>
+                <span className="sec-grp">Font<button className="stp" onClick={()=>adj(sel,-0.5,0)}>−</button><span className="val">{s.fz}</span><button className="stp" onClick={()=>adj(sel,0.5,0)}>+</button></span>
+                <span className="sec-grp">Spacing<button className="stp" onClick={()=>adj(sel,0,-0.05)}>−</button><span className="val">{s.lh.toFixed(2)}</span><button className="stp" onClick={()=>adj(sel,0,0.05)}>+</button></span>
+                <button className="sec-done" onClick={()=>setSel(null)}>Done</button>
+              </div>);})():<span className="sec-hint">Tap any section to resize its text &amp; spacing · hover to drag</span>}
+            <button className="swapbtn" onClick={swapHeader} title="Swap header sides"><ArrowUpDown size={13} style={{transform:'rotate(90deg)'}}/>Swap header</button>
+          </div>
           <div className="inv-preview" id="invprint">
-            {(()=>{ const bizBlock=(<div className="ip-biz" key="biz">
+            {(()=>{ const bizBlock=(<div key="biz" className={'ip-biz ip-sec'+(sel==='headerLeft'?' sel':'')} style={secStyle('headerLeft')} onClick={e=>{e.stopPropagation();setSel('headerLeft');}}>
                 {(iv.showLogo!==false&&settings.logo)?<img src={settings.logo} alt="logo" className="ip-logo" style={{maxHeight:logoH,maxWidth:logoH*4.5}}/>:<div className="ip-name">{biz.name||'ProyTech'}</div>}
                 <div className="ip-bizmeta">{(biz.address||'').split('\n').map((l,i)=><div key={i}>{l}</div>)}{biz.email&&<div>{biz.email}</div>}{biz.phone&&<div>{biz.phone}</div>}</div>
               </div>);
-              const metaBlock=(<div className={'ip-meta'+(layout.headerSwap?' left':'')} key="meta">
+              const metaBlock=(<div key="meta" className={'ip-meta ip-sec'+(layout.headerSwap?' left':'')+(sel==='headerRight'?' sel':'')} style={secStyle('headerRight')} onClick={e=>{e.stopPropagation();setSel('headerRight');}}>
                 <div className="ip-title" style={{color:accent}}>INVOICE</div>
                 <div className="ip-num">{inv.number}</div>
                 <div className="ip-dates"><div><span>Issued</span>{fmtDate(inv.issueDate)}</div><div><span>Due</span>{fmtDate(inv.dueDate)}</div></div>
@@ -1086,13 +1114,13 @@ function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClo
               return <div className="ip-top">{layout.headerSwap?[metaBlock,bizBlock]:[bizBlock,metaBlock]}</div>; })()}
             <div className="ip-rule" style={{background:accent}}/>
             {(()=>{ const blocks={
-                billto:(<div className="ip-billto"><div className="ip-lbl">Bill To</div><div className="ip-btname">{bt.company||bt.name||'—'}</div>{bt.company&&bt.name&&<div>{bt.name}</div>}{(bt.address||'').split('\n').map((l,i)=>l&&<div key={i}>{l}</div>)}{bt.email&&<div>{bt.email}</div>}</div>),
-                items:(<table className="ip-table"><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>{items.map((it,i)=>(<tr key={it.id||i}><td>{it.label||'—'}</td><td>{num(it.qty)}</td><td>{usd(it.amount)}</td><td>{usd(num(it.qty)*num(it.amount))}</td></tr>))}</tbody></table>),
-                totals:(<div className="ip-totals"><div className="ip-tr"><span>Subtotal</span><b>{usd(sub)}</b></div>{num(inv.taxRate)>0&&<div className="ip-tr"><span>Tax ({num(inv.taxRate)}%)</span><b>{usd(tax)}</b></div>}<div className="ip-tr ip-grand"><span>Total Due</span><b style={{color:accent}}>{usd(total)}</b></div></div>),
-                pay:(iv.showPay!==false&&inv.paymentLink)?(<div className="ip-pay">Pay online: <a href={inv.paymentLink} style={{color:accent}}>{inv.paymentLink}</a></div>):null,
-                notes:(iv.showNotes!==false&&inv.notes)?(<div className="ip-notes">{inv.notes}</div>):null,
+                billto:(<div className="ip-billto" style={secStyle('billto')}><div className="ip-lbl">Bill To</div><div className="ip-btname">{bt.company||bt.name||'—'}</div>{bt.company&&bt.name&&<div>{bt.name}</div>}{(bt.address||'').split('\n').map((l,i)=>l&&<div key={i}>{l}</div>)}{bt.email&&<div>{bt.email}</div>}</div>),
+                items:(<table className="ip-table" style={secStyle('items')}><thead><tr><th>Description</th><th>Qty</th><th>Rate</th><th>Amount</th></tr></thead><tbody>{items.map((it,i)=>(<tr key={it.id||i}><td>{it.label||'—'}</td><td>{num(it.qty)}</td><td>{usd(it.amount)}</td><td>{usd(num(it.qty)*num(it.amount))}</td></tr>))}</tbody></table>),
+                totals:(<div className="ip-totals" style={secStyle('totals')}><div className="ip-tr"><span>Subtotal</span><b>{usd(sub)}</b></div>{num(inv.taxRate)>0&&<div className="ip-tr"><span>Tax ({num(inv.taxRate)}%)</span><b>{usd(tax)}</b></div>}<div className="ip-tr ip-grand"><span>Total Due</span><b style={{color:accent}}>{usd(total)}</b></div></div>),
+                pay:(iv.showPay!==false&&inv.paymentLink)?(<div className="ip-pay" style={secStyle('pay')}>Pay online: <a href={inv.paymentLink} style={{color:accent}}>{inv.paymentLink}</a></div>):null,
+                notes:(iv.showNotes!==false&&inv.notes)?(<div className="ip-notes" style={secStyle('notes')}>{inv.notes}</div>):null,
               };
-              return order.filter(k=>blocks[k]).map(key=>(<div key={key} className={'ip-block'+(dragK===key?' dragk':'')} draggable onDragStart={()=>setDragK(key)} onDragOver={e=>onSecOver(e,key)} onDragEnd={onSecDrop}>
+              return order.filter(k=>blocks[k]).map(key=>(<div key={key} className={'ip-block ip-sec'+(dragK===key?' dragk':'')+(sel===key?' sel':'')} draggable onDragStart={()=>setDragK(key)} onDragOver={e=>onSecOver(e,key)} onDragEnd={onSecDrop} onClick={e=>{e.stopPropagation();setSel(key);}}>
                 <span className="ip-drag" title="Drag to reorder"><GripVertical size={13}/></span>
                 {blocks[key]}
               </div>)); })()}
