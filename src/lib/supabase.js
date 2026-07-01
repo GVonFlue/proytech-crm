@@ -61,4 +61,33 @@ export const db = {
     const { error } = await supabase.from('app_settings').upsert({ id: 'invoices', data: { list } });
     if (error) throw error;
   },
+  async getTxns() {
+    const { data, error } = await supabase.from('app_settings').select('data').eq('id', 'txns').maybeSingle();
+    if (error) throw error;
+    return (data?.data?.list) || [];
+  },
+  async saveTxns(list) {
+    const { error } = await supabase.from('app_settings').upsert({ id: 'txns', data: { list } });
+    if (error) throw error;
+  },
+  /* ---- receipt files live in Supabase Storage (bucket 'receipts'), NOT in the DB ---- */
+  async uploadReceipt(path, file) {
+    const { error } = await supabase.storage.from('receipts').upload(path, file, { contentType: file.type || 'application/pdf', upsert: true });
+    if (error) throw error;
+    return path;
+  },
+  async downloadReceipt(path) {
+    const { data, error } = await supabase.storage.from('receipts').download(path);
+    if (error) throw error;
+    return data; // Blob
+  },
+  async removeReceipt(path) {
+    const { error } = await supabase.storage.from('receipts').remove([path]);
+    if (error) throw error;
+  },
+  async receiptUrl(path) {
+    const { data, error } = await supabase.storage.from('receipts').createSignedUrl(path, 3600);
+    if (error) throw error;
+    return data?.signedUrl || null;
+  },
 };
