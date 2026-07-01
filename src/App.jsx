@@ -9,8 +9,10 @@ import {
   MessageSquare, PhoneCall, CalendarClock, StickyNote, Mailbox, Lock, Repeat,
   CheckCircle2, Circle, AlertTriangle, ArrowUpDown, Percent, Target, Award, Rocket, UserCheck,
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
-  Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles
+  Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
+  BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2
 } from 'lucide-react';
+import JSZip from 'jszip';
 import { auth, db } from './lib/supabase';
 
 /* ===================== brand ===================== */
@@ -388,6 +390,23 @@ const CSS=`
 .sec-grp .val{min-width:30px;text-align:center;font-size:11px;font-weight:700;color:${INK};text-transform:none}
 .sec-done{font-size:11px;font-weight:700;color:#fff;background:${COBALT};border:none;border-radius:7px;padding:6px 12px;cursor:pointer}
 .sec-hint{font-size:11px;color:#9b98ad;font-weight:500}
+.bk-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.bk-filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 16px}
+.bk-chip{padding:7px 14px;border-radius:20px;border:1px solid #E1E2EC;background:#fff;font-size:13px;font-weight:600;color:#56527a;cursor:pointer}
+.bk-chip.on{background:${INK};color:#fff;border-color:${INK}}
+.bk-yr{margin-left:auto;display:flex;align-items:center;gap:8px}
+.bk-yr select{padding:8px 10px;border:1px solid #E1E2EC;border-radius:9px;font-size:13px;font-weight:600;color:${INK};background:#fff}
+.tx-type{display:inline-flex;align-items:center;gap:5px;font-weight:600;font-size:12.5px;color:${INK}}
+.tx-amt{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;font-size:14px}
+.tx-in{color:#1f9d63}.tx-out{color:#b4322e}
+.rc-btn{display:inline-flex;align-items:center;gap:4px;color:${COBALT};font-weight:600;font-size:12px;cursor:pointer}
+.rc-none{color:#c7c5d4}
+.ai-banner{display:flex;align-items:center;gap:8px;border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:600;margin-bottom:14px}
+.ai-reading{background:#EEF2FF;color:#3949c9}
+.ai-done{background:#E9F8EF;color:#1f8a55}
+.ai-off{background:#FBEFEF;color:#a23b34}
+.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+.rcfile{display:flex;align-items:center;gap:8px;background:#F4F5FA;border:1px solid #E5E6F0;border-radius:9px;padding:9px 11px;font-size:12.5px;color:${INK};margin-top:10px}
 .swapbtn{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#56527a;background:#fff;border:1px solid #DEDFEA;border-radius:8px;padding:6px 11px;cursor:pointer}
 .swapbtn:hover{border-color:${COBALT};color:${COBALT}}
 .inv-items-edit{display:flex;flex-direction:column;gap:7px}
@@ -542,6 +561,7 @@ export default function App(){
   const [loaded,setLoaded]=useState(false);
   const [leads,setLeads]=useState([]);
   const [invoices,setInvoices]=useState([]);
+  const [txns,setTxns]=useState([]);
   const [invId,setInvId]=useState(null);
   const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING});
   const [page,setPage]=useState('dash');
@@ -560,9 +580,10 @@ export default function App(){
     try{
       let s=await db.getLeads(); let st=await db.getSettings();
       let iv=[]; try{ if(typeof db.getInvoices==='function') iv=await db.getInvoices(); }catch(err){ console.error('invoices load failed',err); }
+      let tx=[]; try{ if(typeof db.getTxns==='function') tx=await db.getTxns(); }catch(err){ console.error('txns load failed',err); }
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
       if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING}; await db.saveSettings(st); }
-      setLeads(s); setInvoices(Array.isArray(iv)?iv:[]);
+      setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]);
       setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
@@ -574,6 +595,9 @@ export default function App(){
   const settingsTimer=React.useRef(null);
   const saveSettings=n=>{ setSettings(n); if(settingsTimer.current)clearTimeout(settingsTimer.current); settingsTimer.current=setTimeout(()=>{ db.saveSettings(n).catch(console.error); },700); };
   const saveInvoices=n=>{ setInvoices(n); if(typeof db.saveInvoices==='function') db.saveInvoices(n).catch(console.error); };
+  const saveTxns=n=>{ setTxns(n); if(typeof db.saveTxns==='function') db.saveTxns(n).catch(console.error); };
+  const upsertTxn=t=>{ const exists=txns.some(x=>x.id===t.id); saveTxns(exists?txns.map(x=>x.id===t.id?t:x):[t,...txns]); };
+  const deleteTxn=t=>{ saveTxns(txns.filter(x=>x.id!==t.id)); if(t.receipt?.path&&typeof db.removeReceipt==='function') db.removeReceipt(t.receipt.path).catch(console.error); };
   const upsertInvoice=inv=>{ const exists=invoices.some(x=>x.id===inv.id); saveInvoices(exists?invoices.map(x=>x.id===inv.id?inv:x):[inv,...invoices]); };
   const deleteInvoice=id=>{ saveInvoices(invoices.filter(x=>x.id!==id)); setInvId(null); };
   const newInvoice=(lead)=>{ const ivset=settings.invoicing||DEFAULT_INVOICING; const number=(ivset.prefix||'INV-')+String(ivset.seq||1).padStart(4,'0'); saveSettings({...settings,invoicing:{...ivset,seq:(ivset.seq||1)+1}}); const issue=todayISO(); const inv={ id:uid(), number, clientId:lead?lead.id:'', billTo:lead?{name:lead.name||'',company:lead.company||'',email:lead.email||'',address:''}:{name:'',company:'',email:'',address:''}, issueDate:issue, dueDate:addDays(issue,ivset.terms||14), items:lead?itemsFromLead(lead):[{id:uid(),label:'',qty:1,amount:0}], taxRate:num(ivset.taxRate), notes:ivset.notes||'', paymentLink:ivset.paymentLink||'', status:'draft', paidDate:'', createdAt:new Date().toISOString() }; upsertInvoice(inv); setInvId(inv.id); };
@@ -601,8 +625,8 @@ export default function App(){
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
-  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
@@ -629,6 +653,7 @@ export default function App(){
           page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings}/>:
           page==='clients'?<Clients leads={leads} stages={stages} settings={settings} open={openLead}/>:
           page==='invoices'?<Invoices invoices={invoices} leads={leads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
+          page==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
           page==='money'?<Money leads={leads} stages={stages}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices}/>}
       </div>
@@ -1143,6 +1168,151 @@ function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClo
         </div>
 
         <InvoicePreview inv={inv} settings={settings} saveSettings={saveSettings}/>
+      </div>
+    </div>
+  </div>);
+}
+
+const TX_TYPES={
+  income:{label:'Money in',dir:'in'},
+  contribution:{label:'Owner contribution',dir:'in'},
+  expense:{label:'Expense',dir:'out'},
+  draw:{label:'Owner draw',dir:'out'},
+};
+const EXP_CATS=['Software','Advertising','Office','Meals','Travel','Contractors','Fees','Equipment','Other'];
+const INC_CATS=['Client payment','Retainer','Refund','Other'];
+const TX_WHO=['Business','Garrett','Logan'];
+const TX_METHODS=['Card','Bank transfer','Cash','Check','Other'];
+const csvq=s=>{s=String(s==null?'':s);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+const toB64=file=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});
+
+function Books({txns,upsertTxn,deleteTxn}){
+  const thisYear=todayISO().slice(0,4);
+  const [year,setYear]=useState(thisYear);
+  const [filter,setFilter]=useState('all');
+  const [edit,setEdit]=useState(null); // {txn, file}
+  const [busy,setBusy]=useState(false);
+  const fileRef=React.useRef(null);
+  const years=useMemo(()=>{const s=new Set(txns.map(t=>(t.date||'').slice(0,4)).filter(Boolean));s.add(thisYear);return [...s].sort().reverse();},[txns,thisYear]);
+  const yearTxns=useMemo(()=>txns.filter(t=>(t.date||'').slice(0,4)===year).sort((a,b)=>(b.date||'').localeCompare(a.date||'')),[txns,year]);
+  const shown=yearTxns.filter(t=>{const d=TX_TYPES[t.type]?.dir;return filter==='all'||(filter==='in'&&d==='in')||(filter==='out'&&d==='out')||(filter==='draw'&&t.type==='draw');});
+  const sum=pred=>yearTxns.filter(pred).reduce((a,t)=>a+num(t.amount),0);
+  const moneyIn=sum(t=>TX_TYPES[t.type]?.dir==='in');
+  const moneyOut=sum(t=>TX_TYPES[t.type]?.dir==='out');
+  const net=moneyIn-moneyOut;
+  const expenses=sum(t=>t.type==='expense');
+  const drawG=sum(t=>t.type==='draw'&&t.who==='Garrett');
+  const drawL=sum(t=>t.type==='draw'&&t.who==='Logan');
+  const openReceipt=async t=>{ if(!t.receipt?.path)return; try{ const url=await db.receiptUrl(t.receipt.path); if(url){window.open(url,'_blank');return;} }catch(e){} try{ const blob=await db.downloadReceipt(t.receipt.path); const u=URL.createObjectURL(blob); window.open(u,'_blank'); }catch(e){ window.alert('Could not open the receipt file.'); } };
+  const onPickReceipt=e=>{ const f=e.target.files?.[0]; e.target.value=''; if(!f)return; setEdit({txn:null,file:f}); };
+  const downloadYear=async()=>{
+    if(!yearTxns.length){window.alert('No transactions for '+year+' yet.');return;}
+    setBusy(true);
+    try{
+      const zip=new JSZip();
+      const head=['Date','Type','Category','Vendor/Source','Method','Who','Amount','Notes','Receipt file'];
+      const lines=[head.join(',')].concat(yearTxns.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(t=>{
+        const signed=(TX_TYPES[t.type]?.dir==='out'?-1:1)*num(t.amount);
+        return [t.date||'',TX_TYPES[t.type]?.label||t.type,t.category||'',csvq(t.party),t.method||'',t.who||'',signed,csvq(t.notes),t.receipt?.name||''].join(',');
+      }));
+      lines.push(['','','','','','','TOTALS','',''].join(','));
+      lines.push(['Money in','','','','','',moneyIn,'',''].join(','));
+      lines.push(['Money out','','','','','',moneyOut,'',''].join(','));
+      lines.push(['Net','','','','','',net,'',''].join(','));
+      zip.file(`books-${year}.csv`,lines.join('\n'));
+      const rf=zip.folder('receipts');
+      let missing=0;
+      for(const t of yearTxns){ if(t.receipt?.path&&typeof db.downloadReceipt==='function'){ try{ const blob=await db.downloadReceipt(t.receipt.path); rf.file((t.date||'')+'-'+(t.receipt.name||t.receipt.path.split('/').pop()),blob);}catch(e){missing++;} } }
+      const out=await zip.generateAsync({type:'blob'});
+      const u=URL.createObjectURL(out);const a=document.createElement('a');a.href=u;a.download=`the-books-${year}.zip`;a.click();URL.revokeObjectURL(u);
+      if(missing)window.alert('Bundle downloaded. '+missing+' receipt file(s) could not be fetched (storage may not be set up yet).');
+    }catch(e){window.alert('Could not build the bundle: '+(e.message||e));}
+    setBusy(false);
+  };
+  return (<>
+    <input ref={fileRef} type="file" accept="application/pdf,image/*" style={{display:'none'}} onChange={onPickReceipt}/>
+    <div className="card" style={{marginBottom:18}}>
+      <div className="bk-actions">
+        <button className="btn btn-p" onClick={()=>fileRef.current?.click()}><Upload size={15}/>Upload receipt</button>
+        <button className="btn btn-s" onClick={()=>setEdit({txn:null,file:null})}><Plus size={15}/>Add transaction</button>
+        <button className="btn btn-s" style={{marginLeft:'auto'}} disabled={busy} onClick={downloadYear}>{busy?<Loader2 size={15} className="spin"/>:<FileDown size={15}/>}Download {year} for CPA</button>
+      </div>
+    </div>
+    <div className="kpis">
+      <Kpi variant="accent" label="Money in" value={usd(moneyIn)} icon={<ArrowDownLeft size={14}/>} d={year}/>
+      <Kpi label="Money out" value={usd(moneyOut)} icon={<ArrowUpRight size={14}/>} d={`${usd(expenses)} expenses`}/>
+      <Kpi label="Net" value={usd(net)} icon={<Wallet size={14}/>} d={net>=0?'positive':'negative'}/>
+      <Kpi label="Owner draws" value={usd(drawG+drawL)} icon={<Wallet size={14}/>} d={`G ${usd(drawG)} · L ${usd(drawL)}`}/>
+    </div>
+    <div className="bk-filters">
+      {[['all','All'],['in','Money in'],['out','Money out'],['draw','Draws']].map(([k,l])=>(
+        <button key={k} className={'bk-chip'+(filter===k?' on':'')} onClick={()=>setFilter(k)}>{l}</button>))}
+      <div className="bk-yr"><span style={{fontSize:12,color:'#8b88a0',fontWeight:600}}>Year</span><select value={year} onChange={e=>setYear(e.target.value)}>{years.map(y=><option key={y} value={y}>{y}</option>)}</select></div>
+    </div>
+    <div className="card">
+      {shown.length?<table className="tbl"><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Vendor / Source</th><th>Who</th><th>Receipt</th><th style={{textAlign:'right'}}>Amount</th></tr></thead>
+      <tbody>{shown.map(t=>{const m=TX_TYPES[t.type]||{};const out=m.dir==='out';return(<tr key={t.id} onClick={()=>setEdit({txn:t,file:null})}>
+        <td className="subcell">{fmtDate(t.date)}</td>
+        <td><span className="tx-type">{out?<ArrowUpRight size={13} color="#b4322e"/>:<ArrowDownLeft size={13} color="#1f9d63"/>}{m.label||t.type}</span></td>
+        <td className="subcell">{t.category||'—'}</td>
+        <td><div className="namecell">{t.party||'—'}</div>{t.notes&&<div className="subcell">{t.notes}</div>}</td>
+        <td className="subcell">{t.who||'—'}</td>
+        <td onClick={e=>{e.stopPropagation();if(t.receipt)openReceipt(t);}}>{t.receipt?<span className="rc-btn"><Paperclip size={13}/>View</span>:<span className="rc-none">—</span>}</td>
+        <td style={{textAlign:'right'}}><span className={'tx-amt '+(out?'tx-out':'tx-in')}>{out?'−':'+'}{usd(num(t.amount))}</span></td>
+      </tr>);})}</tbody></table>
+      :<div className="empty">No {filter==='all'?'':TX_TYPES[filter]?'':''}transactions for {year} yet. Hit <b>Upload receipt</b> or <b>Add transaction</b> to start the books.</div>}
+    </div>
+    {edit&&<TxnModal txn={edit.txn} file={edit.file} onSave={t=>{upsertTxn(t);setEdit(null);}} onDelete={t=>{deleteTxn(t);setEdit(null);}} onClose={()=>setEdit(null)}/>}
+  </>);
+}
+
+function TxnModal({txn,file,onSave,onDelete,onClose}){
+  const [d,setD]=useState(txn?{...txn}:{id:uid(),type:file?'expense':'expense',date:todayISO(),amount:'',category:'',party:'',method:'Card',who:'Business',notes:'',receipt:null,createdAt:new Date().toISOString()});
+  const [ai,setAi]=useState(null); // null | reading | done | off
+  const [saving,setSaving]=useState(false);
+  const set=p=>setD(x=>({...x,...p}));
+  useEffect(()=>{ if(!file||txn) return; let go=true; (async()=>{ setAi('reading');
+    try{ const b64=await toB64(file); const r=await fetch('/api/parse-receipt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({file:b64,mime:file.type})}); const j=await r.json();
+      if(go&&j&&j.ok&&j.fields){ const f=j.fields; setD(x=>({...x,type:'expense',party:f.vendor||x.party,date:f.date||x.date,amount:f.total||x.amount,category:f.category||x.category,notes:f.summary||x.notes})); setAi('done'); }
+      else if(go){ setAi('off'); } }
+    catch(e){ if(go)setAi('off'); } })(); return ()=>{go=false;}; },[]);
+  const cats=(d.type==='income'||d.type==='contribution')?INC_CATS:EXP_CATS;
+  const showCat=d.type==='income'||d.type==='expense';
+  const save=async()=>{
+    let receipt=d.receipt||null;
+    if(file){ setSaving(true);
+      const yr=(d.date||todayISO()).slice(0,4);
+      const safe=(file.name||'receipt.pdf').replace(/[^\w.\-]+/g,'_');
+      const path=`${yr}/${d.id}-${safe}`;
+      try{ if(typeof db.uploadReceipt==='function'){ await db.uploadReceipt(path,file); receipt={path,name:file.name||safe,uploadedAt:new Date().toISOString()}; } }
+      catch(e){ window.alert('Transaction saved — but the receipt file could not be stored yet. Finish the one-time Storage setup, then re-upload this receipt. ('+(e.message||e)+')'); }
+      setSaving(false);
+    }
+    onSave({...d,amount:num(d.amount),receipt});
+  };
+  return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal" style={{maxWidth:560}} onMouseDown={e=>e.stopPropagation()}>
+      <div className="m-head"><div><h2>{txn?'Edit transaction':'New transaction'}</h2><div className="meta">The Books</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
+      <div style={{padding:'4px 22px 22px'}}>
+        {ai==='reading'&&<div className="ai-banner ai-reading"><Loader2 size={15} className="spin"/>Reading the receipt…</div>}
+        {ai==='done'&&<div className="ai-banner ai-done"><Sparkles size={15}/>Filled in from your receipt — review and tweak below.</div>}
+        {ai==='off'&&<div className="ai-banner ai-off"><AlertTriangle size={15}/>AI read-back isn't on yet — type the details (your file is still attached). </div>}
+        <div className="fgrid">
+          <div className="field"><label>Type</label><select value={d.type} onChange={e=>set({type:e.target.value})}>{Object.entries(TX_TYPES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select></div>
+          <div className="field"><label>Amount</label><input type="number" inputMode="decimal" value={d.amount} onChange={e=>set({amount:e.target.value})} placeholder="0.00"/></div>
+          <div className="field"><label>Date</label><input type="date" value={d.date||''} onChange={e=>set({date:e.target.value})}/></div>
+          {showCat&&<div className="field"><label>Category</label><select value={d.category||''} onChange={e=>set({category:e.target.value})}><option value="">— pick —</option>{cats.map(c=><option key={c} value={c}>{c}</option>)}</select></div>}
+          <div className="field"><label>{TX_TYPES[d.type]?.dir==='in'?'Source':'Vendor'}</label><input value={d.party||''} onChange={e=>set({party:e.target.value})} placeholder={TX_TYPES[d.type]?.dir==='in'?'Who paid you':'Who you paid'}/></div>
+          <div className="field"><label>Method</label><select value={d.method||'Card'} onChange={e=>set({method:e.target.value})}>{TX_METHODS.map(m=><option key={m} value={m}>{m}</option>)}</select></div>
+          <div className="field"><label>Who</label><select value={d.who||'Business'} onChange={e=>set({who:e.target.value})}>{TX_WHO.map(w=><option key={w} value={w}>{w}</option>)}</select></div>
+          <div className="field full"><label>Notes</label><input value={d.notes||''} onChange={e=>set({notes:e.target.value})} placeholder="What was this for?"/></div>
+        </div>
+        {file&&<div className="rcfile"><Paperclip size={14}/>{file.name}<span style={{marginLeft:'auto',color:'#8b88a0'}}>will be saved with this entry</span></div>}
+        {!file&&d.receipt&&<div className="rcfile"><Paperclip size={14}/>{d.receipt.name}<span style={{marginLeft:'auto',color:'#8b88a0'}}>receipt on file</span></div>}
+        <div style={{display:'flex',gap:8,marginTop:16,alignItems:'center'}}>
+          <button className="btn btn-p" disabled={saving} onClick={save}>{saving?<Loader2 size={15} className="spin"/>:<CheckCircle2 size={15}/>}Save</button>
+          {txn&&<button className="btn btn-d btn-sm" onClick={()=>{if(window.confirm('Delete this transaction?'))onDelete(txn);}}><Trash2 size={14}/>Delete</button>}
+        </div>
       </div>
     </div>
   </div>);
