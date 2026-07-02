@@ -407,6 +407,26 @@ const CSS=`
 .ai-off{background:#FBEFEF;color:#a23b34}
 .spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 .rcfile{display:flex;align-items:center;gap:8px;background:#F4F5FA;border:1px solid #E5E6F0;border-radius:9px;padding:9px 11px;font-size:12.5px;color:${INK};margin-top:10px}
+.act-ctrl{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+.seg{display:inline-flex;background:#EEF0F7;border-radius:9px;padding:3px}
+.seg button{border:none;background:none;padding:6px 13px;border-radius:7px;font-size:12.5px;font-weight:600;color:#56527a;cursor:pointer}
+.seg button.on{background:#fff;color:${INK};box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.act-nav{display:flex;align-items:center;gap:6px}
+.act-nav b{min-width:150px;text-align:center;font-size:13.5px;color:${INK};font-weight:700}
+.iconbtn{width:30px;height:30px;border-radius:8px;border:1px solid #E1E2EC;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a}
+.iconbtn:hover{border-color:${COBALT};color:${COBALT}}
+.act-feedlist{display:flex;flex-direction:column}
+.act-row{display:flex;align-items:flex-start;gap:11px;padding:11px 4px;border-bottom:1px solid #F1F1F6;cursor:pointer}
+.act-row:hover{background:#FAFAFE}
+.act-ic{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:#fff;flex:none}
+.act-body{flex:1;min-width:0}
+.act-top{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.act-lead{font-weight:700;color:${INK};font-size:13.5px}
+.act-txt{color:#56527a;font-size:13px;margin-top:2px;line-height:1.45}
+.act-who{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:#EEF0F7;color:#4a4763}
+.act-time{margin-left:auto;font-size:11.5px;color:#9b98ad;white-space:nowrap}
+.act-daysep{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9b98ad;margin:14px 0 4px;padding-top:8px;border-top:1px dashed #E4E5EE}
+.act-daysep:first-child{border-top:none;margin-top:0;padding-top:0}
 .swapbtn{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#56527a;background:#fff;border:1px solid #DEDFEA;border-radius:8px;padding:6px 11px;cursor:pointer}
 .swapbtn:hover{border-color:${COBALT};color:${COBALT}}
 .inv-items-edit{display:flex;flex-direction:column;gap:7px}
@@ -625,8 +645,8 @@ export default function App(){
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
-  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
@@ -649,6 +669,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           page==='dash'?<Dashboard leads={leads} stages={stages} open={openLead}/>:
           page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
+          page==='activity'?<Activity leads={leads} me={me} open={openLead}/>:
           page==='pipeline'?<Pipeline leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
           page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings}/>:
           page==='clients'?<Clients leads={leads} stages={stages} settings={settings} open={openLead}/>:
@@ -1316,6 +1337,88 @@ function TxnModal({txn,file,onSave,onDelete,onClose}){
       </div>
     </div>
   </div>);
+}
+
+const ACT_COLORS={Call:'#2B4DE0',Text:'#1F9D55',Meeting:'#7A5CC8',Note:'#C8A24A',Email:'#D14343'};
+const ACT_ORDER=['Call','Text','Meeting','Note','Email'];
+function Activity({leads,me,open}){
+  const [mode,setMode]=useState('day');
+  const [anchor,setAnchor]=useState(todayISO());
+  const [who,setWho]=useState('All');
+  const [typeF,setTypeF]=useState('All');
+  const range=useMemo(()=>{
+    const d=new Date(anchor+'T00:00:00'); let start,end,label;
+    if(mode==='day'){ start=new Date(d); end=new Date(d); label=d.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'}); }
+    else if(mode==='week'){ const dow=d.getDay(); start=new Date(d); start.setDate(d.getDate()-dow); end=new Date(start); end.setDate(start.getDate()+6); label=start.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' – '+end.toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+    else { start=new Date(d.getFullYear(),d.getMonth(),1); end=new Date(d.getFullYear(),d.getMonth()+1,0); label=d.toLocaleDateString(undefined,{month:'long',year:'numeric'}); }
+    start.setHours(0,0,0,0); end.setHours(23,59,59,999); return {start,end,label};
+  },[mode,anchor]);
+  const all=useMemo(()=>leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company}))),[leads]);
+  const inRange=useMemo(()=>all.filter(a=>{const t=new Date(a.ts);return t>=range.start&&t<=range.end;}),[all,range]);
+  const people=useMemo(()=>{const s=new Set(inRange.map(a=>a.who||'—'));['Garrett','Logan'].forEach(p=>s.add(p));return [...s].filter(Boolean).sort();},[inRange]);
+  const shown=inRange.filter(a=>(who==='All'||a.who===who)&&(typeF==='All'||a.type===typeF)).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  const matrix=useMemo(()=>{const m={};inRange.forEach(a=>{const p=a.who||'—';m[p]=m[p]||{Call:0,Text:0,Meeting:0,Note:0,Email:0,total:0};if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[inRange]);
+  const chartData=Object.entries(matrix).map(([person,c])=>({person,...c})).sort((a,b)=>b.total-a.total);
+  const totals=ACT_ORDER.reduce((o,t)=>{o[t]=inRange.filter(a=>a.type===t).length;return o;},{});
+  const grand=inRange.length;
+  const shift=dir=>{const d=new Date(anchor+'T00:00:00');if(mode==='day')d.setDate(d.getDate()+dir);else if(mode==='week')d.setDate(d.getDate()+7*dir);else d.setMonth(d.getMonth()+dir);setAnchor(d.toISOString().slice(0,10));};
+  const fmtTime=ts=>{try{return new Date(ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}catch{return '';}};
+  const dayHead=ts=>new Date(ts).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
+  const kIcon=t=>{const T=ACT_TYPES.find(x=>x.key===t);return T?React.createElement(T.icon,{size:14}):null;};
+  let lastDay=null;
+  return (<>
+    <div className="card" style={{marginBottom:16}}>
+      <div className="act-ctrl">
+        <div className="seg">{[['day','Day'],['week','Week'],['month','Month']].map(([k,l])=><button key={k} className={mode===k?'on':''} onClick={()=>setMode(k)}>{l}</button>)}</div>
+        <div className="act-nav"><button className="iconbtn" onClick={()=>shift(-1)}><ChevronLeft size={16}/></button><b>{range.label}</b><button className="iconbtn" onClick={()=>shift(1)}><ChevronRight size={16}/></button></div>
+        <input type="date" value={anchor} onChange={e=>setAnchor(e.target.value)} style={{padding:'7px 10px',border:'1px solid #E1E2EC',borderRadius:9,fontSize:13,color:INK}}/>
+        <button className="btn btn-s btn-sm" style={{marginLeft:'auto'}} onClick={()=>{setMode('day');setAnchor(todayISO());}}>Today</button>
+      </div>
+      <div className="bk-filters" style={{margin:0}}>
+        <button className={'bk-chip'+(who==='All'?' on':'')} onClick={()=>setWho('All')}>Everyone</button>
+        {people.map(p=><button key={p} className={'bk-chip'+(who===p?' on':'')} onClick={()=>setWho(p)}>{p}</button>)}
+        <span style={{width:1,height:22,background:'#E4E5EE',margin:'0 4px'}}/>
+        <button className={'bk-chip'+(typeF==='All'?' on':'')} onClick={()=>setTypeF('All')}>All types</button>
+        {ACT_ORDER.map(t=><button key={t} className={'bk-chip'+(typeF===t?' on':'')} onClick={()=>setTypeF(t)}>{t}</button>)}
+      </div>
+    </div>
+    <div className="kpis">
+      <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={range.label}/>
+      {ACT_ORDER.map(t=><Kpi key={t} label={t+'s'} value={totals[t]} icon={kIcon(t)}/>)}
+    </div>
+    {chartData.length>0&&<div className="card" style={{marginBottom:16}}>
+      <div className="ch-title">Activity by person</div>
+      <ResponsiveContainer width="100%" height={260}>
+        <BarChart data={chartData} margin={{top:8,right:8,left:-14,bottom:0}}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F5" vertical={false}/>
+          <XAxis dataKey="person" tick={{fontSize:12,fill:'#6a6788'}}/>
+          <YAxis allowDecimals={false} tick={{fontSize:12,fill:'#9b98ad'}}/>
+          <Tooltip/>
+          <Legend wrapperStyle={{fontSize:12}}/>
+          {ACT_ORDER.map(t=><Bar key={t} dataKey={t} stackId="a" fill={ACT_COLORS[t]} radius={t==='Email'?[4,4,0,0]:0}/>)}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>}
+    {chartData.length>0&&<div className="card" style={{marginBottom:16}}>
+      <table className="tbl"><thead><tr><th>Person</th>{ACT_ORDER.map(t=><th key={t} style={{textAlign:'right'}}>{t}</th>)}<th style={{textAlign:'right'}}>Total</th></tr></thead>
+      <tbody>{chartData.map(r=>(<tr key={r.person}><td className="namecell">{r.person}</td>{ACT_ORDER.map(t=><td key={t} style={{textAlign:'right'}} className="subcell">{r[t]||0}</td>)}<td style={{textAlign:'right',fontWeight:800,color:INK}}>{r.total}</td></tr>))}</tbody></table>
+    </div>}
+    <div className="card">
+      <div className="ch-title">Log · {shown.length} {shown.length===1?'entry':'entries'}</div>
+      {shown.length?<div className="act-feedlist">{shown.map(a=>{const T=ACT_TYPES.find(x=>x.key===a.type);const Ic=T?T.icon:StickyNote;const dk=(a.ts||'').slice(0,10);const head=mode!=='day'&&dk!==lastDay;lastDay=dk;return(
+        <React.Fragment key={a.id}>
+          {head&&<div className="act-daysep">{dayHead(a.ts)}</div>}
+          <div className="act-row" onClick={()=>open&&open(a.leadId)}>
+            <div className="act-ic" style={{background:ACT_COLORS[a.type]||'#8b88a0'}}><Ic size={15}/></div>
+            <div className="act-body">
+              <div className="act-top"><span className="act-lead">{a.leadName||'—'}</span><span className="act-who">{a.who||'—'}</span><span className="act-time">{fmtTime(a.ts)}</span></div>
+              <div className="act-txt">{a.text}</div>
+            </div>
+          </div>
+        </React.Fragment>);})}</div>
+      :<div className="empty">No activity logged for {mode==='day'?'this day':'this '+mode}{who!=='All'?' by '+who:''}{typeF!=='All'?' · '+typeF:''}. Log calls, texts &amp; meetings from any lead and they'll show up here.</div>}
+    </div>
+  </>);
 }
 
 function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices}){
