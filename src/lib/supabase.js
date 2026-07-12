@@ -70,6 +70,15 @@ export const db = {
     const { error } = await supabase.from('app_settings').upsert({ id: 'txns', data: { list } });
     if (error) throw error;
   },
+  async getTasks() {
+    const { data, error } = await supabase.from('app_settings').select('data').eq('id', 'tasks').maybeSingle();
+    if (error) throw error;
+    return (data?.data?.list) || [];
+  },
+  async saveTasks(list) {
+    const { error } = await supabase.from('app_settings').upsert({ id: 'tasks', data: { list } });
+    if (error) throw error;
+  },
   /* ---- receipt files live in Supabase Storage (bucket 'receipts'), NOT in the DB ---- */
   async uploadReceipt(path, file) {
     const { error } = await supabase.storage.from('receipts').upload(path, file, { contentType: file.type || 'application/pdf', upsert: true });
