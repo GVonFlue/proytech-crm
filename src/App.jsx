@@ -1266,7 +1266,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
     <div className="card" style={{marginBottom:16}}>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
         <input value={title} onChange={e=>setTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add();}} placeholder="Add a task and hit Enter\u2026" style={{flex:'1 1 260px',padding:'11px 13px',border:'1px solid #E2E3EE',borderRadius:11,fontSize:14,background:'#fff',color:INK}}/>
-        <div className="seg">{TASK_OWNERS.map(o=><button key={o} className={'seg-b '+(addOwner===o?'on':'')} onClick={()=>setAddOwner(o)}>{o==='Garrett'?'You':o}</button>)}</div>
+        <div className="seg">{TASK_OWNERS.map(o=><button key={o} className={'seg-b '+(addOwner===o?'on':'')} onClick={()=>setAddOwner(o)}>{o}</button>)}</div>
         <button className="btn btn-p" onClick={add}><Plus size={16}/>Add</button>
       </div>
     </div>
@@ -1305,7 +1305,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
             </div>
             {t.aiReason&&!t.done&&<div style={{fontSize:12.5,color:COBALT,marginTop:4,display:'flex',alignItems:'center',gap:5}}><Sparkles size={12}/>{t.aiReason}</div>}
             <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:8,alignItems:'center'}}>
-              <span className="pill" style={{background:ownerColor(t.owner)+'1A',color:ownerColor(t.owner)}}><span className="dot" style={{background:ownerColor(t.owner)}}/>{t.owner==='Garrett'?'You':t.owner}</span>
+              <span className="pill" style={{background:ownerColor(t.owner)+'1A',color:ownerColor(t.owner)}}><span className="dot" style={{background:ownerColor(t.owner)}}/>{t.owner}</span>
               {t.leadId&&leadName(t.leadId)&&<span className="pill" style={{background:'#F0F1F7',color:'#5A5680'}}><Building2 size={11}/>{leadName(t.leadId)}</span>}
               <span className="pill" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}}><CalendarClock size={11}/>{dueLabel}</span>
               <span style={{fontSize:11,color:'#a6a2bc'}}>Impact {t.revenue} \u00b7 Urgency {t.urgency} \u00b7 Effort {t.effort}</span>
@@ -1334,7 +1334,7 @@ function TaskModal({task,leads,onSave,onDelete,onClose}){
       <div style={{padding:'4px 22px 22px'}}>
         <div className="field"><label>Task</label><input value={d.title||''} onChange={e=>set({title:e.target.value})} placeholder="What needs doing?"/></div>
         <div className="fgrid">
-          <div className="field"><label>Owner</label><select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o==='Garrett'?'You (Garrett)':o}</option>)}</select></div>
+          <div className="field"><label>Owner</label><select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
           <div className="field"><label>Due date</label><input type="date" value={d.due||''} onChange={e=>set({due:e.target.value})}/></div>
           <div className="field full"><label>Link a lead / deal</label><select value={d.leadId||''} onChange={e=>set({leadId:e.target.value})}><option value="">\u2014 none \u2014</option>{leads.map(l=><option key={l.id} value={l.id}>{l.company||l.name||'Lead'}</option>)}</select></div>
         </div>
