@@ -44,7 +44,7 @@ const DEFAULT_LEAD_COLS=[
   {key:'businessType',visible:true},{key:'stage',visible:true},{key:'source',visible:true},
   {key:'nextAction',visible:true},{key:'lastContacted',visible:true},{key:'followUp',visible:true},
   {key:'priority',visible:true},{key:'dealValue',visible:true},{key:'owner',visible:true},
-  {key:'serviceInterest',visible:false},{key:'nextSteps',visible:false},{key:'phone',visible:false},{key:'email',visible:false},
+  {key:'serviceInterest',visible:false},{key:'nextSteps',visible:false},{key:'phone',visible:false},{key:'email',visible:false},{key:'sponsor',visible:false},
 ];
 
 /* ===================== data + auth live in ./lib/supabase ===================== */
@@ -83,6 +83,7 @@ function leadColumnDefs(stages,customFields){
     owner:{label:'Owner',render:l=><span className="subcell">{l.owner}</span>},
     phone:{label:'Phone',render:l=><span className="subcell">{l.phone||'—'}</span>},
     email:{label:'Email',render:l=><span className="subcell">{l.email||'—'}</span>},
+    sponsor:{label:'Sponsor',render:l=>l.pastSponsor?<span className="spon-badge past">Past{l.sponsorAmount>0?' · '+usd(l.sponsorAmount):''}</span>:l.potentialSponsor?<span className="spon-badge">Potential{l.sponsorAmount>0?' · '+usd(l.sponsorAmount):''}</span>:<span className="subcell">—</span>},
   };
   (customFields||[]).forEach(f=>{d['cf:'+f.id]={label:f.label,render:l=><span className="subcell">{fmtCustom(l.custom?.[f.id],f.type)}</span>};});
   return d;
@@ -135,6 +136,7 @@ function mkLead(o){
   return {id:uid(),name:'',company:'',businessType:'Real Estate',phone:'',email:'',website:'',
     stage:'new',priority:'medium',source:'',nextAction:'Schedule Coffee',nextSteps:'Follow up',
     followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,
+    potentialSponsor:false,pastSponsor:false,sponsorTier:'',sponsorAmount:0,
     retainerActive:false,retainerStart:'',closedAt:'',custom:{},createdAt,activities:acts,...rest};
 }
 function seed(){return [
@@ -308,6 +310,21 @@ const CSS=`
 .afilter{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
 .afilter button{font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:8px;border:1px solid #E4E5F0;background:#fff;color:#8E89A8;cursor:pointer}
 .afilter button.on{border-color:${COBALT};background:rgba(43,77,224,.08);color:${COBALT}}
+.spon-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+.spon-tog{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border:1px solid #E1E2EC;border-radius:10px;font-size:13px;font-weight:600;color:#56527a;cursor:pointer;background:#fff}
+.spon-tog input{accent-color:${COBALT};width:15px;height:15px;cursor:pointer}
+.spon-tog.on{border-color:${COBALT};background:rgba(43,77,224,.08);color:${COBALT}}
+.spon-tog.past input{accent-color:${GOLD}}
+.spon-tog.past.on{border-color:${GOLD};background:rgba(200,162,74,.12);color:#8a6a1f}
+.spon-badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:rgba(43,77,224,.1);color:${COBALT}}
+.spon-badge.past{background:rgba(200,162,74,.16);color:#8a6a1f}
+.imp-sub{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8b88a0;margin-bottom:8px}
+.imp-map{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.imp-row{display:flex;align-items:center;gap:7px;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 10px}
+.imp-h{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.imp-row select{border:1px solid #E1E2EC;border-radius:7px;padding:5px 7px;font-size:12px;color:${INK};background:#fff;max-width:130px}
+.imp-warn{display:flex;align-items:center;gap:6px;font-size:12px;color:#9a5a16;background:#FFF7ED;border:1px solid #FCD9B6;border-radius:8px;padding:8px 11px;margin-top:10px}
+@media(max-width:640px){.imp-map{grid-template-columns:1fr}}
 .act-types{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
 .act-t{font-size:12px;font-weight:600;padding:6px 10px;border-radius:9px;border:1px solid #DEDFEA;background:#fff;color:#56527a;cursor:pointer;display:flex;align-items:center;gap:5px}
 .act-t.on{border-color:${COBALT};background:rgba(43,77,224,.08);color:${COBALT}}
@@ -641,6 +658,7 @@ export default function App(){
   const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
+  const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await db.upsertMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
   const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:true,convertedAt:todayISO(),delivery:l.delivery||{},activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Converted to client — delivery started.',who:me},...l.activities]}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
   const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
   const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done?null:todayISO(),due:cur.due||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; const patch={delivery:d}; const o=clientOverall({...l,delivery:d},settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const won=(stages||[]).find(s=>s.won); if(o.delivered&&won&&l.stage!==won.key) patch.stage=won.key; updateLead(id,patch); };
@@ -677,7 +695,7 @@ export default function App(){
           page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks}/>:
           page==='activity'?<Activity leads={leads} me={me} open={openLead}/>:
           page==='pipeline'?<Pipeline leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
-          page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings}/>:
+          page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads}/>:
           page==='clients'?<Clients leads={leads} stages={stages} settings={settings} open={openLead}/>:
           page==='invoices'?<Invoices invoices={invoices} leads={leads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           page==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
@@ -857,7 +875,8 @@ function Pipeline({leads,stages,open,updateLead}){
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads}){
+  const [importOpen,setImportOpen]=useState(false);
   const customFields=settings.customFields||[];
   const defs=leadColumnDefs(stages,customFields);
   const cols=mergeLeadCols(settings.leadColumns||DEFAULT_LEAD_COLS,customFields).filter(c=>defs[c.key]);
@@ -866,7 +885,7 @@ function Leads({leads,settings,stages,open,saveSettings}){
   const moveCol=(i,d)=>{const j=i+d;if(j<0||j>=cols.length)return;const a=cols.slice();[a[i],a[j]]=[a[j],a[i]];setCols(a);};
   const toggleCol=key=>setCols(cols.map(c=>c.key===key?{...c,visible:!c.visible}:c));
   const [colOpen,setColOpen]=useState(false);
-  const [q,setQ]=useState('');const [stage,setStage]=useState('all');const [pri,setPri]=useState('all');const [cold,setCold]=useState('all');
+  const [q,setQ]=useState('');const [stage,setStage]=useState('all');const [pri,setPri]=useState('all');const [cold,setCold]=useState('all');const [spon,setSpon]=useState('all');
   const [sortK,setSortK]=useState('followUp');const [dir,setDir]=useState('asc');
   const sortVal=(l,k)=>{
     if(k==='stage') return sIdx(l.stage,stages);
@@ -883,12 +902,15 @@ function Leads({leads,settings,stages,open,saveSettings}){
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
       if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
+      if(spon==='potential'&&!l.potentialSponsor)return false;
+      if(spon==='past'&&!l.pastSponsor)return false;
+      if(spon==='any'&&!(l.potentialSponsor||l.pastSponsor))return false;
       if(q){const s=(l.name+' '+l.company+' '+l.businessType+' '+l.phone+' '+(l.serviceInterest||[]).join(' ')+' '+l.source).toLowerCase();if(!s.includes(q.toLowerCase()))return false;}
       return true;
     });
     r.sort((a,b)=>{const av=sortVal(a,sortK),bv=sortVal(b,sortK);const c=av<bv?-1:av>bv?1:0;return dir==='asc'?c:-c;});
     return r;
-  },[leads,q,stage,pri,cold,sortK,dir,stages]);
+  },[leads,q,stage,pri,cold,spon,sortK,dir,stages]);
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
@@ -902,6 +924,7 @@ function Leads({leads,settings,stages,open,saveSettings}){
       <select className="selctl" value={stage} onChange={e=>setStage(e.target.value)}><option value="all">All stages</option>{stages.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}</select>
       <select className="selctl" value={pri} onChange={e=>setPri(e.target.value)}><option value="all">All priority</option>{Object.entries(PRIORITIES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
       <select className="selctl" value={cold} onChange={e=>setCold(e.target.value)}><option value="all">Any contact age</option><option value="7">Cold · 7+ days</option><option value="14">Cold · 14+ days</option><option value="30">Cold · 30+ days</option></select>
+      <select className="selctl" value={spon} onChange={e=>setSpon(e.target.value)}><option value="all">All leads</option><option value="potential">Potential sponsors</option><option value="past">Past sponsors</option><option value="any">Any sponsor</option></select>
       <button className="selctl" onClick={()=>setDir(d=>d==='asc'?'desc':'asc')} title="Toggle direction"><ArrowUpDown size={15}/></button>
       <div className="colmenu-wrap">
         <button className="selctl" onClick={()=>setColOpen(o=>!o)}><SlidersHorizontal size={15}/>Columns</button>
@@ -911,6 +934,7 @@ function Leads({leads,settings,stages,open,saveSettings}){
         </div></>}
       </div>
       <button className="btn btn-g" onClick={csv}><Download size={15}/>CSV</button>
+      {importLeads&&<button className="btn btn-p" onClick={()=>setImportOpen(true)}><Upload size={15}/>Import</button>}
     </div>
     <div className="tbl-wrap"><table className="tbl"><thead><tr>
       <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}
@@ -918,7 +942,80 @@ function Leads({leads,settings,stages,open,saveSettings}){
       <td><div className="namecell">{l.name}</div><div className="subcell">{l.company}</div></td>
       {visCols.map(c=><td key={c.key}>{defs[c.key].render(l)}</td>)}
     </tr>))}</tbody></table>{!rows.length&&<div className="empty">No leads match. Adjust filters or add a new lead.</div>}</div>
+    {importOpen&&<ImportModal onClose={()=>setImportOpen(false)} onImport={arr=>{importLeads(arr);setImportOpen(false);}} businessTypes={settings.options?.businessType||[]}/>}
   </>);
+}
+
+/* ===================== CSV IMPORT ===================== */
+const IMPORT_FIELDS=[['ignore','— ignore —'],['name','Name'],['company','Company'],['phone','Phone'],['email','Email'],['website','Website'],['businessType','Business type'],['source','Source'],['note','Notes']];
+const IMPORT_KEYS=IMPORT_FIELDS.map(f=>f[0]);
+const guessField=h=>{const s=(h||'').toLowerCase();
+  if(/e-?mail/.test(s))return 'email';
+  if(/phone|mobile|cell|tel|number/.test(s))return 'phone';
+  if(/web|site|url|domain/.test(s))return 'website';
+  if(/company|business\s*name|org|account|dba|firm/.test(s))return 'company';
+  if(/first|last|full|contact|name/.test(s))return 'name';
+  if(/type|industry|category|vertical/.test(s))return 'businessType';
+  if(/source|origin|referr|lead\s*from/.test(s))return 'source';
+  if(/note|comment|desc|remark/.test(s))return 'note';
+  return 'ignore';};
+const parseCSV=text=>{const rows=[];let row=[],cur='',q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else { if(c==='"')q=true; else if(c===','){row.push(cur);cur='';} else if(c==='\n'){row.push(cur);rows.push(row);row=[];cur='';} else if(c!=='\r')cur+=c; } }
+  if(cur!==''||row.length){row.push(cur);rows.push(row);}
+  return rows.filter(r=>r.some(c=>(c||'').trim()!==''));};
+
+function ImportModal({onClose,onImport,businessTypes}){
+  const [headers,setHeaders]=useState(null);
+  const [rows,setRows]=useState([]);
+  const [mapping,setMapping]=useState({});
+  const [markSponsor,setMarkSponsor]=useState(false);
+  const [ai,setAi]=useState(null);
+  const [fileName,setFileName]=useState('');
+  const fileRef=React.useRef(null);
+  const ingest=text=>{ const parsed=parseCSV(text); if(parsed.length<2){window.alert('That file needs a header row and at least one data row.');return;}
+    const hd=parsed[0].map(h=>(h||'').trim()); const rw=parsed.slice(1);
+    setHeaders(hd); setRows(rw);
+    const base={}; hd.forEach(h=>base[h]=guessField(h)); setMapping(base);
+    setAi('reading');
+    (async()=>{ try{ const r=await fetch('/api/import-leads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({headers:hd,samples:rw.slice(0,6)})}); const j=await r.json();
+      if(j&&j.ok&&j.mapping){ const m={}; hd.forEach(h=>{const v=j.mapping[h];m[h]=(v&&IMPORT_KEYS.includes(v))?v:base[h];}); setMapping(m); setAi('done'); }
+      else setAi('heuristic'); }catch(e){ setAi('heuristic'); } })();
+  };
+  const onFile=e=>{ const f=e.target.files?.[0]; e.target.value=''; if(!f)return; setFileName(f.name); const r=new FileReader(); r.onload=()=>ingest(String(r.result)); r.readAsText(f); };
+  const buildLead=row=>{ const f={}; headers.forEach((h,i)=>{ const t=mapping[h]; if(!t||t==='ignore')return; const v=(row[i]||'').trim(); if(!v)return; if(t==='name')f.name=(f.name?f.name+' ':'')+v; else if(t==='note')f.note=(f.note?f.note+' | ':'')+v; else f[t]=v; });
+    if(!f.name)f.name=f.company||'(no name)'; if(!f.source)f.source='CSV import'; if(markSponsor)f.potentialSponsor=true; return mkLead(f); };
+  const preview=headers?rows.slice(0,6).map(buildLead):[];
+  const mapped=k=>headers?headers.filter(h=>mapping[h]===k).length:0;
+  const doImport=()=>{ const built=rows.map(buildLead); onImport(built); };
+  return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal" style={{maxWidth:720}} onMouseDown={e=>e.stopPropagation()}>
+      <div className="m-head"><div><h2>Import leads from CSV</h2><div className="meta">AI maps your columns — you review, then import</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
+      <div style={{padding:'4px 22px 22px'}}>
+        {!headers?(<>
+          <div className="drop" onClick={()=>fileRef.current?.click()}><Upload size={22}/><div style={{marginTop:8,fontWeight:600,color:INK}}>Choose a .csv file</div><div style={{fontSize:12,color:'#8b88a0',marginTop:3}}>Export your Google Sheet as CSV, or drag any contact list. Messy columns are fine — the AI sorts them out.</div></div>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={onFile}/>
+          <div style={{textAlign:'center',color:'#c7c5d4',fontSize:12,margin:'12px 0 6px'}}>or paste rows below</div>
+          <textarea rows={5} placeholder="Name,Company,Phone,Email&#10;Jane Doe,Acme,3165551234,jane@acme.com" style={{width:'100%',border:'1px solid #E1E2EC',borderRadius:10,padding:10,fontSize:12.5,fontFamily:'monospace'}} onBlur={e=>{if(e.target.value.trim())ingest(e.target.value);}}/>
+        </>):(<>
+          {ai==='reading'&&<div className="ai-banner ai-reading"><Loader2 size={15} className="spin"/>AI is reading your columns…</div>}
+          {ai==='done'&&<div className="ai-banner ai-done"><Sparkles size={15}/>AI mapped your columns — check them below and fix any that look off.</div>}
+          {ai==='heuristic'&&<div className="ai-banner ai-off"><AlertTriangle size={15}/>Auto-matched columns by name (AI unavailable). Double-check the mapping below.</div>}
+          <div className="imp-sub">{rows.length} row{rows.length===1?'':'s'} found{fileName?' · '+fileName:''}. Map each column:</div>
+          <div className="imp-map">{headers.map(h=>(<div className="imp-row" key={h}><span className="imp-h" title={h}>{h||'(blank)'}</span><ChevronRight size={13} color="#c7c5d4"/><select value={mapping[h]||'ignore'} onChange={e=>setMapping(m=>({...m,[h]:e.target.value}))}>{IMPORT_FIELDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>))}</div>
+          {!mapped('name')&&<div className="imp-warn"><AlertTriangle size={13}/>No column is mapped to <b>Name</b> — those rows will fall back to the company name.</div>}
+          <label className="spon-tog" style={{marginTop:12}}><input type="checkbox" checked={markSponsor} onChange={e=>setMarkSponsor(e.target.checked)}/>Mark all imported leads as <b>potential sponsors</b></label>
+          <div className="imp-sub" style={{marginTop:16}}>Preview (first {preview.length}):</div>
+          <div className="tbl-wrap" style={{maxHeight:200,overflow:'auto'}}><table className="tbl"><thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Email</th></tr></thead><tbody>{preview.map((l,i)=>(<tr key={i}><td className="namecell">{l.name}</td><td className="subcell">{l.company||'—'}</td><td className="subcell">{l.phone||'—'}</td><td className="subcell">{l.email||'—'}</td></tr>))}</tbody></table></div>
+          <div style={{display:'flex',gap:8,marginTop:16,alignItems:'center'}}>
+            <button className="btn btn-p" onClick={doImport}><CheckCircle2 size={15}/>Import {rows.length} lead{rows.length===1?'':'s'}</button>
+            <button className="btn btn-s btn-sm" onClick={()=>{setHeaders(null);setRows([]);setAi(null);setFileName('');}}>Start over</button>
+          </div>
+        </>)}
+      </div>
+    </div>
+  </div>);
 }
 
 /* ===================== CLIENTS ===================== */
@@ -1836,6 +1933,16 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToC
 
           <div className="dh mt"><Target size={13}/>Service Interest</div>
           <div className="chips">{opt.service.map(s=><span key={s} className={'chip '+((draft.serviceInterest||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(s)}>{s}</span>)}<span className="chip add" onClick={addCustomSvc}><Plus size={12}/>Custom</span></div>
+
+          <div className="dh mt"><Award size={13}/>Sponsorship</div>
+          <div className="spon-row">
+            <label className={'spon-tog'+(draft.potentialSponsor?' on':'')}><input type="checkbox" checked={!!draft.potentialSponsor} onChange={e=>set({potentialSponsor:e.target.checked})}/>Potential sponsor</label>
+            <label className={'spon-tog past'+(draft.pastSponsor?' on':'')}><input type="checkbox" checked={!!draft.pastSponsor} onChange={e=>set({pastSponsor:e.target.checked})}/>Past sponsor</label>
+          </div>
+          {(draft.potentialSponsor||draft.pastSponsor)&&<div className="fgrid" style={{marginTop:10}}>
+            {F({label:'Sponsor tier',k:'sponsorTier'})}
+            {F({label:draft.pastSponsor?'Amount given ($)':'Amount possible ($)',k:'sponsorAmount',type:'number'})}
+          </div>}
 
           <div className="dh mt"><Phone size={13}/>Contact</div>
           <div className="fgrid">{F({label:'Phone',k:'phone'})}{F({label:'Email',k:'email'})}{F({label:'Website',k:'website',full:true})}</div>
