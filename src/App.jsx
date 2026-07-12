@@ -10,7 +10,7 @@ import {
   CheckCircle2, Circle, AlertTriangle, ArrowUpDown, Percent, Target, Award, Rocket, UserCheck,
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
-  BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2
+  BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db } from './lib/supabase';
@@ -582,6 +582,7 @@ export default function App(){
   const [leads,setLeads]=useState([]);
   const [invoices,setInvoices]=useState([]);
   const [txns,setTxns]=useState([]);
+  const [tasks,setTasks]=useState([]);
   const [invId,setInvId]=useState(null);
   const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING});
   const [page,setPage]=useState('dash');
@@ -601,9 +602,10 @@ export default function App(){
       let s=await db.getLeads(); let st=await db.getSettings();
       let iv=[]; try{ if(typeof db.getInvoices==='function') iv=await db.getInvoices(); }catch(err){ console.error('invoices load failed',err); }
       let tx=[]; try{ if(typeof db.getTxns==='function') tx=await db.getTxns(); }catch(err){ console.error('txns load failed',err); }
+      let tk=[]; try{ if(typeof db.getTasks==='function') tk=await db.getTasks(); }catch(err){ console.error('tasks load failed',err); }
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
       if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING}; await db.saveSettings(st); }
-      setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]);
+      setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
       setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
@@ -618,6 +620,9 @@ export default function App(){
   const saveTxns=n=>{ setTxns(n); if(typeof db.saveTxns==='function') db.saveTxns(n).catch(console.error); };
   const upsertTxn=t=>{ const exists=txns.some(x=>x.id===t.id); saveTxns(exists?txns.map(x=>x.id===t.id?t:x):[t,...txns]); };
   const deleteTxn=t=>{ saveTxns(txns.filter(x=>x.id!==t.id)); if(t.receipt?.path&&typeof db.removeReceipt==='function') db.removeReceipt(t.receipt.path).catch(console.error); };
+  const saveTasks=n=>{ setTasks(n); if(typeof db.saveTasks==='function') db.saveTasks(n).catch(console.error); };
+  const upsertTask=t=>{ const exists=tasks.some(x=>x.id===t.id); saveTasks(exists?tasks.map(x=>x.id===t.id?t:x):[t,...tasks]); };
+  const deleteTask=id=>{ saveTasks(tasks.filter(x=>x.id!==id)); };
   const upsertInvoice=inv=>{ const exists=invoices.some(x=>x.id===inv.id); saveInvoices(exists?invoices.map(x=>x.id===inv.id?inv:x):[inv,...invoices]); };
   const deleteInvoice=id=>{ saveInvoices(invoices.filter(x=>x.id!==id)); setInvId(null); };
   const newInvoice=(lead)=>{ const ivset=settings.invoicing||DEFAULT_INVOICING; const number=(ivset.prefix||'INV-')+String(ivset.seq||1).padStart(4,'0'); saveSettings({...settings,invoicing:{...ivset,seq:(ivset.seq||1)+1}}); const issue=todayISO(); const inv={ id:uid(), number, clientId:lead?lead.id:'', billTo:lead?{name:lead.name||'',company:lead.company||'',email:lead.email||'',address:''}:{name:'',company:'',email:'',address:''}, issueDate:issue, dueDate:addDays(issue,ivset.terms||14), items:lead?itemsFromLead(lead):[{id:uid(),label:'',qty:1,amount:0}], taxRate:num(ivset.taxRate), notes:ivset.notes||'', paymentLink:ivset.paymentLink||'', status:'draft', paidDate:'', createdAt:new Date().toISOString() }; upsertInvoice(inv); setInvId(inv.id); };
@@ -645,8 +650,8 @@ export default function App(){
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
-  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
@@ -669,6 +674,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           page==='dash'?<Dashboard leads={leads} stages={stages} open={openLead}/>:
           page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
+          page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks}/>:
           page==='activity'?<Activity leads={leads} me={me} open={openLead}/>:
           page==='pipeline'?<Pipeline leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
           page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings}/>:
@@ -1206,6 +1212,144 @@ const TX_WHO=['Business','Garrett','Logan'];
 const TX_METHODS=['Card','Bank transfer','Cash','Check','Other'];
 const csvq=s=>{s=String(s==null?'':s);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
 const toB64=file=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});
+
+/* ===================== Tasks (shared · AI-ranked) ===================== */
+const TASK_OWNERS=['Garrett','Logan','Both'];
+const ownerColor=o=>o==='Garrett'?COBALT:o==='Logan'?'#7A5CC8':GREEN;
+const meOwner=me=>me==='Logan'?'Logan':'Garrett';
+const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:'',revenue:3,urgency:3,effort:3,done:false,aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
+const taskScore=t=>num(t.revenue)*num(t.urgency);
+
+function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
+  const [who,setWho]=useState('all');
+  const [show,setShow]=useState('open');
+  const [title,setTitle]=useState('');
+  const [addOwner,setAddOwner]=useState(meOwner(me));
+  const [edit,setEdit]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const leadName=id=>{const l=leads.find(x=>x.id===id);return l?(l.company||l.name||'Lead'):'';};
+
+  const add=()=>{ const t=title.trim(); if(!t)return; upsertTask({...newTask(addOwner),title:t}); setTitle(''); };
+
+  const filtered=tasks.filter(t=>{
+    const w=who==='all'||(who==='mine'&&t.owner===meOwner(me))||(who==='logan'&&t.owner==='Logan')||(who==='both'&&t.owner==='Both');
+    const s=show==='all'||(show==='open'&&!t.done)||(show==='done'&&t.done);
+    return w&&s;
+  });
+  const ordered=[...filtered].sort((a,b)=>{
+    if(a.done!==b.done)return a.done?1:-1;
+    if(a.aiRank!=null&&b.aiRank!=null)return a.aiRank-b.aiRank;
+    if(a.aiRank!=null)return -1; if(b.aiRank!=null)return 1;
+    if(taskScore(b)!==taskScore(a))return taskScore(b)-taskScore(a);
+    if(num(a.effort)!==num(b.effort))return num(a.effort)-num(b.effort);
+    return (a.createdAt||'').localeCompare(b.createdAt||'');
+  });
+  const ranked=tasks.some(t=>!t.done&&t.aiRank!=null);
+
+  const runAI=async()=>{
+    const open=tasks.filter(t=>!t.done);
+    if(!open.length){window.alert('No open tasks to rank yet.');return;}
+    setBusy(true);
+    try{
+      const payload=open.map(t=>({id:t.id,title:t.title,notes:t.notes||'',owner:t.owner,lead:leadName(t.leadId),due:t.due||'',revenue:num(t.revenue),urgency:num(t.urgency),effort:num(t.effort)}));
+      const r=await fetch('/api/rank-tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tasks:payload})});
+      const j=await r.json();
+      if(!j.ok){window.alert('AI ranking isn\u2019t available: '+(j.error||'unknown')+'.\nTasks are still sorted by impact \u00d7 urgency.');setBusy(false);return;}
+      const map={}; (j.ranking||[]).forEach((x,i)=>{map[x.id]={rank:i+1,reason:x.reason||''};});
+      saveTasks(tasks.map(t=>{ if(t.done)return {...t,aiRank:null}; const m=map[t.id]; return m?{...t,aiRank:m.rank,aiReason:m.reason}:{...t,aiRank:null,aiReason:''}; }));
+    }catch(e){window.alert('AI ranking failed: '+(e.message||e));}
+    setBusy(false);
+  };
+  const clearAI=()=>saveTasks(tasks.map(t=>({...t,aiRank:null,aiReason:''})));
+
+  return (<>
+    <div className="card" style={{marginBottom:16}}>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        <input value={title} onChange={e=>setTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add();}} placeholder="Add a task and hit Enter\u2026" style={{flex:'1 1 260px',padding:'11px 13px',border:'1px solid #E2E3EE',borderRadius:11,fontSize:14,background:'#fff',color:INK}}/>
+        <div className="seg">{TASK_OWNERS.map(o=><button key={o} className={'seg-b '+(addOwner===o?'on':'')} onClick={()=>setAddOwner(o)}>{o==='Garrett'?'You':o}</button>)}</div>
+        <button className="btn btn-p" onClick={add}><Plus size={16}/>Add</button>
+      </div>
+    </div>
+
+    <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
+      <div className="seg">
+        <button className={'seg-b '+(who==='all'?'on':'')} onClick={()=>setWho('all')}>All</button>
+        <button className={'seg-b '+(who==='mine'?'on':'')} onClick={()=>setWho('mine')}>Mine</button>
+        <button className={'seg-b '+(who==='logan'?'on':'')} onClick={()=>setWho('logan')}>Logan</button>
+        <button className={'seg-b '+(who==='both'?'on':'')} onClick={()=>setWho('both')}>Shared</button>
+      </div>
+      <div className="seg">
+        <button className={'seg-b '+(show==='open'?'on':'')} onClick={()=>setShow('open')}>Open</button>
+        <button className={'seg-b '+(show==='done'?'on':'')} onClick={()=>setShow('done')}>Done</button>
+        <button className={'seg-b '+(show==='all'?'on':'')} onClick={()=>setShow('all')}>All</button>
+      </div>
+      <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
+        {ranked&&<button className="btn btn-g btn-sm" onClick={clearAI}>Clear ranking</button>}
+        <button className="btn btn-p" disabled={busy} onClick={runAI}>{busy?<Loader2 size={15} className="spin"/>:<Sparkles size={15}/>}{busy?'Ranking\u2026':'AI rank'}</button>
+      </div>
+    </div>
+
+    {ranked&&<div className="ai-banner ai-done" style={{marginBottom:14}}><Sparkles size={15}/>Ranked for the $10K sprint \u2014 top of the list moves cash first.</div>}
+
+    {ordered.length? <div style={{display:'flex',flexDirection:'column',gap:10}}>
+      {ordered.map(t=>{
+        const du=t.due?daysUntil(t.due):null;
+        const dueColor=du==null?'#8b88a0':du<0?RED:du===0?GOLD:'#5A5680';
+        const dueLabel=t.due?(du<0?`${-du}d overdue`:du===0?'Due today':du===1?'Due tomorrow':`Due in ${du}d`):'No date';
+        return (<div key={t.id} className="card" style={{padding:'13px 15px',display:'flex',gap:12,alignItems:'flex-start',opacity:t.done?.6:1}}>
+          <button onClick={()=>upsertTask({...t,done:!t.done,aiRank:t.done?t.aiRank:null,aiReason:t.done?t.aiReason:''})} style={{background:'none',border:'none',cursor:'pointer',padding:0,marginTop:1,color:t.done?GREEN:'#c3c2d4',flex:'none'}} title={t.done?'Mark open':'Mark done'}>{t.done?<CheckCircle2 size={22}/>:<Circle size={22}/>}</button>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+              {t.aiRank!=null&&!t.done&&<span className="pill" style={{background:INK,color:'#fff',fontWeight:700}}>#{t.aiRank}</span>}
+              <span style={{fontWeight:600,color:INK,fontSize:15,textDecoration:t.done?'line-through':'none'}}>{t.title}</span>
+            </div>
+            {t.aiReason&&!t.done&&<div style={{fontSize:12.5,color:COBALT,marginTop:4,display:'flex',alignItems:'center',gap:5}}><Sparkles size={12}/>{t.aiReason}</div>}
+            <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:8,alignItems:'center'}}>
+              <span className="pill" style={{background:ownerColor(t.owner)+'1A',color:ownerColor(t.owner)}}><span className="dot" style={{background:ownerColor(t.owner)}}/>{t.owner==='Garrett'?'You':t.owner}</span>
+              {t.leadId&&leadName(t.leadId)&&<span className="pill" style={{background:'#F0F1F7',color:'#5A5680'}}><Building2 size={11}/>{leadName(t.leadId)}</span>}
+              <span className="pill" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}}><CalendarClock size={11}/>{dueLabel}</span>
+              <span style={{fontSize:11,color:'#a6a2bc'}}>Impact {t.revenue} \u00b7 Urgency {t.urgency} \u00b7 Effort {t.effort}</span>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:4,flex:'none'}}>
+            <button className="m-x" style={{width:30,height:30}} onClick={()=>setEdit(t)} title="Edit"><SlidersHorizontal size={15}/></button>
+            <button className="m-x" style={{width:30,height:30}} onClick={()=>{if(window.confirm('Delete this task?'))deleteTask(t.id);}} title="Delete"><Trash2 size={15}/></button>
+          </div>
+        </div>);
+      })}
+    </div>
+    : <div className="empty">{show==='done'?'Nothing checked off yet.':'No tasks yet. Add your first one above \u2014 dump everything in your head here.'}</div>}
+
+    {edit&&<TaskModal task={edit} leads={leads} onSave={t=>{upsertTask(t);setEdit(null);}} onDelete={id=>{deleteTask(id);setEdit(null);}} onClose={()=>setEdit(null)}/>}
+  </>);
+}
+
+function TaskModal({task,leads,onSave,onDelete,onClose}){
+  const [d,setD]=useState({...task});
+  const set=p=>setD(x=>({...x,...p}));
+  const Knob=({label,field,hint})=>(<div className="field"><label>{label} \u2014 {d[field]} <span style={{color:'#a6a2bc',fontWeight:400}}>{hint}</span></label><input type="range" min="1" max="5" value={d[field]} onChange={e=>set({[field]:Number(e.target.value)})}/></div>);
+  return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal" style={{maxWidth:520}} onMouseDown={e=>e.stopPropagation()}>
+      <div className="m-head"><div><h2>Edit task</h2><div className="meta">Tune the knobs so the AI ranks it right</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
+      <div style={{padding:'4px 22px 22px'}}>
+        <div className="field"><label>Task</label><input value={d.title||''} onChange={e=>set({title:e.target.value})} placeholder="What needs doing?"/></div>
+        <div className="fgrid">
+          <div className="field"><label>Owner</label><select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o==='Garrett'?'You (Garrett)':o}</option>)}</select></div>
+          <div className="field"><label>Due date</label><input type="date" value={d.due||''} onChange={e=>set({due:e.target.value})}/></div>
+          <div className="field full"><label>Link a lead / deal</label><select value={d.leadId||''} onChange={e=>set({leadId:e.target.value})}><option value="">\u2014 none \u2014</option>{leads.map(l=><option key={l.id} value={l.id}>{l.company||l.name||'Lead'}</option>)}</select></div>
+        </div>
+        <Knob label="Revenue impact" field="revenue" hint="how much cash it moves"/>
+        <Knob label="Urgency" field="urgency" hint="how time-sensitive"/>
+        <Knob label="Effort" field="effort" hint="1 = quick win, 5 = heavy lift"/>
+        <div className="field"><label>Notes</label><input value={d.notes||''} onChange={e=>set({notes:e.target.value})} placeholder="Any detail that helps the ranking"/></div>
+        <div style={{display:'flex',gap:8,marginTop:16,alignItems:'center'}}>
+          <button className="btn btn-p" onClick={()=>onSave({...d,title:(d.title||'').trim()||'Untitled task'})}><CheckCircle2 size={15}/>Save</button>
+          <button className="btn btn-d btn-sm" onClick={()=>{if(window.confirm('Delete this task?'))onDelete(d.id);}}><Trash2 size={14}/>Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>);
+}
 
 function Books({txns,upsertTxn,deleteTxn}){
   const thisYear=todayISO().slice(0,4);
