@@ -10,7 +10,8 @@ import {
   CheckCircle2, Circle, AlertTriangle, ArrowUpDown, Percent, Target, Award, Rocket, UserCheck,
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
-  BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2
+  BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
+  Users, Link2, UserPlus
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db } from './lib/supabase';
@@ -44,7 +45,7 @@ const DEFAULT_LEAD_COLS=[
   {key:'businessType',visible:true},{key:'stage',visible:true},{key:'source',visible:true},
   {key:'nextAction',visible:true},{key:'lastContacted',visible:true},{key:'followUp',visible:true},
   {key:'priority',visible:true},{key:'dealValue',visible:true},{key:'owner',visible:true},
-  {key:'serviceInterest',visible:false},{key:'nextSteps',visible:false},{key:'phone',visible:false},{key:'email',visible:false},
+  {key:'serviceInterest',visible:false},{key:'nextSteps',visible:false},{key:'phone',visible:false},{key:'email',visible:false},{key:'sponsor',visible:false},
 ];
 
 /* ===================== data + auth live in ./lib/supabase ===================== */
@@ -83,6 +84,7 @@ function leadColumnDefs(stages,customFields){
     owner:{label:'Owner',render:l=><span className="subcell">{l.owner}</span>},
     phone:{label:'Phone',render:l=><span className="subcell">{l.phone||'—'}</span>},
     email:{label:'Email',render:l=><span className="subcell">{l.email||'—'}</span>},
+    sponsor:{label:'Sponsor',render:l=>l.pastSponsor?<span className="spon-badge past">Past{l.sponsorAmount>0?' · '+usd(l.sponsorAmount):''}</span>:l.potentialSponsor?<span className="spon-badge">Potential{l.sponsorAmount>0?' · '+usd(l.sponsorAmount):''}</span>:<span className="subcell">—</span>},
   };
   (customFields||[]).forEach(f=>{d['cf:'+f.id]={label:f.label,render:l=><span className="subcell">{fmtCustom(l.custom?.[f.id],f.type)}</span>};});
   return d;
@@ -135,6 +137,8 @@ function mkLead(o){
   return {id:uid(),name:'',company:'',businessType:'Real Estate',phone:'',email:'',website:'',
     stage:'new',priority:'medium',source:'',nextAction:'Schedule Coffee',nextSteps:'Follow up',
     followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,
+    potentialSponsor:false,pastSponsor:false,sponsorTier:'',sponsorAmount:0,
+    isRelationship:false,introducedBy:'',relNote:'',
     retainerActive:false,retainerStart:'',closedAt:'',custom:{},createdAt,activities:acts,...rest};
 }
 function seed(){return [
@@ -308,6 +312,34 @@ const CSS=`
 .afilter{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
 .afilter button{font-size:11.5px;font-weight:600;padding:5px 10px;border-radius:8px;border:1px solid #E4E5F0;background:#fff;color:#8E89A8;cursor:pointer}
 .afilter button.on{border-color:${COBALT};background:rgba(43,77,224,.08);color:${COBALT}}
+.spon-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+.spon-tog{display:inline-flex;align-items:center;gap:8px;padding:9px 14px;border:1px solid #E1E2EC;border-radius:10px;font-size:13px;font-weight:600;color:#56527a;cursor:pointer;background:#fff}
+.spon-tog input{accent-color:${COBALT};width:15px;height:15px;cursor:pointer}
+.spon-tog.on{border-color:${COBALT};background:rgba(43,77,224,.08);color:${COBALT}}
+.spon-tog.past input{accent-color:${GOLD}}
+.spon-tog.past.on{border-color:${GOLD};background:rgba(200,162,74,.12);color:#8a6a1f}
+.spon-badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:rgba(43,77,224,.1);color:${COBALT}}
+.spon-badge.past{background:rgba(200,162,74,.16);color:#8a6a1f}
+.spon-tog.rel input{accent-color:#7A5CC8}
+.spon-tog.rel.on{border-color:#7A5CC8;background:rgba(122,92,200,.1);color:#5b3fa6}
+.rel-hint{font-size:11.5px;color:#8b88a0;margin-top:7px;line-height:1.45}
+.rel-from{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:7px 11px;border-radius:9px;background:rgba(122,92,200,.08);border:1px solid rgba(122,92,200,.22);color:#5b3fa6;font-size:12.5px;cursor:pointer}
+.rel-from:hover{background:rgba(122,92,200,.15)}
+.rel-gave{display:flex;align-items:center;gap:7px;margin-top:10px;padding:8px 11px;border-radius:9px;background:#F4F5FA;border:1px solid #E5E6F0;color:#56527a;font-size:12.5px}
+.rel-chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:20px;background:rgba(122,92,200,.1);color:#5b3fa6}
+.rel-ghead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.rel-gname{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:800;color:#5b3fa6;cursor:pointer}
+.rel-gname:hover{text-decoration:underline}
+.rel-gname.plain{color:#8b88a0;cursor:default}
+.rel-gname.plain:hover{text-decoration:none}
+.rel-gcount{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#EEF0F7;color:#56527a}
+.imp-sub{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8b88a0;margin-bottom:8px}
+.imp-map{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.imp-row{display:flex;align-items:center;gap:7px;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 10px}
+.imp-h{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.imp-row select{border:1px solid #E1E2EC;border-radius:7px;padding:5px 7px;font-size:12px;color:${INK};background:#fff;max-width:130px}
+.imp-warn{display:flex;align-items:center;gap:6px;font-size:12px;color:#9a5a16;background:#FFF7ED;border:1px solid #FCD9B6;border-radius:8px;padding:8px 11px;margin-top:10px}
+@media(max-width:640px){.imp-map{grid-template-columns:1fr}}
 .act-types{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
 .act-t{font-size:12px;font-weight:600;padding:6px 10px;border-radius:9px;border:1px solid #DEDFEA;background:#fff;color:#56527a;cursor:pointer;display:flex;align-items:center;gap:5px}
 .act-t.on{border-color:${COBALT};background:rgba(43,77,224,.08);color:${COBALT}}
@@ -582,6 +614,7 @@ export default function App(){
   const [leads,setLeads]=useState([]);
   const [invoices,setInvoices]=useState([]);
   const [txns,setTxns]=useState([]);
+  const [tasks,setTasks]=useState([]);
   const [invId,setInvId]=useState(null);
   const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING});
   const [page,setPage]=useState('dash');
@@ -601,9 +634,10 @@ export default function App(){
       let s=await db.getLeads(); let st=await db.getSettings();
       let iv=[]; try{ if(typeof db.getInvoices==='function') iv=await db.getInvoices(); }catch(err){ console.error('invoices load failed',err); }
       let tx=[]; try{ if(typeof db.getTxns==='function') tx=await db.getTxns(); }catch(err){ console.error('txns load failed',err); }
+      let tk=[]; try{ if(typeof db.getTasks==='function') tk=await db.getTasks(); }catch(err){ console.error('tasks load failed',err); }
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
       if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING}; await db.saveSettings(st); }
-      setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]);
+      setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
       setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
@@ -611,6 +645,8 @@ export default function App(){
 
   const stages=settings.stages?.length?settings.stages:DEFAULT_STAGES;
   const me=cap(auth.username(session))||'Garrett';
+  /* relationships are people, not deals — keep them out of the sales views */
+  const bizLeads=useMemo(()=>leads.filter(l=>!l.isRelationship),[leads]);
   const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await db.upsertMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
   const settingsTimer=React.useRef(null);
   const saveSettings=n=>{ setSettings(n); if(settingsTimer.current)clearTimeout(settingsTimer.current); settingsTimer.current=setTimeout(()=>{ db.saveSettings(n).catch(console.error); },700); };
@@ -618,6 +654,9 @@ export default function App(){
   const saveTxns=n=>{ setTxns(n); if(typeof db.saveTxns==='function') db.saveTxns(n).catch(console.error); };
   const upsertTxn=t=>{ const exists=txns.some(x=>x.id===t.id); saveTxns(exists?txns.map(x=>x.id===t.id?t:x):[t,...txns]); };
   const deleteTxn=t=>{ saveTxns(txns.filter(x=>x.id!==t.id)); if(t.receipt?.path&&typeof db.removeReceipt==='function') db.removeReceipt(t.receipt.path).catch(console.error); };
+  const saveTasks=n=>{ setTasks(n); if(typeof db.saveTasks==='function') db.saveTasks(n).catch(console.error); };
+  const upsertTask=t=>{ const exists=tasks.some(x=>x.id===t.id); saveTasks(exists?tasks.map(x=>x.id===t.id?t:x):[t,...tasks]); };
+  const deleteTask=id=>{ saveTasks(tasks.filter(x=>x.id!==id)); };
   const upsertInvoice=inv=>{ const exists=invoices.some(x=>x.id===inv.id); saveInvoices(exists?invoices.map(x=>x.id===inv.id?inv:x):[inv,...invoices]); };
   const deleteInvoice=id=>{ saveInvoices(invoices.filter(x=>x.id!==id)); setInvId(null); };
   const newInvoice=(lead)=>{ const ivset=settings.invoicing||DEFAULT_INVOICING; const number=(ivset.prefix||'INV-')+String(ivset.seq||1).padStart(4,'0'); saveSettings({...settings,invoicing:{...ivset,seq:(ivset.seq||1)+1}}); const issue=todayISO(); const inv={ id:uid(), number, clientId:lead?lead.id:'', billTo:lead?{name:lead.name||'',company:lead.company||'',email:lead.email||'',address:''}:{name:'',company:'',email:'',address:''}, issueDate:issue, dueDate:addDays(issue,ivset.terms||14), items:lead?itemsFromLead(lead):[{id:uid(),label:'',qty:1,amount:0}], taxRate:num(ivset.taxRate), notes:ivset.notes||'', paymentLink:ivset.paymentLink||'', status:'draft', paidDate:'', createdAt:new Date().toISOString() }; upsertInvoice(inv); setInvId(inv.id); };
@@ -636,6 +675,7 @@ export default function App(){
   const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
+  const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await db.upsertMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
   const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:true,convertedAt:todayISO(),delivery:l.delivery||{},activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Converted to client — delivery started.',who:me},...l.activities]}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
   const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
   const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done?null:todayISO(),due:cur.due||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; const patch={delivery:d}; const o=clientOverall({...l,delivery:d},settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const won=(stages||[]).find(s=>s.won); if(o.delivered&&won&&l.stage!==won.key) patch.stage=won.key; updateLead(id,patch); };
@@ -645,8 +685,8 @@ export default function App(){
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
-  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
@@ -667,19 +707,21 @@ export default function App(){
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
-          page==='dash'?<Dashboard leads={leads} stages={stages} open={openLead}/>:
+          page==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead}/>:
           page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
+          page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks}/>:
           page==='activity'?<Activity leads={leads} me={me} open={openLead}/>:
-          page==='pipeline'?<Pipeline leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
-          page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings}/>:
-          page==='clients'?<Clients leads={leads} stages={stages} settings={settings} open={openLead}/>:
-          page==='invoices'?<Invoices invoices={invoices} leads={leads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
+          page==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead}/>:
+          page==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads}/>:
+          page==='rels'?<Relationships leads={leads} open={openLead}/>:
+          page==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead}/>:
+          page==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           page==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
-          page==='money'?<Money leads={leads} stages={stages}/>:
+          page==='money'?<Money leads={bizLeads} stages={stages}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices}/>}
       </div>
     </div>
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -851,7 +893,8 @@ function Pipeline({leads,stages,open,updateLead}){
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads}){
+  const [importOpen,setImportOpen]=useState(false);
   const customFields=settings.customFields||[];
   const defs=leadColumnDefs(stages,customFields);
   const cols=mergeLeadCols(settings.leadColumns||DEFAULT_LEAD_COLS,customFields).filter(c=>defs[c.key]);
@@ -860,7 +903,7 @@ function Leads({leads,settings,stages,open,saveSettings}){
   const moveCol=(i,d)=>{const j=i+d;if(j<0||j>=cols.length)return;const a=cols.slice();[a[i],a[j]]=[a[j],a[i]];setCols(a);};
   const toggleCol=key=>setCols(cols.map(c=>c.key===key?{...c,visible:!c.visible}:c));
   const [colOpen,setColOpen]=useState(false);
-  const [q,setQ]=useState('');const [stage,setStage]=useState('all');const [pri,setPri]=useState('all');const [cold,setCold]=useState('all');
+  const [q,setQ]=useState('');const [stage,setStage]=useState('all');const [pri,setPri]=useState('all');const [cold,setCold]=useState('all');const [spon,setSpon]=useState('all');
   const [sortK,setSortK]=useState('followUp');const [dir,setDir]=useState('asc');
   const sortVal=(l,k)=>{
     if(k==='stage') return sIdx(l.stage,stages);
@@ -877,12 +920,15 @@ function Leads({leads,settings,stages,open,saveSettings}){
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
       if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
+      if(spon==='potential'&&!l.potentialSponsor)return false;
+      if(spon==='past'&&!l.pastSponsor)return false;
+      if(spon==='any'&&!(l.potentialSponsor||l.pastSponsor))return false;
       if(q){const s=(l.name+' '+l.company+' '+l.businessType+' '+l.phone+' '+(l.serviceInterest||[]).join(' ')+' '+l.source).toLowerCase();if(!s.includes(q.toLowerCase()))return false;}
       return true;
     });
     r.sort((a,b)=>{const av=sortVal(a,sortK),bv=sortVal(b,sortK);const c=av<bv?-1:av>bv?1:0;return dir==='asc'?c:-c;});
     return r;
-  },[leads,q,stage,pri,cold,sortK,dir,stages]);
+  },[leads,q,stage,pri,cold,spon,sortK,dir,stages]);
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
@@ -896,6 +942,7 @@ function Leads({leads,settings,stages,open,saveSettings}){
       <select className="selctl" value={stage} onChange={e=>setStage(e.target.value)}><option value="all">All stages</option>{stages.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}</select>
       <select className="selctl" value={pri} onChange={e=>setPri(e.target.value)}><option value="all">All priority</option>{Object.entries(PRIORITIES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
       <select className="selctl" value={cold} onChange={e=>setCold(e.target.value)}><option value="all">Any contact age</option><option value="7">Cold · 7+ days</option><option value="14">Cold · 14+ days</option><option value="30">Cold · 30+ days</option></select>
+      <select className="selctl" value={spon} onChange={e=>setSpon(e.target.value)}><option value="all">All leads</option><option value="potential">Potential sponsors</option><option value="past">Past sponsors</option><option value="any">Any sponsor</option></select>
       <button className="selctl" onClick={()=>setDir(d=>d==='asc'?'desc':'asc')} title="Toggle direction"><ArrowUpDown size={15}/></button>
       <div className="colmenu-wrap">
         <button className="selctl" onClick={()=>setColOpen(o=>!o)}><SlidersHorizontal size={15}/>Columns</button>
@@ -905,6 +952,7 @@ function Leads({leads,settings,stages,open,saveSettings}){
         </div></>}
       </div>
       <button className="btn btn-g" onClick={csv}><Download size={15}/>CSV</button>
+      {importLeads&&<button className="btn btn-p" onClick={()=>setImportOpen(true)}><Upload size={15}/>Import</button>}
     </div>
     <div className="tbl-wrap"><table className="tbl"><thead><tr>
       <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}
@@ -912,6 +960,143 @@ function Leads({leads,settings,stages,open,saveSettings}){
       <td><div className="namecell">{l.name}</div><div className="subcell">{l.company}</div></td>
       {visCols.map(c=><td key={c.key}>{defs[c.key].render(l)}</td>)}
     </tr>))}</tbody></table>{!rows.length&&<div className="empty">No leads match. Adjust filters or add a new lead.</div>}</div>
+    {importOpen&&<ImportModal onClose={()=>setImportOpen(false)} onImport={arr=>{importLeads(arr);setImportOpen(false);}} businessTypes={settings.options?.businessType||[]}/>}
+  </>);
+}
+
+/* ===================== CSV IMPORT ===================== */
+const IMPORT_FIELDS=[['ignore','— ignore —'],['name','Name'],['company','Company'],['phone','Phone'],['email','Email'],['website','Website'],['businessType','Business type'],['source','Source'],['note','Notes']];
+const IMPORT_KEYS=IMPORT_FIELDS.map(f=>f[0]);
+const guessField=h=>{const s=(h||'').toLowerCase();
+  if(/e-?mail/.test(s))return 'email';
+  if(/phone|mobile|cell|tel|number/.test(s))return 'phone';
+  if(/web|site|url|domain/.test(s))return 'website';
+  if(/company|business\s*name|org|account|dba|firm/.test(s))return 'company';
+  if(/first|last|full|contact|name/.test(s))return 'name';
+  if(/type|industry|category|vertical/.test(s))return 'businessType';
+  if(/source|origin|referr|lead\s*from/.test(s))return 'source';
+  if(/note|comment|desc|remark/.test(s))return 'note';
+  return 'ignore';};
+const parseCSV=text=>{const rows=[];let row=[],cur='',q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){ if(c==='"'){ if(text[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else { if(c==='"')q=true; else if(c===','){row.push(cur);cur='';} else if(c==='\n'){row.push(cur);rows.push(row);row=[];cur='';} else if(c!=='\r')cur+=c; } }
+  if(cur!==''||row.length){row.push(cur);rows.push(row);}
+  return rows.filter(r=>r.some(c=>(c||'').trim()!==''));};
+
+function ImportModal({onClose,onImport,businessTypes}){
+  const [headers,setHeaders]=useState(null);
+  const [rows,setRows]=useState([]);
+  const [mapping,setMapping]=useState({});
+  const [markSponsor,setMarkSponsor]=useState(false);
+  const [ai,setAi]=useState(null);
+  const [fileName,setFileName]=useState('');
+  const fileRef=React.useRef(null);
+  const ingest=text=>{ const parsed=parseCSV(text); if(parsed.length<2){window.alert('That file needs a header row and at least one data row.');return;}
+    const hd=parsed[0].map(h=>(h||'').trim()); const rw=parsed.slice(1);
+    setHeaders(hd); setRows(rw);
+    const base={}; hd.forEach(h=>base[h]=guessField(h)); setMapping(base);
+    setAi('reading');
+    (async()=>{ try{ const r=await fetch('/api/import-leads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({headers:hd,samples:rw.slice(0,6)})}); const j=await r.json();
+      if(j&&j.ok&&j.mapping){ const m={}; hd.forEach(h=>{const v=j.mapping[h];m[h]=(v&&IMPORT_KEYS.includes(v))?v:base[h];}); setMapping(m); setAi('done'); }
+      else setAi('heuristic'); }catch(e){ setAi('heuristic'); } })();
+  };
+  const onFile=e=>{ const f=e.target.files?.[0]; e.target.value=''; if(!f)return; setFileName(f.name); const r=new FileReader(); r.onload=()=>ingest(String(r.result)); r.readAsText(f); };
+  const buildLead=row=>{ const f={}; headers.forEach((h,i)=>{ const t=mapping[h]; if(!t||t==='ignore')return; const v=(row[i]||'').trim(); if(!v)return; if(t==='name')f.name=(f.name?f.name+' ':'')+v; else if(t==='note')f.note=(f.note?f.note+' | ':'')+v; else f[t]=v; });
+    if(!f.name)f.name=f.company||'(no name)'; if(!f.source)f.source='CSV import'; if(markSponsor)f.potentialSponsor=true; return mkLead(f); };
+  const preview=headers?rows.slice(0,6).map(buildLead):[];
+  const mapped=k=>headers?headers.filter(h=>mapping[h]===k).length:0;
+  const doImport=()=>{ const built=rows.map(buildLead); onImport(built); };
+  return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal" style={{maxWidth:720}} onMouseDown={e=>e.stopPropagation()}>
+      <div className="m-head"><div><h2>Import leads from CSV</h2><div className="meta">AI maps your columns — you review, then import</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
+      <div style={{padding:'4px 22px 22px'}}>
+        {!headers?(<>
+          <div className="drop" onClick={()=>fileRef.current?.click()}><Upload size={22}/><div style={{marginTop:8,fontWeight:600,color:INK}}>Choose a .csv file</div><div style={{fontSize:12,color:'#8b88a0',marginTop:3}}>Export your Google Sheet as CSV, or drag any contact list. Messy columns are fine — the AI sorts them out.</div></div>
+          <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={onFile}/>
+          <div style={{textAlign:'center',color:'#c7c5d4',fontSize:12,margin:'12px 0 6px'}}>or paste rows below</div>
+          <textarea rows={5} placeholder="Name,Company,Phone,Email&#10;Jane Doe,Acme,3165551234,jane@acme.com" style={{width:'100%',border:'1px solid #E1E2EC',borderRadius:10,padding:10,fontSize:12.5,fontFamily:'monospace'}} onBlur={e=>{if(e.target.value.trim())ingest(e.target.value);}}/>
+        </>):(<>
+          {ai==='reading'&&<div className="ai-banner ai-reading"><Loader2 size={15} className="spin"/>AI is reading your columns…</div>}
+          {ai==='done'&&<div className="ai-banner ai-done"><Sparkles size={15}/>AI mapped your columns — check them below and fix any that look off.</div>}
+          {ai==='heuristic'&&<div className="ai-banner ai-off"><AlertTriangle size={15}/>Auto-matched columns by name (AI unavailable). Double-check the mapping below.</div>}
+          <div className="imp-sub">{rows.length} row{rows.length===1?'':'s'} found{fileName?' · '+fileName:''}. Map each column:</div>
+          <div className="imp-map">{headers.map(h=>(<div className="imp-row" key={h}><span className="imp-h" title={h}>{h||'(blank)'}</span><ChevronRight size={13} color="#c7c5d4"/><select value={mapping[h]||'ignore'} onChange={e=>setMapping(m=>({...m,[h]:e.target.value}))}>{IMPORT_FIELDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>))}</div>
+          {!mapped('name')&&<div className="imp-warn"><AlertTriangle size={13}/>No column is mapped to <b>Name</b> — those rows will fall back to the company name.</div>}
+          <label className="spon-tog" style={{marginTop:12}}><input type="checkbox" checked={markSponsor} onChange={e=>setMarkSponsor(e.target.checked)}/>Mark all imported leads as <b>potential sponsors</b></label>
+          <div className="imp-sub" style={{marginTop:16}}>Preview (first {preview.length}):</div>
+          <div className="tbl-wrap" style={{maxHeight:200,overflow:'auto'}}><table className="tbl"><thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Email</th></tr></thead><tbody>{preview.map((l,i)=>(<tr key={i}><td className="namecell">{l.name}</td><td className="subcell">{l.company||'—'}</td><td className="subcell">{l.phone||'—'}</td><td className="subcell">{l.email||'—'}</td></tr>))}</tbody></table></div>
+          <div style={{display:'flex',gap:8,marginTop:16,alignItems:'center'}}>
+            <button className="btn btn-p" onClick={doImport}><CheckCircle2 size={15}/>Import {rows.length} lead{rows.length===1?'':'s'}</button>
+            <button className="btn btn-s btn-sm" onClick={()=>{setHeaders(null);setRows([]);setAi(null);setFileName('');}}>Start over</button>
+          </div>
+        </>)}
+      </div>
+    </div>
+  </div>);
+}
+
+/* ===================== RELATIONSHIPS ===================== */
+function Relationships({leads,open}){
+  const [q,setQ]=useState('');
+  const [src,setSrc]=useState('all');
+  const [view,setView]=useState('grouped');
+  const rels=useMemo(()=>leads.filter(l=>l.isRelationship),[leads]);
+  const nameOf=id=>{const x=leads.find(l=>l.id===id);return x?x.name:'';};
+  const sources=useMemo(()=>{
+    const m={};
+    rels.forEach(r=>{const k=r.introducedBy||'';m[k]=(m[k]||0)+1;});
+    return Object.entries(m).map(([id,count])=>({id,count,name:id?nameOf(id)||'(removed contact)':'Direct / no intro'}))
+      .sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
+  },[rels,leads]);
+  const shown=useMemo(()=>rels.filter(r=>{
+    if(src!=='all'&&(r.introducedBy||'')!==src)return false;
+    if(q){const s=(r.name+' '+r.company+' '+(r.relNote||'')+' '+nameOf(r.introducedBy)).toLowerCase();if(!s.includes(q.toLowerCase()))return false;}
+    return true;
+  }).sort((a,b)=>(a.name||'').localeCompare(b.name||'')),[rels,q,src,leads]);
+  const groups=useMemo(()=>{
+    const m={};
+    shown.forEach(r=>{const k=r.introducedBy||'';(m[k]=m[k]||[]).push(r);});
+    return Object.entries(m).map(([id,list])=>({id,name:id?nameOf(id)||'(removed contact)':'Direct / no intro',list}))
+      .sort((a,b)=>b.list.length-a.list.length||a.name.localeCompare(b.name));
+  },[shown,leads]);
+  const topConnector=sources.filter(s=>s.id)[0];
+  const Row=r=>(<tr key={r.id} onClick={()=>open(r.id,shown.map(x=>x.id))}>
+    <td><div className="namecell">{r.name}</div><div className="subcell">{r.company||'—'}</div></td>
+    <td className="subcell">{r.relNote||'—'}</td>
+    <td>{r.introducedBy?<span className="rel-chip"><Link2 size={11}/>{nameOf(r.introducedBy)||'—'}</span>:<span className="subcell">Direct</span>}</td>
+    <td className="subcell">{r.phone||'—'}</td>
+    <td><Due iso={r.followUp}/></td>
+    <td className="subcell">{r.owner||'—'}</td>
+  </tr>);
+  return (<>
+    <div className="kpis">
+      <Kpi variant="accent" label="Relationships" value={rels.length} icon={<Users size={14}/>} d="Kept out of sales numbers"/>
+      <Kpi label="Introduced by someone" value={rels.filter(r=>r.introducedBy).length} icon={<Link2 size={14}/>} d={`${rels.filter(r=>!r.introducedBy).length} direct`}/>
+      <Kpi label="Connectors" value={sources.filter(s=>s.id).length} icon={<UserPlus size={14}/>} d="People who intro'd you"/>
+      <Kpi label="Top connector" value={topConnector?topConnector.count:0} icon={<Award size={14}/>} d={topConnector?topConnector.name:'—'}/>
+    </div>
+    <div className="toolbar">
+      <div className="searchbox"><Search size={16} color="#928DAD"/><input placeholder="Search name, company, how you know them…" value={q} onChange={e=>setQ(e.target.value)}/></div>
+      <select className="selctl" value={src} onChange={e=>setSrc(e.target.value)}>
+        <option value="all">Everyone who introduced</option>
+        {sources.map(s=><option key={s.id} value={s.id}>{s.name} ({s.count})</option>)}
+      </select>
+      <div className="seg" style={{marginLeft:'auto'}}>
+        <button className={view==='grouped'?'on':''} onClick={()=>setView('grouped')}>Grouped</button>
+        <button className={view==='list'?'on':''} onClick={()=>setView('list')}>List</button>
+      </div>
+    </div>
+    {!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
+    :!shown.length?<div className="card"><div className="empty">No relationships match that search.</div></div>
+    :view==='list'?<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>How you know them</th><th>Introduced by</th><th>Phone</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{shown.map(Row)}</tbody></table></div>
+    :<>{groups.map(g=>(<div className="card" style={{marginBottom:14}} key={g.id||'direct'}>
+        <div className="rel-ghead">
+          {g.id?<><span className="rel-gname" onClick={()=>open(g.id)}><Link2 size={13}/>{g.name}</span><span className="rel-gcount">{g.list.length} {g.list.length===1?'intro':'intros'}</span></>
+              :<><span className="rel-gname plain"><Users size={13}/>Direct / no intro</span><span className="rel-gcount">{g.list.length}</span></>}
+        </div>
+        <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>How you know them</th><th>Introduced by</th><th>Phone</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{g.list.map(Row)}</tbody></table></div>
+      </div>))}</>}
   </>);
 }
 
@@ -1207,6 +1392,144 @@ const TX_METHODS=['Card','Bank transfer','Cash','Check','Other'];
 const csvq=s=>{s=String(s==null?'':s);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
 const toB64=file=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});
 
+/* ===================== Tasks (shared · AI-ranked) ===================== */
+const TASK_OWNERS=['Garrett','Logan','Both'];
+const ownerColor=o=>o==='Garrett'?COBALT:o==='Logan'?'#7A5CC8':GREEN;
+const meOwner=me=>me==='Logan'?'Logan':'Garrett';
+const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:'',revenue:3,urgency:3,effort:3,done:false,aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
+const taskScore=t=>num(t.revenue)*num(t.urgency);
+
+function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
+  const [who,setWho]=useState('all');
+  const [show,setShow]=useState('open');
+  const [title,setTitle]=useState('');
+  const [addOwner,setAddOwner]=useState(meOwner(me));
+  const [edit,setEdit]=useState(null);
+  const [busy,setBusy]=useState(false);
+  const leadName=id=>{const l=leads.find(x=>x.id===id);return l?(l.company||l.name||'Lead'):'';};
+
+  const add=()=>{ const t=title.trim(); if(!t)return; upsertTask({...newTask(addOwner),title:t}); setTitle(''); };
+
+  const filtered=tasks.filter(t=>{
+    const w=who==='all'||(who==='mine'&&t.owner===meOwner(me))||(who==='logan'&&t.owner==='Logan')||(who==='both'&&t.owner==='Both');
+    const s=show==='all'||(show==='open'&&!t.done)||(show==='done'&&t.done);
+    return w&&s;
+  });
+  const ordered=[...filtered].sort((a,b)=>{
+    if(a.done!==b.done)return a.done?1:-1;
+    if(a.aiRank!=null&&b.aiRank!=null)return a.aiRank-b.aiRank;
+    if(a.aiRank!=null)return -1; if(b.aiRank!=null)return 1;
+    if(taskScore(b)!==taskScore(a))return taskScore(b)-taskScore(a);
+    if(num(a.effort)!==num(b.effort))return num(a.effort)-num(b.effort);
+    return (a.createdAt||'').localeCompare(b.createdAt||'');
+  });
+  const ranked=tasks.some(t=>!t.done&&t.aiRank!=null);
+
+  const runAI=async()=>{
+    const open=tasks.filter(t=>!t.done);
+    if(!open.length){window.alert('No open tasks to rank yet.');return;}
+    setBusy(true);
+    try{
+      const payload=open.map(t=>({id:t.id,title:t.title,notes:t.notes||'',owner:t.owner,lead:leadName(t.leadId),due:t.due||'',revenue:num(t.revenue),urgency:num(t.urgency),effort:num(t.effort)}));
+      const r=await fetch('/api/rank-tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tasks:payload})});
+      const j=await r.json();
+      if(!j.ok){window.alert('AI ranking isn\u2019t available: '+(j.error||'unknown')+'.\nTasks are still sorted by impact \u00d7 urgency.');setBusy(false);return;}
+      const map={}; (j.ranking||[]).forEach((x,i)=>{map[x.id]={rank:i+1,reason:x.reason||''};});
+      saveTasks(tasks.map(t=>{ if(t.done)return {...t,aiRank:null}; const m=map[t.id]; return m?{...t,aiRank:m.rank,aiReason:m.reason}:{...t,aiRank:null,aiReason:''}; }));
+    }catch(e){window.alert('AI ranking failed: '+(e.message||e));}
+    setBusy(false);
+  };
+  const clearAI=()=>saveTasks(tasks.map(t=>({...t,aiRank:null,aiReason:''})));
+
+  return (<>
+    <div className="card" style={{marginBottom:16}}>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+        <input value={title} onChange={e=>setTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add();}} placeholder="Add a task and hit Enter\u2026" style={{flex:'1 1 260px',padding:'11px 13px',border:'1px solid #E2E3EE',borderRadius:11,fontSize:14,background:'#fff',color:INK}}/>
+        <div className="seg">{TASK_OWNERS.map(o=><button key={o} className={'seg-b '+(addOwner===o?'on':'')} onClick={()=>setAddOwner(o)}>{o}</button>)}</div>
+        <button className="btn btn-p" onClick={add}><Plus size={16}/>Add</button>
+      </div>
+    </div>
+
+    <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
+      <div className="seg">
+        <button className={'seg-b '+(who==='all'?'on':'')} onClick={()=>setWho('all')}>All</button>
+        <button className={'seg-b '+(who==='mine'?'on':'')} onClick={()=>setWho('mine')}>Mine</button>
+        <button className={'seg-b '+(who==='logan'?'on':'')} onClick={()=>setWho('logan')}>Logan</button>
+        <button className={'seg-b '+(who==='both'?'on':'')} onClick={()=>setWho('both')}>Shared</button>
+      </div>
+      <div className="seg">
+        <button className={'seg-b '+(show==='open'?'on':'')} onClick={()=>setShow('open')}>Open</button>
+        <button className={'seg-b '+(show==='done'?'on':'')} onClick={()=>setShow('done')}>Done</button>
+        <button className={'seg-b '+(show==='all'?'on':'')} onClick={()=>setShow('all')}>All</button>
+      </div>
+      <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
+        {ranked&&<button className="btn btn-g btn-sm" onClick={clearAI}>Clear ranking</button>}
+        <button className="btn btn-p" disabled={busy} onClick={runAI}>{busy?<Loader2 size={15} className="spin"/>:<Sparkles size={15}/>}{busy?'Ranking\u2026':'AI rank'}</button>
+      </div>
+    </div>
+
+    {ranked&&<div className="ai-banner ai-done" style={{marginBottom:14}}><Sparkles size={15}/>Ranked for the $10K sprint \u2014 top of the list moves cash first.</div>}
+
+    {ordered.length? <div style={{display:'flex',flexDirection:'column',gap:10}}>
+      {ordered.map(t=>{
+        const du=t.due?daysUntil(t.due):null;
+        const dueColor=du==null?'#8b88a0':du<0?RED:du===0?GOLD:'#5A5680';
+        const dueLabel=t.due?(du<0?`${-du}d overdue`:du===0?'Due today':du===1?'Due tomorrow':`Due in ${du}d`):'No date';
+        return (<div key={t.id} className="card" style={{padding:'13px 15px',display:'flex',gap:12,alignItems:'flex-start',opacity:t.done?.6:1}}>
+          <button onClick={()=>upsertTask({...t,done:!t.done,aiRank:t.done?t.aiRank:null,aiReason:t.done?t.aiReason:''})} style={{background:'none',border:'none',cursor:'pointer',padding:0,marginTop:1,color:t.done?GREEN:'#c3c2d4',flex:'none'}} title={t.done?'Mark open':'Mark done'}>{t.done?<CheckCircle2 size={22}/>:<Circle size={22}/>}</button>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+              {t.aiRank!=null&&!t.done&&<span className="pill" style={{background:INK,color:'#fff',fontWeight:700}}>#{t.aiRank}</span>}
+              <span style={{fontWeight:600,color:INK,fontSize:15,textDecoration:t.done?'line-through':'none'}}>{t.title}</span>
+            </div>
+            {t.aiReason&&!t.done&&<div style={{fontSize:12.5,color:COBALT,marginTop:4,display:'flex',alignItems:'center',gap:5}}><Sparkles size={12}/>{t.aiReason}</div>}
+            <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:8,alignItems:'center'}}>
+              <span className="pill" style={{background:ownerColor(t.owner)+'1A',color:ownerColor(t.owner)}}><span className="dot" style={{background:ownerColor(t.owner)}}/>{t.owner}</span>
+              {t.leadId&&leadName(t.leadId)&&<span className="pill" style={{background:'#F0F1F7',color:'#5A5680'}}><Building2 size={11}/>{leadName(t.leadId)}</span>}
+              <span className="pill" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}}><CalendarClock size={11}/>{dueLabel}</span>
+              <span style={{fontSize:11,color:'#a6a2bc'}}>Impact {t.revenue} \u00b7 Urgency {t.urgency} \u00b7 Effort {t.effort}</span>
+            </div>
+          </div>
+          <div style={{display:'flex',gap:4,flex:'none'}}>
+            <button className="m-x" style={{width:30,height:30}} onClick={()=>setEdit(t)} title="Edit"><SlidersHorizontal size={15}/></button>
+            <button className="m-x" style={{width:30,height:30}} onClick={()=>{if(window.confirm('Delete this task?'))deleteTask(t.id);}} title="Delete"><Trash2 size={15}/></button>
+          </div>
+        </div>);
+      })}
+    </div>
+    : <div className="empty">{show==='done'?'Nothing checked off yet.':'No tasks yet. Add your first one above \u2014 dump everything in your head here.'}</div>}
+
+    {edit&&<TaskModal task={edit} leads={leads} onSave={t=>{upsertTask(t);setEdit(null);}} onDelete={id=>{deleteTask(id);setEdit(null);}} onClose={()=>setEdit(null)}/>}
+  </>);
+}
+
+function TaskModal({task,leads,onSave,onDelete,onClose}){
+  const [d,setD]=useState({...task});
+  const set=p=>setD(x=>({...x,...p}));
+  const Knob=({label,field,hint})=>(<div className="field"><label>{label} \u2014 {d[field]} <span style={{color:'#a6a2bc',fontWeight:400}}>{hint}</span></label><input type="range" min="1" max="5" value={d[field]} onChange={e=>set({[field]:Number(e.target.value)})}/></div>);
+  return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal" style={{maxWidth:520}} onMouseDown={e=>e.stopPropagation()}>
+      <div className="m-head"><div><h2>Edit task</h2><div className="meta">Tune the knobs so the AI ranks it right</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
+      <div style={{padding:'4px 22px 22px'}}>
+        <div className="field"><label>Task</label><input value={d.title||''} onChange={e=>set({title:e.target.value})} placeholder="What needs doing?"/></div>
+        <div className="fgrid">
+          <div className="field"><label>Owner</label><select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+          <div className="field"><label>Due date</label><input type="date" value={d.due||''} onChange={e=>set({due:e.target.value})}/></div>
+          <div className="field full"><label>Link a lead / deal</label><select value={d.leadId||''} onChange={e=>set({leadId:e.target.value})}><option value="">\u2014 none \u2014</option>{leads.map(l=><option key={l.id} value={l.id}>{l.company||l.name||'Lead'}</option>)}</select></div>
+        </div>
+        <Knob label="Revenue impact" field="revenue" hint="how much cash it moves"/>
+        <Knob label="Urgency" field="urgency" hint="how time-sensitive"/>
+        <Knob label="Effort" field="effort" hint="1 = quick win, 5 = heavy lift"/>
+        <div className="field"><label>Notes</label><input value={d.notes||''} onChange={e=>set({notes:e.target.value})} placeholder="Any detail that helps the ranking"/></div>
+        <div style={{display:'flex',gap:8,marginTop:16,alignItems:'center'}}>
+          <button className="btn btn-p" onClick={()=>onSave({...d,title:(d.title||'').trim()||'Untitled task'})}><CheckCircle2 size={15}/>Save</button>
+          <button className="btn btn-d btn-sm" onClick={()=>{if(window.confirm('Delete this task?'))onDelete(d.id);}}><Trash2 size={14}/>Delete</button>
+        </div>
+      </div>
+    </div>
+  </div>);
+}
+
 function Books({txns,upsertTxn,deleteTxn}){
   const thisYear=todayISO().slice(0,4);
   const [year,setYear]=useState(thisYear);
@@ -1356,12 +1679,11 @@ function Activity({leads,me,open}){
   const all=useMemo(()=>leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company}))),[leads]);
   const inRange=useMemo(()=>all.filter(a=>{const t=new Date(a.ts);return t>=range.start&&t<=range.end;}),[all,range]);
   const people=useMemo(()=>{const s=new Set(inRange.map(a=>a.who||'—'));['Garrett','Logan'].forEach(p=>s.add(p));return [...s].filter(Boolean).sort();},[inRange]);
-  const scope=useMemo(()=>inRange.filter(a=>who==='All'||a.who===who),[inRange,who]);
-  const shown=scope.filter(a=>typeF==='All'||a.type===typeF).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
-  const matrix=useMemo(()=>{const m={};scope.forEach(a=>{const p=a.who||'—';m[p]=m[p]||{Call:0,Text:0,Meeting:0,Note:0,Email:0,total:0};if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[scope]);
+  const shown=inRange.filter(a=>(who==='All'||a.who===who)&&(typeF==='All'||a.type===typeF)).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  const matrix=useMemo(()=>{const m={};inRange.forEach(a=>{const p=a.who||'—';m[p]=m[p]||{Call:0,Text:0,Meeting:0,Note:0,Email:0,total:0};if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[inRange]);
   const chartData=Object.entries(matrix).map(([person,c])=>({person,...c})).sort((a,b)=>b.total-a.total);
-  const totals=ACT_ORDER.reduce((o,t)=>{o[t]=scope.filter(a=>a.type===t).length;return o;},{});
-  const grand=scope.length;
+  const totals=ACT_ORDER.reduce((o,t)=>{o[t]=inRange.filter(a=>a.type===t).length;return o;},{});
+  const grand=inRange.length;
   const shift=dir=>{const d=new Date(anchor+'T00:00:00');if(mode==='day')d.setDate(d.getDate()+dir);else if(mode==='week')d.setDate(d.getDate()+7*dir);else d.setMonth(d.getMonth()+dir);setAnchor(d.toISOString().slice(0,10));};
   const fmtTime=ts=>{try{return new Date(ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}catch{return '';}};
   const dayHead=ts=>new Date(ts).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
@@ -1384,7 +1706,7 @@ function Activity({leads,me,open}){
       </div>
     </div>
     <div className="kpis">
-      <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={(who==='All'?'Everyone':who)+' · '+range.label}/>
+      <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={range.label}/>
       {ACT_ORDER.map(t=><Kpi key={t} label={t+'s'} value={totals[t]} icon={kIcon(t)}/>)}
     </div>
     {chartData.length>0&&<div className="card" style={{marginBottom:16}}>
@@ -1610,11 +1932,11 @@ function DeliveryEditor({tracks,services,onChange}){
 }
 
 /* ===================== MODAL ===================== */
-function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
+function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
-  const blank={id:uid(),name:'',company:'',businessType:opt.businessType[0],phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:opt.nextAction[0],nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',custom:{},createdAt:new Date().toISOString(),activities:[]};
+  const blank={id:uid(),name:'',company:'',businessType:opt.businessType[0],phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:opt.nextAction[0],nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
   const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [who,setWho]=useState(me||'Garrett');const [feedFilter,setFeedFilter]=useState('All');
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
@@ -1680,7 +2002,30 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToC
               <button className="linkbtn" onClick={()=>{ if(window.confirm('Revert this client back to a lead? Delivery progress is kept.')) revertClient(draft.id); }}>Revert to lead</button>
             </div>);
           })()}
-          <div className="dh"><Contact2 size={13}/>Details</div>
+          {(()=>{ const intro=(allLeads||[]).find(x=>x.id===draft.introducedBy);
+            const candidates=(allLeads||[]).filter(x=>x.id!==draft.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+            const intros=(allLeads||[]).filter(x=>x.introducedBy===draft.id);
+            return (<>
+            <div className="dh"><Users size={13}/>Type</div>
+            <div className="spon-row">
+              <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?'Relationship — not a ProyTech lead':'ProyTech lead'}</label>
+            </div>
+            {draft.isRelationship&&<>
+              <div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>
+              <div className="fgrid" style={{marginTop:10}}>
+                <div className="field"><label>Introduced by</label>
+                  <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
+                    <option value="">— nobody / direct —</option>
+                    {candidates.map(x=><option key={x.id} value={x.id}>{x.name}{x.company?' · '+x.company:''}</option>)}
+                  </select>
+                </div>
+                {F({label:'How you know them',k:'relNote'})}
+              </div>
+              {intro&&<div className="rel-from" onClick={()=>onNav&&onNav(intro.id)}><Link2 size={13}/>Introduced by <b>{intro.name}</b>{intro.company?' · '+intro.company:''}<ChevronRight size={13}/></div>}
+            </>}
+            {intros.length>0&&<div className="rel-gave"><UserPlus size={13}/><span><b>{intros.length}</b> {intros.length===1?'person':'people'} in your CRM came from {draft.name||'this contact'}</span></div>}
+            </>); })()}
+          <div className="dh mt"><Contact2 size={13}/>Details</div>
           <div className="fgrid">
             {F({label:'Name',k:'name'})}{F({label:'Company',k:'company'})}
             {Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
@@ -1693,6 +2038,16 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToC
 
           <div className="dh mt"><Target size={13}/>Service Interest</div>
           <div className="chips">{opt.service.map(s=><span key={s} className={'chip '+((draft.serviceInterest||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(s)}>{s}</span>)}<span className="chip add" onClick={addCustomSvc}><Plus size={12}/>Custom</span></div>
+
+          <div className="dh mt"><Award size={13}/>Sponsorship</div>
+          <div className="spon-row">
+            <label className={'spon-tog'+(draft.potentialSponsor?' on':'')}><input type="checkbox" checked={!!draft.potentialSponsor} onChange={e=>set({potentialSponsor:e.target.checked})}/>Potential sponsor</label>
+            <label className={'spon-tog past'+(draft.pastSponsor?' on':'')}><input type="checkbox" checked={!!draft.pastSponsor} onChange={e=>set({pastSponsor:e.target.checked})}/>Past sponsor</label>
+          </div>
+          {(draft.potentialSponsor||draft.pastSponsor)&&<div className="fgrid" style={{marginTop:10}}>
+            {F({label:'Sponsor tier',k:'sponsorTier'})}
+            {F({label:draft.pastSponsor?'Amount given ($)':'Amount possible ($)',k:'sponsorAmount',type:'number'})}
+          </div>}
 
           <div className="dh mt"><Phone size={13}/>Contact</div>
           <div className="fgrid">{F({label:'Phone',k:'phone'})}{F({label:'Email',k:'email'})}{F({label:'Website',k:'website',full:true})}</div>
