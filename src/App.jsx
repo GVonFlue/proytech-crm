@@ -106,6 +106,47 @@ const DEFAULT_DELIVERY_TRACKS=[
     milestones:['Discovery & scoping','Integrations started','Build & configuration','Testing','Integrations delivered'] },
 ];
 const activeTracks=(lead,tracks)=>{ const svc=lead.serviceInterest||[]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]); };
+
+/* ---- introduction network: who introduced whom ---- */
+/* returns [root, ..., directIntroducer] for a contact — cycle-safe */
+function introChain(lead,all){
+  if(!lead) return [];
+  const byId={}; (all||[]).forEach(x=>byId[x.id]=x);
+  const chain=[]; const seen=new Set([lead.id]); let cur=lead;
+  while(cur&&cur.introducedBy){
+    const p=byId[cur.introducedBy];
+    if(!p||seen.has(p.id))break;
+    seen.add(p.id); chain.unshift(p); cur=p;
+  }
+  return chain;
+}
+/* builds the intro forest + a tidy left-to-right layout */
+function buildNetwork(contacts){
+  const byId={}; contacts.forEach(c=>byId[c.id]=c);
+  const parentOf=id=>{const c=byId[id];const p=c&&c.introducedBy;return (p&&p!==id&&byId[p])?p:null;};
+  const kids={}; contacts.forEach(c=>{const p=parentOf(c.id); if(p)(kids[p]=kids[p]||[]).push(c.id);});
+  Object.values(kids).forEach(a=>a.sort((x,y)=>(byId[x].name||'').localeCompare(byId[y].name||'')));
+  const inNet=new Set();
+  contacts.forEach(c=>{ if(parentOf(c.id)||(kids[c.id]||[]).length) inNet.add(c.id); });
+  const roots=[...inNet].filter(id=>!parentOf(id)).sort((a,b)=>{
+    const ca=(kids[a]||[]).length, cb=(kids[b]||[]).length;
+    return cb-ca||(byId[a].name||'').localeCompare(byId[b].name||'');
+  });
+  const nodes=[],links=[]; let leaf=0; const seen=new Set();
+  const place=(id,depth)=>{
+    if(seen.has(id))return null;
+    seen.add(id);
+    const ch=(kids[id]||[]).filter(k=>!seen.has(k));
+    let y;
+    if(!ch.length){ y=leaf; leaf+=1; }
+    else{ const ys=ch.map(k=>place(k,depth+1)).filter(v=>v!=null); y=ys.length?(ys[0]+ys[ys.length-1])/2:(leaf++); ch.forEach(k=>links.push([id,k])); }
+    nodes.push({id,depth,y,kids:(kids[id]||[]).length});
+    return y;
+  };
+  roots.forEach(r=>place(r,1));
+  const depth=nodes.length?Math.max(...nodes.map(n=>n.depth)):0;
+  return {byId,kids,roots,nodes,links,inNet,rows:leaf,maxDepth:depth};
+}
 const normEntry=v=>{ if(!v) return {done:null,due:null}; if(typeof v==='string') return {done:v,due:null}; return {done:v.done||null,due:v.due||null}; };
 const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[track.key])||{}; const ms=track.milestones||[]; const entries={}; let completed=0,overdue=0,nextDue=null;
   ms.forEach(m=>{ const e=normEntry(raw[m]); entries[m]=e; if(e.done) completed++; else if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } });
@@ -333,6 +374,40 @@ const CSS=`
 .rel-gname.plain{color:#8b88a0;cursor:default}
 .rel-gname.plain:hover{text-decoration:none}
 .rel-gcount{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#EEF0F7;color:#56527a}
+.rel-chain{margin-top:12px;padding:11px 13px;border-radius:10px;background:#F7F8FC;border:1px solid #EDEEF5}
+.rc-lbl{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#9b98ad;margin-bottom:7px}
+.rc-path{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.rc-node{font-size:12.5px;font-weight:700;color:#5b3fa6;background:rgba(122,92,200,.1);padding:3px 9px;border-radius:20px;cursor:pointer}
+.rc-node:hover{background:rgba(122,92,200,.2)}
+.rc-node.root{background:rgba(200,162,74,.18);color:#8a6a1f}
+.rc-node.self{background:${INK};color:#fff;cursor:default}
+.rc-arrow{color:#c7c5d4;flex:none}
+.rc-root{margin-top:8px;font-size:12px;color:#8b88a0}
+.rc-root b{color:#8a6a1f;cursor:pointer}
+.rc-root b:hover{text-decoration:underline}
+.web-card{padding:14px}
+.web-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:11.5px;color:#8b88a0;font-weight:600}
+.web-legend span{display:inline-flex;align-items:center;gap:5px}
+.web-legend i{width:9px;height:9px;border-radius:3px;display:inline-block}
+.web-tip{color:#c0bdd0!important;font-weight:500}
+.web-trace{font-size:12.5px;color:#56527a;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:8px 12px;margin-bottom:10px;line-height:1.5}
+.web-trace b{color:${INK}}
+.web-trace span{color:#5b3fa6;font-weight:600;cursor:pointer}
+.web-trace span:hover{text-decoration:underline}
+.web-scroll{overflow:auto;max-height:66vh;border:1px solid #F0F1F6;border-radius:10px;background:linear-gradient(#FCFCFE,#FCFCFE)}
+.web-svg{display:block}
+.web-you{fill:${INK}}
+.web-youtxt{fill:#fff;font-size:12px;font-weight:700;font-family:'Space Grotesk',sans-serif}
+.web-link{fill:none;stroke:#DCDEEA;stroke-width:1.5}
+.web-link.you{stroke:#C9CBDA;stroke-dasharray:4 3}
+.web-link.on{stroke:${COBALT};stroke-width:2.5}
+.web-node{cursor:pointer}
+.web-node rect{transition:.12s}
+.web-node.dim{opacity:.32}
+.web-node:hover rect:first-child{filter:drop-shadow(0 3px 8px rgba(0,0,0,.13))}
+.web-name{font-size:12px;font-weight:700;fill:${INK};font-family:'Inter',sans-serif}
+.web-co{font-size:9.5px;fill:#9b98ad;font-family:'Inter',sans-serif}
+.web-kids{font-size:9.5px;font-weight:700;fill:#56527a}
 .imp-sub{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8b88a0;margin-bottom:8px}
 .imp-map{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .imp-row{display:flex;align-items:center;gap:7px;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 10px}
@@ -1036,6 +1111,61 @@ function ImportModal({onClose,onImport,businessTypes}){
   </div>);
 }
 
+/* ===================== INTRO WEB ===================== */
+function NetworkWeb({contacts,open}){
+  const [sel,setSel]=useState(null);
+  const net=useMemo(()=>buildNetwork(contacts),[contacts]);
+  const COL=196,ROW=52,NW=164,NH=36,PAD=22;
+  if(!net.nodes.length) return (<div className="card"><div className="empty">No introductions mapped yet. Open any contact, set <b>Introduced by</b>, and the web will draw itself here.</div></div>);
+  const rootYs=net.nodes.filter(n=>n.depth===1).map(n=>n.y);
+  const youY=rootYs.length?(Math.min(...rootYs)+Math.max(...rootYs))/2:0;
+  const X=d=>PAD+d*COL, Y=y=>PAD+y*ROW+NH/2;
+  const W=X(net.maxDepth)+NW+PAD, H=PAD*2+Math.max(net.rows,1)*ROW;
+  const ancestors=id=>{const c=net.byId[id];return c?introChain(c,contacts).map(p=>p.id):[];};
+  const selPath=sel?[...ancestors(sel),sel]:[];
+  const onPath=id=>selPath.includes(id);
+  const linkOn=(a,b)=>{const i=selPath.indexOf(a);return i>=0&&selPath[i+1]===b;};
+  const curve=(x1,y1,x2,y2)=>{const mx=(x1+x2)/2;return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;};
+  const colorOf=c=>c.isRelationship?'#7A5CC8':(c.isClient?GREEN:COBALT);
+  return (<div className="card web-card">
+    <div className="web-legend">
+      <span><i style={{background:'#7A5CC8'}}/>Relationship</span>
+      <span><i style={{background:COBALT}}/>Lead</span>
+      <span><i style={{background:GREEN}}/>Client</span>
+      <span className="web-tip">Tap a name to trace it back · double-tap to open</span>
+      {sel&&<button className="btn btn-s btn-sm" style={{marginLeft:'auto'}} onClick={()=>setSel(null)}>Clear trace</button>}
+    </div>
+    {sel&&(()=>{const chain=[...ancestors(sel).map(id=>net.byId[id]),net.byId[sel]].filter(Boolean);
+      return (<div className="web-trace"><b>{chain[chain.length-1].name}</b>{chain.length>1?<> traces back through {chain.slice(0,-1).map((p,i)=><React.Fragment key={p.id}>{i>0&&' → '}<span onClick={()=>setSel(p.id)}>{p.name}</span></React.Fragment>)}</>:<> — you met them directly</>}</div>);})()}
+    <div className="web-scroll">
+      <svg width={W} height={H} className="web-svg">
+        {net.roots.length>0&&<>
+          <rect x={X(0)} y={Y(youY)-NH/2} width={NW} height={NH} rx={9} className="web-you"/>
+          <text x={X(0)+NW/2} y={Y(youY)+4} textAnchor="middle" className="web-youtxt">You · ProyTech</text>
+          {net.nodes.filter(n=>n.depth===1).map(n=>(
+            <path key={'y'+n.id} d={curve(X(0)+NW,Y(youY),X(1),Y(n.y))} className="web-link you"/>
+          ))}
+        </>}
+        {net.links.map(([a,b])=>{
+          const na=net.nodes.find(n=>n.id===a),nb=net.nodes.find(n=>n.id===b);
+          if(!na||!nb)return null;
+          return <path key={a+'>'+b} d={curve(X(na.depth)+NW,Y(na.y),X(nb.depth),Y(nb.y))} className={'web-link'+(linkOn(a,b)?' on':'')}/>;
+        })}
+        {net.nodes.map(n=>{const c=net.byId[n.id];if(!c)return null;
+          const dim=sel&&!onPath(n.id);
+          return (<g key={n.id} className={'web-node'+(dim?' dim':'')+(sel===n.id?' sel':'')} onClick={()=>setSel(n.id)} onDoubleClick={()=>open&&open(n.id)}>
+            <rect x={X(n.depth)} y={Y(n.y)-NH/2} width={NW} height={NH} rx={9} fill="#fff" stroke={onPath(n.id)?colorOf(c):'#E1E2EC'} strokeWidth={onPath(n.id)?2:1}/>
+            <rect x={X(n.depth)} y={Y(n.y)-NH/2} width={4} height={NH} rx={2} fill={colorOf(c)}/>
+            <text x={X(n.depth)+12} y={Y(n.y)-1} className="web-name">{(c.name||'').slice(0,20)}</text>
+            <text x={X(n.depth)+12} y={Y(n.y)+11} className="web-co">{(c.company||'').slice(0,22)}</text>
+            {n.kids>0&&<><circle cx={X(n.depth)+NW-14} cy={Y(n.y)} r={9} fill="#F1F2F8"/><text x={X(n.depth)+NW-14} y={Y(n.y)+3.5} textAnchor="middle" className="web-kids">{n.kids}</text></>}
+          </g>);
+        })}
+      </svg>
+    </div>
+  </div>);
+}
+
 /* ===================== RELATIONSHIPS ===================== */
 function Relationships({leads,open}){
   const [q,setQ]=useState('');
@@ -1061,6 +1191,17 @@ function Relationships({leads,open}){
       .sort((a,b)=>b.list.length-a.list.length||a.name.localeCompare(b.name));
   },[shown,leads]);
   const topConnector=sources.filter(s=>s.id)[0];
+  const allIntro=useMemo(()=>{
+    const m={};
+    leads.forEach(l=>{ if(l.introducedBy&&l.introducedBy!==l.id&&leads.some(x=>x.id===l.introducedBy)) m[l.introducedBy]=(m[l.introducedBy]||0)+1; });
+    return Object.entries(m).map(([id,count])=>({id,count,name:nameOf(id)})).sort((a,b)=>b.count-a.count);
+  },[leads]);
+  const topAll=allIntro[0];
+  const deepest=useMemo(()=>{
+    let best=0,who=null;
+    leads.forEach(l=>{const c=introChain(l,leads);if(c.length>best){best=c.length;who=l;}});
+    return {len:best,who};
+  },[leads]);
   const Row=r=>(<tr key={r.id} onClick={()=>open(r.id,shown.map(x=>x.id))}>
     <td><div className="namecell">{r.name}</div><div className="subcell">{r.company||'—'}</div></td>
     <td className="subcell">{r.relNote||'—'}</td>
@@ -1072,9 +1213,9 @@ function Relationships({leads,open}){
   return (<>
     <div className="kpis">
       <Kpi variant="accent" label="Relationships" value={rels.length} icon={<Users size={14}/>} d="Kept out of sales numbers"/>
-      <Kpi label="Introduced by someone" value={rels.filter(r=>r.introducedBy).length} icon={<Link2 size={14}/>} d={`${rels.filter(r=>!r.introducedBy).length} direct`}/>
-      <Kpi label="Connectors" value={sources.filter(s=>s.id).length} icon={<UserPlus size={14}/>} d="People who intro'd you"/>
-      <Kpi label="Top connector" value={topConnector?topConnector.count:0} icon={<Award size={14}/>} d={topConnector?topConnector.name:'—'}/>
+      <Kpi label="Connectors" value={allIntro.length} icon={<UserPlus size={14}/>} d="People who intro'd you"/>
+      <Kpi label="Top connector" value={topAll?topAll.count:0} icon={<Award size={14}/>} d={topAll?topAll.name:'—'}/>
+      <Kpi label="Longest chain" value={deepest.len?deepest.len+1:0} icon={<Link2 size={14}/>} d={deepest.who?'ends at '+deepest.who.name:'—'}/>
     </div>
     <div className="toolbar">
       <div className="searchbox"><Search size={16} color="#928DAD"/><input placeholder="Search name, company, how you know them…" value={q} onChange={e=>setQ(e.target.value)}/></div>
@@ -1085,9 +1226,11 @@ function Relationships({leads,open}){
       <div className="seg" style={{marginLeft:'auto'}}>
         <button className={view==='grouped'?'on':''} onClick={()=>setView('grouped')}>Grouped</button>
         <button className={view==='list'?'on':''} onClick={()=>setView('list')}>List</button>
+        <button className={view==='web'?'on':''} onClick={()=>setView('web')}>Web</button>
       </div>
     </div>
-    {!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
+    {view==='web'?<NetworkWeb contacts={leads} open={open}/>
+    :!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
     :!shown.length?<div className="card"><div className="empty">No relationships match that search.</div></div>
     :view==='list'?<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>How you know them</th><th>Introduced by</th><th>Phone</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{shown.map(Row)}</tbody></table></div>
     :<>{groups.map(g=>(<div className="card" style={{marginBottom:14}} key={g.id||'direct'}>
@@ -2005,24 +2148,36 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
           {(()=>{ const intro=(allLeads||[]).find(x=>x.id===draft.introducedBy);
             const candidates=(allLeads||[]).filter(x=>x.id!==draft.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
             const intros=(allLeads||[]).filter(x=>x.introducedBy===draft.id);
+            const chain=introChain(draft,allLeads||[]);
+            const root=chain.length?chain[0]:null;
             return (<>
             <div className="dh"><Users size={13}/>Type</div>
             <div className="spon-row">
               <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?'Relationship — not a ProyTech lead':'ProyTech lead'}</label>
             </div>
-            {draft.isRelationship&&<>
-              <div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>
-              <div className="fgrid" style={{marginTop:10}}>
-                <div className="field"><label>Introduced by</label>
-                  <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
-                    <option value="">— nobody / direct —</option>
-                    {candidates.map(x=><option key={x.id} value={x.id}>{x.name}{x.company?' · '+x.company:''}</option>)}
-                  </select>
-                </div>
-                {F({label:'How you know them',k:'relNote'})}
+            {draft.isRelationship&&<div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>}
+
+            <div className="dh mt"><Link2 size={13}/>Introduction</div>
+            <div className="fgrid">
+              <div className="field"><label>Introduced by</label>
+                <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
+                  <option value="">— nobody / direct —</option>
+                  {candidates.map(x=><option key={x.id} value={x.id}>{x.name}{x.company?' · '+x.company:''}</option>)}
+                </select>
               </div>
-              {intro&&<div className="rel-from" onClick={()=>onNav&&onNav(intro.id)}><Link2 size={13}/>Introduced by <b>{intro.name}</b>{intro.company?' · '+intro.company:''}<ChevronRight size={13}/></div>}
-            </>}
+              {F({label:'How you know them',k:'relNote'})}
+            </div>
+            {chain.length>0&&<div className="rel-chain">
+              <div className="rc-lbl">Intro chain</div>
+              <div className="rc-path">
+                {chain.map((p,i)=>(<React.Fragment key={p.id}>
+                  <span className={'rc-node'+(i===0?' root':'')} onClick={()=>onNav&&onNav(p.id)}>{p.name}</span>
+                  <ChevronRight size={12} className="rc-arrow"/>
+                </React.Fragment>))}
+                <span className="rc-node self">{draft.name||'this contact'}</span>
+              </div>
+              {chain.length>1&&root&&<div className="rc-root">It all traces back to <b onClick={()=>onNav&&onNav(root.id)}>{root.name}</b></div>}
+            </div>}
             {intros.length>0&&<div className="rel-gave"><UserPlus size={13}/><span><b>{intros.length}</b> {intros.length===1?'person':'people'} in your CRM came from {draft.name||'this contact'}</span></div>}
             </>); })()}
           <div className="dh mt"><Contact2 size={13}/>Details</div>
