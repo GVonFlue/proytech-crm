@@ -10,7 +10,8 @@ import {
   CheckCircle2, Circle, AlertTriangle, ArrowUpDown, Percent, Target, Award, Rocket, UserCheck,
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
-  BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo
+  BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
+  Users, Link2, UserPlus
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db } from './lib/supabase';
@@ -137,6 +138,7 @@ function mkLead(o){
     stage:'new',priority:'medium',source:'',nextAction:'Schedule Coffee',nextSteps:'Follow up',
     followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,
     potentialSponsor:false,pastSponsor:false,sponsorTier:'',sponsorAmount:0,
+    isRelationship:false,introducedBy:'',relNote:'',
     retainerActive:false,retainerStart:'',closedAt:'',custom:{},createdAt,activities:acts,...rest};
 }
 function seed(){return [
@@ -318,6 +320,19 @@ const CSS=`
 .spon-tog.past.on{border-color:${GOLD};background:rgba(200,162,74,.12);color:#8a6a1f}
 .spon-badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:rgba(43,77,224,.1);color:${COBALT}}
 .spon-badge.past{background:rgba(200,162,74,.16);color:#8a6a1f}
+.spon-tog.rel input{accent-color:#7A5CC8}
+.spon-tog.rel.on{border-color:#7A5CC8;background:rgba(122,92,200,.1);color:#5b3fa6}
+.rel-hint{font-size:11.5px;color:#8b88a0;margin-top:7px;line-height:1.45}
+.rel-from{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:7px 11px;border-radius:9px;background:rgba(122,92,200,.08);border:1px solid rgba(122,92,200,.22);color:#5b3fa6;font-size:12.5px;cursor:pointer}
+.rel-from:hover{background:rgba(122,92,200,.15)}
+.rel-gave{display:flex;align-items:center;gap:7px;margin-top:10px;padding:8px 11px;border-radius:9px;background:#F4F5FA;border:1px solid #E5E6F0;color:#56527a;font-size:12.5px}
+.rel-chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:20px;background:rgba(122,92,200,.1);color:#5b3fa6}
+.rel-ghead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.rel-gname{display:inline-flex;align-items:center;gap:6px;font-size:14px;font-weight:800;color:#5b3fa6;cursor:pointer}
+.rel-gname:hover{text-decoration:underline}
+.rel-gname.plain{color:#8b88a0;cursor:default}
+.rel-gname.plain:hover{text-decoration:none}
+.rel-gcount{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#EEF0F7;color:#56527a}
 .imp-sub{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8b88a0;margin-bottom:8px}
 .imp-map{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .imp-row{display:flex;align-items:center;gap:7px;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 10px}
@@ -630,6 +645,8 @@ export default function App(){
 
   const stages=settings.stages?.length?settings.stages:DEFAULT_STAGES;
   const me=cap(auth.username(session))||'Garrett';
+  /* relationships are people, not deals — keep them out of the sales views */
+  const bizLeads=useMemo(()=>leads.filter(l=>!l.isRelationship),[leads]);
   const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await db.upsertMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
   const settingsTimer=React.useRef(null);
   const saveSettings=n=>{ setSettings(n); if(settingsTimer.current)clearTimeout(settingsTimer.current); settingsTimer.current=setTimeout(()=>{ db.saveSettings(n).catch(console.error); },700); };
@@ -668,8 +685,8 @@ export default function App(){
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
-  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
@@ -690,20 +707,21 @@ export default function App(){
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
-          page==='dash'?<Dashboard leads={leads} stages={stages} open={openLead}/>:
+          page==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead}/>:
           page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
           page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks}/>:
           page==='activity'?<Activity leads={leads} me={me} open={openLead}/>:
-          page==='pipeline'?<Pipeline leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
-          page==='leads'?<Leads leads={leads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads}/>:
-          page==='clients'?<Clients leads={leads} stages={stages} settings={settings} open={openLead}/>:
-          page==='invoices'?<Invoices invoices={invoices} leads={leads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
+          page==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead}/>:
+          page==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads}/>:
+          page==='rels'?<Relationships leads={leads} open={openLead}/>:
+          page==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead}/>:
+          page==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           page==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
-          page==='money'?<Money leads={leads} stages={stages}/>:
+          page==='money'?<Money leads={bizLeads} stages={stages}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices}/>}
       </div>
     </div>
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -1016,6 +1034,70 @@ function ImportModal({onClose,onImport,businessTypes}){
       </div>
     </div>
   </div>);
+}
+
+/* ===================== RELATIONSHIPS ===================== */
+function Relationships({leads,open}){
+  const [q,setQ]=useState('');
+  const [src,setSrc]=useState('all');
+  const [view,setView]=useState('grouped');
+  const rels=useMemo(()=>leads.filter(l=>l.isRelationship),[leads]);
+  const nameOf=id=>{const x=leads.find(l=>l.id===id);return x?x.name:'';};
+  const sources=useMemo(()=>{
+    const m={};
+    rels.forEach(r=>{const k=r.introducedBy||'';m[k]=(m[k]||0)+1;});
+    return Object.entries(m).map(([id,count])=>({id,count,name:id?nameOf(id)||'(removed contact)':'Direct / no intro'}))
+      .sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
+  },[rels,leads]);
+  const shown=useMemo(()=>rels.filter(r=>{
+    if(src!=='all'&&(r.introducedBy||'')!==src)return false;
+    if(q){const s=(r.name+' '+r.company+' '+(r.relNote||'')+' '+nameOf(r.introducedBy)).toLowerCase();if(!s.includes(q.toLowerCase()))return false;}
+    return true;
+  }).sort((a,b)=>(a.name||'').localeCompare(b.name||'')),[rels,q,src,leads]);
+  const groups=useMemo(()=>{
+    const m={};
+    shown.forEach(r=>{const k=r.introducedBy||'';(m[k]=m[k]||[]).push(r);});
+    return Object.entries(m).map(([id,list])=>({id,name:id?nameOf(id)||'(removed contact)':'Direct / no intro',list}))
+      .sort((a,b)=>b.list.length-a.list.length||a.name.localeCompare(b.name));
+  },[shown,leads]);
+  const topConnector=sources.filter(s=>s.id)[0];
+  const Row=r=>(<tr key={r.id} onClick={()=>open(r.id,shown.map(x=>x.id))}>
+    <td><div className="namecell">{r.name}</div><div className="subcell">{r.company||'—'}</div></td>
+    <td className="subcell">{r.relNote||'—'}</td>
+    <td>{r.introducedBy?<span className="rel-chip"><Link2 size={11}/>{nameOf(r.introducedBy)||'—'}</span>:<span className="subcell">Direct</span>}</td>
+    <td className="subcell">{r.phone||'—'}</td>
+    <td><Due iso={r.followUp}/></td>
+    <td className="subcell">{r.owner||'—'}</td>
+  </tr>);
+  return (<>
+    <div className="kpis">
+      <Kpi variant="accent" label="Relationships" value={rels.length} icon={<Users size={14}/>} d="Kept out of sales numbers"/>
+      <Kpi label="Introduced by someone" value={rels.filter(r=>r.introducedBy).length} icon={<Link2 size={14}/>} d={`${rels.filter(r=>!r.introducedBy).length} direct`}/>
+      <Kpi label="Connectors" value={sources.filter(s=>s.id).length} icon={<UserPlus size={14}/>} d="People who intro'd you"/>
+      <Kpi label="Top connector" value={topConnector?topConnector.count:0} icon={<Award size={14}/>} d={topConnector?topConnector.name:'—'}/>
+    </div>
+    <div className="toolbar">
+      <div className="searchbox"><Search size={16} color="#928DAD"/><input placeholder="Search name, company, how you know them…" value={q} onChange={e=>setQ(e.target.value)}/></div>
+      <select className="selctl" value={src} onChange={e=>setSrc(e.target.value)}>
+        <option value="all">Everyone who introduced</option>
+        {sources.map(s=><option key={s.id} value={s.id}>{s.name} ({s.count})</option>)}
+      </select>
+      <div className="seg" style={{marginLeft:'auto'}}>
+        <button className={view==='grouped'?'on':''} onClick={()=>setView('grouped')}>Grouped</button>
+        <button className={view==='list'?'on':''} onClick={()=>setView('list')}>List</button>
+      </div>
+    </div>
+    {!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
+    :!shown.length?<div className="card"><div className="empty">No relationships match that search.</div></div>
+    :view==='list'?<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>How you know them</th><th>Introduced by</th><th>Phone</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{shown.map(Row)}</tbody></table></div>
+    :<>{groups.map(g=>(<div className="card" style={{marginBottom:14}} key={g.id||'direct'}>
+        <div className="rel-ghead">
+          {g.id?<><span className="rel-gname" onClick={()=>open(g.id)}><Link2 size={13}/>{g.name}</span><span className="rel-gcount">{g.list.length} {g.list.length===1?'intro':'intros'}</span></>
+              :<><span className="rel-gname plain"><Users size={13}/>Direct / no intro</span><span className="rel-gcount">{g.list.length}</span></>}
+        </div>
+        <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>How you know them</th><th>Introduced by</th><th>Phone</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{g.list.map(Row)}</tbody></table></div>
+      </div>))}</>}
+  </>);
 }
 
 /* ===================== CLIENTS ===================== */
@@ -1850,11 +1932,11 @@ function DeliveryEditor({tracks,services,onChange}){
 }
 
 /* ===================== MODAL ===================== */
-function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
+function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
-  const blank={id:uid(),name:'',company:'',businessType:opt.businessType[0],phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:opt.nextAction[0],nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',custom:{},createdAt:new Date().toISOString(),activities:[]};
+  const blank={id:uid(),name:'',company:'',businessType:opt.businessType[0],phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:opt.nextAction[0],nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
   const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [who,setWho]=useState(me||'Garrett');const [feedFilter,setFeedFilter]=useState('All');
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
@@ -1920,7 +2002,30 @@ function Modal({lead,isNew,settings,stages,addOption,me,navList,onNav,convertToC
               <button className="linkbtn" onClick={()=>{ if(window.confirm('Revert this client back to a lead? Delivery progress is kept.')) revertClient(draft.id); }}>Revert to lead</button>
             </div>);
           })()}
-          <div className="dh"><Contact2 size={13}/>Details</div>
+          {(()=>{ const intro=(allLeads||[]).find(x=>x.id===draft.introducedBy);
+            const candidates=(allLeads||[]).filter(x=>x.id!==draft.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+            const intros=(allLeads||[]).filter(x=>x.introducedBy===draft.id);
+            return (<>
+            <div className="dh"><Users size={13}/>Type</div>
+            <div className="spon-row">
+              <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?'Relationship — not a ProyTech lead':'ProyTech lead'}</label>
+            </div>
+            {draft.isRelationship&&<>
+              <div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>
+              <div className="fgrid" style={{marginTop:10}}>
+                <div className="field"><label>Introduced by</label>
+                  <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
+                    <option value="">— nobody / direct —</option>
+                    {candidates.map(x=><option key={x.id} value={x.id}>{x.name}{x.company?' · '+x.company:''}</option>)}
+                  </select>
+                </div>
+                {F({label:'How you know them',k:'relNote'})}
+              </div>
+              {intro&&<div className="rel-from" onClick={()=>onNav&&onNav(intro.id)}><Link2 size={13}/>Introduced by <b>{intro.name}</b>{intro.company?' · '+intro.company:''}<ChevronRight size={13}/></div>}
+            </>}
+            {intros.length>0&&<div className="rel-gave"><UserPlus size={13}/><span><b>{intros.length}</b> {intros.length===1?'person':'people'} in your CRM came from {draft.name||'this contact'}</span></div>}
+            </>); })()}
+          <div className="dh mt"><Contact2 size={13}/>Details</div>
           <div className="fgrid">
             {F({label:'Name',k:'name'})}{F({label:'Company',k:'company'})}
             {Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
