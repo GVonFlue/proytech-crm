@@ -39,6 +39,22 @@ const DEFAULT_STAGES=[
 ];
 const PRIORITIES={high:{label:'High',color:'#E0662B',bg:'rgba(224,102,43,.12)',rank:0},medium:{label:'Medium',color:COBALT,bg:'rgba(43,77,224,.10)',rank:1},low:{label:'Low',color:'#8E89A8',bg:'#F0F1F7',rank:2}};
 const OWNERS=['Garrett','Logan','ProyTech'];
+/* ---- team scoping: everyone sees their own leads; "ProyTech" is the shared pool ---- */
+const POOL_OWNER='ProyTech';
+const DEFAULT_TEAM=[{name:'Garrett',access:'all'},{name:'Logan',access:'all'}];
+const teamAccess=(settings,name)=>{ const t=(settings?.team||[]).find(x=>x.name===name); return t?t.access:'all'; };
+const scopeLeads=(list,view,me)=>{
+  if(view==='mine') return list.filter(l=>l.owner===me);
+  if(view==='pool') return list.filter(l=>l.owner===POOL_OWNER);
+  return list;
+};
+function ScopeSeg({view,setView,counts,canAll}){
+  return (<div className="seg scope-seg">
+    <button className={view==='mine'?'on':''} onClick={()=>setView('mine')}>Mine<i>{counts.mine}</i></button>
+    <button className={view==='pool'?'on':''} onClick={()=>setView('pool')}>Pool<i>{counts.pool}</i></button>
+    {canAll&&<button className={view==='all'?'on':''} onClick={()=>setView('all')}>All<i>{counts.all}</i></button>}
+  </div>);
+}
 const ACT_TYPES=[{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox}];
 const fmtCustom=(v,type)=>{if(v===undefined||v==='')return '—';if(type==='checkbox')return v?'✓':'—';return String(v);};
 const DEFAULT_LEAD_COLS=[
@@ -408,6 +424,23 @@ const CSS=`
 .web-name{font-size:12px;font-weight:700;fill:${INK};font-family:'Inter',sans-serif}
 .web-co{font-size:9.5px;fill:#9b98ad;font-family:'Inter',sans-serif}
 .web-kids{font-size:9.5px;font-weight:700;fill:#56527a}
+.scope-seg{flex:none}
+.scope-seg button{display:inline-flex;align-items:center;gap:6px}
+.scope-seg button i{font-style:normal;font-size:10px;font-weight:800;padding:1px 6px;border-radius:20px;background:#DFE2EE;color:#56527a;min-width:16px;text-align:center}
+.scope-seg button.on i{background:${COBALT};color:#fff}
+.claim-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid ${COBALT};background:rgba(43,77,224,.06);color:${COBALT};font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:20px;cursor:pointer;white-space:nowrap}
+.claim-btn:hover{background:${COBALT};color:#fff}
+.pool-note{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#56527a;background:#F4F5FA;border:1px solid #E5E6F0;border-radius:9px;padding:9px 12px;margin-bottom:12px}
+.own-badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#EEF0F7;color:#4a4763}
+.fu-scope{margin-bottom:14px}
+.fu-owner{margin-top:8px}
+.team-list{display:flex;flex-direction:column;gap:8px}
+.team-row{display:flex;align-items:center;gap:11px;padding:10px 12px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE}
+.team-av{width:28px;height:28px;border-radius:50%;background:${INK};color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex:none}
+.team-name{font-weight:700;color:${INK};font-size:13.5px;flex:1;min-width:0}
+.team-seg{flex:none}
+.team-seg button{font-size:11.5px;padding:5px 11px}
+@media(max-width:640px){.team-row{flex-wrap:wrap}.team-seg{width:100%}.team-seg button{flex:1}}
 .imp-sub{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8b88a0;margin-bottom:8px}
 .imp-map{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .imp-row{display:flex;align-items:center;gap:7px;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 10px}
@@ -691,7 +724,7 @@ export default function App(){
   const [txns,setTxns]=useState([]);
   const [tasks,setTasks]=useState([]);
   const [invId,setInvId]=useState(null);
-  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING});
+  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM});
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
@@ -711,9 +744,9 @@ export default function App(){
       let tx=[]; try{ if(typeof db.getTxns==='function') tx=await db.getTxns(); }catch(err){ console.error('txns load failed',err); }
       let tk=[]; try{ if(typeof db.getTasks==='function') tk=await db.getTasks(); }catch(err){ console.error('tasks load failed',err); }
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
-      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING}; await db.saveSettings(st); }
+      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM}; await db.saveSettings(st); }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -783,11 +816,11 @@ export default function App(){
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
           page==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead}/>:
-          page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
+          page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings}/>:
           page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks}/>:
           page==='activity'?<Activity leads={leads} me={me} open={openLead}/>:
           page==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead}/>:
-          page==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads}/>:
+          page==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead}/>:
           page==='rels'?<Relationships leads={leads} open={openLead}/>:
           page==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead}/>:
           page==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
@@ -821,11 +854,16 @@ function useMetrics(leads,stages){
 
 /* ===================== DASHBOARD ===================== */
 /* ===================== FOLLOW-UP ===================== */
-function FollowUp({leads,stages,open,updateLead}){
+function FollowUp({leads,stages,open,updateLead,me,settings}){
   const [leaving,setLeaving]=useState({});
   const [cleared,setCleared]=useState(0);
   const t=todayISO();
-  const due=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<=0).sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
+  const canAll=teamAccess(settings,me)==='all';
+  const [view,setView]=useState('mine');
+  useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
+  const isDue=l=>l.followUp&&daysUntil(l.followUp)<=0;
+  const counts={mine:leads.filter(l=>isDue(l)&&l.owner===me).length,pool:leads.filter(l=>isDue(l)&&l.owner===POOL_OWNER).length,all:leads.filter(isDue).length};
+  const due=scopeLeads(leads,view,me).filter(isDue).sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
   const ids=due.map(l=>l.id);
   const overdue=due.filter(l=>daysUntil(l.followUp)<0);
   const today=due.filter(l=>daysUntil(l.followUp)===0);
@@ -841,6 +879,7 @@ function FollowUp({leads,stages,open,updateLead}){
         <div style={{minWidth:0}}><div className="fu-name">{l.name||'(no name)'}</div><div className="subcell">{l.company||l.businessType||'—'}</div></div>
         <span className={'badge '+(od?'inv-overdue':'inv-sent')}>{od?Math.abs(d)+'d overdue':'Due today'}</span>
       </div>
+      {view!=='mine'&&<div className="fu-owner">{l.owner===POOL_OWNER?<button className="claim-btn" onClick={e=>{e.stopPropagation();updateLead(l.id,{owner:me});}}><UserCheck size={13}/>Claim</button>:<span className="own-badge">{l.owner||'—'}</span>}</div>}
       <div className="fu-meta">{l.nextAction||'Follow up'}{lastTouch?' · last touch '+fmtDate(lastTouch.ts):''}</div>
       <div className="fu-act" onClick={e=>e.stopPropagation()}>
         <div className="fu-quick">
@@ -856,12 +895,14 @@ function FollowUp({leads,stages,open,updateLead}){
       </div>
     </div>);
   };
-  if(!due.length){ return (<div className="fu-done">
+  const Scope=()=>(<div className="fu-scope"><ScopeSeg view={view} setView={setView} counts={counts} canAll={canAll}/></div>);
+  if(!due.length){ return (<><Scope/><div className="fu-done">
     <div className="fu-done-burst"><Sparkles size={20} className="s1"/><Sparkles size={14} className="s2"/><Sparkles size={16} className="s3"/><div className="fu-done-ring"><CheckCircle2 size={54} color={GREEN}/></div></div>
-    <h2>{cleared>0?'Inbox zero. Nice work.':'All caught up'}</h2>
-    <p>{cleared>0?`You cleared ${cleared} follow-up${cleared>1?'s':''} today — every lead's been handled.`:'Nothing is due or overdue right now. Set follow-up dates on your leads and they\u2019ll show up here the day they\u2019re due.'}</p>
-  </div>); }
+    <h2>{cleared>0?'Inbox zero. Nice work.':view==='mine'?'You\u2019re all caught up':view==='pool'?'Nothing waiting in the pool':'All caught up'}</h2>
+    <p>{cleared>0?`You cleared ${cleared} follow-up${cleared>1?'s':''} today — every lead's been handled.`:view==='mine'?(counts.pool>0?`Nothing of yours is due. There ${counts.pool===1?'is':'are'} ${counts.pool} unclaimed follow-up${counts.pool>1?'s':''} in the pool.`:(counts.all>0&&canAll?'Nothing of yours is due — switch to All to see the team\u2019s.':'Nothing is due or overdue right now.')):'Nothing is due or overdue right now. Set follow-up dates on your leads and they\u2019ll show up here the day they\u2019re due.'}</p>
+  </div></>); }
   return (<>
+    <Scope/>
     <div className="fu-hero">
       <div className="fu-hero-l"><div className="fu-hero-n">{remaining}</div><div className="fu-hero-lbl">lead{remaining>1?'s':''} to clear</div></div>
       <div className="fu-hero-stats">
@@ -968,8 +1009,13 @@ function Pipeline({leads,stages,open,updateLead}){
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings,importLeads}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead}){
   const [importOpen,setImportOpen]=useState(false);
+  const canAll=teamAccess(settings,me)==='all';
+  const [view,setView]=useState('mine');
+  useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
+  const counts={mine:leads.filter(l=>l.owner===me).length,pool:leads.filter(l=>l.owner===POOL_OWNER).length,all:leads.length};
+  const claim=(e,l)=>{ e.stopPropagation(); if(updateLead) updateLead(l.id,{owner:me}); };
   const customFields=settings.customFields||[];
   const defs=leadColumnDefs(stages,customFields);
   const cols=mergeLeadCols(settings.leadColumns||DEFAULT_LEAD_COLS,customFields).filter(c=>defs[c.key]);
@@ -991,7 +1037,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads}){
   };
   const toggleSort=k=>{ if(sortK===k) setDir(d=>d==='asc'?'desc':'asc'); else {setSortK(k);setDir('asc');} };
   const rows=useMemo(()=>{
-    let r=leads.filter(l=>{
+    let r=scopeLeads(leads,view,me).filter(l=>{
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
       if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
@@ -1003,7 +1049,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads}){
     });
     r.sort((a,b)=>{const av=sortVal(a,sortK),bv=sortVal(b,sortK);const c=av<bv?-1:av>bv?1:0;return dir==='asc'?c:-c;});
     return r;
-  },[leads,q,stage,pri,cold,spon,sortK,dir,stages]);
+  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me]);
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
@@ -1013,6 +1059,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads}){
   const Th=({k,children})=>(<th className={sortK===k?'sorted':''} onClick={()=>toggleSort(k)}>{children}<span className="ar">{sortK===k?(dir==='asc'?'▲':'▼'):'↕'}</span></th>);
   return (<>
     <div className="toolbar">
+      <ScopeSeg view={view} setView={setView} counts={counts} canAll={canAll}/>
       <div className="searchbox"><Search size={16} color="#928DAD"/><input placeholder="Search name, company, phone, service…" value={q} onChange={e=>setQ(e.target.value)}/></div>
       <select className="selctl" value={stage} onChange={e=>setStage(e.target.value)}><option value="all">All stages</option>{stages.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}</select>
       <select className="selctl" value={pri} onChange={e=>setPri(e.target.value)}><option value="all">All priority</option>{Object.entries(PRIORITIES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
@@ -1029,12 +1076,14 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads}){
       <button className="btn btn-g" onClick={csv}><Download size={15}/>CSV</button>
       {importLeads&&<button className="btn btn-p" onClick={()=>setImportOpen(true)}><Upload size={15}/>Import</button>}
     </div>
+    {view==='pool'&&<div className="pool-note"><Users size={14}/>Unclaimed leads owned by ProyTech. Claim one and it moves to your list.</div>}
     <div className="tbl-wrap"><table className="tbl"><thead><tr>
-      <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}
+      <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}{view==='pool'&&<th></th>}
     </tr></thead><tbody>{rows.map(l=>(<tr key={l.id} onClick={()=>open(l.id,rows.map(r=>r.id))}>
       <td><div className="namecell">{l.name}</div><div className="subcell">{l.company}</div></td>
       {visCols.map(c=><td key={c.key}>{defs[c.key].render(l)}</td>)}
-    </tr>))}</tbody></table>{!rows.length&&<div className="empty">No leads match. Adjust filters or add a new lead.</div>}</div>
+      {view==='pool'&&<td style={{textAlign:'right'}}><button className="claim-btn" onClick={e=>claim(e,l)}><UserCheck size={13}/>Claim</button></td>}
+    </tr>))}</tbody></table>{!rows.length&&<div className="empty">{view==='mine'?<>No leads assigned to you{q||stage!=='all'?' match those filters':''}. Check the <b>Pool</b> for unclaimed leads{canAll?<> or switch to <b>All</b></>:''}.</>:view==='pool'?'The pool is empty — every lead is claimed.':'No leads match. Adjust filters or add a new lead.'}</div>}</div>
     {importOpen&&<ImportModal onClose={()=>setImportOpen(false)} onImport={arr=>{importLeads(arr);setImportOpen(false);}} businessTypes={settings.options?.businessType||[]}/>}
   </>);
 }
@@ -1891,9 +1940,28 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
+    {/* team access */}
+    {(()=>{ const people=(settings.options?.owner||OWNERS).filter(o=>o!==POOL_OWNER);
+      const setAccess=(name,access)=>{ const t=(settings.team||[]).filter(x=>x.name!==name); saveSettings({...settings,team:[...t,{name,access}]}); };
+      return (<div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><Users size={15}/>Team &amp; lead visibility</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Everyone lands on <b>their own</b> leads by default. This controls whether they can switch to <b>All</b> and see the whole company's list. Leads owned by <b>{POOL_OWNER}</b> sit in the shared <b>Pool</b> — anyone can see and claim those.</div>
+      <div className="team-list">
+        {people.map(p=>{const a=teamAccess(settings,p);return (<div className="team-row" key={p}>
+          <span className="team-av">{p[0]}</span>
+          <span className="team-name">{p}</span>
+          <div className="seg team-seg">
+            <button className={a==='own'?'on':''} onClick={()=>setAccess(p,'own')}>Own + Pool</button>
+            <button className={a==='all'?'on':''} onClick={()=>setAccess(p,'all')}>Everything</button>
+          </div>
+        </div>);})}
+      </div>
+      <div className="ch-sub" style={{marginTop:12,marginBottom:0}}>Add a new salesperson under <b>Dropdown options → Owner</b> and they'll appear here. Give them <b>Own + Pool</b> and they'll only ever see their own leads plus the shared pool.</div>
+    </div>); })()}
+
     {/* logo */}
     <div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><ImageIcon size={15}/>Brand / Logo</div>
