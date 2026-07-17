@@ -418,6 +418,8 @@ const CSS=`
 .fu-when.od{color:#b4322e}
 .fn-block{background:#FAFAFE;border:1px solid #EDEEF5;border-radius:11px;padding:13px}
 .fn-hint{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11.5px;color:#9b98ad;font-weight:500}
+.m-foot{flex:none;background:#fff;border-top:1px solid #E8E9F2;padding:13px 22px;display:flex;align-items:center;gap:10px;box-shadow:0 -6px 20px -12px rgba(0,0,0,.18)}
+.m-foot-n{display:flex;align-items:center;gap:5px;margin-left:auto;font-size:12px;color:#8b88a0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 /* follow-up card: plan + next flow */
 .fu-plan{display:flex;gap:7px;align-items:flex-start;margin:9px 0 0;padding:8px 10px;background:#FFFDF5;border:1px solid #F0E4C0;border-radius:8px;font-size:12.5px;color:#6a5a2f;line-height:1.45}
 .fu-plan svg{flex:none;margin-top:1px;color:#B9932F}
@@ -724,6 +726,12 @@ const CSS=`
 .iconbtn{background:#F1F2F8;border:none;border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a;flex:none}.iconbtn:hover{background:#E6E7F1}.iconbtn:disabled{opacity:.35;cursor:default}
 @media(max-width:820px){
   .sb{position:fixed;left:0;top:0;transform:translateX(-100%);transition:transform .25s;box-shadow:0 0 60px rgba(0,0,0,.4)}.sb.open{transform:none}.hamb{display:block}
+  .m-grid{grid-template-columns:1fr;overflow-y:auto}
+  .m-left,.m-right{overflow:visible}
+  .m-right{border-left:none;border-top:1px solid #E8E9F2}
+  .modal{max-height:94vh}
+  .m-foot{padding:11px 16px;flex-wrap:wrap}
+  .m-foot-n{width:100%;margin-left:0;white-space:normal}
   .scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25}.body{padding:18px}.top{padding:14px 18px}.fgrid{grid-template-columns:1fr}
 }
 `;
@@ -2331,10 +2339,6 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               {F({label:'Follow-up Date',k:'followUp',type:'date'})}{F({label:'Expected Close',k:'expectedClose',type:'date'})}
               {F({label:'Notes for the follow-up',k:'nextSteps',full:true})}
             </div>}
-            <div style={{display:'flex',gap:10,marginTop:20}}>
-              <button className="btn btn-p" onClick={create}><Plus size={16}/>Create Lead</button>
-              <button className="btn btn-g" onClick={onClose}>Cancel</button>
-            </div>
           </>}
 
           {/* ---------- 4. DELIVERY (clients only) ---------- */}
@@ -2479,6 +2483,13 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
           </>}
         </div>
       </div>
+      {isNew&&<div className="m-foot">
+        <button className="btn btn-p" onClick={create}><Plus size={16}/>Create Lead</button>
+        <button className="btn btn-g" onClick={onClose}>Cancel</button>
+        <span className="m-foot-n">{draft.name.trim()
+          ? <><CheckCircle2 size={13} color={GREEN}/>{draft.name}{draft.company?' · '+draft.company:''} &rarr; {draft.owner}</>
+          : 'Name is the only thing required'}</span>
+      </div>}
     </div>
   </div>);
 }
