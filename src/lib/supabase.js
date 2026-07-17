@@ -1,14 +1,19 @@
 import { createClient } from '@supabase/supabase-js';
+import { BRAND, SUPABASE_URL, SUPABASE_KEY, SUPABASE_OK } from './brand';
 
-/* Publishable key — safe to live in client code (Supabase says so on the API Keys page).
-   Real protection is Row Level Security + your two logins. NEVER put the secret key here. */
-const SUPABASE_URL = 'https://mqpswqiqhhitdcdugqsp.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_v6u7TC2rCbcQjDfG6PV7ew_mKDED3Ym';
-
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+/* Per-tenant Supabase, from Vercel env vars (see src/lib/brand.js).
+   The publishable key is safe in client code — real protection is Row Level
+   Security + logins. NEVER put the secret/service key here.
+   If the env vars are missing we create a dud client so the app can render a
+   clear setup screen instead of silently pointing at the wrong database. */
+export const supabase = createClient(
+  SUPABASE_OK ? SUPABASE_URL : 'https://missing.supabase.co',
+  SUPABASE_OK ? SUPABASE_KEY : 'missing'
+);
+export const configured = SUPABASE_OK;
 
 /* ---- auth: username + password (mapped to an internal address) ---- */
-const emailFor = u => `${(u || '').trim().toLowerCase()}@proytech.app`;
+const emailFor = u => `${(u || '').trim().toLowerCase()}@${BRAND.authDomain}`;
 export const auth = {
   login(username, password) { return supabase.auth.signInWithPassword({ email: emailFor(username), password }); },
   logout() { return supabase.auth.signOut(); },
