@@ -416,6 +416,8 @@ const CSS=`
 .fu-note:focus{outline:none;border-color:${COBALT}}
 .fu-when{margin-top:10px;font-size:11.5px;font-weight:700;color:#1f8a55}
 .fu-when.od{color:#b4322e}
+.fn-block{background:#FAFAFE;border:1px solid #EDEEF5;border-radius:11px;padding:13px}
+.fn-hint{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11.5px;color:#9b98ad;font-weight:500}
 /* follow-up card: plan + next flow */
 .fu-plan{display:flex;gap:7px;align-items:flex-start;margin:9px 0 0;padding:8px 10px;background:#FFFDF5;border:1px solid #F0E4C0;border-radius:8px;font-size:12.5px;color:#6a5a2f;line-height:1.45}
 .fu-plan svg{flex:none;margin-top:1px;color:#B9932F}
@@ -2215,6 +2217,8 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
+  const [firstNote,setFirstNote]=useState('');
+  const [firstType,setFirstType]=useState('Call');
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
   const set=patch=>{if(isNew)setDraft({...draft,...patch});else{setDraft({...draft,...patch});updateLead(draft.id,patch);}};
   const setCustom=(id,v)=>set({custom:{...(draft.custom||{}),[id]:v}});
@@ -2242,7 +2246,13 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
     </div>);
   };
   const logIt=()=>{if(!atext.trim())return;addActivity(draft.id,atype,atext,who);setAtext('');};
-  const create=()=>{if(!draft.name.trim()){window.alert('Add a name first.');return;}createNew({...draft,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Lead created.',who}]});};
+  const create=()=>{
+    if(!draft.name.trim()){window.alert('Add a name first.');return;}
+    const ts=new Date().toISOString();
+    const acts=[{id:uid(),ts,type:'Note',text:'Lead created.',who}];
+    if(firstNote.trim()) acts.unshift({id:uid(),ts,type:firstType,text:firstNote.trim(),who});
+    createNew({...draft,activities:acts});
+  };
   const feed=(isNew?[]:(lead?.activities||[])).filter(a=>feedFilter==='All'||a.type===feedFilter);
   const noteCount=(lead?.activities||[]).filter(a=>a.type==='Note').length;
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
@@ -2303,6 +2313,13 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
 
           {/* ---------- 3. QUICK ADD: everything else behind one tap ---------- */}
           {isNew&&<>
+            <div className="dh mt"><MessageSquare size={13}/>First note</div>
+            <div className="fn-block">
+              <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(firstType===key?'on':'')} onClick={()=>setFirstType(key)}><Ic size={12}/>{key}</button>)}</div>
+              <textarea className="fu-note" style={{marginTop:9}} rows={3} placeholder={`How'd the ${firstType.toLowerCase()} go? What did they say?`} value={firstNote} onChange={e=>setFirstNote(e.target.value)}/>
+              <div className="fn-hint">{firstNote.trim()?<><CheckCircle2 size={12} color={GREEN}/>Logs as a {firstType} from {who} the moment you save</>:'Optional — but log it now while it\u2019s fresh'}</div>
+            </div>
+
             <button className="morebtn" onClick={()=>setShowMore(!showMore)}>
               <ChevronDown size={14} className={'mb-ch'+(showMore?' on':'')}/>{showMore?'Hide extra details':'Add more details'}
               {!showMore&&<i>optional — {draft.owner} · {draft.nextAction}</i>}
