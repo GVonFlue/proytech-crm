@@ -867,7 +867,7 @@ export default function App(){
           page==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead}/>:
           page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity}/>:
           page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks}/>:
-          page==='activity'?<Activity leads={leads} me={me} open={openLead}/>:
+          page==='activity'?<Activity leads={leads} tasks={tasks} me={me} open={openLead}/>:
           page==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead}/>:
           page==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead}/>:
           page==='rels'?<Relationships leads={leads} open={openLead}/>:
@@ -1661,7 +1661,7 @@ const TASK_OWNERS=[...BRAND.team,'Both'];
 const OWNER_PALETTE=[COBALT,'#7A5CC8','#0E9AA7','#D97706'];
 const ownerColor=o=>{const i=BRAND.team.indexOf(o);return i>=0?OWNER_PALETTE[i%OWNER_PALETTE.length]:GREEN;};
 const meOwner=me=>BRAND.team.includes(me)?me:(BRAND.team[0]||'');
-const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:'',revenue:3,urgency:3,effort:3,done:false,aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
+const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:'',revenue:3,urgency:3,effort:3,done:false,doneAt:'',doneBy:'',aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
 const taskScore=t=>num(t.revenue)*num(t.urgency);
 
 function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
@@ -1741,7 +1741,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
         const dueColor=du==null?'#8b88a0':du<0?RED:du===0?GOLD:'#5A5680';
         const dueLabel=t.due?(du<0?`${-du}d overdue`:du===0?'Due today':du===1?'Due tomorrow':`Due in ${du}d`):'No date';
         return (<div key={t.id} className="card" style={{padding:'13px 15px',display:'flex',gap:12,alignItems:'flex-start',opacity:t.done?.6:1}}>
-          <button onClick={()=>upsertTask({...t,done:!t.done,aiRank:t.done?t.aiRank:null,aiReason:t.done?t.aiReason:''})} style={{background:'none',border:'none',cursor:'pointer',padding:0,marginTop:1,color:t.done?GREEN:'#c3c2d4',flex:'none'}} title={t.done?'Mark open':'Mark done'}>{t.done?<CheckCircle2 size={22}/>:<Circle size={22}/>}</button>
+          <button onClick={()=>upsertTask({...t,done:!t.done,doneAt:t.done?'':new Date().toISOString(),doneBy:t.done?'':(t.owner&&t.owner!=='Both'?t.owner:me),aiRank:t.done?t.aiRank:null,aiReason:t.done?t.aiReason:''})} style={{background:'none',border:'none',cursor:'pointer',padding:0,marginTop:1,color:t.done?GREEN:'#c3c2d4',flex:'none'}} title={t.done?'Mark open':'Mark done'}>{t.done?<CheckCircle2 size={22}/>:<Circle size={22}/>}</button>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
               {t.aiRank!=null&&!t.done&&<span className="pill" style={{background:INK,color:'#fff',fontWeight:700}}>#{t.aiRank}</span>}
@@ -1927,9 +1927,10 @@ function TxnModal({txn,file,onSave,onDelete,onClose}){
   </div>);
 }
 
-const ACT_COLORS={Call:'#2B4DE0',Text:'#1F9D55',Meeting:'#7A5CC8',Note:'#C8A24A',Email:'#D14343'};
-const ACT_ORDER=['Call','Text','Meeting','Note','Email'];
-function Activity({leads,me,open}){
+const ACT_COLORS={Call:'#2B4DE0',Text:'#1F9D55',Meeting:'#7A5CC8',Note:'#C8A24A',Email:'#D14343',Task:'#0E9AA7'};
+const ACT_ORDER=['Call','Text','Meeting','Note','Email','Task'];
+const ACT_ICON={Note:StickyNote,Call:PhoneCall,Text:MessageSquare,Meeting:CalendarClock,Email:Mailbox,Task:ListTodo};
+function Activity({leads,tasks,me,open}){
   const [mode,setMode]=useState('day');
   const [anchor,setAnchor]=useState(todayISO());
   const [who,setWho]=useState('All');
@@ -1941,18 +1942,29 @@ function Activity({leads,me,open}){
     else { start=new Date(d.getFullYear(),d.getMonth(),1); end=new Date(d.getFullYear(),d.getMonth()+1,0); label=d.toLocaleDateString(undefined,{month:'long',year:'numeric'}); }
     start.setHours(0,0,0,0); end.setHours(23,59,59,999); return {start,end,label};
   },[mode,anchor]);
-  const all=useMemo(()=>leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company}))),[leads]);
+  const all=useMemo(()=>{
+    const acts=leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company})));
+    /* completed tasks count as work done — fold them into the same feed */
+    const done=(tasks||[]).filter(t=>t.done&&t.doneAt).map(t=>{
+      const l=leads.find(x=>x.id===t.leadId);
+      return {id:'task-'+t.id,ts:t.doneAt,type:'Task',text:t.title||'(untitled task)',who:t.doneBy||(t.owner&&t.owner!=='Both'?t.owner:'—'),
+        leadId:t.leadId||'',leadName:l?l.name:'',company:l?l.company:'',isTask:true};
+    });
+    return [...acts,...done];
+  },[leads,tasks]);
   const inRange=useMemo(()=>all.filter(a=>{const t=new Date(a.ts);return t>=range.start&&t<=range.end;}),[all,range]);
   const people=useMemo(()=>{const s=new Set(inRange.map(a=>a.who||'—'));BRAND.team.forEach(p=>s.add(p));return [...s].filter(Boolean).sort();},[inRange]);
-  const shown=inRange.filter(a=>(who==='All'||a.who===who)&&(typeF==='All'||a.type===typeF)).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
-  const matrix=useMemo(()=>{const m={};inRange.forEach(a=>{const p=a.who||'—';m[p]=m[p]||{Call:0,Text:0,Meeting:0,Note:0,Email:0,total:0};if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[inRange]);
+  /* the person filter drives the WHOLE tab — KPIs, chart, matrix and log */
+  const scope=useMemo(()=>inRange.filter(a=>who==='All'||a.who===who),[inRange,who]);
+  const shown=scope.filter(a=>typeF==='All'||a.type===typeF).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  const matrix=useMemo(()=>{const m={};const zero=()=>ACT_ORDER.reduce((o,k)=>(o[k]=0,o),{total:0});scope.forEach(a=>{const p=a.who||'—';m[p]=m[p]||zero();if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[scope]);
   const chartData=Object.entries(matrix).map(([person,c])=>({person,...c})).sort((a,b)=>b.total-a.total);
-  const totals=ACT_ORDER.reduce((o,t)=>{o[t]=inRange.filter(a=>a.type===t).length;return o;},{});
-  const grand=inRange.length;
+  const totals=ACT_ORDER.reduce((o,t)=>{o[t]=scope.filter(a=>a.type===t).length;return o;},{});
+  const grand=scope.length;
   const shift=dir=>{const d=new Date(anchor+'T00:00:00');if(mode==='day')d.setDate(d.getDate()+dir);else if(mode==='week')d.setDate(d.getDate()+7*dir);else d.setMonth(d.getMonth()+dir);setAnchor(d.toISOString().slice(0,10));};
   const fmtTime=ts=>{try{return new Date(ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}catch{return '';}};
   const dayHead=ts=>new Date(ts).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
-  const kIcon=t=>{const T=ACT_TYPES.find(x=>x.key===t);return T?React.createElement(T.icon,{size:14}):null;};
+  const kIcon=t=>{const I=ACT_ICON[t];return I?React.createElement(I,{size:14}):null;};
   let lastDay=null;
   return (<>
     <div className="card" style={{marginBottom:16}}>
@@ -1971,7 +1983,7 @@ function Activity({leads,me,open}){
       </div>
     </div>
     <div className="kpis">
-      <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={range.label}/>
+      <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={(who==='All'?'Everyone':who)+' · '+range.label}/>
       {ACT_ORDER.map(t=><Kpi key={t} label={t+'s'} value={totals[t]} icon={kIcon(t)}/>)}
     </div>
     {chartData.length>0&&<div className="card" style={{marginBottom:16}}>
@@ -1993,7 +2005,7 @@ function Activity({leads,me,open}){
     </div>}
     <div className="card">
       <div className="ch-title">Log · {shown.length} {shown.length===1?'entry':'entries'}</div>
-      {shown.length?<div className="act-feedlist">{shown.map(a=>{const T=ACT_TYPES.find(x=>x.key===a.type);const Ic=T?T.icon:StickyNote;const dk=(a.ts||'').slice(0,10);const head=mode!=='day'&&dk!==lastDay;lastDay=dk;return(
+      {shown.length?<div className="act-feedlist">{shown.map(a=>{const Ic=ACT_ICON[a.type]||StickyNote;const dk=(a.ts||'').slice(0,10);const head=mode!=='day'&&dk!==lastDay;lastDay=dk;return(
         <React.Fragment key={a.id}>
           {head&&<div className="act-daysep">{dayHead(a.ts)}</div>}
           <div className="act-row" onClick={()=>open&&open(a.leadId)}>
