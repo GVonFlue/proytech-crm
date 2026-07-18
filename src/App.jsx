@@ -1945,11 +1945,17 @@ function Activity({leads,tasks,me,open}){
   const all=useMemo(()=>{
     const acts=leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company})));
     /* completed tasks count as work done — fold them into the same feed */
-    const done=(tasks||[]).filter(t=>t.done&&t.doneAt).map(t=>{
+    const done=(tasks||[]).filter(t=>t.done).map(t=>{
+      /* Tasks completed before we started stamping doneAt have no completion time.
+         Fall back to the best real date the task already carries (due, then created)
+         so they still show — flagged approximate rather than invented. */
+      const stamp=t.doneAt || (t.due?t.due+'T12:00:00':'') || t.createdAt || '';
+      if(!stamp) return null;
       const l=leads.find(x=>x.id===t.leadId);
-      return {id:'task-'+t.id,ts:t.doneAt,type:'Task',text:t.title||'(untitled task)',who:t.doneBy||(t.owner&&t.owner!=='Both'?t.owner:'—'),
-        leadId:t.leadId||'',leadName:l?l.name:'',company:l?l.company:'',isTask:true};
-    });
+      return {id:'task-'+t.id,ts:stamp,type:'Task',text:t.title||'(untitled task)',
+        who:t.doneBy||(t.owner&&t.owner!=='Both'?t.owner:'—'),
+        leadId:t.leadId||'',leadName:l?l.name:'',company:l?l.company:'',isTask:true,approx:!t.doneAt};
+    }).filter(Boolean);
     return [...acts,...done];
   },[leads,tasks]);
   const inRange=useMemo(()=>all.filter(a=>{const t=new Date(a.ts);return t>=range.start&&t<=range.end;}),[all,range]);
@@ -2011,7 +2017,7 @@ function Activity({leads,tasks,me,open}){
           <div className="act-row" onClick={()=>open&&open(a.leadId)}>
             <div className="act-ic" style={{background:ACT_COLORS[a.type]||'#8b88a0'}}><Ic size={15}/></div>
             <div className="act-body">
-              <div className="act-top"><span className="act-lead">{a.leadName||'—'}</span><span className="act-who">{a.who||'—'}</span><span className="act-time">{fmtTime(a.ts)}</span></div>
+              <div className="act-top"><span className="act-lead">{a.leadName||'—'}</span><span className="act-who">{a.who||'—'}</span><span className="act-time" title={a.approx?'Completed before we tracked exact times — showing its due date':undefined}>{a.approx?'~':''}{fmtTime(a.ts)}</span></div>
               <div className="act-txt">{a.text}</div>
             </div>
           </div>
