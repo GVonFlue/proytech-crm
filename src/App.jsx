@@ -48,6 +48,31 @@ const CLIENT_PHASES=[
 ];
 const PHASE_FLOW=['intake','build','launch','active'];   // the advance path
 const phaseMeta=k=>CLIENT_PHASES.find(p=>p[0]===k)||['intake','Intake','#6B73C9'];
+/* editable standard phases (label/color/order in Settings; keys locked to the checklist) */
+const DEFAULT_CLIENT_PHASES=[
+  {key:'intake',label:'Intake',color:'#6B73C9',flow:true},
+  {key:'build', label:'Build', color:COBALT,   flow:true},
+  {key:'launch',label:'Launch',color:'#7A5CC8',flow:true},
+  {key:'active',label:'Active',color:GREEN,    flow:true},
+  {key:'atrisk',label:'At Risk',color:'#E0662B',terminal:true},
+  {key:'churned',label:'Churned',color:'#8E89A8',terminal:true},
+];
+const stdPhases=settings=>(settings&&settings.clientPhases&&settings.clientPhases.length)?settings.clientPhases:DEFAULT_CLIENT_PHASES;
+/* a client's own ordered phase list = standard phases + that client's custom phases spliced in after their `after` key */
+const clientPhaseList=(settings,client)=>{ const std=stdPhases(settings); const custom=((client&&client.customPhases)||[]).map(c=>({...c,custom:true})); const out=[];
+  std.forEach(p=>{ out.push(p); custom.filter(c=>c.after===p.key).forEach(c=>out.push(c)); });
+  custom.filter(c=>!out.some(o=>o.key===c.key)).forEach(c=>out.push(c));
+  return out; };
+const phaseInfo=(key,settings,client)=>clientPhaseList(settings,client).find(p=>p.key===key)||stdPhases(settings).find(p=>p.key===key)||{key,label:key,color:'#6B73C9'};
+/* advance path for one client: flow std phases + their custom phases, terminals excluded */
+const flowOrder=(settings,client)=>clientPhaseList(settings,client).filter(p=>p.flow||p.custom).map(p=>p.key);
+/* board columns = standard phases with every visible client's custom phases inserted after their `after`.
+   A custom column is derived from one client's data, so it only ever appears for that client. */
+const boardCols=(clients,settings)=>{ const std=stdPhases(settings); const out=[]; const byAfter={};
+  (clients||[]).forEach(c=>((c.customPhases)||[]).forEach(cp=>{ (byAfter[cp.after]=byAfter[cp.after]||[]).push({...cp,custom:true,ownerId:c.id}); }));
+  std.forEach(p=>{ out.push(p); (byAfter[p.key]||[]).forEach(cp=>out.push(cp)); });
+  Object.entries(byAfter).forEach(([after,list])=>{ if(!std.some(p=>p.key===after)) list.forEach(cp=>{ if(!out.some(o=>o.key===cp.key)) out.push(cp); }); });
+  return out; };
 const ONBOARDING=[
   {phase:'intake',items:[
     ['agreement_signed','Service agreement signed (Square)'],
@@ -529,6 +554,27 @@ const CSS=`
 .onb-due input{border:1px solid #E1E2EC;border-radius:7px;padding:3px 7px;font-size:11.5px;color:#56527a;background:#fff}
 .onb-due input.over{border-color:#E0967F;color:#b4322e}
 @media(max-width:820px){.cli-main{grid-template-columns:1fr auto;gap:9px}.cli-prog2,.cli-status{grid-column:1/-1}.cli-ch{position:absolute;right:16px;top:16px}}
+.seg i{font-style:normal;font-size:10px;font-weight:800;padding:1px 6px;border-radius:20px;background:#DFE2EE;color:#56527a;margin-left:6px}
+.seg button.on i{background:${COBALT};color:#fff}
+.cp-tag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:rgba(122,92,200,.15);color:#7A5CC8;padding:1px 5px;border-radius:5px;margin-left:6px}
+.cli-hint{display:flex;align-items:center;gap:7px;justify-content:center;padding:20px;color:#a6a2bc;font-size:13px}
+.cli-detail{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:16px;margin-top:14px}
+.cli-detail-h{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+.cp-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.cp-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border:1px solid;border-radius:20px;padding:3px 10px}
+.cp-chip button{background:none;border:none;cursor:pointer;color:inherit;display:flex;opacity:.6;padding:0}
+.cp-chip button:hover{opacity:1}
+.cp-add{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 9px}
+.cp-add input[type=text],.cp-add>input:not([type=color]){border:1px solid #E1E2EC;border-radius:7px;padding:5px 8px;font-size:12.5px}
+.cp-add input[type=color]{width:30px;height:30px;border:1px solid #E1E2EC;border-radius:7px;padding:2px;background:#fff;cursor:pointer}
+.cp-add label{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#56527a}
+.cp-add select{border:1px solid #E1E2EC;border-radius:7px;padding:5px 7px;font-size:12px}
+.phase-editor{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.phase-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE}
+.phase-row input[type=color]{width:30px;height:30px;border:1px solid #E1E2EC;border-radius:7px;padding:2px;background:#fff;cursor:pointer;flex:none}
+.phase-label{flex:1;border:1px solid #E1E2EC;border-radius:7px;padding:6px 9px;font-size:13px;font-weight:600;color:${INK}}
+.phase-key{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#a6a2bc;flex:none}
+.phase-moves{display:flex;gap:3px;flex:none}
 .m-foot{flex:none;background:#fff;border-top:1px solid #E8E9F2;padding:13px 22px;display:flex;align-items:center;gap:10px;box-shadow:0 -6px 20px -12px rgba(0,0,0,.18)}
 .m-foot-n{display:flex;align-items:center;gap:5px;margin-left:auto;font-size:12px;color:#8b88a0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 /* follow-up card: plan + next flow */
@@ -879,7 +925,7 @@ export default function App(){
   const [txns,setTxns]=useState([]);
   const [tasks,setTasks]=useState([]);
   const [invId,setInvId]=useState(null);
-  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM});
+  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES});
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
@@ -899,13 +945,13 @@ export default function App(){
       let tx=[]; try{ if(typeof db.getTxns==='function') tx=await db.getTxns(); }catch(err){ console.error('txns load failed',err); }
       let tk=[]; try{ if(typeof db.getTasks==='function') tk=await db.getTasks(); }catch(err){ console.error('tasks load failed',err); }
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
-      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM}; await db.saveSettings(st); }
+      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES}; await db.saveSettings(st); }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
       if(mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
       if(mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -969,8 +1015,10 @@ export default function App(){
     saveTasks([mk('Monthly results text/email','monthly',30),mk('Quarterly system check + upsell scan','quarterly',90),...tasks]); };
   /* set/advance a client's phase + log it; entering Active seeds handoff tasks */
   const setClientPhase=(id,phase)=>{ const l=leads.find(x=>x.id===id); if(!l)return; let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x;
-    updated={...x,isClient:true,clientPhase:phase,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Phase → '+phaseMeta(phase)[1],who:me},...x.activities]}; return updated; }));
+    updated={...x,isClient:true,clientPhase:phase,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Phase → '+phaseInfo(phase,settings,l).label,who:me},...x.activities]}; return updated; }));
     if(updated){ db.upsertLead(updated).catch(console.error); if(phase==='active') seedActiveTasks(id,l.owner); } };
+  const addCustomPhase=(id,info)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cp={key:'cp_'+uid(),label:(info.label||'Custom').trim(),color:info.color||'#7A5CC8',after:info.after||'build'}; updated={...l,customPhases:[...(l.customPhases||[]),cp]}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+  const removeCustomPhase=(id,key)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cps=(l.customPhases||[]).filter(c=>c.key!==key); updated={...l,customPhases:cps,clientPhase:l.clientPhase===key?'build':l.clientPhase}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done?null:todayISO(),due:cur.due||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; const patch={delivery:d}; const o=clientOverall({...l,delivery:d},settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const won=(stages||[]).find(s=>s.won); if(o.delivered&&won&&l.stage!==won.key) patch.stage=won.key; updateLead(id,patch); };
   const setMilestoneDue=(id,trackKey,milestone,date)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done||null,due:date||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; updateLead(id,{delivery:d}); };
   const active=activeId&&activeId!=='new'?leads.find(l=>l.id===activeId):null;
@@ -1009,10 +1057,10 @@ export default function App(){
           page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity}/>:
           page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks} open={openLead}/>:
           page==='activity'?<Activity leads={leads} tasks={tasks} me={me} open={openLead}/>:
-          page==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead}/>:
+          page==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={bizLeads.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase}/>:
           page==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead}/>:
           page==='rels'?<Relationships leads={leads} open={openLead}/>:
-          page==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} setClientPhase={setClientPhase}/>:
+          page==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           page==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           page==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
           page==='money'?<Money leads={bizLeads} stages={stages}/>:
@@ -1167,7 +1215,8 @@ function Dashboard({leads,stages,open}){
 }
 
 /* ===================== PIPELINE (cleaner kanban) ===================== */
-function Pipeline({leads,stages,open,updateLead}){
+function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase}){
+  const [board,setBoard]=useState('leads');
   const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);const [expanded,setExpanded]=useState({});
   const drop=stage=>{if(dragId)updateLead(dragId,{stage});setDragId(null);setOver(null);};
   const move=(l,dir)=>{const i=sIdx(l.stage,stages);const j=i+dir;if(j<0||j>=stages.length)return;updateLead(l.id,{stage:stages[j].key});};
@@ -1198,6 +1247,13 @@ function Pipeline({leads,stages,open,updateLead}){
     </div>);
   };
   return (<>
+    <div className="seg" style={{marginBottom:16}}>
+      <button className={board==='leads'?'on':''} onClick={()=>setBoard('leads')}>Leads<i>{openLeads.length}</i></button>
+      <button className={board==='clients'?'on':''} onClick={()=>setBoard('clients')}>Clients<i>{(clients||[]).length}</i></button>
+    </div>
+    {board==='clients'
+     ? ((clients||[]).length?<ClientBoard clients={clients} settings={settings} setClientPhase={setClientPhase} onCard={id=>open(id)}/>:<div className="empty">No clients yet. Move a lead to <b>Signed</b> to start onboarding.</div>)
+     : <>
     <div className="kgrid" style={{marginBottom:18}}>
       <Kpi variant="accent" label="Open Pipeline" value={usd(totalOpen)} icon={<KanbanSquare size={14}/>} d={`${openLeads.length} open deal${openLeads.length===1?'':'s'}`}/>
       <Kpi variant="green" label="Weighted Forecast" value={usd(weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
@@ -1218,6 +1274,7 @@ function Pipeline({leads,stages,open,updateLead}){
           {!items.length&&!(dragId&&over===s.key)&&<div className="kdrop">No leads</div>}
         </div>
       </div>);})}</div>
+    </>}
   </>);
 }
 
@@ -1532,7 +1589,38 @@ function ClientRoadmap({clients,tracks,open}){
   </div>);
 }
 
-function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,setClientPhase}){
+/* shared client kanban — used in the Clients tab and the Pipeline toggle */
+function ClientBoard({clients,settings,onCard,setClientPhase}){
+  const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);
+  const cols=boardCols(clients,settings);
+  const drop=col=>{ if(!dragId){setOver(null);return;} if(!(col.custom&&col.ownerId&&col.ownerId!==dragId)) setClientPhase(dragId,col.key); setDragId(null);setOver(null); };
+  const step=(l,dir)=>{ const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake'); const j=i+dir; if(i<0){ if(dir>0)setClientPhase(l.id,order[0]); return;} if(j<0||j>=order.length)return; setClientPhase(l.id,order[j]); };
+  const Card=({l})=>{ const st=onboardingStat(l); const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake');
+    return (<div className={'kcard'+(st.overdue>0?' od':'')+(dragId===l.id?' dragging':'')} draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>onCard&&onCard(l.id)}>
+      <div className="kcard-top"><div className="kn"><span className="dot" style={{background:phaseInfo(l.clientPhase||'intake',settings,l).color}}/>{l.company||l.name}</div>{l.owner&&<span className="kown">{l.owner[0].toUpperCase()}</span>}</div>
+      <div className="kco">{l.name}</div>
+      <div className="kmeta"><span className="kvals">{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
+      <div className="kmove" onClick={e=>e.stopPropagation()}>
+        <button className="kmv" disabled={i<=0} onClick={()=>step(l,-1)} title="Back a phase"><ChevronLeft size={16}/></button>
+        <span className="kmv-s">{phaseInfo(l.clientPhase||'intake',settings,l).label}</span>
+        <button className="kmv" disabled={i>=0&&i>=order.length-1} onClick={()=>step(l,1)} title="Advance a phase"><ChevronRight size={16}/></button>
+      </div>
+    </div>);
+  };
+  return (<div className="kanban">{cols.map(col=>{ const items=clients.filter(l=>(l.clientPhase||'intake')===col.key); const mrr=items.reduce((a,l)=>a+(l.retainerActive?num(l.retainer):0),0); const od=items.reduce((a,l)=>a+onboardingStat(l).overdue,0);
+    return (<div key={col.key} className={'kcol '+(over===col.key?'drag':'')} onDragOver={e=>{e.preventDefault();setOver(col.key);}} onDragLeave={()=>setOver(c=>c===col.key?null:c)} onDrop={()=>drop(col)}>
+      <div className="kbar" style={{background:col.color}}/>
+      <div className="kcol-h"><span className="kt">{col.label}{col.custom&&<span className="cp-tag">custom</span>}</span><span className="kc">{items.length}</span></div>
+      <div className="kcol-v">{mrr>0?usd(mrr)+'/mo':'—'}{od>0&&<span className="kwtd" style={{color:RED}}> · {od} overdue</span>}</div>
+      <div className="kcol-body">
+        {items.map(l=><Card key={l.id} l={l}/>)}
+        {dragId&&over===col.key&&<div className="kdrop">Release to move here</div>}
+        {!items.length&&!(dragId&&over===col.key)&&<div className="kdrop">{col.custom?'custom phase':'No clients'}</div>}
+      </div>
+    </div>);})}</div>);
+}
+
+function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,setClientPhase,addCustomPhase,removeCustomPhase}){
   const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS;
   const [showChurned,setShowChurned]=useState(false);
   const [expand,setExpand]=useState(null);
@@ -1547,11 +1635,12 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,s
   const byPhase=k=>clients.filter(l=>(l.clientPhase||'intake')===k).length;
   const retainerClients=clients.filter(l=>l.retainerActive); const mrr=retainerClients.reduce((a,l)=>a+num(l.retainer),0);
   const totalOverdue=clients.reduce((a,l)=>a+onboardingStat(l).overdue,0);
-  const advance=l=>{ const phase=l.clientPhase||'intake'; const i=PHASE_FLOW.indexOf(phase); if(i<0||i>=PHASE_FLOW.length-1)return;
-    const pp=phaseProgress(l,phase); const nextPhase=PHASE_FLOW[i+1]; const left=pp.total-pp.done;
-    if(left>0 && !window.confirm(`${left} item${left>1?'s':''} still unchecked in ${phaseMeta(phase)[1]} — advance to ${phaseMeta(nextPhase)[1]} anyway?`)) return;
-    setClientPhase(l.id,nextPhase); };
-  const PhaseBadge=({k})=>{const m=phaseMeta(k);return <span className="phase-badge" style={{background:m[2]+'1A',color:m[2]}}><span className="dot" style={{background:m[2]}}/>{m[1]}</span>;};
+  const advance=l=>{ const order=flowOrder(settings,l); const cur=l.clientPhase||'intake'; const i=order.indexOf(cur); if(i<0||i>=order.length-1)return; const nextKey=order[i+1];
+    const isStd=stdPhases(settings).some(p=>p.key===cur&&p.flow); const pp=isStd?phaseProgress(l,cur):{total:0,done:0}; const left=pp.total-pp.done;
+    if(left>0 && !window.confirm(`${left} item${left>1?'s':''} still unchecked in ${phaseInfo(cur,settings,l).label} — advance to ${phaseInfo(nextKey,settings,l).label} anyway?`)) return;
+    setClientPhase(l.id,nextKey); };
+  const PhaseBadge=({k,client})=>{const m=phaseInfo(k,settings,client);return <span className="phase-badge" style={{background:m.color+'1A',color:m.color}}><span className="dot" style={{background:m.color}}/>{m.label}</span>;};
+  const sel=visible.find(l=>l.id===expand);
   return (<>
     <div className="kgrid">
       <Kpi variant="accent" label="Active Clients" value={visible.length} icon={<Award size={14}/>} d={`${byPhase('intake')} intake · ${byPhase('build')} build · ${byPhase('launch')} launch`}/>
@@ -1561,37 +1650,25 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,s
     </div>
     {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} signed {wonNotConverted.length===1?'lead is':'leads are'} not onboarding yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b>: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
     <div className="toolbar" style={{marginBottom:14}}>
-      <div className="sec-title" style={{margin:0}}><Rocket size={15}/>Onboarding — what needs doing</div>
+      <div className="sec-title" style={{margin:0}}><KanbanSquare size={15}/>Client Pipeline</div>
       <label className="chip-toggle" style={{marginLeft:'auto'}}><input type="checkbox" checked={showChurned} onChange={e=>setShowChurned(e.target.checked)}/>Show churned</label>
     </div>
-    {!ranked.length?<div className="empty">No clients yet. Move a lead to <b>Signed</b> (or hit Convert to Client) to start onboarding.</div>
-    :<div className="cli-list">{ranked.map(({l,st,phase})=>{
-      const pp=phaseProgress(l,phase); const isOpen=expand===l.id; const canAdvance=PHASE_FLOW.indexOf(phase)>=0&&PHASE_FLOW.indexOf(phase)<PHASE_FLOW.length-1;
-      return (<div className={'cli-card'+(st.overdue>0?' od':'')} key={l.id}>
-        <div className="cli-main" onClick={()=>setExpand(isOpen?null:l.id)}>
-          <div className="cli-id">
-            <div className="cli-name" onClick={e=>{e.stopPropagation();open(l.id);}}>{l.company||l.name}</div>
-            <div className="subcell">{l.name}{l.retainerActive?` · ${usd(l.retainer)}/mo`:''}</div>
+    {!visible.length?<div className="empty">No clients yet. Move a lead to <b>Signed</b> (or hit Convert to Client) to start onboarding.</div>
+    :<><ClientBoard clients={visible} settings={settings} setClientPhase={setClientPhase} onCard={id=>setExpand(id===expand?null:id)}/>
+      {sel?(()=>{ const l=sel; const phase=l.clientPhase||'intake'; const order=flowOrder(settings,l); const i=order.indexOf(phase); const canAdvance=i>=0&&i<order.length-1;
+        return (<div className="cli-detail">
+          <div className="cli-detail-h">
+            <div><div className="cli-name" onClick={()=>open(l.id)}>{l.company||l.name}</div><div className="subcell">{l.name} · {onboardingStat(l).done}/{ONB_ITEMS.length} onboarding complete</div></div>
+            <button className="m-x" onClick={()=>setExpand(null)}><X size={17}/></button>
           </div>
-          <PhaseBadge k={phase}/>
-          <div className="cli-prog2">
-            <div className="cli-prog2-top">{phaseMeta(phase)[1]} checklist<span>{pp.done}/{pp.total}</span></div>
-            <div className="pbar"><div style={{width:Math.round(pp.pct*100)+'%'}}/></div>
-          </div>
-          <div className="cli-status">
-            {st.overdue>0&&<span className="badge over">{st.overdue} overdue</span>}
-            {st.next?<span className="cli-next" title="Next unchecked item"><Circle size={11}/>{st.next.label}</span>:<span className="badge done"><CheckCircle2 size={12}/>All done</span>}
-          </div>
-          <ChevronDown size={17} className={'cli-ch'+(isOpen?' open':'')}/>
-        </div>
-        {isOpen&&<div className="cli-body">
           <div className="cli-actions">
-            {canAdvance&&<button className="btn btn-p btn-sm" onClick={()=>advance(l)}><ArrowUpRight size={14}/>Advance to {phaseMeta(PHASE_FLOW[PHASE_FLOW.indexOf(phase)+1])[1]}</button>}
+            {canAdvance&&<button className="btn btn-p btn-sm" onClick={()=>advance(l)}><ArrowUpRight size={14}/>Advance to {phaseInfo(order[i+1],settings,l).label}</button>}
             <select className="phase-sel" value={phase} onChange={e=>{ if(e.target.value==='churned'&&!window.confirm('Mark this client churned? They drop out of the default view.')) return; setClientPhase(l.id,e.target.value); }}>
-              {CLIENT_PHASES.map(p=><option key={p[0]} value={p[0]}>{p[1]}</option>)}
+              {clientPhaseList(settings,l).map(p=><option key={p.key} value={p.key}>{p.label}{p.custom?' (custom)':''}</option>)}
             </select>
-            <span className="subcell" style={{marginLeft:'auto'}}>{onboardingStat(l).done}/{ONB_ITEMS.length} overall</span>
+            <CustomPhaseAdd settings={settings} onAdd={info=>addCustomPhase(l.id,info)}/>
           </div>
+          {(l.customPhases||[]).length>0&&<div className="cp-list">{(l.customPhases||[]).map(cp=><span key={cp.key} className="cp-chip" style={{borderColor:cp.color,color:cp.color}}><span className="dot" style={{background:cp.color}}/>{cp.label}<span className="subcell" style={{fontWeight:400}}>after {phaseInfo(cp.after,settings).label}</span><button onClick={()=>{if(window.confirm(`Remove custom phase "${cp.label}"?`))removeCustomPhase(l.id,cp.key);}}><X size={11}/></button></span>)}</div>}
           {ONBOARDING.map(g=>{const gp=phaseProgress(l,g.phase);return (<div className="onb-group" key={g.phase}>
             <div className="onb-gh"><PhaseBadge k={g.phase}/><span className="onb-gc">{gp.done}/{gp.total}</span></div>
             {g.items.map(([key,label])=>{const e=normEntry((l.onboarding||{})[key]);const done=!!e.done;const od=!done&&e.due&&daysUntil(e.due)<0;return (
@@ -1602,10 +1679,26 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,s
                      :<label className="onb-due"><span>{od?'overdue':'due'}</span><input type="date" className={od?'over':''} value={e.due||''} onChange={ev=>setOnboardingDue(l.id,key,ev.target.value)}/></label>}
               </div>);})}
           </div>);})}
-        </div>}
-      </div>);
-    })}</div>}
+        </div>);
+      })():<div className="cli-hint"><ChevronUp size={14}/>Tap a client card to open its onboarding checklist and phase controls.</div>}
+    </>}
   </>);
+}
+
+/* add-a-custom-phase popover (per client) */
+function CustomPhaseAdd({settings,onAdd}){
+  const [openF,setOpenF]=useState(false);
+  const [label,setLabel]=useState(''); const [color,setColor]=useState('#7A5CC8'); const [after,setAfter]=useState('build');
+  const flowStd=stdPhases(settings).filter(p=>p.flow);
+  const submit=()=>{ if(!label.trim())return; onAdd({label,color,after}); setLabel(''); setOpenF(false); };
+  if(!openF) return <button className="btn btn-s btn-sm" onClick={()=>setOpenF(true)}><Plus size={13}/>Custom phase</button>;
+  return (<div className="cp-add">
+    <input placeholder="Phase name (e.g. Paused)" value={label} onChange={e=>setLabel(e.target.value)} autoFocus/>
+    <input type="color" value={color} onChange={e=>setColor(e.target.value)} title="Color"/>
+    <label>after<select value={after} onChange={e=>setAfter(e.target.value)}>{flowStd.map(p=><option key={p.key} value={p.key}>{p.label}</option>)}</select></label>
+    <button className="btn btn-p btn-sm" onClick={submit}>Add</button>
+    <button className="btn btn-g btn-sm" onClick={()=>setOpenF(false)}>Cancel</button>
+  </div>);
 }
 
 /* ===================== MONEY ===================== */
@@ -2225,7 +2318,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
     {/* team access */}
@@ -2245,6 +2338,26 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
         </div>);})}
       </div>
       <div className="ch-sub" style={{marginTop:12,marginBottom:0}}>Add a new salesperson under <b>Dropdown options → Owner</b> and they'll appear here. Give them <b>Own + Pool</b> and they'll only ever see their own leads plus the shared pool.</div>
+    </div>); })()}
+
+    {/* client phases */}
+    {(()=>{ const phases=stdPhases(settings);
+      const savePhases=next=>saveSettings({...settings,clientPhases:next});
+      const patch=(i,p)=>{const n=phases.map((x,j)=>j===i?{...x,...p}:x);savePhases(n);};
+      const move=(i,dir)=>{const j=i+dir;if(j<0||j>=phases.length)return;const n=phases.slice();[n[i],n[j]]=[n[j],n[i]];savePhases(n);};
+      return (<div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><KanbanSquare size={15}/>Client phases</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>These are the columns on the Client Pipeline board. Rename, recolor, or reorder them. The 6 keys stay fixed because the onboarding checklist maps to them — for one-off steps, add a <b>custom phase</b> on an individual client from the Clients tab.</div>
+      <div className="phase-editor">{phases.map((p,i)=>(<div className="phase-row" key={p.key}>
+        <input type="color" value={p.color} onChange={e=>patch(i,{color:e.target.value})}/>
+        <input className="phase-label" value={p.label} onChange={e=>patch(i,{label:e.target.value})}/>
+        <span className="phase-key">{p.flow?'flow':'terminal'}</span>
+        <div className="phase-moves">
+          <button className="m-x" style={{width:26,height:26}} disabled={i===0} onClick={()=>move(i,-1)}><ChevronUp size={13}/></button>
+          <button className="m-x" style={{width:26,height:26}} disabled={i===phases.length-1} onClick={()=>move(i,1)}><ChevronDown size={13}/></button>
+        </div>
+      </div>))}</div>
+      <button className="linkbtn" onClick={()=>savePhases(DEFAULT_CLIENT_PHASES)}>Reset to defaults</button>
     </div>); })()}
 
     {/* logo */}
