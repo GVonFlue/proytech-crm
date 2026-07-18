@@ -32,12 +32,86 @@ const DEFAULT_OPTIONS={
 };
 const DEFAULT_STAGES=[
   {key:'new',      label:'New Lead',      color:'#6B73C9', prob:0.10, open:true,  won:false, lost:false},
-  {key:'contacted',label:'Contacted',     color:COBALT,    prob:0.25, open:true,  won:false, lost:false},
-  {key:'meeting',  label:'Meeting Set',   color:'#7A5CC8', prob:0.50, open:true,  won:false, lost:false},
-  {key:'proposal', label:'Proposal Sent', color:GOLD,      prob:0.75, open:true,  won:false, lost:false},
-  {key:'won',      label:'Closed Won',    color:GREEN,     prob:1.00, open:false, won:true,  lost:false},
-  {key:'lost',     label:'Closed Lost',   color:'#B0606A', prob:0.00, open:false, won:false, lost:true},
+  {key:'discovery',label:'Discovery',     color:COBALT,    prob:0.30, open:true,  won:false, lost:false},
+  {key:'proposal', label:'Proposal Sent', color:GOLD,      prob:0.70, open:true,  won:false, lost:false},
+  {key:'signed',   label:'Signed',        color:GREEN,     prob:1.00, open:false, won:true,  lost:false},
+  {key:'lost',     label:'Lost',          color:'#B0606A', prob:0.00, open:false, won:false, lost:true},
 ];
+/* old default set — used to detect a pre-migration install */
+const OLD_STAGE_KEYS=['new','contacted','meeting','proposal','won','lost'];
+const STAGE_REMAP={new:'new',contacted:'discovery',meeting:'discovery',proposal:'proposal',won:'signed',lost:'lost'};
+
+/* ---- Layer 2: client phase + universal onboarding checklist ---- */
+const CLIENT_PHASES=[
+  ['intake','Intake','#6B73C9'],['build','Build',COBALT],['launch','Launch','#7A5CC8'],
+  ['active','Active',GREEN],['atrisk','At Risk','#E0662B'],['churned','Churned','#8E89A8'],
+];
+const PHASE_FLOW=['intake','build','launch','active'];   // the advance path
+const phaseMeta=k=>CLIENT_PHASES.find(p=>p[0]===k)||['intake','Intake','#6B73C9'];
+const ONBOARDING=[
+  {phase:'intake',items:[
+    ['agreement_signed','Service agreement signed (Square)'],
+    ['deposit_paid','Deposit / first payment collected'],
+    ['drive_folder','Client folder created in Drive'],
+    ['welcome_sent','Welcome msg + /onboard link sent'],
+    ['intake_form','Intake form completed (/onboard)'],
+    ['logo_received','Logo received (vector/PNG)'],
+    ['headshot_received','Headshot(s) received'],
+    ['brand_assets','Brand colors / assets received'],
+    ['testimonials','Testimonials/reviews received or permission'],
+    ['access_dns','Access: domain / DNS'],
+    ['access_gbp','Access: Google Business Profile'],
+    ['access_social','Access: Facebook / Instagram'],
+    ['access_crm_host','Access: existing CRM / host (if any)'],
+    ['brand_voice_doc','Brand Voice Doc produced'],
+    ['kickoff_call','Kickoff call + voice memo done'],
+  ]},
+  {phase:'build',items:[
+    ['site_built','Website built (preview URL)'],
+    ['revision_round','Revision round collected (one consolidated list)'],
+    ['automations_config','Automations configured (GHL snapshot + Custom Values)'],
+    ['newsletter_setup','Newsletter set up (if sold)'],
+    ['qa_passed','Internal QA passed (forms, automations, mobile, links, license/brokerage disclosure, Equal Housing logo)'],
+  ]},
+  {phase:'launch',items:[
+    ['launch_call','Launch call completed'],
+    ['go_live','Go live (DNS flipped, automations on)'],
+    ['cheat_sheet_sent',"'How your system works' cheat sheet sent"],
+    ['review_scheduled','30-day review scheduled'],
+    ['testimonial_booked','Testimonial / case study booked (founding clients)'],
+    ['retainer_confirmed','First retainer auto-bill confirmed (Square)'],
+  ]},
+  {phase:'active',items:[
+    ['day30_review','Day-30 review call done (results, testimonial, 2 warm intros)'],
+  ]},
+];
+const ONB_ITEMS=ONBOARDING.flatMap(g=>g.items.map(([key,label])=>({key,label,phase:g.phase})));
+const onbByPhase=phase=>ONB_ITEMS.filter(i=>i.phase===phase);
+const seedOnboarding=()=>{const o={};ONB_ITEMS.forEach(i=>o[i.key]={done:null,due:null});return o;};
+/* progress for one phase's checklist (mirrors trackProgress) */
+const phaseProgress=(lead,phase)=>{ const items=onbByPhase(phase); const ob=lead.onboarding||{}; let done=0,overdue=0,nextDue=null,next=null;
+  items.forEach(i=>{ const e=normEntry(ob[i.key]); if(e.done) done++; else { if(!next) next=i; if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } } });
+  return {items,done,total:items.length,pct:items.length?done/items.length:0,overdue,nextDue,next}; };
+/* whole-checklist stats (mirrors clientOverall) */
+const onboardingStat=lead=>{ const ob=lead.onboarding||{}; let done=0,overdue=0,nextDue=null,next=null;
+  ONB_ITEMS.forEach(i=>{ const e=normEntry(ob[i.key]); if(e.done) done++; else { if(!next) next=i; if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } } });
+  return {done,total:ONB_ITEMS.length,pct:ONB_ITEMS.length?done/ONB_ITEMS.length:0,overdue,nextDue,next}; };
+/* one-time, idempotent pipeline migration: pre-migration installs (empty or the
+   old 6-key default) get the new 5 stages, and every lead's stage key is remapped.
+   Safe to run on every load — a no-op once migrated. */
+function migrateStages(settings,leads){
+  const cur=(settings&&settings.stages)||[]; const curKeys=cur.map(s=>s.key);
+  const looksOld=!curKeys.length || (curKeys.length===OLD_STAGE_KEYS.length && OLD_STAGE_KEYS.every(k=>curKeys.includes(k)));
+  const stages=looksOld?DEFAULT_STAGES:cur;
+  const valid=new Set(stages.map(s=>s.key));
+  const changed=[];
+  const migLeads=(leads||[]).map(l=>{
+    if(!l.stage||valid.has(l.stage)) return l;
+    const to=STAGE_REMAP[l.stage]||'new';
+    const nl={...l,stage:valid.has(to)?to:'new'}; changed.push(nl); return nl;
+  });
+  return {stages,stagesChanged:looksOld,leads:migLeads,changed};
+}
 const PRIORITIES={high:{label:'High',color:'#E0662B',bg:'rgba(224,102,43,.12)',rank:0},medium:{label:'Medium',color:COBALT,bg:'rgba(43,77,224,.10)',rank:1},low:{label:'Low',color:'#8E89A8',bg:'#F0F1F7',rank:2}};
 const OWNERS=[...BRAND.team,BRAND.pool];
 /* ---- team scoping: everyone sees their own leads; "ProyTech" is the shared pool ---- */
@@ -419,6 +493,42 @@ const CSS=`
 .fu-when.od{color:#b4322e}
 .fn-block{background:#FAFAFE;border:1px solid #EDEEF5;border-radius:11px;padding:13px}
 .fn-hint{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11.5px;color:#9b98ad;font-weight:500}
+.chip-toggle{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#56527a;cursor:pointer}
+.chip-toggle input{accent-color:${COBALT};width:15px;height:15px;cursor:pointer}
+.phase-badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:3px 11px;border-radius:20px;white-space:nowrap}
+.cli-list{display:flex;flex-direction:column;gap:10px}
+.cli-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;overflow:hidden}
+.cli-card.od{border-color:#F3C9C2}
+.cli-main{display:grid;grid-template-columns:1.4fr auto 1.5fr 1.6fr auto;gap:16px;align-items:center;padding:14px 16px;cursor:pointer}
+.cli-main:hover{background:#FCFCFE}
+.cli-id{min-width:0}
+.cli-name{font-weight:700;color:${INK};font-size:14.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cli-name:hover{color:${COBALT};text-decoration:underline}
+.cli-prog2{min-width:0}
+.cli-prog2-top{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#8b88a0;margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em}
+.cli-status{display:flex;flex-direction:column;gap:5px;align-items:flex-start;min-width:0}
+.cli-next{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#56527a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.cli-next svg{flex:none;color:#C9C5D9}
+.cli-ch{color:#c0bdd0;transition:transform .16s;flex:none}
+.cli-ch.open{transform:rotate(180deg);color:${COBALT}}
+.cli-body{border-top:1px solid #EEF0F6;padding:14px 16px;background:#FAFBFE}
+.cli-actions{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.phase-sel{border:1px solid #E1E2EC;border-radius:8px;padding:6px 10px;font-size:12.5px;color:${INK};background:#fff;font-weight:600}
+.onb-group{margin-bottom:14px}
+.onb-gh{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.onb-gc{font-size:11px;font-weight:700;color:#8b88a0}
+.onb-item{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:8px}
+.onb-item:hover{background:#fff}
+.onb-item.over{background:rgba(209,67,67,.05)}
+.onb-check{cursor:pointer;flex:none;display:flex}
+.onb-label{flex:1;min-width:0;font-size:13px;color:${INK};cursor:pointer;line-height:1.4}
+.onb-item.done .onb-label{color:#9b98ad;text-decoration:line-through}
+.onb-date{font-size:11.5px;font-weight:600;color:#1f8a55;white-space:nowrap;flex:none}
+.onb-due{display:inline-flex;align-items:center;gap:6px;flex:none}
+.onb-due span{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#a6a2bc}
+.onb-due input{border:1px solid #E1E2EC;border-radius:7px;padding:3px 7px;font-size:11.5px;color:#56527a;background:#fff}
+.onb-due input.over{border-color:#E0967F;color:#b4322e}
+@media(max-width:820px){.cli-main{grid-template-columns:1fr auto;gap:9px}.cli-prog2,.cli-status{grid-column:1/-1}.cli-ch{position:absolute;right:16px;top:16px}}
 .m-foot{flex:none;background:#fff;border-top:1px solid #E8E9F2;padding:13px 22px;display:flex;align-items:center;gap:10px;box-shadow:0 -6px 20px -12px rgba(0,0,0,.18)}
 .m-foot-n{display:flex;align-items:center;gap:5px;margin-left:auto;font-size:12px;color:#8b88a0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 /* follow-up card: plan + next flow */
@@ -790,6 +900,10 @@ export default function App(){
       let tk=[]; try{ if(typeof db.getTasks==='function') tk=await db.getTasks(); }catch(err){ console.error('tasks load failed',err); }
       if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
       if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM}; await db.saveSettings(st); }
+      /* migrate the sales pipeline (idempotent) */
+      const mig=migrateStages(st,s);
+      if(mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
+      if(mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
       setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
@@ -816,10 +930,18 @@ export default function App(){
   const addOption=(listKey,val)=>{const v=(val||'').trim();if(!v)return;const cur=settings.options[listKey]||[];if(cur.includes(v))return;saveSettings({...settings,options:{...settings.options,[listKey]:[...cur,v]}});};
 
   const updateLead=(id,patch)=>{ let updated=null; setLeads(leads.map(l=>{
-    if(l.id!==id) return l; const m={...l,...patch};
+    if(l.id!==id) return l; const ts=new Date().toISOString(); const m={...l,...patch};
     if(patch.stage&&patch.stage!==l.stage){
-      m.activities=[{id:uid(),ts:new Date().toISOString(),type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${sOf(patch.stage,stages).label}`},...l.activities];
-      if(sOf(patch.stage,stages).won&&!l.closedAt) m.closedAt=todayISO();
+      m.activities=[{id:uid(),ts,type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${sOf(patch.stage,stages).label}`,who:me},...l.activities];
+      if(sOf(patch.stage,stages).won){
+        if(!l.closedAt) m.closedAt=todayISO();
+        /* Signed = auto-onboard: flip to client, seed the universal checklist, start Intake */
+        if(!l.isClient){
+          m.isClient=true; m.clientPhase=m.clientPhase||'intake'; m.convertedAt=m.convertedAt||todayISO();
+          m.onboarding=(l.onboarding&&Object.keys(l.onboarding).length)?l.onboarding:seedOnboarding();
+          m.activities=[{id:uid(),ts,type:'Note',text:'Signed — onboarding started.',who:me},...m.activities];
+        }
+      }
     }
     if(patch.retainerActive&&!l.retainerActive&&!l.retainerStart) m.retainerStart=todayISO();
     updated=m; return m;
@@ -829,8 +951,26 @@ export default function App(){
   const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
   const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await db.upsertMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
-  const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:true,convertedAt:todayISO(),delivery:l.delivery||{},activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Converted to client — delivery started.',who:me},...l.activities]}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
+  const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const ob=(l.onboarding&&Object.keys(l.onboarding).length)?l.onboarding:seedOnboarding(); const updated={...l,isClient:true,clientPhase:l.clientPhase||'intake',convertedAt:l.convertedAt||todayISO(),delivery:l.delivery||{},onboarding:ob,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Converted to client — onboarding started.',who:me},...l.activities]}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
   const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
+  /* toggle one onboarding item + log it — single atomic write */
+  const toggleOnboarding=(id,itemKey)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l;
+    const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); const doneNow=!cur.done;
+    ob[itemKey]={done:doneNow?todayISO():null,due:cur.due||null};
+    const item=ONB_ITEMS.find(i=>i.key===itemKey); const label=item?item.label:itemKey;
+    updated={...l,onboarding:ob,activities:[{id:uid(),ts:new Date().toISOString(),type:'Task',text:(doneNow?'✓ ':'unchecked: ')+label,who:me},...l.activities]};
+    return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+  const setOnboardingDue=(id,itemKey,date)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); ob[itemKey]={done:cur.done||null,due:date||null}; updated={...l,onboarding:ob}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+  /* Phase 5: when a client enters Active, drop two recurring-cadence tasks onto them.
+     (No recurring engine — these are one-time tasks the owner recreates on completion.) */
+  const seedActiveTasks=(id,ownerHint)=>{ if(tasks.some(t=>t.leadId===id&&t.seededActive)) return;
+    const owner=ownerHint&&ownerHint!==POOL_OWNER?ownerHint:me;
+    const mk=(title,cadence,days)=>({...newTask(owner),title,leadId:id,seededActive:true,notes:`Recurring ${cadence} — recreate when done.`,due:addDays(todayISO(),days)});
+    saveTasks([mk('Monthly results text/email','monthly',30),mk('Quarterly system check + upsell scan','quarterly',90),...tasks]); };
+  /* set/advance a client's phase + log it; entering Active seeds handoff tasks */
+  const setClientPhase=(id,phase)=>{ const l=leads.find(x=>x.id===id); if(!l)return; let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x;
+    updated={...x,isClient:true,clientPhase:phase,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Phase → '+phaseMeta(phase)[1],who:me},...x.activities]}; return updated; }));
+    if(updated){ db.upsertLead(updated).catch(console.error); if(phase==='active') seedActiveTasks(id,l.owner); } };
   const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done?null:todayISO(),due:cur.due||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; const patch={delivery:d}; const o=clientOverall({...l,delivery:d},settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const won=(stages||[]).find(s=>s.won); if(o.delivered&&won&&l.stage!==won.key) patch.stage=won.key; updateLead(id,patch); };
   const setMilestoneDue=(id,trackKey,milestone,date)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done||null,due:date||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; updateLead(id,{delivery:d}); };
   const active=activeId&&activeId!=='new'?leads.find(l=>l.id===activeId):null;
@@ -867,12 +1007,12 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           page==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead}/>:
           page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity}/>:
-          page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks}/>:
+          page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks} open={openLead}/>:
           page==='activity'?<Activity leads={leads} tasks={tasks} me={me} open={openLead}/>:
           page==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead}/>:
           page==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead}/>:
           page==='rels'?<Relationships leads={leads} open={openLead}/>:
-          page==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead}/>:
+          page==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} setClientPhase={setClientPhase}/>:
           page==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           page==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
           page==='money'?<Money leads={bizLeads} stages={stages}/>:
@@ -1392,39 +1532,79 @@ function ClientRoadmap({clients,tracks,open}){
   </div>);
 }
 
-function Clients({leads,stages,settings,open}){
+function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,setClientPhase}){
   const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS;
+  const [showChurned,setShowChurned]=useState(false);
+  const [expand,setExpand]=useState(null);
+  const t=todayISO();
   const clients=leads.filter(l=>l.isClient);
-  const active=clients.filter(l=>!clientOverall(l,tracks).delivered);
-  const done=clients.filter(l=>clientOverall(l,tracks).delivered);
-  const retainerClients=clients.filter(l=>l.retainerActive);
-  const mrr=retainerClients.reduce((a,l)=>a+num(l.retainer),0);
   const wonNotConverted=leads.filter(l=>sOf(l.stage,stages).won&&!l.isClient);
-  const Prog=({l})=>{const o=clientOverall(l,tracks);return (<div className="cli-prog"><div className="pbar"><div style={{width:Math.round(o.pct*100)+'%'}}/></div><span className="pp">{Math.round(o.pct*100)}%</span></div>);};
-  const Status=({o})=>o.delivered?<span className="badge done"><CheckCircle2 size={12}/>Delivered{o.doneDate?' · '+fmtDate(o.doneDate):''}</span>:o.overdue>0?<span className="badge over">{o.overdue} overdue</span>:<span className="subcell">{o.phase}</span>;
-  const Section=({title,list})=>(<div className="tbl-wrap" style={{marginBottom:18}}>
-    <div className="tbl-cap">{title} · {list.length}</div>
-    {list.length?<table className="tbl"><thead><tr><th>Client</th><th>Service</th><th>Delivery</th><th>Status</th><th>Setup</th><th>Retainer</th><th>Owner</th></tr></thead><tbody>{list.map(l=>{const o=clientOverall(l,tracks);return (<tr key={l.id} onClick={()=>open(l.id)}>
-      <td><div className="namecell">{l.company||l.name}{l.retainerActive&&<span className="rtag">retainer</span>}</div><div className="subcell">{l.name}</div></td>
-      <td className="subcell">{(l.serviceInterest||[]).join(', ')||l.businessType}</td>
-      <td><Prog l={l}/></td>
-      <td><Status o={o}/></td>
-      <td style={{fontWeight:600,color:INK}}>{usd(l.dealValue)}</td>
-      <td>{l.retainerActive?<span style={{fontWeight:600,color:GREEN}}>{usd(l.retainer)}/mo</span>:<span className="subcell">—</span>}</td>
-      <td className="subcell">{l.owner}</td>
-    </tr>);})}</tbody></table>:<div className="empty">None yet.</div>}</div>);
+  const visible=clients.filter(l=>showChurned?true:(l.clientPhase||'intake')!=='churned');
+  /* daily "what needs doing": overdue first, then earliest next-due */
+  const ranked=visible.map(l=>({l,st:onboardingStat(l),phase:l.clientPhase||'intake'}))
+    .sort((a,b)=>{ if((b.st.overdue>0)-(a.st.overdue>0))return (b.st.overdue>0)-(a.st.overdue>0);
+      const ad=a.st.nextDue||'9999',bd=b.st.nextDue||'9999'; return ad.localeCompare(bd); });
+  const byPhase=k=>clients.filter(l=>(l.clientPhase||'intake')===k).length;
+  const retainerClients=clients.filter(l=>l.retainerActive); const mrr=retainerClients.reduce((a,l)=>a+num(l.retainer),0);
+  const totalOverdue=clients.reduce((a,l)=>a+onboardingStat(l).overdue,0);
+  const advance=l=>{ const phase=l.clientPhase||'intake'; const i=PHASE_FLOW.indexOf(phase); if(i<0||i>=PHASE_FLOW.length-1)return;
+    const pp=phaseProgress(l,phase); const nextPhase=PHASE_FLOW[i+1]; const left=pp.total-pp.done;
+    if(left>0 && !window.confirm(`${left} item${left>1?'s':''} still unchecked in ${phaseMeta(phase)[1]} — advance to ${phaseMeta(nextPhase)[1]} anyway?`)) return;
+    setClientPhase(l.id,nextPhase); };
+  const PhaseBadge=({k})=>{const m=phaseMeta(k);return <span className="phase-badge" style={{background:m[2]+'1A',color:m[2]}}><span className="dot" style={{background:m[2]}}/>{m[1]}</span>;};
   return (<>
     <div className="kgrid">
-      <Kpi variant="accent" label="Total Clients" value={clients.length} icon={<Award size={14}/>} d={`${retainerClients.length} on retainer`}/>
-      <Kpi variant="green" label="Active Retainers" value={retainerClients.length} icon={<Repeat size={14}/>} d={`${usd(mrr)} MRR`}/>
-      <Kpi label="In Delivery" value={active.length} icon={<Rocket size={14}/>} d="active projects"/>
-      <Kpi label="Completed" value={done.length} icon={<CheckCircle2 size={14}/>} d="fully delivered"/>
+      <Kpi variant="accent" label="Active Clients" value={visible.length} icon={<Award size={14}/>} d={`${byPhase('intake')} intake · ${byPhase('build')} build · ${byPhase('launch')} launch`}/>
+      <Kpi variant="green" label="Retainers" value={retainerClients.length} icon={<Repeat size={14}/>} d={`${usd(mrr)} MRR`}/>
+      <Kpi label="Overdue items" value={totalOverdue} icon={<AlertTriangle size={14}/>} d="across all onboarding"/>
+      <Kpi label="At risk / churned" value={byPhase('atrisk')+byPhase('churned')} icon={<Flag size={14}/>} d={`${byPhase('active')} active`}/>
     </div>
-    {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} closed-won {wonNotConverted.length===1?'lead is':'leads are'} not converted yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b> to start delivery tracking: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
-    <ClientRoadmap clients={active} tracks={tracks} open={open}/>
-    <Section title="In Delivery" list={active}/>
-    <Section title="Completed" list={done}/>
-    {!clients.length&&<div className="empty">No clients yet. Open a closed lead and hit <b>Convert to Client</b> to begin.</div>}
+    {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} signed {wonNotConverted.length===1?'lead is':'leads are'} not onboarding yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b>: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
+    <div className="toolbar" style={{marginBottom:14}}>
+      <div className="sec-title" style={{margin:0}}><Rocket size={15}/>Onboarding — what needs doing</div>
+      <label className="chip-toggle" style={{marginLeft:'auto'}}><input type="checkbox" checked={showChurned} onChange={e=>setShowChurned(e.target.checked)}/>Show churned</label>
+    </div>
+    {!ranked.length?<div className="empty">No clients yet. Move a lead to <b>Signed</b> (or hit Convert to Client) to start onboarding.</div>
+    :<div className="cli-list">{ranked.map(({l,st,phase})=>{
+      const pp=phaseProgress(l,phase); const isOpen=expand===l.id; const canAdvance=PHASE_FLOW.indexOf(phase)>=0&&PHASE_FLOW.indexOf(phase)<PHASE_FLOW.length-1;
+      return (<div className={'cli-card'+(st.overdue>0?' od':'')} key={l.id}>
+        <div className="cli-main" onClick={()=>setExpand(isOpen?null:l.id)}>
+          <div className="cli-id">
+            <div className="cli-name" onClick={e=>{e.stopPropagation();open(l.id);}}>{l.company||l.name}</div>
+            <div className="subcell">{l.name}{l.retainerActive?` · ${usd(l.retainer)}/mo`:''}</div>
+          </div>
+          <PhaseBadge k={phase}/>
+          <div className="cli-prog2">
+            <div className="cli-prog2-top">{phaseMeta(phase)[1]} checklist<span>{pp.done}/{pp.total}</span></div>
+            <div className="pbar"><div style={{width:Math.round(pp.pct*100)+'%'}}/></div>
+          </div>
+          <div className="cli-status">
+            {st.overdue>0&&<span className="badge over">{st.overdue} overdue</span>}
+            {st.next?<span className="cli-next" title="Next unchecked item"><Circle size={11}/>{st.next.label}</span>:<span className="badge done"><CheckCircle2 size={12}/>All done</span>}
+          </div>
+          <ChevronDown size={17} className={'cli-ch'+(isOpen?' open':'')}/>
+        </div>
+        {isOpen&&<div className="cli-body">
+          <div className="cli-actions">
+            {canAdvance&&<button className="btn btn-p btn-sm" onClick={()=>advance(l)}><ArrowUpRight size={14}/>Advance to {phaseMeta(PHASE_FLOW[PHASE_FLOW.indexOf(phase)+1])[1]}</button>}
+            <select className="phase-sel" value={phase} onChange={e=>{ if(e.target.value==='churned'&&!window.confirm('Mark this client churned? They drop out of the default view.')) return; setClientPhase(l.id,e.target.value); }}>
+              {CLIENT_PHASES.map(p=><option key={p[0]} value={p[0]}>{p[1]}</option>)}
+            </select>
+            <span className="subcell" style={{marginLeft:'auto'}}>{onboardingStat(l).done}/{ONB_ITEMS.length} overall</span>
+          </div>
+          {ONBOARDING.map(g=>{const gp=phaseProgress(l,g.phase);return (<div className="onb-group" key={g.phase}>
+            <div className="onb-gh"><PhaseBadge k={g.phase}/><span className="onb-gc">{gp.done}/{gp.total}</span></div>
+            {g.items.map(([key,label])=>{const e=normEntry((l.onboarding||{})[key]);const done=!!e.done;const od=!done&&e.due&&daysUntil(e.due)<0;return (
+              <div className={'onb-item'+(done?' done':'')+(od?' over':'')} key={key}>
+                <span className="onb-check" onClick={()=>toggleOnboarding(l.id,key)}>{done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color={od?RED:'#C9C5D9'}/>}</span>
+                <span className="onb-label" onClick={()=>toggleOnboarding(l.id,key)}>{label}</span>
+                {done?<span className="onb-date done">✓ {fmtDate(e.done)}</span>
+                     :<label className="onb-due"><span>{od?'overdue':'due'}</span><input type="date" className={od?'over':''} value={e.due||''} onChange={ev=>setOnboardingDue(l.id,key,ev.target.value)}/></label>}
+              </div>);})}
+          </div>);})}
+        </div>}
+      </div>);
+    })}</div>}
   </>);
 }
 
@@ -1665,7 +1845,7 @@ const meOwner=me=>BRAND.team.includes(me)?me:(BRAND.team[0]||'');
 const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:'',revenue:3,urgency:3,effort:3,done:false,doneAt:'',doneBy:'',aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
 const taskScore=t=>num(t.revenue)*num(t.urgency);
 
-function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
+function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
   const [who,setWho]=useState('all');
   const [show,setShow]=useState('open');
   const [title,setTitle]=useState('');
@@ -1751,7 +1931,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
             {t.aiReason&&!t.done&&<div style={{fontSize:12.5,color:COBALT,marginTop:4,display:'flex',alignItems:'center',gap:5}}><Sparkles size={12}/>{t.aiReason}</div>}
             <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:8,alignItems:'center'}}>
               <span className="pill" style={{background:ownerColor(t.owner)+'1A',color:ownerColor(t.owner)}}><span className="dot" style={{background:ownerColor(t.owner)}}/>{t.owner}</span>
-              {t.leadId&&leadName(t.leadId)&&<span className="pill" style={{background:'#F0F1F7',color:'#5A5680'}}><Building2 size={11}/>{leadName(t.leadId)}</span>}
+              {t.leadId&&leadName(t.leadId)&&(()=>{const l=leads.find(x=>x.id===t.leadId);const isC=l&&l.isClient;return <span className="pill" style={{background:isC?'rgba(31,157,85,.12)':'#F0F1F7',color:isC?'#1a7d46':'#5A5680',cursor:open?'pointer':'default'}} onClick={e=>{if(open){e.stopPropagation();open(t.leadId);}}} title={open?'Open '+(isC?'client':'lead'):undefined}>{isC?<Building2 size={11}/>:<Contact2 size={11}/>}{leadName(t.leadId)}{isC?' · client':''}</span>;})()}
               <span className="pill" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}}><CalendarClock size={11}/>{dueLabel}</span>
               <span style={{fontSize:11,color:'#a6a2bc'}}>Impact {t.revenue} \u00b7 Urgency {t.urgency} \u00b7 Effort {t.effort}</span>
             </div>
@@ -1781,7 +1961,20 @@ function TaskModal({task,leads,onSave,onDelete,onClose}){
         <div className="fgrid">
           <div className="field"><label>Owner</label><select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
           <div className="field"><label>Due date</label><input type="date" value={d.due||''} onChange={e=>set({due:e.target.value})}/></div>
-          <div className="field full"><label>Link a lead / deal</label><select value={d.leadId||''} onChange={e=>set({leadId:e.target.value})}><option value="">\u2014 none \u2014</option>{leads.map(l=><option key={l.id} value={l.id}>{l.company||l.name||'Lead'}</option>)}</select></div>
+          <div className="field full"><label>Link to a client or lead</label>
+            <select value={d.leadId||''} onChange={e=>set({leadId:e.target.value})}>
+              <option value="">— none —</option>
+              {(()=>{ const lbl=l=>(l.company?l.company+(l.name?` (${l.name})`:''):l.name)||'Untitled';
+                const by=f=>leads.filter(f).sort((a,b)=>lbl(a).localeCompare(lbl(b)));
+                const cli=by(l=>l.isClient), lds=by(l=>!l.isClient&&!l.isRelationship), rel=by(l=>l.isRelationship&&!l.isClient);
+                return (<>
+                  {cli.length>0&&<optgroup label="Clients">{cli.map(l=><option key={l.id} value={l.id}>{lbl(l)}</option>)}</optgroup>}
+                  {lds.length>0&&<optgroup label="Leads">{lds.map(l=><option key={l.id} value={l.id}>{lbl(l)}</option>)}</optgroup>}
+                  {rel.length>0&&<optgroup label="Relationships">{rel.map(l=><option key={l.id} value={l.id}>{lbl(l)}</option>)}</optgroup>}
+                </>);
+              })()}
+            </select>
+          </div>
         </div>
         <Knob label="Revenue impact" field="revenue" hint="how much cash it moves"/>
         <Knob label="Urgency" field="urgency" hint="how time-sensitive"/>
