@@ -74,7 +74,8 @@ const num=v=>{const n=Number(v);return isNaN(n)?0:n;};
 const usd=v=>(num(v)<0?'-$':'$')+Math.abs(Math.round(num(v))).toLocaleString();
 const usdK=v=>{v=num(v);return Math.abs(v)>=1000?'$'+(v/1000).toFixed(v%1000===0?0:1)+'k':'$'+Math.round(v);};
 const pct=v=>(num(v)*100).toFixed(0)+'%';
-const todayISO=()=>new Date().toISOString().slice(0,10);
+const isoOf=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const todayISO=()=>isoOf(new Date());
 const fmtDate=iso=>{if(!iso)return '';const d=new Date(iso+(iso.length<=10?'T00:00:00':''));return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});};
 const fmtStamp=ts=>{const d=new Date(ts);return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 const daysUntil=iso=>{if(!iso)return null;const a=new Date(iso+'T00:00:00'),b=new Date(todayISO()+'T00:00:00');return Math.round((a-b)/86400000);};
@@ -178,7 +179,7 @@ const invSubtotal=inv=>(inv.items||[]).reduce((a,it)=>a+num(it.qty)*num(it.amoun
 const invTax=inv=>invSubtotal(inv)*num(inv.taxRate)/100;
 const invTotal=inv=>invSubtotal(inv)+invTax(inv);
 const invState=inv=>{ if(inv.status==='paid') return 'paid'; if(inv.dueDate&&daysUntil(inv.dueDate)<0) return 'overdue'; return inv.status||'draft'; };
-const addDays=(iso,n)=>{ const d=new Date((iso||todayISO())+'T00:00:00'); d.setDate(d.getDate()+num(n)); return d.toISOString().slice(0,10); };
+const addDays=(iso,n)=>{ const d=new Date((iso||todayISO())+'T00:00:00'); d.setDate(d.getDate()+num(n)); return isoOf(d); };
 function itemsFromLead(l){ const items=[]; const d=(l&&l.deal&&typeof l.deal==='object')?l.deal:null;
   if(d){ if(num(d.setup)) items.push({id:uid(),label:'Setup',qty:1,amount:num(d.setup)}); if(num(d.website)) items.push({id:uid(),label:'Website',qty:1,amount:num(d.website)}); if(num(d.integration)) items.push({id:uid(),label:'AI / Integration',qty:1,amount:num(d.integration)}); (d.extras||[]).forEach(e=>{ if(num(e.amount)) items.push({id:uid(),label:e.label||'Line item',qty:1,amount:num(e.amount)}); }); }
   else if(l&&num(l.dealValue)){ items.push({id:uid(),label:'Project',qty:1,amount:num(l.dealValue)}); }
@@ -1949,7 +1950,7 @@ function Activity({leads,tasks,me,open}){
       /* Tasks completed before we started stamping doneAt have no completion time.
          Fall back to the best real date the task already carries (due, then created)
          so they still show — flagged approximate rather than invented. */
-      const stamp=t.doneAt || (t.due?t.due+'T12:00:00':'') || t.createdAt || '';
+      const stamp=t.doneAt || t.createdAt || '';
       if(!stamp) return null;
       const l=leads.find(x=>x.id===t.leadId);
       return {id:'task-'+t.id,ts:stamp,type:'Task',text:t.title||'(untitled task)',
