@@ -11,7 +11,7 @@ import {
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
   BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
-  Users, Link2, UserPlus
+  Users, Link2, UserPlus, Expand
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -626,6 +626,12 @@ const CSS=`
 .rc-root b{color:#8a6a1f;cursor:pointer}
 .rc-root b:hover{text-decoration:underline}
 .web-card{padding:14px}
+.web-actions{margin-left:auto;display:flex;gap:8px}
+.web-fs{position:fixed;inset:0;z-index:80;background:#F4F6FB;display:flex;flex-direction:column;padding:16px 20px;animation:pop .16s ease}
+.web-fs .web-legend{flex:none;margin-bottom:8px}
+.web-fs .web-trace{flex:none}
+.web-fs-stage{flex:1;min-height:0;background:#fff;border:1px solid #EAEBF2;border-radius:14px;overflow:hidden;margin-top:8px}
+@media(max-width:640px){.web-fs{padding:10px 12px}}
 .web-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:11.5px;color:#8b88a0;font-weight:600}
 .web-legend span{display:inline-flex;align-items:center;gap:5px}
 .web-legend i{width:9px;height:9px;border-radius:3px;display:inline-block}
@@ -1462,6 +1468,8 @@ function ImportModal({onClose,onImport,businessTypes}){
 /* ===================== INTRO WEB ===================== */
 function NetworkWeb({contacts,open}){
   const [sel,setSel]=useState(null);
+  const [fs,setFs]=useState(false);
+  useEffect(()=>{ if(!fs)return; const h=e=>{if(e.key==='Escape')setFs(false);}; window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h); },[fs]);
   const net=useMemo(()=>buildNetwork(contacts),[contacts]);
   const COL=196,ROW=52,NW=164,NH=36,PAD=22;
   if(!net.nodes.length) return (<div className="card"><div className="empty">No introductions mapped yet. Open any contact, set <b>Introduced by</b>, and the web will draw itself here.</div></div>);
@@ -1475,18 +1483,7 @@ function NetworkWeb({contacts,open}){
   const linkOn=(a,b)=>{const i=selPath.indexOf(a);return i>=0&&selPath[i+1]===b;};
   const curve=(x1,y1,x2,y2)=>{const mx=(x1+x2)/2;return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;};
   const colorOf=c=>c.isRelationship?'#7A5CC8':(c.isClient?GREEN:COBALT);
-  return (<div className="card web-card">
-    <div className="web-legend">
-      <span><i style={{background:'#7A5CC8'}}/>Relationship</span>
-      <span><i style={{background:COBALT}}/>Lead</span>
-      <span><i style={{background:GREEN}}/>Client</span>
-      <span className="web-tip">Tap a name to trace it back · double-tap to open</span>
-      {sel&&<button className="btn btn-s btn-sm" style={{marginLeft:'auto'}} onClick={()=>setSel(null)}>Clear trace</button>}
-    </div>
-    {sel&&(()=>{const chain=[...ancestors(sel).map(id=>net.byId[id]),net.byId[sel]].filter(Boolean);
-      return (<div className="web-trace"><b>{chain[chain.length-1].name}</b>{chain.length>1?<> traces back through {chain.slice(0,-1).map((p,i)=><React.Fragment key={p.id}>{i>0&&' → '}<span onClick={()=>setSel(p.id)}>{p.name}</span></React.Fragment>)}</>:<> — you met them directly</>}</div>);})()}
-    <div className="web-scroll">
-      <svg width={W} height={H} className="web-svg">
+  const inner=(<>
         {net.roots.length>0&&<>
           <rect x={X(0)} y={Y(youY)-NH/2} width={NW} height={NH} rx={9} className="web-you"/>
           <text x={X(0)+NW/2} y={Y(youY)+4} textAnchor="middle" className="web-youtxt">You · ProyTech</text>
@@ -1509,9 +1506,35 @@ function NetworkWeb({contacts,open}){
             {n.kids>0&&<><circle cx={X(n.depth)+NW-14} cy={Y(n.y)} r={9} fill="#F1F2F8"/><text x={X(n.depth)+NW-14} y={Y(n.y)+3.5} textAnchor="middle" className="web-kids">{n.kids}</text></>}
           </g>);
         })}
-      </svg>
+  </>);
+  const svgEl=fit=>fit
+    ? <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" className="web-svg" style={{width:'100%',height:'100%',display:'block'}}>{inner}</svg>
+    : <svg width={W} height={H} className="web-svg">{inner}</svg>;
+  const legendEl=full=>(<div className="web-legend">
+    <span><i style={{background:'#7A5CC8'}}/>Relationship</span>
+    <span><i style={{background:COBALT}}/>Lead</span>
+    <span><i style={{background:GREEN}}/>Client</span>
+    <span className="web-tip">Tap a name to trace it back · double-tap to open</span>
+    <div className="web-actions">
+      {sel&&<button className="btn btn-s btn-sm" onClick={()=>setSel(null)}>Clear trace</button>}
+      {full?<button className="btn btn-s btn-sm" onClick={()=>setFs(false)}><X size={14}/>Exit</button>
+           :<button className="btn btn-s btn-sm" onClick={()=>setFs(true)}><Expand size={14}/>Full screen</button>}
     </div>
   </div>);
+  const traceEl=sel?(()=>{const chain=[...ancestors(sel).map(id=>net.byId[id]),net.byId[sel]].filter(Boolean);
+    return (<div className="web-trace"><b>{chain[chain.length-1].name}</b>{chain.length>1?<> traces back through {chain.slice(0,-1).map((p,i)=><React.Fragment key={p.id}>{i>0&&' → '}<span onClick={()=>setSel(p.id)}>{p.name}</span></React.Fragment>)}</>:<> — you met them directly</>}</div>);})():null;
+  return (<>
+    <div className="card web-card">
+      {legendEl(false)}
+      {traceEl}
+      <div className="web-scroll">{svgEl(false)}</div>
+    </div>
+    {fs&&<div className="web-fs">
+      {legendEl(true)}
+      {traceEl}
+      <div className="web-fs-stage">{svgEl(true)}</div>
+    </div>}
+  </>);
 }
 
 /* ===================== RELATIONSHIPS ===================== */
