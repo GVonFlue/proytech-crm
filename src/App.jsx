@@ -483,14 +483,24 @@ const CSS=`
 .spon-tog.rel.on{border-color:#7A5CC8;background:rgba(122,92,200,.1);color:#5b3fa6}
 .rel-hint{font-size:11.5px;color:#8b88a0;margin-top:7px;line-height:1.45}
 .rel-tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}
-.rel-tier{text-align:left;background:#fff;border:1.5px solid #EAEBF2;border-radius:14px;padding:15px 16px;cursor:pointer;transition:.14s;position:relative;overflow:hidden}
-.rel-tier::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc)}
-.rel-tier:hover{border-color:var(--tc);transform:translateY(-1px);box-shadow:0 8px 22px -14px var(--tc)}
-.rel-tier.on{border-color:var(--tc);background:color-mix(in srgb,var(--tc) 7%,#fff)}
-.rt-top{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:800;color:${INK}}
-.rt-dot{width:9px;height:9px;border-radius:50%;background:var(--tc)}
-.rt-n{font-size:30px;font-weight:800;color:var(--tc);line-height:1.1;margin:6px 0 2px;font-family:'Space Grotesk',sans-serif}
-.rt-d{font-size:11.5px;color:#8b88a0;font-weight:500}
+.rel-tier{display:flex;flex-direction:column;min-height:280px;background:#fff;border:1.5px solid #EAEBF2;border-radius:14px;overflow:hidden;position:relative;transition:.14s}
+.rel-tier::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc);z-index:1}
+.rel-tier:hover{border-color:var(--tc)}
+.rel-tier.on{border-color:var(--tc);box-shadow:0 10px 26px -16px var(--tc)}
+.rt-head{padding:15px 16px 12px;cursor:pointer;border-bottom:1px solid #F1F1F7}
+.rel-tier.on .rt-head{background:color-mix(in srgb,var(--tc) 8%,#fff)}
+.rt-top{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800;color:${INK}}
+.rt-dot{width:9px;height:9px;border-radius:50%;background:var(--tc);flex:none}
+.rt-count{margin-left:auto;font-size:13px;font-weight:800;color:#fff;background:var(--tc);min-width:24px;text-align:center;padding:2px 8px;border-radius:20px}
+.rt-d{font-size:11.5px;color:#8b88a0;font-weight:500;margin-top:5px}
+.rt-people{flex:1;overflow-y:auto;padding:6px}
+.rt-person{display:flex;align-items:baseline;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer}
+.rt-person:hover{background:color-mix(in srgb,var(--tc) 8%,#fff)}
+.rt-pn{font-size:13px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rt-pc{font-size:11px;color:#928DAD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.rt-empty{padding:24px 12px;text-align:center;font-size:12px;color:#b7b4c6}
+.rt-foot{padding:9px 14px;font-size:11px;font-weight:700;color:var(--tc);text-align:center;border-top:1px solid #F1F1F7;cursor:pointer;background:#FCFCFE}
+.rt-foot:hover{background:color-mix(in srgb,var(--tc) 6%,#fff)}
 .rel-netline{display:flex;align-items:center;gap:8px;font-size:12px;color:#8b88a0;font-weight:600;margin-bottom:16px;flex-wrap:wrap}
 .rel-clearf{margin-left:auto;border:1px solid #E1E2EC;background:#fff;border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700;color:${COBALT};cursor:pointer}
 .rel-clearf:hover{background:rgba(43,77,224,.06)}
@@ -1561,12 +1571,20 @@ function Relationships({leads,open,updateLead}){
   </tr>);
   return (<>
     <div className="rel-tiers">
-      {REL_TIERS.map(([key,label,color])=>{const c=tierCount(key);const on=tier===key;
-        return (<button key={key} className={'rel-tier'+(on?' on':'')} style={{'--tc':color}} onClick={()=>setTier(on?null:key)}>
-          <div className="rt-top"><span className="rt-dot"/>{label}</div>
-          <div className="rt-n">{c}</div>
-          <div className="rt-d">{REL_TIER_DESC[key]}</div>
-        </button>);})}
+      {REL_TIERS.map(([key,label,color])=>{const people=rels.filter(r=>tierOf(r)===key).sort((a,b)=>(a.name||'').localeCompare(b.name||''));const on=tier===key;
+        const pick=()=>{ if(on){setTier(null);} else {setTier(key);setView('list');} };
+        return (<div key={key} className={'rel-tier'+(on?' on':'')} style={{'--tc':color}}>
+          <div className="rt-head" onClick={pick}>
+            <div className="rt-top"><span className="rt-dot"/>{label}<span className="rt-count">{people.length}</span></div>
+            <div className="rt-d">{REL_TIER_DESC[key]}</div>
+          </div>
+          <div className="rt-people">
+            {people.length?people.map(r=>(<div key={r.id} className="rt-person" onClick={()=>open(r.id)}>
+              <span className="rt-pn">{r.name||'(no name)'}</span>{r.company?<span className="rt-pc">{r.company}</span>:null}
+            </div>)):<div className="rt-empty">No one here yet</div>}
+          </div>
+          <div className="rt-foot" onClick={pick}>{on?'Listed below · tap to clear':`Tap to list all ${people.length}`}</div>
+        </div>);})}
     </div>
     <div className="rel-netline">
       <span>{allIntro.length} connectors</span><span>·</span>
