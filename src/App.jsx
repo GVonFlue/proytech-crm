@@ -627,6 +627,14 @@ const CSS=`
 .rc-root b:hover{text-decoration:underline}
 .web-card{padding:14px}
 .web-actions{margin-left:auto;display:flex;gap:8px}
+.task-daypick{display:flex;align-items:center;gap:6px}
+.day-chip{border:1px solid #E1E2EC;background:#fff;border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:700;color:#56527a;cursor:pointer}
+.day-chip.on{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);color:${COBALT}}
+.day-date{display:inline-flex;align-items:center;gap:6px;border:1px solid #E1E2EC;border-radius:9px;padding:8px 11px;color:#56527a;cursor:pointer}
+.day-date input{border:none;background:none;font-size:12.5px;font-family:inherit;color:#56527a;cursor:pointer;width:120px}
+.day-date input:focus{outline:none}
+.task-due-chip{position:relative;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;cursor:pointer}
+.task-due-chip input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
 .web-fs{position:fixed;inset:0;z-index:80;background:#F4F6FB;display:flex;flex-direction:column;padding:16px 20px;animation:pop .16s ease}
 .web-fs .web-legend{flex:none;margin-bottom:8px}
 .web-fs .web-trace{flex:none}
@@ -2014,7 +2022,7 @@ const TASK_OWNERS=[...BRAND.team,'Both'];
 const OWNER_PALETTE=[COBALT,'#7A5CC8','#0E9AA7','#D97706'];
 const ownerColor=o=>{const i=BRAND.team.indexOf(o);return i>=0?OWNER_PALETTE[i%OWNER_PALETTE.length]:GREEN;};
 const meOwner=me=>BRAND.team.includes(me)?me:(BRAND.team[0]||'');
-const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:'',revenue:3,urgency:3,effort:3,done:false,doneAt:'',doneBy:'',aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
+const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:todayISO(),revenue:3,urgency:3,effort:3,done:false,doneAt:'',doneBy:'',aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
 const taskScore=t=>num(t.revenue)*num(t.urgency);
 
 function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
@@ -2022,14 +2030,16 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
   const [show,setShow]=useState('open');
   const [title,setTitle]=useState('');
   const [addOwner,setAddOwner]=useState(meOwner(me));
+  const [addDue,setAddDue]=useState(todayISO());
   const [edit,setEdit]=useState(null);
   const [busy,setBusy]=useState(false);
   const leadName=id=>{const l=leads.find(x=>x.id===id);return l?(l.company||l.name||'Lead'):'';};
 
-  const add=()=>{ const t=title.trim(); if(!t)return; upsertTask({...newTask(addOwner),title:t}); setTitle(''); };
+  const add=()=>{ const t=title.trim(); if(!t)return; upsertTask({...newTask(addOwner),title:t,due:addDue||todayISO()}); setTitle(''); };
 
   const filtered=tasks.filter(t=>{
-    const w=who==='all'||(who==='mine'&&t.owner===meOwner(me))||(who==='logan'&&t.owner==='Logan')||(who==='both'&&t.owner==='Both');
+    const mine=meOwner(me);
+    const w=who==='all'||(who==='mine'&&t.owner===mine)||(who==='both'&&t.owner==='Both')||(who!=='all'&&who!=='mine'&&who!=='both'&&t.owner===who);
     const s=show==='all'||(show==='open'&&!t.done)||(show==='done'&&t.done);
     return w&&s;
   });
@@ -2063,6 +2073,11 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
     <div className="card" style={{marginBottom:16}}>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
         <input value={title} onChange={e=>setTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add();}} placeholder="Add a task and hit Enter\u2026" style={{flex:'1 1 260px',padding:'11px 13px',border:'1px solid #E2E3EE',borderRadius:11,fontSize:14,background:'#fff',color:INK}}/>
+        <div className="task-daypick">
+          <button type="button" className={'day-chip'+(addDue===todayISO()?' on':'')} onClick={()=>setAddDue(todayISO())}>Today</button>
+          <button type="button" className={'day-chip'+(addDue===addDays(todayISO(),1)?' on':'')} onClick={()=>setAddDue(addDays(todayISO(),1))}>Tomorrow</button>
+          <label className="day-date"><CalendarClock size={14}/><input type="date" value={addDue} onChange={e=>setAddDue(e.target.value||todayISO())}/></label>
+        </div>
         <div className="seg">{TASK_OWNERS.map(o=><button key={o} className={'seg-b '+(addOwner===o?'on':'')} onClick={()=>setAddOwner(o)}>{o}</button>)}</div>
         <button className="btn btn-p" onClick={add}><Plus size={16}/>Add</button>
       </div>
@@ -2072,7 +2087,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
       <div className="seg">
         <button className={'seg-b '+(who==='all'?'on':'')} onClick={()=>setWho('all')}>All</button>
         <button className={'seg-b '+(who==='mine'?'on':'')} onClick={()=>setWho('mine')}>Mine</button>
-        <button className={'seg-b '+(who==='logan'?'on':'')} onClick={()=>setWho('logan')}>Logan</button>
+        {BRAND.team.filter(o=>o!==meOwner(me)).map(o=><button key={o} className={'seg-b '+(who===o?'on':'')} onClick={()=>setWho(o)}>{o}</button>)}
         <button className={'seg-b '+(who==='both'?'on':'')} onClick={()=>setWho('both')}>Shared</button>
       </div>
       <div className="seg">
@@ -2104,7 +2119,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
             <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:8,alignItems:'center'}}>
               <span className="pill" style={{background:ownerColor(t.owner)+'1A',color:ownerColor(t.owner)}}><span className="dot" style={{background:ownerColor(t.owner)}}/>{t.owner}</span>
               {t.leadId&&leadName(t.leadId)&&(()=>{const l=leads.find(x=>x.id===t.leadId);const isC=l&&l.isClient;return <span className="pill" style={{background:isC?'rgba(31,157,85,.12)':'#F0F1F7',color:isC?'#1a7d46':'#5A5680',cursor:open?'pointer':'default'}} onClick={e=>{if(open){e.stopPropagation();open(t.leadId);}}} title={open?'Open '+(isC?'client':'lead'):undefined}>{isC?<Building2 size={11}/>:<Contact2 size={11}/>}{leadName(t.leadId)}{isC?' · client':''}</span>;})()}
-              <span className="pill" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}}><CalendarClock size={11}/>{dueLabel}</span>
+              <label className="task-due-chip" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}} title="Tap to reschedule"><CalendarClock size={11}/>{dueLabel}<input type="date" value={t.due||''} onChange={e=>upsertTask({...t,due:e.target.value})}/></label>
               <span style={{fontSize:11,color:'#a6a2bc'}}>Impact {t.revenue} \u00b7 Urgency {t.urgency} \u00b7 Effort {t.effort}</span>
             </div>
           </div>
