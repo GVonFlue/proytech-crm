@@ -296,7 +296,7 @@ function mkLead(o){
     stage:'new',priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',
     followUp:'',expectedClose:'',serviceInterest:[],owner:BRAND.team[0]||'',dealValue:0,retainer:0,
     potentialSponsor:false,pastSponsor:false,sponsorTier:'',sponsorAmount:0,
-    isRelationship:false,introducedBy:'',relNote:'',
+    isRelationship:false,introducedBy:'',relNote:'',relTier:'',
     retainerActive:false,retainerStart:'',closedAt:'',custom:{},createdAt,activities:acts,...rest};
 }
 /* Demo seed. A fresh client install starts EMPTY on purpose — never ship real
@@ -482,6 +482,25 @@ const CSS=`
 .spon-tog.rel input{accent-color:#7A5CC8}
 .spon-tog.rel.on{border-color:#7A5CC8;background:rgba(122,92,200,.1);color:#5b3fa6}
 .rel-hint{font-size:11.5px;color:#8b88a0;margin-top:7px;line-height:1.45}
+.rel-tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}
+.rel-tier{text-align:left;background:#fff;border:1.5px solid #EAEBF2;border-radius:14px;padding:15px 16px;cursor:pointer;transition:.14s;position:relative;overflow:hidden}
+.rel-tier::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc)}
+.rel-tier:hover{border-color:var(--tc);transform:translateY(-1px);box-shadow:0 8px 22px -14px var(--tc)}
+.rel-tier.on{border-color:var(--tc);background:color-mix(in srgb,var(--tc) 7%,#fff)}
+.rt-top{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:800;color:${INK}}
+.rt-dot{width:9px;height:9px;border-radius:50%;background:var(--tc)}
+.rt-n{font-size:30px;font-weight:800;color:var(--tc);line-height:1.1;margin:6px 0 2px;font-family:'Space Grotesk',sans-serif}
+.rt-d{font-size:11.5px;color:#8b88a0;font-weight:500}
+.rel-netline{display:flex;align-items:center;gap:8px;font-size:12px;color:#8b88a0;font-weight:600;margin-bottom:16px;flex-wrap:wrap}
+.rel-clearf{margin-left:auto;border:1px solid #E1E2EC;background:#fff;border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700;color:${COBALT};cursor:pointer}
+.rel-clearf:hover{background:rgba(43,77,224,.06)}
+.tier-pick{display:inline-flex;align-items:center;gap:5px}
+.tier-dot{width:8px;height:8px;border-radius:50%;background:var(--tc);flex:none}
+.tier-pick select{border:1px solid #E7E8F0;border-radius:20px;padding:3px 8px;font-size:11.5px;font-weight:700;color:var(--tc);background:#fff;cursor:pointer}
+.tier-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tier-btn{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #E1E2EC;background:#fff;border-radius:20px;padding:6px 13px;font-size:12.5px;font-weight:700;color:#56527a;cursor:pointer}
+.tier-btn.on{border-color:var(--tc);color:var(--tc);background:color-mix(in srgb,var(--tc) 8%,#fff)}
+@media(max-width:640px){.rel-tiers{grid-template-columns:1fr}}
 .rel-from{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:7px 11px;border-radius:9px;background:rgba(122,92,200,.08);border:1px solid rgba(122,92,200,.22);color:#5b3fa6;font-size:12.5px;cursor:pointer}
 .rel-from:hover{background:rgba(122,92,200,.15)}
 .rel-gave{display:flex;align-items:center;gap:7px;margin-top:10px;padding:8px 11px;border-radius:9px;background:#F4F5FA;border:1px solid #E5E6F0;color:#56527a;font-size:12.5px}
@@ -1059,7 +1078,7 @@ export default function App(){
           page==='activity'?<Activity leads={leads} tasks={tasks} me={me} open={openLead}/>:
           page==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={bizLeads.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase}/>:
           page==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead}/>:
-          page==='rels'?<Relationships leads={leads} open={openLead}/>:
+          page==='rels'?<Relationships leads={leads} open={openLead} updateLead={updateLead}/>:
           page==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           page==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           page==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
@@ -1124,7 +1143,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity}){
   const Card=({l})=>{ const d=daysUntil(l.followUp); const od=d<0; const lv=!!leaving[l.id];
     const lastTouch=(l.activities||[]).find(a=>a.type&&a.type!=='Note');
     const pend=pending&&pending.id===l.id?pending:null;
-    return (<div className={'fu-card'+(od?' od':'')+(lv?' leaving':'')} onClick={()=>!lv&&!pend&&open(l.id,ids)}>
+    return (<div key={l.id} className={'fu-card'+(od?' od':'')+(lv?' leaving':'')} onClick={()=>!lv&&!pend&&open(l.id,ids)}>
       <div className="fu-top">
         <div style={{minWidth:0}}><div className="fu-name">{l.name||'(no name)'}</div><div className="subcell">{l.company||l.businessType||'—'}</div></div>
         <span className={'badge '+(od?'inv-overdue':'inv-sent')}>{od?Math.abs(d)+'d overdue':'Due today'}</span>
@@ -1173,8 +1192,8 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity}){
       </div>
       <div className="fu-ring" style={{'--p':pct}}><span>{pct}%</span></div>
     </div>
-    {overdue.length>0&&<><div className="fu-band od"><AlertTriangle size={14}/>Overdue · {overdue.length}</div><div className="fu-grid">{overdue.map(l=><Card key={l.id} l={l}/>)}</div></>}
-    {today.length>0&&<><div className="fu-band"><CalendarClock size={14}/>Due Today · {today.length}</div><div className="fu-grid">{today.map(l=><Card key={l.id} l={l}/>)}</div></>}
+    {overdue.length>0&&<><div className="fu-band od"><AlertTriangle size={14}/>Overdue · {overdue.length}</div><div className="fu-grid">{overdue.map(l=>Card({l}))}</div></>}
+    {today.length>0&&<><div className="fu-band"><CalendarClock size={14}/>Due Today · {today.length}</div><div className="fu-grid">{today.map(l=>Card({l}))}</div></>}
   </>);
 }
 
@@ -1486,12 +1505,18 @@ function NetworkWeb({contacts,open}){
 }
 
 /* ===================== RELATIONSHIPS ===================== */
-function Relationships({leads,open}){
+const REL_TIERS=[['champion','Champions','#C8A24A'],['b','B Tier','#2B4DE0'],['new','New Relationships','#1F9D55']];
+const REL_TIER_DESC={champion:'Your top referrers & hubs',b:'Warm — keep nurturing',new:'Just met — start farming'};
+const tierOf=r=>r.relTier||'new';
+const tierMeta=k=>REL_TIERS.find(t=>t[0]===k)||REL_TIERS[2];
+function Relationships({leads,open,updateLead}){
   const [q,setQ]=useState('');
   const [src,setSrc]=useState('all');
+  const [tier,setTier]=useState(null);
   const [view,setView]=useState('grouped');
   const rels=useMemo(()=>leads.filter(l=>l.isRelationship),[leads]);
   const nameOf=id=>{const x=leads.find(l=>l.id===id);return x?x.name:'';};
+  const tierCount=k=>rels.filter(r=>tierOf(r)===k).length;
   const sources=useMemo(()=>{
     const m={};
     rels.forEach(r=>{const k=r.introducedBy||'';m[k]=(m[k]||0)+1;});
@@ -1499,10 +1524,11 @@ function Relationships({leads,open}){
       .sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
   },[rels,leads]);
   const shown=useMemo(()=>rels.filter(r=>{
+    if(tier&&tierOf(r)!==tier)return false;
     if(src!=='all'&&(r.introducedBy||'')!==src)return false;
     if(q){const s=(r.name+' '+r.company+' '+(r.relNote||'')+' '+nameOf(r.introducedBy)).toLowerCase();if(!s.includes(q.toLowerCase()))return false;}
     return true;
-  }).sort((a,b)=>(a.name||'').localeCompare(b.name||'')),[rels,q,src,leads]);
+  }).sort((a,b)=>(a.name||'').localeCompare(b.name||'')),[rels,q,src,tier,leads]);
   const groups=useMemo(()=>{
     const m={};
     shown.forEach(r=>{const k=r.introducedBy||'';(m[k]=m[k]||[]).push(r);});
@@ -1521,20 +1547,32 @@ function Relationships({leads,open}){
     leads.forEach(l=>{const c=introChain(l,leads);if(c.length>best){best=c.length;who=l;}});
     return {len:best,who};
   },[leads]);
+  const TierPick=({r})=>{const m=tierMeta(tierOf(r));return (<span className="tier-pick" style={{'--tc':m[2]}} onClick={e=>e.stopPropagation()}>
+    <span className="tier-dot"/>
+    <select value={tierOf(r)} onChange={e=>updateLead&&updateLead(r.id,{relTier:e.target.value})}>{REL_TIERS.map(([k,l])=><option key={k} value={k}>{l}</option>)}</select>
+  </span>);};
   const Row=r=>(<tr key={r.id} onClick={()=>open(r.id,shown.map(x=>x.id))}>
     <td><div className="namecell">{r.name}</div><div className="subcell">{r.company||'—'}</div></td>
+    <td onClick={e=>e.stopPropagation()}><TierPick r={r}/></td>
     <td className="subcell">{r.relNote||'—'}</td>
     <td>{r.introducedBy?<span className="rel-chip"><Link2 size={11}/>{nameOf(r.introducedBy)||'—'}</span>:<span className="subcell">Direct</span>}</td>
-    <td className="subcell">{r.phone||'—'}</td>
     <td><Due iso={r.followUp}/></td>
     <td className="subcell">{r.owner||'—'}</td>
   </tr>);
   return (<>
-    <div className="kpis">
-      <Kpi variant="accent" label="Relationships" value={rels.length} icon={<Users size={14}/>} d="Kept out of sales numbers"/>
-      <Kpi label="Connectors" value={allIntro.length} icon={<UserPlus size={14}/>} d="People who intro'd you"/>
-      <Kpi label="Top connector" value={topAll?topAll.count:0} icon={<Award size={14}/>} d={topAll?topAll.name:'—'}/>
-      <Kpi label="Longest chain" value={deepest.len?deepest.len+1:0} icon={<Link2 size={14}/>} d={deepest.who?'ends at '+deepest.who.name:'—'}/>
+    <div className="rel-tiers">
+      {REL_TIERS.map(([key,label,color])=>{const c=tierCount(key);const on=tier===key;
+        return (<button key={key} className={'rel-tier'+(on?' on':'')} style={{'--tc':color}} onClick={()=>setTier(on?null:key)}>
+          <div className="rt-top"><span className="rt-dot"/>{label}</div>
+          <div className="rt-n">{c}</div>
+          <div className="rt-d">{REL_TIER_DESC[key]}</div>
+        </button>);})}
+    </div>
+    <div className="rel-netline">
+      <span>{allIntro.length} connectors</span><span>·</span>
+      <span>top: {topAll?`${topAll.name} (${topAll.count})`:'—'}</span><span>·</span>
+      <span>longest chain {deepest.len?deepest.len+1:0}</span>
+      {tier&&<button className="rel-clearf" onClick={()=>setTier(null)}>Showing {tierMeta(tier)[1]} · clear</button>}
     </div>
     <div className="toolbar">
       <div className="searchbox"><Search size={16} color="#928DAD"/><input placeholder="Search name, company, how you know them…" value={q} onChange={e=>setQ(e.target.value)}/></div>
@@ -1550,14 +1588,14 @@ function Relationships({leads,open}){
     </div>
     {view==='web'?<NetworkWeb contacts={leads} open={open}/>
     :!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
-    :!shown.length?<div className="card"><div className="empty">No relationships match that search.</div></div>
-    :view==='list'?<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>How you know them</th><th>Introduced by</th><th>Phone</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{shown.map(Row)}</tbody></table></div>
+    :!shown.length?<div className="card"><div className="empty">No relationships in {tier?tierMeta(tier)[1]:'this view'}{q?' matching that search':''}.</div></div>
+    :view==='list'?<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>Tier</th><th>How you know them</th><th>Introduced by</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{shown.map(Row)}</tbody></table></div>
     :<>{groups.map(g=>(<div className="card" style={{marginBottom:14}} key={g.id||'direct'}>
         <div className="rel-ghead">
           {g.id?<><span className="rel-gname" onClick={()=>open(g.id)}><Link2 size={13}/>{g.name}</span><span className="rel-gcount">{g.list.length} {g.list.length===1?'intro':'intros'}</span></>
               :<><span className="rel-gname plain"><Users size={13}/>Direct / no intro</span><span className="rel-gcount">{g.list.length}</span></>}
         </div>
-        <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>How you know them</th><th>Introduced by</th><th>Phone</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{g.list.map(Row)}</tbody></table></div>
+        <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>Tier</th><th>How you know them</th><th>Introduced by</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{g.list.map(Row)}</tbody></table></div>
       </div>))}</>}
   </>);
 }
@@ -2545,7 +2583,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
-  const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',custom:{},createdAt:new Date().toISOString(),activities:[]};
+  const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',relTier:'',custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
   const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');
   const [openSec,setOpenSec]=useState({});
@@ -2710,6 +2748,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?'Relationship — not a ProyTech lead':'ProyTech lead'}</label>
                 </div>
                 {draft.isRelationship&&<div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>}
+                {draft.isRelationship&&<div className="tier-btns">{REL_TIERS.map(([k,l,c])=><button key={k} type="button" className={'tier-btn'+((draft.relTier||'new')===k?' on':'')} style={{'--tc':c}} onClick={()=>set({relTier:k})}><span className="tier-dot"/>{l}</button>)}</div>}
                 <div className="fgrid" style={{marginTop:10}}>
                   <div className="field"><label>Introduced by</label>
                     <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
