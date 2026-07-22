@@ -639,6 +639,7 @@ const CSS=`
 .gcal-dot{width:10px;height:10px;border-radius:50%;background:${GREEN};flex:none;box-shadow:0 0 0 4px color-mix(in srgb,${GREEN} 18%,#fff)}
 .gcal-off{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .mtg-warn{display:flex;align-items:flex-start;gap:7px;background:#FFF7ED;border:1px solid #FCD9B6;color:#9a5a16;border-radius:9px;padding:9px 11px;font-size:12.5px;margin-bottom:12px;line-height:1.45}
+.mtg-warn svg{flex:none;margin-top:2px}
 .mtg-form{margin-top:6px}
 .mtg-toggles{display:flex;gap:8px;flex-wrap:wrap}
 .mtg-chk{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #E1E2EC;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:600;color:#56527a;cursor:pointer}
@@ -957,6 +958,18 @@ const CSS=`
   .m-foot-n{width:100%;margin-left:0;white-space:normal}
   .scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25}.body{padding:18px}.top{padding:14px 18px}.fgrid{grid-template-columns:1fr}
 }
+/* ---- touch devices: stop iOS from zooming ----
+   Safari auto-zooms whenever you focus a field whose font-size is under 16px.
+   Forcing every control to 16px on touch screens removes the trigger entirely.
+   !important because many controls set their size inline. */
+@media (pointer:coarse){
+  input,select,textarea{font-size:16px !important}
+  .onb-due input,.day-date input{width:auto;max-width:160px}
+  .tier-pick select{padding:5px 10px}
+}
+/* never auto-resize text, and kill the double-tap-to-zoom gesture */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
+button,a,label,select,input,textarea,.kcard,.fu-card,.cli-card,.rt-person,.msec-h,.rel-tier,.web-node{touch-action:manipulation}
 `;
 
 /* ===================== small UI ===================== */
@@ -2713,7 +2726,7 @@ function MeetingScheduler({lead,gcalConnected,onSchedule}){
     setBusy(false);
   };
   return (<div className="mtg-form">
-    {!gcalConnected&&<div className="mtg-warn"><AlertTriangle size={13}/>Connect Google Calendar in <b>Settings</b> to push meetings to admin@getproytech.com.</div>}
+    {!gcalConnected&&<div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected. Open <b>Settings → Google Calendar</b> and hit Connect to push meetings to admin@getproytech.com.</span></div>}
     <div className="fgrid">
       <div className="field full"><label>Title</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder={`Meeting with ${lead.name||lead.company||'client'}`}/></div>
       <div className="field"><label>Date</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
