@@ -11,7 +11,7 @@ import {
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
   BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
-  Users, Link2, UserPlus, Expand, Video
+  Users, Link2, UserPlus, Expand, Video, CalendarCheck
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -155,7 +155,13 @@ function ScopeSeg({view,setView,counts,canAll}){
     {canAll&&<button className={view==='all'?'on':''} onClick={()=>setView('all')}>All<i>{counts.all}</i></button>}
   </div>);
 }
-const ACT_TYPES=[{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox}];
+const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox}];
+/* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
+   composer button write this type, so every count in the app agrees. */
+const ACT_LABEL={Booked:'Meeting Booked'};
+const actLabel=t=>ACT_LABEL[t]||t;
+const actPlural=t=>t==='Booked'?'Booked':t+'s';
+const bookedCount=l=>(l.activities||[]).filter(a=>a.type==='Booked').length;
 const fmtCustom=(v,type)=>{if(v===undefined||v==='')return '—';if(type==='checkbox')return v?'✓':'—';return String(v);};
 const DEFAULT_LEAD_COLS=[
   {key:'businessType',visible:true},{key:'stage',visible:true},{key:'source',visible:true},
@@ -640,6 +646,8 @@ const CSS=`
 .gcal-off{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .mtg-warn{display:flex;align-items:flex-start;gap:7px;background:#FFF7ED;border:1px solid #FCD9B6;color:#9a5a16;border-radius:9px;padding:9px 11px;font-size:12.5px;margin-bottom:12px;line-height:1.45}
 .mtg-warn svg{flex:none;margin-top:2px}
+.act-t.booked{border-color:#F0C09B;color:#C05A1E}
+.act-t.booked.on{background:#E0662B;border-color:#E0662B;color:#fff}
 .mtg-form{margin-top:6px}
 .mtg-toggles{display:flex;gap:8px;flex-wrap:wrap}
 .mtg-chk{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #E1E2EC;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:600;color:#56527a;cursor:pointer}
@@ -1181,7 +1189,15 @@ function useMetrics(leads,stages){
     const hot=leads.filter(l=>l.priority==='high'&&sOf(l.stage,stages).open);
     const winRate=(wonCount+lostCount)>0?wonCount/(wonCount+lostCount):0;
     const avgDeal=wonCount>0?wonValue/wonCount:0; const avgRet=retainers>0?mrr/retainers:0;
-    return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet};
+    /* meetings booked — counts the canonical 'Booked' activity, so the scheduler
+       and the one-click composer button both land in the same number.
+       Month is derived in LOCAL time (isoOf) so a late-night booking doesn't
+       jump into next month the way a raw UTC string would. */
+    const mKey=todayISO().slice(0,7); const nowMs=Date.now();
+    let bookedAll=0,bookedMonth=0,mtgUpcoming=0;
+    leads.forEach(l=>{ (l.activities||[]).forEach(a=>{ if(a.type==='Booked'){ bookedAll++; if(a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey) bookedMonth++; } });
+      (l.meetings||[]).forEach(mt=>{ if(new Date(mt.end||mt.start).getTime()>=nowMs) mtgUpcoming++; }); });
+    return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,bookedAll,bookedMonth,mtgUpcoming};
   },[leads,stages]);
 }
 
@@ -1284,6 +1300,7 @@ function Dashboard({leads,stages,open}){
       <Kpi label="Weighted Forecast" value={usd(m.weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
       <Kpi variant="green" label="Deals Closed" value={m.wonCount} icon={<CheckCircle2 size={14}/>} d={`${usd(m.wonValue)} setup`}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`}/>
+      <Kpi label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.bookedAll} all time · ${m.mtgUpcoming} upcoming`}/>
     </div>
     <div className="row r3">
       <ChartCard title="Pipeline by Stage" sub="Open leads only" empty={stageData.some(d=>d.Leads>0)?null:'No open leads yet.'}>
@@ -2360,9 +2377,9 @@ function TxnModal({txn,file,onSave,onDelete,onClose}){
   </div>);
 }
 
-const ACT_COLORS={Call:'#2B4DE0',Text:'#1F9D55',Meeting:'#7A5CC8',Note:'#C8A24A',Email:'#D14343',Task:'#0E9AA7'};
-const ACT_ORDER=['Call','Text','Meeting','Note','Email','Task'];
-const ACT_ICON={Note:StickyNote,Call:PhoneCall,Text:MessageSquare,Meeting:CalendarClock,Email:Mailbox,Task:ListTodo};
+const ACT_COLORS={Booked:'#E0662B',Call:'#2B4DE0',Text:'#1F9D55',Meeting:'#7A5CC8',Note:'#C8A24A',Email:'#D14343',Task:'#0E9AA7'};
+const ACT_ORDER=['Booked','Call','Text','Meeting','Note','Email','Task'];
+const ACT_ICON={Booked:CalendarCheck,Note:StickyNote,Call:PhoneCall,Text:MessageSquare,Meeting:CalendarClock,Email:Mailbox,Task:ListTodo};
 function Activity({leads,tasks,me,open}){
   const [mode,setMode]=useState('day');
   const [anchor,setAnchor]=useState(todayISO());
@@ -2423,7 +2440,7 @@ function Activity({leads,tasks,me,open}){
     </div>
     <div className="kpis">
       <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={(who==='All'?'Everyone':who)+' · '+range.label}/>
-      {ACT_ORDER.map(t=><Kpi key={t} label={t+'s'} value={totals[t]} icon={kIcon(t)}/>)}
+      {ACT_ORDER.map(t=><Kpi key={t} variant={t==='Booked'?'accent':undefined} label={actPlural(t)} value={totals[t]} icon={kIcon(t)}/>)}
     </div>
     {chartData.length>0&&<div className="card" style={{marginBottom:16}}>
       <div className="ch-title">Activity by person</div>
@@ -2776,7 +2793,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
   const set=patch=>{if(isNew)setDraft({...draft,...patch});else{setDraft({...draft,...patch});updateLead(draft.id,patch);}};
   const doSchedule=async(m)=>{ const ev=await createCalendarEvent(m); const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',createdAt:new Date().toISOString()};
-    const activity={id:uid(),ts:new Date().toISOString(),type:'Meeting',text:`Meeting scheduled: ${m.title} — ${fmtDate(m.start)}`,who:me};
+    const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',text:`Meeting booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
     set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])]}); return meeting; };
   const doRemove=async(mt)=>{ await deleteCalendarEvent(mt.eventId); set({meetings:(draft.meetings||[]).filter(x=>x.id!==mt.id)}); };
   const setCustom=(id,v)=>set({custom:{...(draft.custom||{}),[id]:v}});
@@ -2803,7 +2820,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
       {isOpen&&<div className="msec-b">{body}</div>}
     </div>);
   };
-  const logIt=()=>{if(!atext.trim())return;addActivity(draft.id,atype,atext,who);setAtext('');};
+  const logIt=()=>{const t=atext.trim()||(atype==='Booked'?'Meeting booked.':'');if(!t)return;addActivity(draft.id,atype,t,who);setAtext('');};
   const create=()=>{
     if(!draft.name.trim()){window.alert('Add a name first.');return;}
     const ts=new Date().toISOString();
@@ -2873,7 +2890,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
           {isNew&&<>
             <div className="dh mt"><MessageSquare size={13}/>First note</div>
             <div className="fn-block">
-              <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(firstType===key?'on':'')} onClick={()=>setFirstType(key)}><Ic size={12}/>{key}</button>)}</div>
+              <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(firstType===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setFirstType(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
               <textarea className="fu-note" style={{marginTop:9}} rows={3} placeholder={`How'd the ${firstType.toLowerCase()} go? What did they say?`} value={firstNote} onChange={e=>setFirstNote(e.target.value)}/>
               <div className="fn-hint">{firstNote.trim()?<><CheckCircle2 size={12} color={GREEN}/>Logs as a {firstType} from {who} the moment you save</>:'Optional — but log it now while it\u2019s fresh'}</div>
             </div>
@@ -2913,7 +2930,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
           {/* ---------- 5. EVERYTHING ELSE — collapsed ---------- */}
           {!isNew&&<div className="msecs">
             {Sec('meetings',<CalendarClock size={13}/>,'Meetings',
-              (()=>{ const ms=draft.meetings||[]; if(!ms.length) return 'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`; })(),
+              (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
               <>
                 <MeetingList meetings={draft.meetings} onRemove={doRemove}/>
                 <MeetingScheduler lead={draft} gcalConnected={gcalConnected} onSchedule={doSchedule}/>
@@ -3021,11 +3038,11 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
         <div className="m-right">
           {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
             <div className="dh"><MessageSquare size={13}/>Activity Log</div>
-            <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{key}</button>)}</div>
-            <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>
+            <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
+            <textarea className="act-input" placeholder={atype==='Booked'?"Who with / when? Optional — just hit Log Meeting Booked":`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
               <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>
-              <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {atype}</button>
+              <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>
             </div>
             <div className="afilter" style={{marginTop:16}}>
               <button className={feedFilter==='All'?'on':''} onClick={()=>setFeedFilter('All')}>All</button>
@@ -3033,7 +3050,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               {ACT_TYPES.filter(t=>t.key!=='Note').map(t=><button key={t.key} className={feedFilter===t.key?'on':''} onClick={()=>setFeedFilter(t.key)}>{t.key}</button>)}
             </div>
             <div className="feed">{feed.map(a=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;return (<div className={'fitem'+(a.type==='Note'?' note':'')} key={a.id}>
-              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className="ftxt">{a.text}</div><div className="fmeta">{a.who?a.who+' · ':''}{a.type} · {fmtStamp(a.ts)}</div></div>
+              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className="ftxt">{a.text}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
               <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div>);})}
               {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
             <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid #F0F0F6'}}><button className="btn btn-d" onClick={()=>{if(window.confirm('Delete this lead permanently?'))delLead(draft.id);}}><Trash2 size={15}/>Delete lead</button></div>
