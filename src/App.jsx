@@ -648,6 +648,34 @@ const CSS=`
 .mtg-warn svg{flex:none;margin-top:2px}
 .act-t.booked{border-color:#F0C09B;color:#C05A1E}
 .act-t.booked.on{background:#E0662B;border-color:#E0662B;color:#fff}
+/* header quick facts (the qualifying data, surfaced at the top) */
+.m-headright{display:flex;flex-direction:column;align-items:flex-end;gap:10px;flex:none;min-width:0}
+.m-facts{display:flex;flex-wrap:wrap;gap:7px;justify-content:flex-end;max-width:430px}
+.mf{display:flex;flex-direction:column;align-items:flex-start;gap:1px;background:#F7F8FC;border:1px solid #EAEBF2;border-radius:9px;padding:5px 10px;cursor:pointer;text-align:left;min-width:72px;transition:.12s}
+.mf:hover{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 6%,#fff)}
+.mf i{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a6a2bc}
+.mf b{font-size:12.5px;font-weight:700;color:${INK};white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis}
+.mf.hot{border-color:#EFB98F;background:color-mix(in srgb,#E0662B 8%,#fff)}
+.mf.hot b{color:#C05A1E}
+/* jump bar — one tap to any section, no scrolling */
+.m-jump{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px 24px;background:#fff;border-bottom:1px solid #E8E9F2;flex:none}
+.mj-l{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#a6a2bc;margin-right:2px}
+.mj{display:inline-flex;align-items:center;gap:6px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:6px 13px;font-size:12.5px;font-weight:700;color:#56527a;cursor:pointer;transition:.12s}
+.mj:hover{border-color:${COBALT};color:${COBALT}}
+.mj.on{background:color-mix(in srgb,${COBALT} 8%,#fff);border-color:${COBALT};color:${COBALT}}
+.mj i{font-style:normal;font-size:10px;font-weight:800;background:#EEF0F7;color:#56527a;border-radius:20px;padding:1px 6px}
+.mj.on i{background:${COBALT};color:#fff}
+@media(max-width:820px){
+  .m-head{flex-wrap:wrap}
+  .m-headright{max-width:100%}
+  .m-facts{max-width:100%;gap:6px}
+  .mf{min-width:0;padding:4px 8px}
+  .mf b{font-size:12px;max-width:92px}
+  .mf:nth-child(n+5){display:none}
+  .m-jump{padding:9px 16px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+  .mj{flex:none}
+  .mj-l{display:none}
+}
 .mtg-form{margin-top:6px}
 .mtg-toggles{display:flex;gap:8px;flex-wrap:wrap}
 .mtg-chk{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #E1E2EC;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:600;color:#56527a;cursor:pointer}
@@ -2809,9 +2837,13 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const Sel=({label,k,opts})=>(<div className="field"><label>{label}</label><select value={draft[k]} onChange={e=>set({[k]:e.target.value})}>{opts.map(o=>typeof o==='string'?<option key={o} value={o}>{o||'—'}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}</select></div>);
   /* collapsible section. called as a function (not <Sec/>) so inputs inside
      never remount and lose focus while typing. */
+  /* one-tap access: open a section and bring it into view. Clicking a header
+     fact or a jump chip lands you on the right block with no scrolling. */
+  const jumpTo=k=>{ setOpenSec(o=>({...o,[k]:true}));
+    setTimeout(()=>{ const el=document.getElementById('msec-'+k); if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'start'}); },70); };
   const Sec=(k,icon,title,summary,body,defOpen)=>{
     const isOpen=openSec[k]??!!defOpen;
-    return (<div className={'msec'+(isOpen?' open':'')} key={k}>
+    return (<div className={'msec'+(isOpen?' open':'')} id={'msec-'+k} key={k}>
       <div className="msec-h" onClick={()=>setOpenSec(o=>({...o,[k]:!isOpen}))}>
         <span className="msec-t">{icon}{title}</span>
         {!isOpen&&summary?<span className="msec-s">{summary}</span>:null}
@@ -2844,15 +2876,42 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {draft.website&&<a className="qbtn" href={draft.website.startsWith('http')?draft.website:'https://'+draft.website} target="_blank" rel="noreferrer"><Globe size={12}/>Site</a>}
           </div>}
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:8,flex:'none'}}>
-          {!isNew&&_list.length>1&&<>
-            <button className="m-x" disabled={!prevId} onClick={()=>prevId&&onNav(prevId)} title="Previous lead"><ChevronLeft size={18}/></button>
-            <span style={{fontSize:12,fontWeight:600,color:'#928DAD',minWidth:46,textAlign:'center'}}>{_idx+1} / {_list.length}</span>
-            <button className="m-x" disabled={!nextId} onClick={()=>nextId&&onNav(nextId)} title="Next lead"><ChevronRight size={18}/></button>
-          </>}
-          <button className="m-x" onClick={onClose}><X size={18}/></button>
+        <div className="m-headright">
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            {!isNew&&_list.length>1&&<>
+              <button className="m-x" disabled={!prevId} onClick={()=>prevId&&onNav(prevId)} title="Previous lead"><ChevronLeft size={18}/></button>
+              <span style={{fontSize:12,fontWeight:600,color:'#928DAD',minWidth:46,textAlign:'center'}}>{_idx+1} / {_list.length}</span>
+              <button className="m-x" disabled={!nextId} onClick={()=>nextId&&onNav(nextId)} title="Next lead"><ChevronRight size={18}/></button>
+            </>}
+            <button className="m-x" onClick={onClose}><X size={18}/></button>
+          </div>
+          {!isNew&&(()=>{ const bc=bookedCount(draft);
+            const next=[...(draft.meetings||[])].filter(mt=>new Date(mt.end||mt.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0];
+            const facts=[
+              {k:'qual',  l:'Source',   v:draft.source||'—'},
+              {k:'qual',  l:'Owner',    v:draft.owner||'—'},
+              {k:'qual',  l:'Type',     v:draft.businessType&&draft.businessType!=='—'?draft.businessType:'—'},
+              {k:'qual',  l:'Close',    v:draft.expectedClose?fmtDate(draft.expectedClose):'—'},
+              {k:'deal',  l:'Deal',     v:num(draft.dealValue)>0?usd(draft.dealValue):'—'},
+              {k:'meetings',l:'Meetings',v:next?fmtDate(next.start):(bc?bc+' booked':'—'),hot:!!next},
+            ];
+            return (<div className="m-facts">{facts.map((f,i)=>(
+              <button key={i} className={'mf'+(f.hot?' hot':'')} onClick={()=>jumpTo(f.k)} title={`Open ${f.k==='qual'?'Qualifying':f.k==='deal'?'Deal':'Meetings'}`}>
+                <i>{f.l}</i><b>{f.v}</b>
+              </button>))}</div>);
+          })()}
         </div>
       </div>
+      {!isNew&&<div className="m-jump">
+        <span className="mj-l">Jump to</span>
+        {[['meetings','Meetings',CalendarCheck,bookedCount(draft)||''],
+          ['qual','Qualifying',SlidersHorizontal,''],
+          ['svc','Service',Target,(draft.serviceInterest||[]).length||''],
+          ['type','Intro',Users,''],
+          ['deal','Deal',DollarSign,'']].map(([k,label,Ic,badge])=>(
+          <button key={k} className={'mj'+(openSec[k]?' on':'')} onClick={()=>jumpTo(k)}><Ic size={13}/>{label}{badge!==''&&<i>{badge}</i>}</button>
+        ))}
+      </div>}
       <div className="m-grid">
         <div className="m-left">
           {/* ---------- 1. CONTACT — always first, always open ---------- */}
