@@ -724,6 +724,26 @@ const CSS=`
 .mtb-l{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a6a2bc}
 .mtb{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#56527a;font-weight:600;background:#F5F6FB;border-radius:20px;padding:3px 11px}
 .mtb b{font-size:14px;color:${INK};font-family:'Space Grotesk',sans-serif}
+.kpi.clickable{cursor:pointer;transition:.14s}
+.kpi.clickable:hover{transform:translateY(-1px);box-shadow:0 10px 24px -16px rgba(24,21,48,.45)}
+.kpi.active{outline:2px solid ${COBALT};outline-offset:-2px}
+.kpi-ch{margin-left:auto;opacity:.5;transition:transform .16s}
+.kpi-ch.on{transform:rotate(180deg);opacity:1}
+.drill{background:#fff;border:1px solid #EAEBF2;border-radius:14px;margin:-4px 0 18px;overflow:hidden;animation:pop .16s ease}
+.drill-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #F0F1F7;background:#FBFBFE}
+.drill-t{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:${INK}}
+.drill-s{font-size:12px;color:#8b88a0;font-weight:600}
+.drill-b{max-height:420px;overflow-y:auto;padding:8px 10px}
+.drow{display:flex;align-items:center;gap:12px;padding:9px 11px;border-radius:9px}
+.drow:hover{background:#FAFAFE}
+.drow+.drow{border-top:1px solid #F4F4FA}
+.drow.untyped{background:color-mix(in srgb,#E0662B 5%,#fff)}
+.drow-m{flex:1;min-width:0}
+.drow-t{font-size:13.5px;font-weight:700;color:${INK};cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.drow-t:hover{color:${COBALT};text-decoration:underline}
+.drow-v{font-size:13px;font-weight:700;color:${INK};white-space:nowrap;flex:none}
+.mtg-type{border:1px solid #E4E5EF;border-radius:20px;padding:4px 9px;font-size:11.5px;font-weight:700;color:#6A4CB8;background:color-mix(in srgb,#7A5CC8 8%,#fff);cursor:pointer;flex:none}
+.mtg-type.unset{color:#C05A1E;background:color-mix(in srgb,#E0662B 9%,#fff);border-color:#F0C09B}
 .web-fs{position:fixed;inset:0;z-index:80;background:#F4F6FB;display:flex;flex-direction:column;padding:16px 20px;animation:pop .16s ease}
 .web-fs .web-legend{flex:none;margin-bottom:8px}
 .web-fs .web-trace{flex:none}
@@ -1152,6 +1172,17 @@ export default function App(){
     if(patch.retainerActive&&!l.retainerActive&&!l.retainerStart) m.retainerStart=todayISO();
     updated=m; return m;
   })); if(updated) db.upsertLead(updated).catch(console.error); };
+  /* retro-tagging: set the meeting type on a logged 'Booked' activity, and on the
+     scheduled meeting it created (when there is one). */
+  const tagBooked=(leadId,actId,mtype)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+    const src=(l.activities||[]).find(a=>a.id===actId); if(!src)return l;
+    const acts=(l.activities||[]).map(a=>a.id===actId?{...a,mtype}:a);
+    const mts=(l.meetings||[]).map(m=>(src.meetingId&&m.id===src.meetingId)?{...m,mtype}:m);
+    updated={...l,activities:acts,meetings:mts}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+  const tagMeeting=(leadId,meetingId,mtype)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+    const mts=(l.meetings||[]).map(m=>m.id===meetingId?{...m,mtype}:m);
+    const acts=(l.activities||[]).map(a=>a.meetingId===meetingId?{...a,mtype}:a);
+    updated={...l,meetings:mts,activities:acts}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const addActivity=(id,type,text,who,mtype)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(mtype?{mtype}:{})},...l.activities]}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
@@ -1217,7 +1248,7 @@ export default function App(){
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
-          view==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead}/>:
+          view==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead} tagBooked={tagBooked}/>:
           view==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity}/>:
           view==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks} open={openLead}/>:
           view==='activity'?<Activity leads={leads} tasks={tasks} me={me} open={openLead}/>:
@@ -1231,7 +1262,7 @@ export default function App(){
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}/>}
       </div>
     </div>
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -1362,21 +1393,87 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity}){
   </>);
 }
 
-function Dashboard({leads,stages,open}){
+function Dashboard({leads,stages,open,tagBooked}){
   const m=useMetrics(leads,stages);
+  const [drill,setDrill]=useState(null);
+  const [scope,setScope]=useState('month');   // booked drill: this month vs all time
+  const tog=k=>{ setDrill(d=>d===k?null:k); };
+  const mKey=todayISO().slice(0,7);
+  const openLeads=leads.filter(l=>sOf(l.stage,stages).open).sort((a,b)=>num(b.dealValue)-num(a.dealValue));
+  const wonLeads=leads.filter(l=>sOf(l.stage,stages).won).sort((a,b)=>(b.closedAt||'').localeCompare(a.closedAt||''));
+  const retLeads=leads.filter(l=>l.retainerActive).sort((a,b)=>num(b.retainer)-num(a.retainer));
+  const onboardedLeads=leads.filter(l=>l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey);
+  const bookedRows=leads.flatMap(l=>(l.activities||[]).filter(a=>a.type==='Booked'&&a.ts)
+    .map(a=>({lead:l,act:a}))).filter(r=>scope==='all'||isoOf(new Date(r.act.ts)).slice(0,7)===mKey)
+    .sort((a,b)=>(b.act.ts||'').localeCompare(a.act.ts||''));
+  const untyped=bookedRows.filter(r=>!r.act.mtype).length;
+  const heldRows=leads.flatMap(l=>(l.meetings||[]).filter(mt=>mt.status&&mt.start&&isoOf(new Date(mt.start)).slice(0,7)===mKey).map(mt=>({lead:l,mt})))
+    .sort((a,b)=>(b.mt.start||'').localeCompare(a.mt.start||''));
+  const Name=({l})=><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>;
+  const Empty=({t})=><div className="empty" style={{padding:'18px 4px'}}>{t}</div>;
   const stageData=stages.filter(s=>s.open).map(s=>({name:s.label,Leads:m.byStage[s.key]?.count||0,color:s.color}));
   const revMix=[{name:'Closed Setup',value:m.wonValue},{name:'Annual MRR',value:m.mrr*12}].filter(d=>d.value>0);
   const followUps=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
   return (<>
     <div className="kgrid">
-      <Kpi variant="accent" label="Open Pipeline" value={usd(m.openValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} active leads`}/>
-      <Kpi label="Weighted Forecast" value={usd(m.weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
-      <Kpi variant="green" label="Deals Closed" value={m.wonCount} icon={<CheckCircle2 size={14}/>} d={`${usd(m.wonValue)} setup`}/>
-      <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`}/>
-      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming · ${m.bookedAll} all time`}/>
-      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldMonth+m.noShowMonth)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show`:'mark meetings held to track'}/>
-      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`}/>
+      <Kpi variant="accent" label="Open Pipeline" value={usd(m.openValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} active leads`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
+      <Kpi label="Weighted Forecast" value={usd(m.weighted)} icon={<Target size={14}/>} d="probability-adjusted" onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
+      <Kpi variant="green" label="Deals Closed" value={m.wonCount} icon={<CheckCircle2 size={14}/>} d={`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'}/>
+      <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'}/>
+      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'}/>
+      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldMonth+m.noShowMonth)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
+      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'}/>
     </div>
+
+    {drill==='pipeline'&&<Drill title="Open pipeline" sub={`${openLeads.length} active`} onClose={()=>setDrill(null)}>
+      {openLeads.length?openLeads.map(l=>(<div className="drow" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">{sOf(l.stage,stages).label}{l.followUp?` · follow-up ${fmtDate(l.followUp)}`:''}</div></div>
+        <span className="drow-v">{num(l.dealValue)>0?usd(l.dealValue):'—'}</span>
+      </div>)):<Empty t="No open leads."/>}
+    </Drill>}
+
+    {drill==='won'&&<Drill title="Deals closed" sub={usd(m.wonValue)+' total'} onClose={()=>setDrill(null)}>
+      {wonLeads.length?wonLeads.map(l=>(<div className="drow" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">{l.closedAt?`closed ${fmtDate(l.closedAt)}`:'—'}{l.owner?` · ${l.owner}`:''}</div></div>
+        <span className="drow-v">{usd(l.dealValue)}</span>
+      </div>)):<Empty t="No closed deals yet."/>}
+    </Drill>}
+
+    {drill==='mrr'&&<Drill title="Retainer clients" sub={usd(m.mrr)+'/mo'} onClose={()=>setDrill(null)}>
+      {retLeads.length?retLeads.map(l=>(<div className="drow" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">{l.retainerStart?`since ${fmtDate(l.retainerStart)}`:'active'}</div></div>
+        <span className="drow-v">{usd(l.retainer)}/mo</span>
+      </div>)):<Empty t="No active retainers."/>}
+    </Drill>}
+
+    {drill==='booked'&&<Drill title="Meetings booked" sub={untyped>0?`${untyped} still need a type`:'all tagged'} onClose={()=>setDrill(null)}>
+      <div className="seg" style={{marginBottom:12}}>
+        <button className={scope==='month'?'on':''} onClick={()=>setScope('month')}>This month</button>
+        <button className={scope==='all'?'on':''} onClick={()=>setScope('all')}>All time</button>
+      </div>
+      {bookedRows.length?bookedRows.map(({lead,act})=>(<div className={'drow'+(act.mtype?'':' untyped')} key={act.id}>
+        <div className="drow-m"><Name l={lead}/><div className="subcell">{fmtStamp(act.ts)}{act.who?` · ${act.who}`:''}</div></div>
+        <select className={'mtg-type'+(act.mtype?'':' unset')} value={act.mtype||''} onChange={e=>tagBooked&&tagBooked(lead.id,act.id,e.target.value)}>
+          <option value="">+ set type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>)):<Empty t="No meetings booked in this window."/>}
+    </Drill>}
+
+    {drill==='held'&&<Drill title="Meetings this month" sub={`${m.heldMonth} held · ${m.noShowMonth} no-show`} onClose={()=>setDrill(null)}>
+      {heldRows.length?heldRows.map(({lead,mt})=>(<div className="drow" key={mt.id}>
+        <div className="drow-m"><Name l={lead}/><div className="subcell">{mt.title} · {fmtDate(mt.start)}{mt.mtype?` · ${mt.mtype}`:''}</div></div>
+        <span className={'badge '+(mt.status==='held'?'done':'over')}>{mt.status==='held'?'Held':'No-show'}</span>
+      </div>)):<Empty t="Nothing marked held or no-show yet this month."/>}
+    </Drill>}
+
+    {drill==='onboarded'&&<Drill title="Clients onboarded this month" sub={`${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClose={()=>setDrill(null)}>
+      {onboardedLeads.length?onboardedLeads.map(l=>{ const st=onboardingStat(l); const dep=normEntry((l.onboarding||{}).deposit_paid).done;
+        return (<div className="drow" key={l.id}>
+          <div className="drow-m"><Name l={l}/><div className="subcell">since {fmtDate(l.convertedAt)} · {st.done}/{st.total} onboarding{dep?` · deposit ${fmtDate(dep)}`:' · no deposit yet'}</div></div>
+          <span className="drow-v">{l.retainerActive?usd(l.retainer)+'/mo':'—'}</span>
+        </div>); }):<Empty t="No clients onboarded this month."/>}
+    </Drill>}
+
     {Object.keys(m.bookedByType||{}).length>0&&<div className="mt-break">
       <span className="mtb-l">Booked this month</span>
       {Object.entries(m.bookedByType).sort((a,b)=>b[1]-a[1]).map(([t,c])=><span key={t} className="mtb"><b>{c}</b>{t}</span>)}
@@ -2855,7 +2952,7 @@ function MeetingScheduler({lead,gcalConnected,onSchedule}){
     <button className="btn btn-p" disabled={busy||!gcalConnected} onClick={go}>{busy?<Loader2 size={15} className="spin"/>:<CalendarClock size={15}/>}{busy?'Scheduling…':'Schedule + add to Calendar'}</button>
   </div>);
 }
-function MeetingList({meetings,onRemove,onStatus}){
+function MeetingList({meetings,onRemove,onStatus,onType}){
   const now=Date.now();
   const sorted=[...(meetings||[])].sort((a,b)=>(a.start||'').localeCompare(b.start||''));
   const upcoming=sorted.filter(m=>new Date(m.end||m.start).getTime()>=now);
@@ -2864,7 +2961,9 @@ function MeetingList({meetings,onRemove,onStatus}){
   const Row=m=>(<div className={'mtg-row'+(m.status==='held'?' held':'')+(m.status==='noshow'?' noshow':'')} key={m.id}>
     <div className="mtg-when"><CalendarClock size={13}/>{fmtMeetingTime(m.start)}</div>
     <div className="mtg-mid"><div className="mtg-title">{m.title}</div><div className="mtg-badges">
-      {m.mtype&&<span className="mtg-b type">{m.mtype}</span>}
+      <select className={'mtg-type'+(m.mtype?'':' unset')} value={m.mtype||''} onClick={e=>e.stopPropagation()} onChange={e=>onType&&onType(m,e.target.value)}>
+        <option value="">+ type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+      </select>
       {m.invited&&<span className="mtg-b"><UserPlus size={10}/>invited</span>}
       {m.meet&&(m.meetLink?<a className="mtg-b link" href={m.meetLink} target="_blank" rel="noreferrer"><Video size={10}/>Join</a>:<span className="mtg-b"><Video size={10}/>Meet</span>)}
       {m.htmlLink&&<a className="mtg-b link" href={m.htmlLink} target="_blank" rel="noreferrer"><Expand size={10}/>Calendar</a>}
@@ -2880,7 +2979,7 @@ function MeetingList({meetings,onRemove,onStatus}){
     {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
   </div>);
 }
-function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,createCalendarEvent,deleteCalendarEvent}){
+function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,createCalendarEvent,deleteCalendarEvent,tagMeeting}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -2895,7 +2994,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
   const set=patch=>{if(isNew)setDraft({...draft,...patch});else{setDraft({...draft,...patch});updateLead(draft.id,patch);}};
   const doSchedule=async(m)=>{ const ev=await createCalendarEvent(m); const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',createdAt:new Date().toISOString()};
-    const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',mtype:m.mtype||'Other',text:`${m.mtype||'Meeting'} booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
+    const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',mtype:m.mtype||'Other',meetingId:meeting.id,text:`${m.mtype||'Meeting'} booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
     set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])]}); return meeting; };
   const doRemove=async(mt)=>{ await deleteCalendarEvent(mt.eventId); set({meetings:(draft.meetings||[]).filter(x=>x.id!==mt.id)}); };
   /* did it actually happen? booked is a promise, held is the result. */
@@ -3070,7 +3169,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {Sec('meetings',<CalendarClock size={13}/>,'Meetings',
               (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
               <>
-                <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus}/>
+                <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus} onType={(mt,v)=>{tagMeeting&&tagMeeting(draft.id,mt.id,v);setDraft(d=>({...d,meetings:(d.meetings||[]).map(x=>x.id===mt.id?{...x,mtype:v}:x)}));}}/>
                 <MeetingScheduler lead={draft} gcalConnected={gcalConnected} onSchedule={doSchedule}/>
               </>, (draft.meetings||[]).some(m=>new Date(m.end||m.start).getTime()>=Date.now()))}
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
@@ -3208,5 +3307,17 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
 }
 
 /* ===================== shared ===================== */
-function Kpi({label,value,d,variant,icon}){return (<div className={'kpi '+(variant||'')}><div className="kl">{icon}{label}</div><div className="kv">{value}</div>{d&&<div className="kd">{d}</div>}</div>);}
+function Kpi({label,value,d,variant,icon,onClick,active}){
+  return (<div className={'kpi '+(variant||'')+(onClick?' clickable':'')+(active?' active':'')} onClick={onClick} role={onClick?'button':undefined}>
+    <div className="kl">{icon}{label}{onClick&&<ChevronDown size={13} className={'kpi-ch'+(active?' on':'')}/>}</div>
+    <div className="kv">{value}</div>{d&&<div className="kd">{d}</div>}
+  </div>);
+}
+/* the panel that opens under the tiles when you tap one */
+function Drill({title,sub,onClose,children}){
+  return (<div className="drill">
+    <div className="drill-h"><span className="drill-t">{title}</span>{sub&&<span className="drill-s">{sub}</span>}<button className="m-x" style={{width:28,height:28,marginLeft:'auto'}} onClick={onClose}><X size={15}/></button></div>
+    <div className="drill-b">{children}</div>
+  </div>);
+}
 function ChartCard({title,sub,children,empty}){return (<div className="card"><h3>{title}</h3>{sub&&<div className="ch-sub">{sub}</div>}{empty?<div className="empty">{empty}</div>:children}</div>);}
