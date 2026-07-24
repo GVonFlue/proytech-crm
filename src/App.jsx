@@ -1801,7 +1801,19 @@ export default function App(){
   const inMyWorld=l=>!rep||l.owner_id===myUid||l.owner===me||(l.pool&&myPools.includes(l.pool));
   const scoped=leads.filter(inMyWorld);
   const scopedBiz=bizLeads.filter(inMyWorld);
-  const myTasks=rep?tasks.filter(t=>!t.owner||t.owner===me||t.owner==='Both'):tasks;
+  /* A rep sees only tasks addressed to them by name. "Both" is the owners'
+     shared list and is none of their business. (UI filter over a shared blob —
+     see BUILD-NOTES; the blob itself is not splittable by RLS.) */
+  const myTasks=rep?tasks.filter(t=>t.owner===me):tasks;
+  /* The Tasks page is handed a FILTERED list for a rep, but "AI rank" and
+     "Clear ranking" re-save the whole list they were given. Saving that
+     straight to the shared blob would wipe every task belonging to anyone
+     else. Merge the rep's slice back over the untouched remainder instead. */
+  const saveScopedTasks=next=>{
+    if(!rep) return saveTasks(next);
+    const others=tasks.filter(t=>t.owner!==me);
+    saveTasks([...(next||[]).filter(t=>t.owner===me),...others]);
+  };
   const titles={dash:['Dashboard','The whole board at a glance'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Morning Huddle','Last week, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
   if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; }
   /* the leaderboard the DB gave us; pre-migration an owner can still see one
@@ -1834,8 +1846,8 @@ export default function App(){
           view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
-          view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks} open={openLead}/>:
-          view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead}/>:
+          view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
+          view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
           view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
           view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
@@ -2995,11 +3007,15 @@ const meOwner=me=>BRAND.team.includes(me)?me:(BRAND.team[0]||'');
 const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:todayISO(),revenue:3,urgency:3,effort:3,done:false,doneAt:'',doneBy:'',aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
 const taskScore=t=>num(t.revenue)*num(t.urgency);
 
-function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
+function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
   const [who,setWho]=useState('all');
   const [show,setShow]=useState('open');
   const [title,setTitle]=useState('');
-  const [addOwner,setAddOwner]=useState(meOwner(me));
+  /* meOwner() falls back to the first name in VITE_TEAM for anyone who isn't
+     in it — which for a rep means "Mine" would mean an owner's tasks and new
+     tasks would be filed under an owner. A rep is always simply themselves. */
+  const mineName=rep?me:meOwner(me);
+  const [addOwner,setAddOwner]=useState(mineName);
   const [addDue,setAddDue]=useState(todayISO());
   const [edit,setEdit]=useState(null);
   const [busy,setBusy]=useState(false);
@@ -3008,7 +3024,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
   const add=()=>{ const t=title.trim(); if(!t)return; upsertTask({...newTask(addOwner),title:t,due:addDue||todayISO()}); setTitle(''); };
 
   const filtered=tasks.filter(t=>{
-    const mine=meOwner(me);
+    const mine=mineName;
     const w=who==='all'||(who==='mine'&&t.owner===mine)||(who==='both'&&t.owner==='Both')||(who!=='all'&&who!=='mine'&&who!=='both'&&t.owner===who);
     const s=show==='all'||(show==='open'&&!t.done)||(show==='done'&&t.done);
     return w&&s;
@@ -3048,18 +3064,18 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
           <button type="button" className={'day-chip'+(addDue===addDays(todayISO(),1)?' on':'')} onClick={()=>setAddDue(addDays(todayISO(),1))}>Tomorrow</button>
           <label className="day-date"><CalendarClock size={14}/><input type="date" value={addDue} onChange={e=>setAddDue(e.target.value||todayISO())}/></label>
         </div>
-        <div className="seg">{TASK_OWNERS.map(o=><button key={o} className={'seg-b '+(addOwner===o?'on':'')} onClick={()=>setAddOwner(o)}>{o}</button>)}</div>
+        {!rep&&<div className="seg">{TASK_OWNERS.map(o=><button key={o} className={'seg-b '+(addOwner===o?'on':'')} onClick={()=>setAddOwner(o)}>{o}</button>)}</div>}
         <button className="btn btn-p" onClick={add}><Plus size={16}/>Add</button>
       </div>
     </div>
 
     <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
-      <div className="seg">
+      {!rep&&<div className="seg">
         <button className={'seg-b '+(who==='all'?'on':'')} onClick={()=>setWho('all')}>All</button>
         <button className={'seg-b '+(who==='mine'?'on':'')} onClick={()=>setWho('mine')}>Mine</button>
         {BRAND.team.filter(o=>o!==meOwner(me)).map(o=><button key={o} className={'seg-b '+(who===o?'on':'')} onClick={()=>setWho(o)}>{o}</button>)}
         <button className={'seg-b '+(who==='both'?'on':'')} onClick={()=>setWho('both')}>Shared</button>
-      </div>
+      </div>}
       <div className="seg">
         <button className={'seg-b '+(show==='open'?'on':'')} onClick={()=>setShow('open')}>Open</button>
         <button className={'seg-b '+(show==='done'?'on':'')} onClick={()=>setShow('done')}>Done</button>
@@ -3102,11 +3118,11 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open}){
     </div>
     : <div className="empty">{show==='done'?'Nothing checked off yet.':'No tasks yet. Add your first one above \u2014 dump everything in your head here.'}</div>}
 
-    {edit&&<TaskModal task={edit} leads={leads} onSave={t=>{upsertTask(t);setEdit(null);}} onDelete={id=>{deleteTask(id);setEdit(null);}} onClose={()=>setEdit(null)}/>}
+    {edit&&<TaskModal task={edit} leads={leads} rep={rep} me={me} onSave={t=>{upsertTask(t);setEdit(null);}} onDelete={id=>{deleteTask(id);setEdit(null);}} onClose={()=>setEdit(null)}/>}
   </>);
 }
 
-function TaskModal({task,leads,onSave,onDelete,onClose}){
+function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
   const [d,setD]=useState({...task});
   const set=p=>setD(x=>({...x,...p}));
   const Knob=({label,field,hint})=>(<div className="field"><label>{label} \u2014 {d[field]} <span style={{color:'#a6a2bc',fontWeight:400}}>{hint}</span></label><input type="range" min="1" max="5" value={d[field]} onChange={e=>set({[field]:Number(e.target.value)})}/></div>);
@@ -3116,7 +3132,9 @@ function TaskModal({task,leads,onSave,onDelete,onClose}){
       <div style={{padding:'4px 22px 22px'}}>
         <div className="field"><label>Task</label><input value={d.title||''} onChange={e=>set({title:e.target.value})} placeholder="What needs doing?"/></div>
         <div className="fgrid">
-          <div className="field"><label>Owner</label><select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+          <div className="field"><label>Owner</label>{rep
+            ? <input value={me||d.owner||''} disabled/>
+            : <select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o}</option>)}</select>}</div>
           <div className="field"><label>Due date</label><input type="date" value={d.due||''} onChange={e=>set({due:e.target.value})}/></div>
           <div className="field full"><label>Link to a client or lead</label>
             <select value={d.leadId||''} onChange={e=>set({leadId:e.target.value})}>
@@ -3281,7 +3299,7 @@ function TxnModal({txn,file,onSave,onDelete,onClose}){
 const ACT_COLORS={Booked:'#E0662B',Call:'#2B4DE0',Text:'#1F9D55',Meeting:'#7A5CC8',Note:'#C8A24A',Email:'#D14343',Task:'#0E9AA7'};
 const ACT_ORDER=['Booked','Call','Text','Meeting','Note','Email','Task'];
 const ACT_ICON={Booked:CalendarCheck,Note:StickyNote,Call:PhoneCall,Text:MessageSquare,Meeting:CalendarClock,Email:Mailbox,Task:ListTodo};
-function Activity({leads,tasks,me,open}){
+function Activity({leads,tasks,me,open,rep}){
   const [mode,setMode]=useState('day');
   const [anchor,setAnchor]=useState(todayISO());
   const [who,setWho]=useState('All');
@@ -3310,7 +3328,11 @@ function Activity({leads,tasks,me,open}){
     return [...acts,...done];
   },[leads,tasks]);
   const inRange=useMemo(()=>all.filter(a=>{const t=new Date(a.ts);return t>=range.start&&t<=range.end;}),[all,range]);
-  const people=useMemo(()=>{const s=new Set(inRange.map(a=>a.who||'—'));BRAND.team.forEach(p=>s.add(p));return [...s].filter(Boolean).sort();},[inRange]);
+  /* owners get the whole team in the picker; a rep gets only the names that
+     actually appear in their own feed — never the owners'. */
+  const people=useMemo(()=>{const s=new Set(inRange.map(a=>a.who||'—'));
+    if(!rep) BRAND.team.forEach(p=>s.add(p));
+    return [...s].filter(Boolean).sort();},[inRange,rep]);
   /* the person filter drives the WHOLE tab — KPIs, chart, matrix and log */
   const scope=useMemo(()=>inRange.filter(a=>who==='All'||a.who===who),[inRange,who]);
   const shown=scope.filter(a=>typeF==='All'||a.type===typeF).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
@@ -4000,7 +4022,8 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {showMore&&<div className="fgrid" style={{marginTop:12}}>
               {Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
               {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
-              {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}{Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
+              {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}
+              {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
               {F({label:'Follow-up Date',k:'followUp',type:'date'})}{F({label:'Expected Close',k:'expectedClose',type:'date'})}
               {F({label:'Notes for the follow-up',k:'nextSteps',full:true})}
             </div>}
@@ -4173,7 +4196,9 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {atype==='Booked'&&<div className="mtype-row sm">{MEETING_TYPES.map(t=><button key={t} type="button" className={'mtype'+(logMtype===t?' on':'')} onClick={()=>setLogMtype(t)}>{t}</button>)}</div>}
             <textarea className="act-input" placeholder={atype==='Booked'?"Who with / when? Optional — just hit Log Meeting Booked":`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
-              <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>
+              {rep
+                ? <span className="subcell" style={{fontWeight:600}}>logging as {me}</span>
+                : <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>}
               <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>
             </div>
             <div className="afilter" style={{marginTop:16}}>
