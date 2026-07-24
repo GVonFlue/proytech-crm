@@ -11,7 +11,8 @@ import {
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
   BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
-  Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard
+  Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
+  Trophy, Crown, Ban, BadgeCheck, KeyRound
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -143,9 +144,12 @@ const OWNERS=[...BRAND.team,BRAND.pool];
 const POOL_OWNER=BRAND.pool;
 const DEFAULT_TEAM=BRAND.team.map(name=>({name,access:'all'}));
 const teamAccess=(settings,name)=>{ const t=(settings?.team||[]).find(x=>x.name===name); return t?t.access:'all'; };
-const scopeLeads=(list,view,me)=>{
+/* "the pool" = anything nobody has claimed: the legacy company-owned leads,
+   plus any lead sitting in a named pool with no owner_id on it. */
+const isPoolLead=(l,myPools)=>l.owner===POOL_OWNER||(!l.owner_id&&!!l.pool&&(!myPools||myPools.includes(l.pool)));
+const scopeLeads=(list,view,me,myPools)=>{
   if(view==='mine') return list.filter(l=>l.owner===me);
-  if(view==='pool') return list.filter(l=>l.owner===POOL_OWNER);
+  if(view==='pool') return list.filter(l=>isPoolLead(l,myPools));
   return list;
 };
 function ScopeSeg({view,setView,counts,canAll}){
@@ -159,11 +163,89 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['invoices','Invoices'],['books','The Books'],['money','Money']];
+const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['invoices','Invoices'],['books','The Books'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
 const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
+
+/* ============================================================================
+   ROLES
+   ----------------------------------------------------------------------------
+   owner — everything, including money, users, pools, commission approvals.
+   rep   — their own leads + the pools they're assigned, a personal dashboard,
+           the leaderboard, and their own commission. No company money.
+   An install with an EMPTY crm_users table behaves exactly as it did before:
+   whoever is signed in is treated as an owner and nothing is scoped.
+   ========================================================================== */
+const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','pipeline'];
+/* a rep can never be given these by accident — they expose company money.
+   An owner CAN still switch them on deliberately (see Team settings). */
+const MONEY_TABS=['invoices','books','money','huddle'];
+/* modules a rep may be granted at all. 'settings' and 'clients' stay with owners:
+   Settings configures the whole install, Clients is the money-side client book. */
+const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients').concat(['dash']);
+const tabsOf=u=>{ if(!u) return REP_DEFAULT_TABS; const t=Array.isArray(u.tabs)?u.tabs:[]; return t.length?t:REP_DEFAULT_TABS; };
+/* named buckets of unclaimed leads. A rep sees the pools they're given. */
+const DEFAULT_POOLS=['General'];
+const poolList=settings=>{ const p=(settings&&settings.pools)||[]; return p.length?p:DEFAULT_POOLS; };
+const isRep=u=>!!u&&u.role==='rep';
+/* what THIS person can open: the install's global modules, narrowed by their
+   own tab list. A rep can never see a tab the install has globally turned off. */
+const canOpen=(settings,user,k)=>{
+  if(!modOn(settings,k)) return false;
+  if(!isRep(user)) return true;
+  if(k==='dash') return true;
+  if(k==='settings'||k==='clients') return false;
+  return tabsOf(user).includes(k);
+};
+
+/* ---- commissions ----------------------------------------------------------
+   A commission is a flat % of the deal, SNAPSHOT onto the lead at conversion:
+   { repId, repName, pct, base, amount, status, convertedAt, approvedAt,
+     approvedBy, voidedAt }. Snapshotting is the point — editing a rep's % or
+   the deal value later must never silently rewrite history.
+   pending = counted in the rep's running total, not money yet.
+   earned  = an owner approved it. void = cancelled, out of every count.       */
+const cmsnAmount=(base,pct)=>Math.round(num(base)*num(pct))/100;
+const cmsnOf=l=>(l&&l.commission&&typeof l.commission==='object')?l.commission:null;
+const mkCommission=(lead,user)=>({repId:user.id,repName:user.name,pct:num(user.commission_pct),
+  base:num(lead.dealValue),amount:cmsnAmount(lead.dealValue,user.commission_pct),
+  status:'pending',convertedAt:new Date().toISOString()});
+/* one rep's own numbers, computed from the leads they can already read */
+const myCommissions=(leads,uid)=>{
+  const rows=(leads||[]).map(l=>({l,c:cmsnOf(l)})).filter(r=>r.c&&r.c.repId===uid&&r.c.status!=='void');
+  const pending=rows.filter(r=>r.c.status==='pending').reduce((a,r)=>a+num(r.c.amount),0);
+  const earned=rows.filter(r=>r.c.status==='earned').reduce((a,r)=>a+num(r.c.amount),0);
+  return {pending,earned,total:pending+earned,rows:rows.sort((a,b)=>(b.c.convertedAt||'').localeCompare(a.c.convertedAt||''))};
+};
+const CMSN_STATE={pending:{label:'Pending',color:'#C8A24A'},earned:{label:'Earned',color:GREEN},void:{label:'Voided',color:'#8E89A8'}};
+
+/* ---- motion: honour the OS setting, everywhere -------------------------- */
+const prefersReduced=()=>{ try{ return !!(typeof window!=='undefined'&&window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches); }catch{ return false; } };
+function useReducedMotion(){
+  const [r,setR]=useState(prefersReduced);
+  useEffect(()=>{ if(typeof window==='undefined'||!window.matchMedia) return; const mq=window.matchMedia('(prefers-reduced-motion: reduce)');
+    const on=()=>setR(!!mq.matches); on();
+    if(mq.addEventListener){ mq.addEventListener('change',on); return ()=>mq.removeEventListener('change',on); }
+    if(mq.addListener){ mq.addListener(on); return ()=>mq.removeListener(on); } },[]);
+  return r;
+}
+/* a number that ticks up to its value on load. Reduced motion → final value,
+   immediately. Never blocks: the DOM is correct on the very first paint. */
+function CountUp({value,format,ms}){
+  const reduced=useReducedMotion();
+  const [v,setV]=useState(value);
+  const from=React.useRef(value);
+  useEffect(()=>{ const target=num(value); const start=num(from.current); from.current=target;
+    if(reduced||start===target||typeof window==='undefined'||!window.requestAnimationFrame){ setV(target); return; }
+    const dur=ms||800; const t0=Date.now(); let raf=0;
+    const tick=()=>{ const p=Math.min(1,(Date.now()-t0)/dur); const e=1-Math.pow(1-p,3);
+      setV(start+(target-start)*e); if(p<1) raf=window.requestAnimationFrame(tick); else setV(target); };
+    raf=window.requestAnimationFrame(tick);
+    return ()=>{ if(raf) window.cancelAnimationFrame(raf); }; },[value,reduced,ms]);
+  return <>{format?format(v):Math.round(num(v)).toLocaleString()}</>;
+}
 /* meeting types — coffee and discovery are different motions, track them apart */
 const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboarding','Check-in','Other'];
 /* ---- Monday Morning Huddle -------------------------------------------------
@@ -1245,6 +1327,85 @@ const CSS=`
 /* never auto-resize text, and kill the double-tap-to-zoom gesture */
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
 button,a,label,select,input,textarea,.kcard,.fu-card,.cli-card,.rt-person,.msec-h,.rel-tier,.web-node{touch-action:manipulation}
+
+/* ============================================================
+   ROLES · COMMISSION · LEADERBOARD · the premium bits
+   ============================================================ */
+/* the rep's hero: two numbers, calm, gold for pending, green for earned */
+.cmsn-hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:22px}
+.cmsn-main{background:linear-gradient(135deg,${INK},#241f47);border-radius:18px;padding:22px 24px;color:#fff;position:relative;overflow:hidden;box-shadow:0 22px 50px -34px rgba(24,21,48,.9)}
+.cmsn-main.earned{background:linear-gradient(135deg,${GREEN},#12613a)}
+.cmsn-main:after{content:'';position:absolute;inset:0;background:radial-gradient(120% 90% at 100% 0%,rgba(255,255,255,.16),transparent 60%);pointer-events:none}
+.cmsn-l{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.66)}
+.cmsn-v{font-family:'Space Grotesk';font-size:40px;font-weight:600;line-height:1.05;margin:10px 0 6px;font-variant-numeric:tabular-nums}
+.cmsn-d{font-size:12.5px;font-weight:600;color:rgba(255,255,255,.72)}
+.cmsn-box{background:#F7F8FC;border:1px solid #E8E9F2;border-radius:12px;padding:14px}
+.cmsn-row{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:#56527a;padding:5px 0}
+.cmsn-row b{font-weight:700;color:${INK}}
+.cmsn-row.big{border-top:1px solid #E8E9F2;margin-top:8px;padding-top:10px;font-size:14px}
+.cmsn-row.big b{font-family:'Space Grotesk';font-size:20px}
+.rank-big{font-family:'Space Grotesk';font-size:38px;font-weight:600;color:${INK};line-height:1}
+.rank-big span{font-size:15px;color:#8E89A8;margin-left:6px}
+/* owner queue: newly converted clients waiting to be onboarded */
+.onb-q{background:#fff;border:1px solid #D9DCF2;border-left:3px solid ${COBALT};border-radius:14px;padding:14px 16px;margin-bottom:20px}
+.onb-h{display:flex;align-items:center;gap:8px;color:${INK};font-size:14px}
+.onb-h b{font-family:'Space Grotesk';font-weight:600}
+.onb-h span{font-size:12px;color:#8E89A8;margin-left:auto}
+.onb-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid #F0F0F6}
+.onb-m{min-width:0;flex:1}
+/* leaderboard */
+.lb-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.lb{background:#fff;border:1px solid #E8E9F2;border-radius:16px;overflow:hidden;box-shadow:0 12px 30px -28px rgba(24,21,48,.5)}
+.lb-row{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid #F2F3F8}
+.lb-row:last-child{border-bottom:none}
+.lb-row.me{background:linear-gradient(90deg,rgba(43,77,224,.07),rgba(43,77,224,0))}
+.lb-rank{width:30px;height:30px;border-radius:50%;background:#F0F1F7;color:#56527a;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex:none}
+.lb-row:first-child .lb-rank{background:rgba(200,162,74,.16);color:${GOLD}}
+.lb-mid{flex:1;min-width:0}
+.lb-name{font-weight:600;color:${INK};font-size:14px;display:flex;align-items:center;gap:7px}
+.lb-name i{font-style:normal;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:${COBALT};background:rgba(43,77,224,.1);padding:2px 6px;border-radius:20px}
+.lb-bar{height:6px;border-radius:20px;background:#F0F1F7;overflow:hidden;margin-top:7px}
+.lb-bar div{height:100%;border-radius:20px;background:linear-gradient(90deg,${COBALT},#5C76EE);transition:width .5s cubic-bezier(.22,1,.36,1)}
+.lb-n{text-align:right;flex:none;font-size:11px;color:#8E89A8;font-weight:600;display:flex;flex-direction:column;line-height:1.2}
+.lb-n b{font-family:'Space Grotesk';font-size:19px;color:${INK};font-weight:600;font-variant-numeric:tabular-nums}
+/* team card */
+.tm-list{display:flex;flex-direction:column;gap:10px}
+.tm-row{border:1px solid #E8E9F2;border-radius:12px;overflow:hidden}
+.tm-row.off{opacity:.62}
+.tm-head{display:flex;align-items:center;gap:10px;padding:11px 13px;cursor:pointer;background:#FAFBFE}
+.tm-name{display:flex;flex-direction:column;min-width:0;flex:1;font-weight:600;color:${INK};font-size:14px}
+.tm-name i{font-style:normal;font-size:10px;font-weight:800;color:${COBALT};margin-left:6px}
+.tm-role{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#F0F1F7;color:#56527a}
+.tm-role.owner{background:rgba(43,77,224,.12);color:${COBALT}}
+.tm-pct{font-size:12px;font-weight:700;color:${GOLD}}
+.tm-off{font-size:10.5px;font-weight:800;text-transform:uppercase;color:#B0606A}
+.tm-body{padding:14px 13px;border-top:1px solid #EFF0F6}
+.tm-sub{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a6a2bc;margin:14px 0 8px}
+.tm-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.tm-add{border:1px dashed #D9DCF2;border-radius:12px;padding:14px;margin-top:12px;background:#FAFBFE}
+.chip.warn{border-color:#E8C9A0}
+.note.bad{border-color:#EBC3C3;background:#FDF6F6;color:#8a3b3b}
+/* the one celebration — under a second of motion, never blocks a click */
+.cel{position:fixed;right:22px;bottom:22px;z-index:90;display:flex;align-items:center;gap:12px;padding:14px 18px;border-radius:14px;background:linear-gradient(135deg,${INK},#241f47);color:#fff;box-shadow:0 26px 60px -28px rgba(24,21,48,.85);cursor:pointer;max-width:min(92vw,340px);animation:celIn .42s cubic-bezier(.22,1,.36,1)}
+.cel:after{content:'';position:absolute;inset:0;border-radius:14px;background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.22) 50%,transparent 70%);transform:translateX(-120%);animation:celSweep .9s .16s ease-out;pointer-events:none}
+.cel.still{animation:none}.cel.still:after{display:none}
+.cel-ic{width:34px;height:34px;border-radius:50%;background:rgba(200,162,74,.22);color:${GOLD};display:flex;align-items:center;justify-content:center;flex:none}
+.cel b{display:block;font-family:'Space Grotesk';font-size:16px;font-weight:600}
+.cel span{display:block;font-size:12.5px;color:rgba(255,255,255,.72);margin-top:2px}
+@keyframes celIn{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes celSweep{to{transform:translateX(120%)}}
+/* gentle lift — only where a card is genuinely a target, never on forms */
+@media (hover:hover){
+  .lift{transition:transform .16s cubic-bezier(.22,1,.36,1),box-shadow .16s}
+  .lift:hover{transform:translateY(-3px);box-shadow:0 18px 34px -24px rgba(24,21,48,.55)}
+  .lb-row.lift:hover{background:#FBFBFE}
+}
+/* the OS setting wins. No motion, final values, nothing delayed. */
+@media (prefers-reduced-motion:reduce){
+  *,*:before,*:after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
+  .lift:hover{transform:none}
+}
+@media (max-width:640px){ .cmsn-v{font-size:32px} .cel{left:14px;right:14px;bottom:14px;max-width:none} }
 `;
 
 /* ===================== small UI ===================== */
@@ -1294,8 +1455,15 @@ export default function App(){
     return {eventId:j.eventId,htmlLink:j.htmlLink||'',meetLink:j.meetLink||''};
   };
   const deleteCalendarEvent=async(eventId)=>{ if(!eventId)return; try{ await fetch('/api/calendar-event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'delete',eventId})}); }catch{} };
+  /* ---- people & roles. Declared with every other hook, ABOVE the auth gates:
+     a hook added below an early return blanks the app the moment someone
+     signs in ("Rendered more hooks than during the previous render"). ---- */
+  const [users,setUsers]=useState([]);
+  const [who,setWho]=useState(null);           // {role,active,setup,…} straight from the DB
+  const [board,setBoard]=useState(null);       // leaderboard rows from the DB function
+  const [celebrate,setCelebrate]=useState(null); // {amount,name} — the one restrained moment
   const [invId,setInvId]=useState(null);
-  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES});
+  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES,pools:[],modulesV:0});
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
@@ -1308,29 +1476,81 @@ export default function App(){
     const wd=setTimeout(()=>{ if(!sessionResolved.current) setBootErr(true); },8000);
     return ()=>{clearTimeout(wd);sub?.subscription?.unsubscribe?.();}; },[]);
 
-  useEffect(()=>{ if(!session){setLoaded(false);return;} (async()=>{
+  useEffect(()=>{ if(!session){setLoaded(false);setUsers([]);setWho(null);setBoard(null);return;} (async()=>{
     try{
+      /* who am I, before anything else — a rep must never trigger a demo seed */
+      let me1=null; try{ me1=await db.whoami(); }catch(err){ console.error('whoami failed',err); }
+      let people=[]; try{ people=await db.getUsers(); }catch(err){ console.error('users load failed',err); }
+      setUsers(people); setWho(me1);
+      const myRow=people.find(u=>u.id===auth.uid(session))||null;
+      /* whoami is the truth when the migration has been run. Before it has,
+         fall back to what we can see: an install with no crm_users at all
+         behaves exactly as it always did. */
+      const amOwner=me1?(me1.role==='owner'||!me1.setup):(!people.length||(!!myRow&&myRow.role==='owner'));
       let s=await db.getLeads(); let st=await db.getSettings();
       let iv=[]; try{ if(typeof db.getInvoices==='function') iv=await db.getInvoices(); }catch(err){ console.error('invoices load failed',err); }
       let tx=[]; try{ if(typeof db.getTxns==='function') tx=await db.getTxns(); }catch(err){ console.error('txns load failed',err); }
       let tk=[]; try{ if(typeof db.getTasks==='function') tk=await db.getTasks(); }catch(err){ console.error('tasks load failed',err); }
-      if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
-      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES}; await db.saveSettings(st); }
+      /* Seeding and migrating are OWNER jobs. A rep legitimately sees zero
+         leads on day one — that must never be mistaken for an empty install
+         and refilled with demo data. */
+      if(amOwner&&(!s||!s.length)){ s=seed(); await db.upsertMany(s); }
+      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES}; if(amOwner) await db.saveSettings(st); }
+      /* the Leaderboard is new: an install that already saved a module list
+         has never seen it, so switch it on once (and remember we did). */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<2){
+        st={...st,modules:st.modules.includes('board')?st.modules:[...st.modules,'board'],modulesV:2};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
-      if(mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
-      if(mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
+      if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
+      if(amOwner&&mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,modules:Array.isArray(st.modules)?st.modules:undefined,leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
 
   const stages=settings.stages?.length?settings.stages:DEFAULT_STAGES;
-  const me=cap(auth.username(session))||BRAND.team[0]||'';
+  /* ---- who is signed in (plain values — deliberately NOT hooks) ---- */
+  const myUid=auth.uid(session);
+  /* my own crm_users row — from the table when I can read it, otherwise
+     rebuilt from whoami (a rep can always read their own row, so this is
+     belt and braces for the moment right after a role change). */
+  const myUser=users.find(u=>u.id===myUid)||((who&&who.role==='rep')?{id:myUid,name:who.name,role:'rep',pools:who.pools,commission_pct:who.commission_pct,tabs:who.tabs,goal_conversions:who.goal_conversions,active:who.active}:null);
+  /* "nobody has been set up yet" is a DB fact, not a guess from what I can see */
+  const noUsers=who?!who.setup:users.length===0;
+  const isOwner=who?(who.role==='owner'||!who.setup):(users.length===0||(!!myUser&&myUser.role==='owner'));
+  const rep=!isOwner;
+  const blocked=(who&&who.active===false)||(!!myUser&&myUser.active===false);
+  /* display name: their crm_users name when they have one, else the legacy
+     username-derived name so single-tenant installs read exactly as before. */
+  const me=(myUser&&myUser.name)||cap(auth.username(session))||BRAND.team[0]||'';
+  const reps=users.filter(u=>u.role==='rep');
   /* relationships are people, not deals — keep them out of the sales views */
   const bizLeads=useMemo(()=>leads.filter(l=>!l.isRelationship),[leads]);
-  const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await db.upsertMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
+  /* leaderboard: a rep cannot read other reps' leads, so the ranking comes
+     from a security-definer DB function (names + counts, never dollars). */
+  useEffect(()=>{ let dead=false;
+    if(!session||!loaded){ return; }
+    (async()=>{ try{ const rows=await db.leaderboard(); if(!dead) setBoard(rows); }
+      catch(err){ console.error('leaderboard failed',err); if(!dead) setBoard(null); } })();
+    return ()=>{dead=true;}; },[session,loaded,users.length,leads.filter(l=>l.isClient).length]);
+  /* Every write mirrors the owner name into the real owner_id column (and
+     carries the pool) so Row Level Security has something it can actually
+     enforce. The name string stays the display truth; owner_id is the law. */
+  const stampOwner=l=>{
+    if(!l) return l;
+    let oid=l.owner_id||null;
+    if(!l.owner||l.owner===POOL_OWNER) oid=null;                       // unclaimed → pool
+    else if(l.owner===me) oid=myUid||oid;                              // me, whoever I am
+    else { const u=users.find(x=>x.name===l.owner); oid=u?u.id:null; } // someone else
+    return {...l,owner_id:oid,pool:l.pool||null};
+  };
+  const putLead=l=>db.upsertLead(stampOwner(l)).catch(console.error);
+  const putMany=arr=>db.upsertMany((arr||[]).map(stampOwner));
+  const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await putMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
   const settingsTimer=React.useRef(null);
   const saveSettings=n=>{ setSettings(n); if(settingsTimer.current)clearTimeout(settingsTimer.current); settingsTimer.current=setTimeout(()=>{ db.saveSettings(n).catch(console.error); },700); };
   const saveInvoices=n=>{ setInvoices(n); if(typeof db.saveInvoices==='function') db.saveInvoices(n).catch(console.error); };
@@ -1345,6 +1565,26 @@ export default function App(){
   const newInvoice=(lead)=>{ const ivset=settings.invoicing||DEFAULT_INVOICING; const number=(ivset.prefix||'INV-')+String(ivset.seq||1).padStart(4,'0'); saveSettings({...settings,invoicing:{...ivset,seq:(ivset.seq||1)+1}}); const issue=todayISO(); const inv={ id:uid(), number, clientId:lead?lead.id:'', billTo:lead?{name:lead.name||'',company:lead.company||'',email:lead.email||'',address:''}:{name:'',company:'',email:'',address:''}, issueDate:issue, dueDate:addDays(issue,ivset.terms||14), items:lead?itemsFromLead(lead):[{id:uid(),label:'',qty:1,amount:0}], taxRate:num(ivset.taxRate), notes:ivset.notes||'', paymentLink:ivset.paymentLink||'', status:'draft', paidDate:'', createdAt:new Date().toISOString() }; upsertInvoice(inv); setInvId(inv.id); };
   const addOption=(listKey,val)=>{const v=(val||'').trim();if(!v)return;const cur=settings.options[listKey]||[];if(cur.includes(v))return;saveSettings({...settings,options:{...settings.options,[listKey]:[...cur,v]}});};
 
+  /* ---- conversion side-effects: commission snapshot + owner alert --------
+     Credit goes to the lead's OWNER when that owner is a rep (an owner
+     closing a rep's deal doesn't steal it), otherwise to whoever is doing
+     the converting if they're a rep. Owners earn no commission. */
+  const repForLead=l=>{
+    const oid=stampOwner(l).owner_id;
+    const byOwner=oid?users.find(u=>u.id===oid):null;
+    if(byOwner&&byOwner.role==='rep'&&byOwner.active!==false) return byOwner;
+    if(myUser&&myUser.role==='rep') return myUser;
+    return null;
+  };
+  /* returns the patch to merge onto a lead the moment it becomes a client */
+  const conversionPatch=l=>{
+    const r=repForLead(l); if(!r) return {};
+    const patch={};
+    if(!cmsnOf(l)&&num(r.commission_pct)>0) patch.commission=mkCommission(l,r);
+    patch.onboardingAlert={at:new Date().toISOString(),repId:r.id,repName:r.name,ack:false};
+    if(patch.commission&&r.id===myUid) setTimeout(()=>setCelebrate({amount:patch.commission.amount,name:l.company||l.name||'that client'}),0);
+    return patch;
+  };
   const updateLead=(id,patch)=>{ let updated=null; setLeads(leads.map(l=>{
     if(l.id!==id) return l; const ts=new Date().toISOString(); const m={...l,...patch};
     if(patch.stage&&patch.stage!==l.stage){
@@ -1356,28 +1596,29 @@ export default function App(){
           m.isClient=true; m.clientPhase=m.clientPhase||'intake'; m.convertedAt=m.convertedAt||todayISO();
           m.onboarding=(l.onboarding&&Object.keys(l.onboarding).length)?l.onboarding:seedOnboarding();
           m.activities=[{id:uid(),ts,type:'Note',text:'Signed — onboarding started.',who:me},...m.activities];
+          Object.assign(m,conversionPatch(l));
         }
       }
     }
     if(patch.retainerActive&&!l.retainerActive&&!l.retainerStart) m.retainerStart=todayISO();
     updated=m; return m;
-  })); if(updated) db.upsertLead(updated).catch(console.error); };
+  })); if(updated) putLead(updated); };
   /* retro-tagging: set the meeting type on a logged 'Booked' activity, and on the
      scheduled meeting it created (when there is one). */
   const tagBooked=(leadId,actId,mtype)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
     const src=(l.activities||[]).find(a=>a.id===actId); if(!src)return l;
     const acts=(l.activities||[]).map(a=>a.id===actId?{...a,mtype}:a);
     const mts=(l.meetings||[]).map(m=>(src.meetingId&&m.id===src.meetingId)?{...m,mtype}:m);
-    updated={...l,activities:acts,meetings:mts}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+    updated={...l,activities:acts,meetings:mts}; return updated; })); if(updated) putLead(updated); };
   const tagMeeting=(leadId,meetingId,mtype)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
     const mts=(l.meetings||[]).map(m=>m.id===meetingId?{...m,mtype}:m);
     const acts=(l.activities||[]).map(a=>a.meetingId===meetingId?{...a,mtype}:a);
-    updated={...l,meetings:mts,activities:acts}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
-  const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
-  const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+    updated={...l,meetings:mts,activities:acts}; return updated; })); if(updated) putLead(updated); };
+  const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) putLead(updated); };
+  const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) putLead(updated); };
   const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
-  const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
-  const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await db.upsertMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
+  const createNew=lead=>{ setLeads([lead,...leads]); putLead(lead); setActiveId(lead.id); };
+  const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await putMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
   /* Converting to a client IS closing the deal. Stamp the close date and move the
      lead onto the won stage so the pipeline, the money numbers and the client board
      all agree — a client should never still be sitting in "Proposal Sent". */
@@ -1391,17 +1632,42 @@ export default function App(){
     const updated={...l,isClient:true,clientPhase:l.clientPhase||'intake',convertedAt:l.convertedAt||todayISO(),
       stage:wonStage?wonStage.key:l.stage,
       closedAt:l.closedAt||todayISO(),
-      delivery:l.delivery||{},onboarding:ob,activities:[...acts,...l.activities]};
-    setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
-  const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
+      delivery:l.delivery||{},onboarding:ob,activities:[...acts,...l.activities],
+      ...conversionPatch(l)};
+    setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
+  /* ---- owner-only commission controls (live on the client record) ---- */
+  const setCommission=(id,patch)=>{ if(!isOwner) return; let updated=null;
+    setLeads(leads.map(l=>{ if(l.id!==id) return l; const c=cmsnOf(l); if(!c) return l;
+      const next={...c,...patch}; next.amount=cmsnAmount(next.base,next.pct);
+      const ts=new Date().toISOString();
+      let act=null;
+      if(patch.status==='earned'&&c.status!=='earned'){ next.approvedAt=ts; next.approvedBy=me; next.voidedAt=null;
+        act={id:uid(),ts,type:'Note',text:`Commission approved — ${usd(next.amount)} to ${next.repName||'rep'}.`,who:me}; }
+      if(patch.status==='void'&&c.status!=='void'){ next.voidedAt=ts;
+        act={id:uid(),ts,type:'Note',text:`Commission voided${next.repName?' — '+next.repName:''}.`,who:me}; }
+      updated={...l,commission:next,activities:act?[act,...(l.activities||[])]:l.activities};
+      return updated; })); if(updated) putLead(updated); };
+  /* ---- team management (owner-only; the DB enforces it too) ---- */
+  const saveUser=async u=>{ if(!isOwner) return; const next=users.some(x=>x.id===u.id)?users.map(x=>x.id===u.id?{...x,...u}:x):[...users,u];
+    setUsers(next); try{ await db.upsertUser(next.find(x=>x.id===u.id)); }catch(e){ console.error(e); window.alert('Could not save that person: '+(e.message||e)); setUsers(users); } };
+  const removeUser=async id=>{ if(!isOwner) return; const prev=users; setUsers(users.filter(u=>u.id!==id));
+    try{ await db.deleteUser(id); }catch(e){ console.error(e); window.alert('Could not remove that person: '+(e.message||e)); setUsers(prev); } };
+  /* first-run bootstrap: the person standing here becomes the owner */
+  const claimOwner=async()=>{ if(!myUid) return;
+    await saveUser({id:myUid,name:me,email:auth.email(session),role:'owner',pools:[],commission_pct:0,active:true,tabs:[],goal_conversions:0}); };
+  /* owner acknowledges a newly converted client in the onboarding queue */
+  const ackOnboarding=id=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id) return l;
+    updated={...l,onboardingAlert:{...(l.onboardingAlert||{}),ack:true,ackAt:new Date().toISOString(),ackBy:me}}; return updated; }));
+    if(updated) putLead(updated); };
+  const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
   /* toggle one onboarding item + log it — single atomic write */
   const toggleOnboarding=(id,itemKey)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l;
     const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); const doneNow=!cur.done;
     ob[itemKey]={done:doneNow?todayISO():null,due:cur.due||null};
     const item=ONB_ITEMS.find(i=>i.key===itemKey); const label=item?item.label:itemKey;
     updated={...l,onboarding:ob,activities:[{id:uid(),ts:new Date().toISOString(),type:'Task',text:(doneNow?'✓ ':'unchecked: ')+label,who:me},...l.activities]};
-    return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
-  const setOnboardingDue=(id,itemKey,date)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); ob[itemKey]={done:cur.done||null,due:date||null}; updated={...l,onboarding:ob}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+    return updated; })); if(updated) putLead(updated); };
+  const setOnboardingDue=(id,itemKey,date)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); ob[itemKey]={done:cur.done||null,due:date||null}; updated={...l,onboarding:ob}; return updated; })); if(updated) putLead(updated); };
   /* Phase 5: when a client enters Active, drop two recurring-cadence tasks onto them.
      (No recurring engine — these are one-time tasks the owner recreates on completion.) */
   const seedActiveTasks=(id,ownerHint)=>{ if(tasks.some(t=>t.leadId===id&&t.seededActive)) return;
@@ -1411,9 +1677,9 @@ export default function App(){
   /* set/advance a client's phase + log it; entering Active seeds handoff tasks */
   const setClientPhase=(id,phase)=>{ const l=leads.find(x=>x.id===id); if(!l)return; let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x;
     updated={...x,isClient:true,clientPhase:phase,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Phase → '+phaseInfo(phase,settings,l).label,who:me},...x.activities]}; return updated; }));
-    if(updated){ db.upsertLead(updated).catch(console.error); if(phase==='active') seedActiveTasks(id,l.owner); } };
-  const addCustomPhase=(id,info)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cp={key:'cp_'+uid(),label:(info.label||'Custom').trim(),color:info.color||'#7A5CC8',after:info.after||'build'}; updated={...l,customPhases:[...(l.customPhases||[]),cp]}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
-  const removeCustomPhase=(id,key)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cps=(l.customPhases||[]).filter(c=>c.key!==key); updated={...l,customPhases:cps,clientPhase:l.clientPhase===key?'build':l.clientPhase}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+    if(updated){ putLead(updated); if(phase==='active') seedActiveTasks(id,l.owner); } };
+  const addCustomPhase=(id,info)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cp={key:'cp_'+uid(),label:(info.label||'Custom').trim(),color:info.color||'#7A5CC8',after:info.after||'build'}; updated={...l,customPhases:[...(l.customPhases||[]),cp]}; return updated; })); if(updated) putLead(updated); };
+  const removeCustomPhase=(id,key)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cps=(l.customPhases||[]).filter(c=>c.key!==key); updated={...l,customPhases:cps,clientPhase:l.clientPhase===key?'build':l.clientPhase}; return updated; })); if(updated) putLead(updated); };
   const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done?null:todayISO(),due:cur.due||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; const patch={delivery:d}; const o=clientOverall({...l,delivery:d},settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const won=(stages||[]).find(s=>s.won); if(o.delivered&&won&&l.stage!==won.key) patch.stage=won.key; updateLead(id,patch); };
   const setMilestoneDue=(id,trackKey,milestone,date)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done||null,due:date||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; updateLead(id,{delivery:d}); };
   const active=activeId&&activeId!=='new'?leads.find(l=>l.id===activeId):null;
@@ -1425,19 +1691,43 @@ export default function App(){
   </div></div></>);
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>{BRAND.title}</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
+  /* deactivated by an owner — their data stays, their access doesn't */
+  if(blocked) return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
+    <span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/>
+    <h2>{BRAND.title}</h2>
+    <p style={{lineHeight:1.5}}>Your access has been switched off. Ask an owner to turn it back on.</p>
+    <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
+  </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
-  /* if a section is switched off while you're standing on it, fall back to the
-     dashboard. Computed during render — deliberately NOT a hook, because this
-     sits after the auth early-returns above. */
-  const view=modOn(settings,page)?page:'dash';
-  const titles={dash:['Dashboard','The whole board at a glance'],huddle:['Monday Morning Huddle','Last week, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  /* if a section is switched off while you're standing on it — or a rep lands
+     on something only owners get — fall back to the dashboard. Computed during
+     render — deliberately NOT a hook, because this sits after the auth
+     early-returns above. */
+  /* a rep with no readable row (signed in, never added) is still a rep —
+     never fall back to "not a rep", which would hand them every tab. */
+  const repUser=rep?(myUser||{id:myUid,name:me,role:'rep',pools:[],tabs:[],commission_pct:0,active:true}):null;
+  const canSee=k=>canOpen(settings,repUser,k);
+  const view=canSee(page)?page:'dash';
+  /* a rep's world: their own leads, and the pools they've been given */
+  const myPools=(repUser&&repUser.pools)||(myUser&&myUser.pools)||[];
+  const inMyWorld=l=>!rep||l.owner_id===myUid||l.owner===me||(l.pool&&myPools.includes(l.pool));
+  const scoped=leads.filter(inMyWorld);
+  const scopedBiz=bizLeads.filter(inMyWorld);
+  const myTasks=rep?tasks.filter(t=>!t.owner||t.owner===me||t.owner==='Both'):tasks;
+  const titles={dash:['Dashboard','The whole board at a glance'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Morning Huddle','Last week, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; }
+  /* the leaderboard the DB gave us; pre-migration an owner can still see one
+     computed locally (an owner can read every lead, a rep never could). */
+  const localBoard=()=>reps.filter(u=>u.active!==false).map(u=>{ const mine=leads.filter(l=>l.isClient&&l.convertedAt&&l.owner_id===u.id);
+    return {id:u.id,name:u.name,month:mine.filter(l=>String(l.convertedAt).slice(0,7)===todayISO().slice(0,7)).length,all:mine.length}; });
+  const boardRows=board||(isOwner?localBoard():null);
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
-      <Brand logo={settings.logo} size={settings.logoSize||34} sub="Client CRM"/>
-      {NAV.filter(([k])=>modOn(settings,k)).map(([k,l,ic])=><button key={k} className={'nav-i '+(view===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>)}
+      <Brand logo={settings.logo} size={settings.logoSize||34} sub={rep?'Sales':'Client CRM'}/>
+      {NAV.filter(([k])=>canSee(k)).map(([k,l,ic])=><button key={k} className={'nav-i '+(view===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>)}
       <button className="nav-i" style={{marginTop:8,background:'rgba(43,77,224,.16)',color:'#fff'}} onClick={()=>setActiveId('new')}><Plus size={18}/>New Lead</button>
       <button className="nav-i" onClick={()=>auth.logout()}><LogOut size={18}/>Sign out ({me})</button>
       <div className="sb-foot"><b>{BRAND.tagline}</b><br/>{BRAND.taglineSub}</div>
@@ -1452,22 +1742,25 @@ export default function App(){
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
-          view==='huddle'?<Huddle leads={bizLeads} tasks={tasks} settings={settings} stages={stages} rels={leads.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
-          view==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead} tagBooked={tagBooked} rels={leads.filter(l=>l.isRelationship)} settings={settings}/>:
-          view==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity}/>:
-          view==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks} open={openLead}/>:
-          view==='activity'?<Activity leads={leads} tasks={tasks} me={me} open={openLead}/>:
-          view==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={bizLeads.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase}/>:
-          view==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead}/>:
-          view==='rels'?<Relationships leads={leads} open={openLead} updateLead={updateLead}/>:
+          view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
+          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')}/>:
+          view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
+          view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
+          view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks} open={openLead}/>:
+          view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead}/>:
+          view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
+          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools}/>:
+          view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
           view==='money'?<Money leads={bizLeads} stages={stages}/>:
-          <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}/>}
+          <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
+            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} noUsers={noUsers}/>}
       </div>
     </div>
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
+    {celebrate&&<Celebration data={celebrate} onDone={()=>setCelebrate(null)}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -1524,16 +1817,16 @@ function useMetrics(leads,stages){
 
 /* ===================== DASHBOARD ===================== */
 /* ===================== FOLLOW-UP ===================== */
-function FollowUp({leads,stages,open,updateLead,me,settings,addActivity}){
+function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPools}){
   const [leaving,setLeaving]=useState({});
   const [cleared,setCleared]=useState(0);
   const t=todayISO();
-  const canAll=teamAccess(settings,me)==='all';
+  const canAll=!rep&&teamAccess(settings,me)==='all';
   const [view,setView]=useState('mine');
   useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
   const isDue=l=>l.followUp&&daysUntil(l.followUp)<=0;
-  const counts={mine:leads.filter(l=>isDue(l)&&l.owner===me).length,pool:leads.filter(l=>isDue(l)&&l.owner===POOL_OWNER).length,all:leads.filter(isDue).length};
-  const due=scopeLeads(leads,view,me).filter(isDue).sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
+  const counts={mine:leads.filter(l=>isDue(l)&&l.owner===me).length,pool:leads.filter(l=>isDue(l)&&isPoolLead(l,rep?myPools:null)).length,all:leads.filter(isDue).length};
+  const due=scopeLeads(leads,view,me,rep?myPools:null).filter(isDue).sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
   const ids=due.map(l=>l.id);
   const overdue=due.filter(l=>daysUntil(l.followUp)<0);
   const today=due.filter(l=>daysUntil(l.followUp)===0);
@@ -1562,7 +1855,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity}){
         <div style={{minWidth:0}}><div className="fu-name">{l.name||'(no name)'}</div><div className="subcell">{l.company||l.businessType||'—'}</div></div>
         <span className={'badge '+(od?'inv-overdue':'inv-sent')}>{od?Math.abs(d)+'d overdue':'Due today'}</span>
       </div>
-      {view!=='mine'&&<div className="fu-owner">{l.owner===POOL_OWNER?<button className="claim-btn" onClick={e=>{e.stopPropagation();updateLead(l.id,{owner:me});}}><UserCheck size={13}/>Claim</button>:<span className="own-badge">{l.owner||'—'}</span>}</div>}
+      {view!=='mine'&&<div className="fu-owner">{isPoolLead(l,rep?myPools:null)?<button className="claim-btn" onClick={e=>{e.stopPropagation();updateLead(l.id,{owner:me});}}><UserCheck size={13}/>Claim</button>:<span className="own-badge">{l.owner||'—'}</span>}</div>}
       {l.nextSteps?<div className="fu-plan"><StickyNote size={13}/><span>{l.nextSteps}</span></div>:null}
       <div className="fu-meta">{l.nextAction||'Follow up'}{lastTouch?' · last touch '+fmtDate(lastTouch.ts):''}</div>
       <div className="fu-act" onClick={e=>e.stopPropagation()}>
@@ -1611,13 +1904,76 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity}){
   </>);
 }
 
-function Dashboard({leads,stages,open,tagBooked,rels,settings}){
+/* One Dashboard, two audiences. Owners get everything they had before; a rep
+   gets their own world — no company pipeline, no MRR, no owner numbers. Every
+   hook is declared before the role branch so the hook order never changes. */
+function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUid,board,ack,goBoard}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages);
   const [drill,setDrill]=useState(null);
   const [scope,setScope]=useState('month');   // booked drill: this month vs all time
   const tog=k=>{ setDrill(d=>d===k?null:k); };
   const mKey=todayISO().slice(0,7);
+
+  if(rep){
+    const mine=myCommissions(leads,myUid);
+    const conv=leads.filter(l=>l.isClient&&l.convertedAt);
+    const convMonth=conv.filter(l=>String(l.convertedAt).slice(0,7)===mKey);
+    const worked=leads.filter(l=>(l.activities||[]).some(a=>REAL_TOUCH(a)&&isoOf(new Date(a.ts)).slice(0,7)===mKey)).length;
+    const goal=num(myUser&&myUser.goal_conversions);
+    const ranked=[...(board||[])].sort((a,b)=>(b.month-a.month)||String(a.name||'').localeCompare(String(b.name||'')));
+    const myRank=ranked.findIndex(r=>r.id===myUid)+1;
+    const ahead=myRank>1?ranked[myRank-2]:null;
+    const openMine=leads.filter(l=>sOf(l.stage,stages).open);
+    const fu=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
+    return (<>
+      <div className="kgroup">Your commission</div>
+      <div className="cmsn-hero">
+        <div className="cmsn-main">
+          <div className="cmsn-l">Pending</div>
+          <div className="cmsn-v"><CountUp value={mine.pending} format={v=>usd(v)}/></div>
+          <div className="cmsn-d">{mine.rows.filter(r=>r.c.status==='pending').length} client{mine.rows.filter(r=>r.c.status==='pending').length===1?'':'s'} awaiting owner approval</div>
+        </div>
+        <div className="cmsn-main earned">
+          <div className="cmsn-l">Earned</div>
+          <div className="cmsn-v"><CountUp value={mine.earned} format={v=>usd(v)}/></div>
+          <div className="cmsn-d">approved — this is real money</div>
+        </div>
+      </div>
+      <div className="kgroup">This month at a glance</div>
+      <div className="kgrid">
+        <Kpi variant="green" label="Clients Converted" value={<CountUp value={convMonth.length}/>} icon={<UserCheck size={14}/>} d={`${conv.length} all time`} goal={goal} current={convMonth.length}/>
+        <Kpi label="Meetings Booked" value={<CountUp value={m.bookedMonth}/>} icon={<CalendarCheck size={14}/>} d={`${m.mtgUpcoming} upcoming`}/>
+        <Kpi label="Leads Worked" value={<CountUp value={worked}/>} icon={<Zap size={14}/>} d={`${openMine.length} open right now`}/>
+        <Kpi label="Follow-Ups Due" value={m.overdue.length+m.dueWeek.length} icon={<Bell size={14}/>} d={m.overdue.length?`${m.overdue.length} overdue`:'nothing overdue'} onClick={()=>tog('fu')} active={drill==='fu'}/>
+      </div>
+      {drill==='fu'&&<Drill title="Follow-ups due" sub={`${m.overdue.length} overdue`} onClose={()=>setDrill(null)}>
+        {fu.length?fu.map(l=>(<div className="drow" key={l.id}>
+          <div className="drow-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span><div className="subcell">{l.nextSteps||l.nextAction||'follow up'}</div></div>
+          <Due iso={l.followUp}/>
+        </div>)):<div className="empty" style={{padding:'18px 4px'}}>Nothing due — you're clear.</div>}
+      </Drill>}
+      <div className="row r2">
+        <div className="card lift">
+          <div className="sec-title" style={{margin:'0 0 4px'}}><Trophy size={15}/>Your rank</div>
+          {myRank>0?(<>
+            <div className="rank-big">#{myRank}<span> of {ranked.length}</span></div>
+            <div className="ch-sub" style={{marginBottom:12}}>{myRank===1?'Top of the board this month. Hold it.':ahead?`${Math.max(1,ahead.month-(ranked[myRank-1]?.month||0))} more client${Math.max(1,ahead.month-(ranked[myRank-1]?.month||0))===1?'':'s'} to pass ${ahead.name}.`:'Convert a client to get on the board.'}</div>
+            <button className="btn btn-g btn-sm" onClick={goBoard}><Trophy size={14}/>See the leaderboard</button>
+          </>):<div className="empty" style={{padding:'14px 0'}}>The leaderboard turns on once you're set up as a rep.</div>}
+        </div>
+        <div className="card">
+          <div className="sec-title" style={{margin:'0 0 12px'}}><DollarSign size={15}/>Your clients</div>
+          {mine.rows.length?mine.rows.slice(0,8).map(({l,c})=>(<div className="drow" key={l.id}>
+            <div className="drow-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span><div className="subcell">{fmtDate(String(c.convertedAt).slice(0,10))} · {(CMSN_STATE[c.status]||CMSN_STATE.pending).label}</div></div>
+            <span className="drow-v" style={{color:(CMSN_STATE[c.status]||CMSN_STATE.pending).color}}>{usd(c.amount)}</span>
+          </div>)):<div className="empty" style={{padding:'14px 0'}}>Convert your first client and your commission shows up here.</div>}
+        </div>
+      </div>
+    </>);
+  }
+  /* ---- owners from here down: the full board, unchanged ---- */
+  const awaiting=leads.filter(l=>l.onboardingAlert&&!l.onboardingAlert.ack).sort((a,b)=>String(b.onboardingAlert.at||'').localeCompare(String(a.onboardingAlert.at||'')));
   const openLeads=leads.filter(l=>sOf(l.stage,stages).open).sort((a,b)=>num(b.dealValue)-num(a.dealValue));
   const wonLeads=leads.filter(l=>sOf(l.stage,stages).won).sort((a,b)=>(b.closedAt||'').localeCompare(a.closedAt||''));
   const retLeads=leads.filter(l=>l.retainerActive).sort((a,b)=>num(b.retainer)-num(a.retainer));
@@ -1635,6 +1991,14 @@ function Dashboard({leads,stages,open,tagBooked,rels,settings}){
   const revMix=[{name:'Closed Setup',value:m.wonValue},{name:'Annual MRR',value:m.mrr*12}].filter(d=>d.value>0);
   const followUps=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
   return (<>
+    {awaiting.length>0&&<div className="onb-q">
+      <div className="onb-h"><Rocket size={15}/><b>Awaiting onboarding</b><span>{awaiting.length} newly converted client{awaiting.length===1?'':'s'}</span></div>
+      {awaiting.map(l=>(<div className="onb-row" key={l.id}>
+        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
+          <div className="subcell">{l.onboardingAlert.repName||'A rep'} converted {fmtDate(String(l.onboardingAlert.at||'').slice(0,10))} — start onboarding.</div></div>
+        <button className="btn btn-g btn-sm" onClick={()=>ack&&ack(l.id)}><CheckCircle2 size={14}/>Got it</button>
+      </div>))}
+    </div>}
     <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Open Pipeline" value={usd(m.openValue)} icon={<KanbanSquare size={14}/>} d={G.revenue>0?`${m.openCount} leads · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:`${m.openCount} active leads`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
@@ -1765,7 +2129,7 @@ function Dashboard({leads,stages,open,tagBooked,rels,settings}){
 }
 
 /* ===================== PIPELINE (cleaner kanban) ===================== */
-function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase}){
+function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,rep}){
   const [board,setBoard]=useState('leads');
   const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);const [expanded,setExpanded]=useState({});
   const drop=stage=>{if(dragId)updateLead(dragId,{stage});setDragId(null);setOver(null);};
@@ -1785,7 +2149,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase}
       <div className="kco">{l.company||l.businessType}</div>
       {(l.serviceInterest||[]).length>0&&<div className="ktags">{(l.serviceInterest||[]).slice(0,2).map(s2=><span key={s2} className="tag">{s2}</span>)}</div>}
       <div className="kmeta">
-        <span className="kvals">{l.dealValue>0&&<span className="kdv">{usd(l.dealValue)}</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>
+        <span className="kvals">{!rep&&l.dealValue>0&&<span className="kdv">{usd(l.dealValue)}</span>}{!rep&&l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}{rep&&cmsnOf(l)&&<span className="kdv" style={{color:(CMSN_STATE[cmsnOf(l).status]||CMSN_STATE.pending).color}}>{usd(cmsnOf(l).amount)}</span>}</span>
         {l.followUp&&<Due iso={l.followUp}/>}
       </div>
       {stale&&<div className="kstale"><AlertTriangle size={11}/>{daysSince(lastContact(l))}d no contact</div>}
@@ -1805,9 +2169,14 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase}
      ? ((clients||[]).length?<ClientBoard clients={clients} settings={settings} setClientPhase={setClientPhase} onCard={id=>open(id)}/>:<div className="empty">No clients yet. Move a lead to <b>Signed</b> to start onboarding.</div>)
      : <>
     <div className="kgrid" style={{marginBottom:18}}>
-      <Kpi variant="accent" label="Open Pipeline" value={usd(totalOpen)} icon={<KanbanSquare size={14}/>} d={`${openLeads.length} open deal${openLeads.length===1?'':'s'}`}/>
-      <Kpi variant="green" label="Weighted Forecast" value={usd(weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
-      <Kpi label="Win Rate" value={winRate+'%'} icon={<Award size={14}/>} d={`${wonC} won · ${lostC} lost`}/>
+      {rep?<>
+        <Kpi variant="accent" label="Open Leads" value={<CountUp value={openLeads.length}/>} icon={<KanbanSquare size={14}/>} d="yours right now"/>
+        <Kpi variant="green" label="Clients Closed" value={<CountUp value={wonC}/>} icon={<Award size={14}/>} d={`${winRate}% win rate`}/>
+      </>:<>
+        <Kpi variant="accent" label="Open Pipeline" value={usd(totalOpen)} icon={<KanbanSquare size={14}/>} d={`${openLeads.length} open deal${openLeads.length===1?'':'s'}`}/>
+        <Kpi variant="green" label="Weighted Forecast" value={usd(weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
+        <Kpi label="Win Rate" value={winRate+'%'} icon={<Award size={14}/>} d={`${wonC} won · ${lostC} lost`}/>
+      </>}
     </div>
     <div className="kanban">{stages.map(s=>{const items=leads.filter(l=>l.stage===s.key).sort((a,b)=>num(b.dealValue)-num(a.dealValue)||(a.followUp||'9999').localeCompare(b.followUp||'9999'));const val=items.reduce((a,l)=>a+num(l.dealValue),0);const wtd=val*(s.prob||0);const isClosed=!s.open;const collapsed=isClosed&&!expanded[s.key];
       if(collapsed){ return (<div key={s.key} className="kcol kcollapsed" title={`${s.label} — tap to expand`} onClick={()=>setExpanded(e=>({...e,[s.key]:true}))} onDragOver={e=>{e.preventDefault();setOver(s.key);}} onDragLeave={()=>setOver(c=>c===s.key?null:c)} onDrop={()=>drop(s.key)}>
@@ -1817,7 +2186,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase}
       return (<div key={s.key} className={'kcol '+(over===s.key?'drag':'')} onDragOver={e=>{e.preventDefault();setOver(s.key);}} onDragLeave={()=>setOver(c=>c===s.key?null:c)} onDrop={()=>drop(s.key)}>
         <div className="kbar" style={{background:s.color}}/>
         <div className="kcol-h"><span className="kt">{s.label}</span><span style={{display:'flex',alignItems:'center',gap:6}}><span className="kc">{items.length}</span>{isClosed&&<button className="kcoll-x" title="Collapse" onClick={e=>{e.stopPropagation();setExpanded(e2=>({...e2,[s.key]:false}));}}><ChevronLeft size={13}/></button>}</span></div>
-        <div className="kcol-v">{val>0?usd(val):'—'}{s.open&&val>0&&<span className="kwtd"> · {usd(wtd)} weighted</span>}</div>
+        <div className="kcol-v">{rep?`${items.length} lead${items.length===1?'':'s'}`:(<>{val>0?usd(val):'—'}{s.open&&val>0&&<span className="kwtd"> · {usd(wtd)} weighted</span>}</>)}</div>
         <div className="kcol-body">
           {items.map(l=><Card key={l.id} l={l}/>)}
           {dragId&&over===s.key&&<div className="kdrop">Release to move here</div>}
@@ -1829,17 +2198,21 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase}
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools}){
   const [importOpen,setImportOpen]=useState(false);
-  const canAll=teamAccess(settings,me)==='all';
+  /* a rep always has the whole-company view switched off — the database
+     wouldn't return anyone else's leads anyway. */
+  const canAll=!rep&&teamAccess(settings,me)==='all';
   const [view,setView]=useState('mine');
   useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
-  const counts={mine:leads.filter(l=>l.owner===me).length,pool:leads.filter(l=>l.owner===POOL_OWNER).length,all:leads.length};
+  const counts={mine:leads.filter(l=>l.owner===me).length,pool:leads.filter(l=>isPoolLead(l,rep?myPools:null)).length,all:leads.length};
   const claim=(e,l)=>{ e.stopPropagation(); if(updateLead) updateLead(l.id,{owner:me}); };
   const customFields=settings.customFields||[];
   const defs=leadColumnDefs(stages,customFields);
   const cols=mergeLeadCols(settings.leadColumns||DEFAULT_LEAD_COLS,customFields).filter(c=>defs[c.key]);
-  const visCols=cols.filter(c=>c.visible);
+  /* money columns simply do not exist for a rep */
+  const MONEY_COLS=['dealValue','retainer','retainerActive'];
+  const visCols=cols.filter(c=>c.visible&&!(rep&&MONEY_COLS.includes(c.key)));
   const setCols=next=>saveSettings({...settings,leadColumns:next});
   const moveCol=(i,d)=>{const j=i+d;if(j<0||j>=cols.length)return;const a=cols.slice();[a[i],a[j]]=[a[j],a[i]];setCols(a);};
   const toggleCol=key=>setCols(cols.map(c=>c.key===key?{...c,visible:!c.visible}:c));
@@ -1857,7 +2230,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   };
   const toggleSort=k=>{ if(sortK===k) setDir(d=>d==='asc'?'desc':'asc'); else {setSortK(k);setDir('asc');} };
   const rows=useMemo(()=>{
-    let r=scopeLeads(leads,view,me).filter(l=>{
+    let r=scopeLeads(leads,view,me,rep?myPools:null).filter(l=>{
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
       if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
@@ -1871,7 +2244,8 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
     return r;
   },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me]);
   const csv=()=>{
-    const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
+    const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner']
+      .concat(rep?[]:['dealValue','retainer','retainerActive']);
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
     const head=cols.join(',');const body=rows.map(l=>cols.map(c=>esc(c==='stage'?sOf(l.stage,stages).label:l[c])).join(',')).join('\n');
     const blob=new Blob([head+'\n'+body],{type:'text/csv'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='proytech-leads.csv';a.click();URL.revokeObjectURL(u);
@@ -1896,7 +2270,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       <button className="btn btn-g" onClick={csv}><Download size={15}/>CSV</button>
       {importLeads&&<button className="btn btn-p" onClick={()=>setImportOpen(true)}><Upload size={15}/>Import</button>}
     </div>
-    {view==='pool'&&<div className="pool-note"><Users size={14}/>Unclaimed leads owned by ProyTech. Claim one and it moves to your list.</div>}
+    {view==='pool'&&<div className="pool-note"><Users size={14}/>{rep?`Unclaimed leads in ${(myPools&&myPools.length)?myPools.join(', '):'your pools'}. Claim one and it becomes yours.`:'Unclaimed leads owned by '+POOL_OWNER+'. Claim one and it moves to your list.'}</div>}
     <div className="tbl-wrap"><table className="tbl"><thead><tr>
       <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}{view==='pool'&&<th></th>}
     </tr></thead><tbody>{rows.map(l=>(<tr key={l.id} onClick={()=>open(l.id,rows.map(r=>r.id))}>
@@ -2915,14 +3289,133 @@ function Activity({leads,tasks,me,open}){
   </>);
 }
 
-function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal}){
+/* ===================== TEAM (owner-only) =====================
+   Everything about a person lives here: their login, their commission %,
+   which pools they can see, which tabs they get, and whether they're active.
+   The database enforces the lead-level part of this (see MIGRATION.sql);
+   the tab list is a UI convenience on top of it, not a security boundary. */
+function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,me,myUid,noUsers}){
+  const [openId,setOpenId]=useState(null);
+  const [adding,setAdding]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [msg,setMsg]=useState(null);
+  const blank={name:'',email:'',role:'rep',commission_pct:10,pools:[],tabs:REP_DEFAULT_TABS,password:'',goal_conversions:0};
+  const [f,setF]=useState(blank);
+  const pools=poolList(settings);
+  const setPools=next=>saveSettings({...settings,pools:next});
+  const addPool=()=>{ const v=(window.prompt('Name this lead pool (e.g. "Inbound", "Wichita")')||'').trim(); if(!v||pools.includes(v))return; setPools([...pools,v]); };
+  const genPw=()=>Math.random().toString(36).slice(2,8)+Math.random().toString(36).slice(2,6).toUpperCase()+'!1';
+  const toggleIn=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
+  const create=async()=>{
+    const name=f.name.trim(), email=f.email.trim().toLowerCase();
+    if(!name){ setMsg({bad:true,t:'Give them a name.'}); return; }
+    if(!/.+@.+\..+/.test(email)){ setMsg({bad:true,t:'A real email address is required — that is their login.'}); return; }
+    const pw=f.password.trim()||genPw();
+    setBusy(true); setMsg(null);
+    try{
+      const {id,needsConfirm}=await auth.createLogin(email,pw);
+      if(!id||needsConfirm) throw new Error('Supabase created the login but did not return a user id — switch "Confirm email" OFF in Authentication → Providers → Email, then add them again.');
+      await saveUser({id,name,email,role:f.role,pools:f.pools,commission_pct:num(f.commission_pct),active:true,
+        tabs:f.role==='rep'?f.tabs:[],goal_conversions:num(f.goal_conversions)});
+      setMsg({t:`${name} can sign in with ${email} and the temporary password ${pw} — give it to them, or send a reset email below.`,pw,email});
+      setF(blank); setAdding(false);
+    }catch(e){ setMsg({bad:true,t:e.message||String(e)}); }
+    setBusy(false);
+  };
+  const reset=async email=>{ try{ await auth.sendReset(email); setMsg({t:`Password email sent to ${email}.`}); }
+    catch(e){ setMsg({bad:true,t:e.message||String(e)}); } };
+  return (<div className="card" style={{marginBottom:18}}>
+    <div className="sec-title"><Users size={15}/>Team</div>
+    <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Owners see everything. Sales reps see only their own leads plus the pools you give them — enforced in the database, not just hidden in the app.</div>
+
+    {noUsers&&<div className="note" style={{marginBottom:14}}>
+      <b>Nobody is set up yet.</b> This install still behaves exactly as it always has. Claim ownership to start adding people — nothing changes for you.
+      <div style={{marginTop:10}}><button className="btn btn-p btn-sm" onClick={claimOwner}><BadgeCheck size={14}/>Make me the owner</button></div>
+    </div>}
+
+    <div className="tm-list">
+      {users.map(u=>{ const open=openId===u.id; const isR=u.role==='rep'; const tabs=tabsOf(u);
+        const set=patch=>saveUser({...u,...patch});
+        return (<div className={'tm-row'+(u.active===false?' off':'')} key={u.id}>
+          <div className="tm-head" onClick={()=>setOpenId(open?null:u.id)}>
+            <span className="team-av">{(u.name||'?')[0]}</span>
+            <span className="tm-name">{u.name}{u.id===myUid&&<i>you</i>}<span className="subcell">{u.email||'—'}</span></span>
+            <span className={'tm-role '+u.role}>{u.role==='owner'?'Owner':'Sales Rep'}</span>
+            {isR&&<span className="tm-pct">{num(u.commission_pct)}%</span>}
+            {u.active===false&&<span className="tm-off">inactive</span>}
+            <ChevronDown size={15} className={'msec-ch'+(open?' on':'')}/>
+          </div>
+          {open&&<div className="tm-body">
+            <div className="fgrid">
+              <div className="field"><label>Name</label><input value={u.name||''} onChange={e=>set({name:e.target.value})}/></div>
+              <div className="field"><label>Role</label><select value={u.role} onChange={e=>set({role:e.target.value})}><option value="owner">Owner</option><option value="rep">Sales Rep</option></select></div>
+              {isR&&<div className="field"><label>Commission %</label><input type="number" min="0" step="0.5" value={u.commission_pct??0} onChange={e=>set({commission_pct:num(e.target.value)})}/></div>}
+              {isR&&<div className="field"><label>Monthly conversion goal</label><input type="number" min="0" value={u.goal_conversions??0} onChange={e=>set({goal_conversions:num(e.target.value)})}/></div>}
+            </div>
+            {isR&&<>
+              <div className="tm-sub">Lead pools they can see</div>
+              <div className="chips">{pools.map(p=><button key={p} className={'chip'+((u.pools||[]).includes(p)?' on':'')} onClick={()=>set({pools:toggleIn(u.pools||[],p)})}>{p}</button>)}
+                <button className="chip add" onClick={addPool}><Plus size={12}/>New pool</button></div>
+              <div className="tm-sub">Tabs they see</div>
+              <div className="chips">{ALL_MODULES.filter(([k])=>REP_TABS.includes(k)).map(([k,label])=>{ const on=tabs.includes(k); const money=MONEY_TABS.includes(k);
+                return (<button key={k} className={'chip'+(on?' on':'')+(money?' warn':'')} title={money?'Shows company money — off by default':undefined}
+                  onClick={()=>set({tabs:toggleIn(tabs,k)})}>{label}{money&&on?' ⚠':''}</button>); })}</div>
+              <div className="subcell" style={{marginTop:8}}>Dashboard is always on. Tabs marked ⚠ expose company revenue — leave them off unless you mean it. A rep can never see a tab this install has globally switched off in <b>Sections</b>.</div>
+            </>}
+            <div className="tm-acts">
+              <button className="btn btn-g btn-sm" onClick={()=>set({active:u.active===false})}>{u.active===false?<><BadgeCheck size={14}/>Reactivate</>:<><Ban size={14}/>Deactivate</>}</button>
+              {u.email&&<button className="btn btn-g btn-sm" onClick={()=>reset(u.email)}><KeyRound size={14}/>Send password email</button>}
+              {u.id!==myUid&&<button className="btn btn-d btn-sm" onClick={()=>{ if(window.confirm(`Remove ${u.name} from the CRM? Their leads and history stay — their access ends.`)) removeUser(u.id); }}><Trash2 size={14}/>Remove</button>}
+            </div>
+            <div className="subcell" style={{marginTop:8}}>Deactivating keeps every lead, note and commission — it only ends their access and takes them off the leaderboard.</div>
+          </div>}
+        </div>); })}
+      {!users.length&&!noUsers&&<div className="empty">No people yet.</div>}
+    </div>
+
+    {adding?(<div className="tm-add">
+      <div className="tm-sub">New hire</div>
+      <div className="fgrid">
+        <div className="field"><label>Name</label><input autoFocus value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></div>
+        <div className="field"><label>Email (this is their login)</label><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></div>
+        <div className="field"><label>Role</label><select value={f.role} onChange={e=>setF({...f,role:e.target.value})}><option value="rep">Sales Rep</option><option value="owner">Owner</option></select></div>
+        {f.role==='rep'&&<div className="field"><label>Commission %</label><input type="number" min="0" step="0.5" value={f.commission_pct} onChange={e=>setF({...f,commission_pct:e.target.value})}/></div>}
+        <div className="field full"><label>Temporary password (blank = generate one)</label><input value={f.password} onChange={e=>setF({...f,password:e.target.value})} placeholder="leave blank and we'll make one"/></div>
+      </div>
+      {f.role==='rep'&&<>
+        <div className="tm-sub">Lead pools they can see</div>
+        <div className="chips">{pools.map(p=><button key={p} className={'chip'+(f.pools.includes(p)?' on':'')} onClick={()=>setF({...f,pools:toggleIn(f.pools,p)})}>{p}</button>)}
+          <button className="chip add" onClick={addPool}><Plus size={12}/>New pool</button></div>
+        <div className="tm-sub">Tabs they see</div>
+        <div className="chips">{ALL_MODULES.filter(([k])=>REP_TABS.includes(k)).map(([k,label])=>{ const on=f.tabs.includes(k); const money=MONEY_TABS.includes(k);
+          return <button key={k} className={'chip'+(on?' on':'')+(money?' warn':'')} onClick={()=>setF({...f,tabs:toggleIn(f.tabs,k)})}>{label}</button>; })}</div>
+      </>}
+      <div className="tm-acts">
+        <button className="btn btn-p btn-sm" disabled={busy} onClick={create}><UserPlus size={14}/>{busy?'Creating…':'Create login'}</button>
+        <button className="btn btn-g btn-sm" onClick={()=>{setAdding(false);setF(blank);}}>Cancel</button>
+      </div>
+    </div>):<button className="btn btn-p btn-sm" style={{marginTop:12}} onClick={()=>{setAdding(true);setMsg(null);}}><UserPlus size={14}/>Add a person</button>}
+
+    {msg&&<div className={'note '+(msg.bad?'bad':'')} style={{marginTop:14}}>
+      {msg.t}
+      {msg.pw&&<div style={{marginTop:8,display:'flex',gap:8,flexWrap:'wrap'}}>
+        <button className="btn btn-g btn-sm" onClick={()=>reset(msg.email)}><KeyRound size={14}/>Email them a set-password link instead</button></div>}
+    </div>}
+    <div className="subcell" style={{marginTop:12}}>Creating a login needs <b>Email</b> sign-ups enabled in Supabase → Authentication → Providers, with <b>Confirm email</b> off (otherwise Supabase won't hand back the user id we need).</div>
+  </div>);
+}
+
+function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,noUsers}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,modulesV:num(d.settings.modulesV),pools:Array.isArray(d.settings.pools)?d.settings.pools:[],leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
-    {/* team access */}
+    {/* team & roles — owner-only */}
+    {isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} me={me} myUid={myUid} noUsers={noUsers}/>}
+
+    {/* legacy name-based lead visibility (still drives Mine / Pool / All) */}
     {(()=>{ const people=(settings.options?.owner||OWNERS).filter(o=>o!==POOL_OWNER);
       const setAccess=(name,access)=>{ const t=(settings.team||[]).filter(x=>x.name!==name); saveSettings({...settings,team:[...t,{name,access}]}); };
       return (<div className="card" style={{marginBottom:18}}>
@@ -3256,7 +3749,7 @@ function MeetingList({meetings,onRemove,onStatus,onType}){
     {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
   </div>);
 }
-function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,createCalendarEvent,deleteCalendarEvent,tagMeeting}){
+function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -3347,9 +3840,11 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               {k:'qual',  l:'Owner',    v:draft.owner||'—'},
               {k:'qual',  l:'Type',     v:draft.businessType&&draft.businessType!=='—'?draft.businessType:'—'},
               {k:'qual',  l:'Close',    v:draft.expectedClose?fmtDate(draft.expectedClose):'—'},
-              {k:'deal',  l:'Deal',     v:num(draft.dealValue)>0?usd(draft.dealValue):'—'},
+              /* reps get their commission here, never the deal value */
+              rep?(cmsnOf(draft)?{k:'mycmsn',l:'Your cut',v:usd(cmsnOf(draft).amount)}:null)
+                 :{k:'deal',l:'Deal',v:num(draft.dealValue)>0?usd(draft.dealValue):'—'},
               {k:'meetings',l:'Meetings',v:next?fmtDate(next.start):(bc?bc+' booked':'—'),hot:!!next},
-            ];
+            ].filter(Boolean);
             return (<div className="m-facts">{facts.map((f,i)=>(
               <button key={i} className={'mf'+(f.hot?' hot':'')} onClick={()=>jumpTo(f.k)} title={`Open ${f.k==='qual'?'Qualifying':f.k==='deal'?'Deal':'Meetings'}`}>
                 <i>{f.l}</i><b>{f.v}</b>
@@ -3454,7 +3949,10 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               <div className="fgrid">
                 {Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}{Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}
                 {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
-                {Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}{F({label:'Expected Close',k:'expectedClose',type:'date'})}
+                {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
+                {F({label:'Expected Close',k:'expectedClose',type:'date'})}
+                {!rep&&<div className="field"><label>Lead pool</label><select value={draft.pool||''} onChange={e=>set({pool:e.target.value||null})}>
+                  <option value="">— none —</option>{poolList(settings).map(p=><option key={p} value={p}>{p}</option>)}</select></div>}
                 <div className="field full"><button className="chip add" onClick={addCustomAction}><Plus size={12}/>Add custom Next Action</button></div>
               </div>)}
 
@@ -3521,7 +4019,37 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 </div>))}
               </div>)}
 
-            {Sec('deal',<DollarSign size={13}/>,'Deal',
+            {/* A rep never sees the deal value, the base, or anyone's numbers
+                but their own — they get their commission and its state. */}
+            {rep&&cmsnOf(draft)&&Sec('mycmsn',<DollarSign size={13}/>,'Your commission',
+              (CMSN_STATE[cmsnOf(draft).status]||CMSN_STATE.pending).label,
+              (()=>{ const c=cmsnOf(draft); const st=CMSN_STATE[c.status]||CMSN_STATE.pending;
+                return (<div className="cmsn-box">
+                  <div className="cmsn-row"><span>Your commission</span><b style={{color:st.color}}>{usd(c.amount)}</b></div>
+                  <div className="cmsn-row"><span>Status</span><b style={{color:st.color}}>{st.label}</b></div>
+                  <div className="subcell" style={{marginTop:6}}>{c.status==='pending'?'Counts toward your running total. An owner approves it to make it real.':c.status==='earned'?`Approved ${c.approvedAt?fmtDate(String(c.approvedAt).slice(0,10)):''} — this one is yours.`:'This commission was voided.'}</div>
+                </div>); })(),true)}
+            {isOwner&&!isNew&&draft.isClient&&cmsnOf(draft)&&Sec('cmsn',<Percent size={13}/>,'Commission',
+              (()=>{ const c=cmsnOf(draft); return `${c.repName||'rep'} · ${usd(c.amount)} · ${(CMSN_STATE[c.status]||CMSN_STATE.pending).label}`; })(),
+              (()=>{ const c=cmsnOf(draft); const st=CMSN_STATE[c.status]||CMSN_STATE.pending; const locked=c.status!=='pending';
+                const patch=p=>{ setCommission&&setCommission(draft.id,p); setDraft(d=>({...d,commission:{...cmsnOf(d),...p,amount:cmsnAmount(p.base??cmsnOf(d).base,p.pct??cmsnOf(d).pct)}})); };
+                return (<div className="cmsn-box">
+                  <div className="cmsn-row"><span>Rep</span><b>{c.repName||'—'}</b></div>
+                  <div className="fgrid" style={{marginTop:8}}>
+                    <div className="field"><label>Rate at conversion (%)</label><input type="number" min="0" step="0.5" disabled={locked} value={c.pct??0} onChange={e=>patch({pct:num(e.target.value)})}/></div>
+                    <div className="field"><label>Deal value used ($)</label><input type="number" min="0" disabled={locked} value={c.base??0} onChange={e=>patch({base:num(e.target.value)})}/></div>
+                  </div>
+                  <div className="cmsn-row big"><span>Commission</span><b style={{color:st.color}}>{usd(c.amount)}</b></div>
+                  <div className="cmsn-row"><span>State</span><b style={{color:st.color}}>{st.label}{c.approvedAt?` · ${fmtDate(String(c.approvedAt).slice(0,10))} by ${c.approvedBy||'—'}`:''}</b></div>
+                  <div className="tm-acts">
+                    {c.status!=='earned'&&<button className="btn btn-p btn-sm" onClick={()=>patch({status:'earned'})}><BadgeCheck size={14}/>Approve commission</button>}
+                    {c.status!=='void'&&<button className="btn btn-d btn-sm" onClick={()=>{ if(window.confirm('Void this commission? It leaves the rep’s pending and earned counts entirely.')) patch({status:'void'}); }}><Ban size={14}/>Void</button>}
+                    {c.status==='void'&&<button className="btn btn-g btn-sm" onClick={()=>patch({status:'pending'})}>Put back to pending</button>}
+                  </div>
+                  <div className="subcell" style={{marginTop:8}}>{locked?'Approved and voided commissions are frozen — put it back to pending to edit the numbers.':'Edit the base if the deal value changed before approval. Changing this rep’s % in Settings later will NOT touch this record.'}</div>
+                </div>); })(),true)}
+
+            {!rep&&Sec('deal',<DollarSign size={13}/>,'Deal',
               (dealSum(dealBreak)>0||num(draft.retainer)>0)?[dealSum(dealBreak)>0?usd(dealSum(dealBreak)):null,num(draft.retainer)>0?usd(draft.retainer)+'/mo':null].filter(Boolean).join(' · '):'not set',
               <>
                 <div className="fgrid">
@@ -3709,6 +4237,48 @@ function Kpi({label,value,d,variant,icon,onClick,active,goal,current}){
       </div>); })()}
   </div>);
 }
+/* ===================== LEADERBOARD =====================
+   Ranked by CLIENTS CLOSED, never by revenue — reps compete on a number
+   they're proud of, not on the dollars the company took in. Owners never
+   appear on it, and no money appears on it for anybody. */
+function Leaderboard({rows,meId,rep,users}){
+  const [period,setPeriod]=useState('month');
+  if(!rows) return (<div className="empty">The leaderboard needs the database function from <b>MIGRATION.sql</b>. Run it on this install and refresh.</div>);
+  const list=[...rows].sort((a,b)=>(num(b[period])-num(a[period]))||String(a.name||'').localeCompare(String(b.name||'')));
+  if(!list.length) return (<div className="empty">No sales reps yet. Add one in <b>Settings → Team</b> and the board fills itself.</div>);
+  const top=num(list[0][period]);
+  let rank=0,prev=null;
+  const ranked=list.map((r,i)=>{ const v=num(r[period]); if(v!==prev){ rank=i+1; prev=v; } return {...r,rank,v}; });
+  return (<>
+    <div className="lb-top">
+      <div className="seg"><button className={period==='month'?'on':''} onClick={()=>setPeriod('month')}>This month</button>
+        <button className={period==='all'?'on':''} onClick={()=>setPeriod('all')}>All time</button></div>
+      <span className="subcell">Clients closed{rep?' — everyone competes on the same number':''}</span>
+    </div>
+    <div className="lb">
+      {ranked.map(r=>(<div key={r.id} className={'lb-row lift'+(r.id===meId?' me':'')}>
+        <span className="lb-rank">{r.rank===1&&r.v>0?<Crown size={15}/>:r.rank}</span>
+        <div className="lb-mid">
+          <div className="lb-name">{r.name}{r.id===meId&&<i>you</i>}</div>
+          <div className="lb-bar"><div style={{width:(top>0?Math.max(2,Math.round(r.v/top*100)):2)+'%'}}/></div>
+        </div>
+        <span className="lb-n"><b><CountUp value={r.v}/></b>{r.v===1?'client':'clients'}</span>
+      </div>))}
+    </div>
+    <div className="note" style={{marginTop:16}}>Ranked by clients closed. Owners don't appear here, and commission dollars never show on the board.</div>
+  </>);
+}
+
+/* The one celebration. Under a second of motion, never blocks anything. */
+function Celebration({data,onDone}){
+  const reduced=useReducedMotion();
+  useEffect(()=>{ const t=setTimeout(()=>onDone&&onDone(),reduced?1800:2200); return ()=>clearTimeout(t); },[reduced,onDone]);
+  return (<div className={'cel'+(reduced?' still':'')} role="status" onClick={onDone}>
+    <div className="cel-ic"><Sparkles size={18}/></div>
+    <div><b>{usd(data.amount)} pending</b><span>{data.name} converted — nice work.</span></div>
+  </div>);
+}
+
 /* the panel that opens under the tiles when you tap one */
 function Drill({title,sub,onClose,children}){
   return (<div className="drill">
