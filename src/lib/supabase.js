@@ -21,7 +21,21 @@ export const auth = {
   login(identifier, password) { return supabase.auth.signInWithPassword({ email: emailFor(identifier), password }); },
   logout() { return supabase.auth.signOut(); },
   async session() { const { data } = await supabase.auth.getSession(); return data.session; },
-  onChange(cb) { return supabase.auth.onAuthStateChange((_e, s) => cb(s)); },
+  /* the event matters: PASSWORD_RECOVERY means they arrived from a reset
+     link and must be shown the "choose a password" screen, not the app. */
+  onChange(cb) { return supabase.auth.onAuthStateChange((e, s) => cb(s, e)); },
+  /* did this page load land on a recovery link? (checked before supabase-js
+     consumes and clears the URL fragment) */
+  isRecoveryUrl() {
+    try { return /type=recovery/.test((window.location.hash || '') + (window.location.search || '')); }
+    catch { return false; }
+  },
+  /* set the password of whoever is signed in right now */
+  async setPassword(password) {
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) throw new Error(error.message || 'Could not set that password.');
+    return true;
+  },
   username(session) { return (session?.user?.email || '').split('@')[0]; },
   uid(session) { return session?.user?.id || null; },
   email(session) { return session?.user?.email || ''; },
@@ -40,14 +54,15 @@ export const auth = {
     const id = j.id || j.user?.id || null;
     return { id, needsConfirm: !id };
   },
-  /* password-reset / set-your-password email */
+  /* password-reset / set-your-password email.
+     redirectTo pins the link to THIS deployment, so a stale "Site URL" in the
+     Supabase dashboard can't send people to localhost — as long as this origin
+     is in Authentication → URL Configuration → Redirect URLs. */
   async sendReset(email) {
-    const r = await fetch(`${SUPABASE_URL}/auth/v1/recover`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
-      body: JSON.stringify({ email: (email || '').trim().toLowerCase() }),
-    });
-    if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.msg || j.error || 'Could not send that email.'); }
+    let redirectTo; try { redirectTo = window.location.origin; } catch { redirectTo = undefined; }
+    const { error } = await supabase.auth.resetPasswordForEmail(
+      (email || '').trim().toLowerCase(), redirectTo ? { redirectTo } : undefined);
+    if (error) throw new Error(error.message || 'Could not send that email.');
     return true;
   },
 };
