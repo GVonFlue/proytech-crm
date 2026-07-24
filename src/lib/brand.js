@@ -35,6 +35,11 @@ export const BRAND = {
   /* the shared/unclaimed pool owner — defaults to the company name */
   pool: val(import.meta.env.VITE_POOL_NAME, NAME),
 
+  /* which sections this install ships with. Empty = everything on.
+     e.g. VITE_MODULES="followup,tasks,activity,pipeline,leads,rels,clients"
+     leaves out invoices / books / money for a client who didn't buy them. */
+  modules: val(import.meta.env.VITE_MODULES, '').split(',').map(s => s.trim()).filter(Boolean),
+
   /* colors */
   colors: {
     cobalt: val(import.meta.env.VITE_COLOR_COBALT, '#2B4DE0'),
