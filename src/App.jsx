@@ -1378,7 +1378,21 @@ export default function App(){
   const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
   const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await db.upsertMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
-  const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const ob=(l.onboarding&&Object.keys(l.onboarding).length)?l.onboarding:seedOnboarding(); const updated={...l,isClient:true,clientPhase:l.clientPhase||'intake',convertedAt:l.convertedAt||todayISO(),delivery:l.delivery||{},onboarding:ob,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Converted to client — onboarding started.',who:me},...l.activities]}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
+  /* Converting to a client IS closing the deal. Stamp the close date and move the
+     lead onto the won stage so the pipeline, the money numbers and the client board
+     all agree — a client should never still be sitting in "Proposal Sent". */
+  const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return;
+    const ob=(l.onboarding&&Object.keys(l.onboarding).length)?l.onboarding:seedOnboarding();
+    const wonStage=stages.find(s=>s.won);
+    const moved=wonStage&&l.stage!==wonStage.key;
+    const ts=new Date().toISOString();
+    const acts=[{id:uid(),ts,type:'Note',text:'Converted to client — onboarding started.',who:me}];
+    if(moved) acts.unshift({id:uid(),ts,type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${wonStage.label}`,who:me});
+    const updated={...l,isClient:true,clientPhase:l.clientPhase||'intake',convertedAt:l.convertedAt||todayISO(),
+      stage:wonStage?wonStage.key:l.stage,
+      closedAt:l.closedAt||todayISO(),
+      delivery:l.delivery||{},onboarding:ob,activities:[...acts,...l.activities]};
+    setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
   const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
   /* toggle one onboarding item + log it — single atomic write */
   const toggleOnboarding=(id,itemKey)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l;
