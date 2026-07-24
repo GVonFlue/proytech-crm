@@ -1406,6 +1406,13 @@ button,a,label,select,input,textarea,.kcard,.fu-card,.cli-card,.rt-person,.msec-
   *,*:before,*:after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
   .lift:hover{transform:none}
 }
+.onb-q.cmsn{border-left-color:${GOLD}}
+.onb-q.done{border-left-color:#C9C5D9;background:#FAFBFE}
+.onb-q.done .onb-h b{color:#56527a}
+.tm-reassign{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #EFF0F6;font-size:12.5px;color:#56527a;font-weight:600}
+.tm-reassign select{padding:7px 10px;border:1px solid #E2E3EE;border-radius:9px;font-size:12.5px;background:#fff;color:${INK}}
+.tbl.sc td,.tbl.sc th{white-space:nowrap}
+.tbl.sc tbody tr{cursor:default}
 @media (max-width:640px){ .cmsn-v{font-size:32px} .cel{left:14px;right:14px;bottom:14px;max-width:none} }
 `;
 
@@ -1545,7 +1552,7 @@ export default function App(){
   const [board,setBoard]=useState(null);       // leaderboard rows from the DB function
   const [celebrate,setCelebrate]=useState(null); // {amount,name} — the one restrained moment
   const [invId,setInvId]=useState(null);
-  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES,pools:[],modulesV:0});
+  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES,pools:[],modulesV:0,notifyEmails:''});
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
@@ -1589,7 +1596,7 @@ export default function App(){
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
       if(amOwner&&mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -1665,10 +1672,34 @@ export default function App(){
     if(!cmsnOf(l)&&num(r.commission_pct)>0) patch.commission=mkCommission(l,r);
     patch.onboardingAlert={at:new Date().toISOString(),repId:r.id,repName:r.name,ack:false};
     if(patch.commission&&r.id===myUid) setTimeout(()=>setCelebrate({amount:patch.commission.amount,name:l.company||l.name||'that client'}),0);
+    /* Email the owners too, if /api/notify has a provider configured. This is
+       deliberately fire-and-forget: the in-app queue above is the real record,
+       and a mail failure must never interfere with closing a deal. */
+    const to=(settings.notifyEmails||'').split(',').map(x=>x.trim()).filter(x=>x.includes('@'));
+    try{ fetch('/api/notify',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({kind:'conversion',rep:r.name,client:l.company||l.name||'a client',
+        when:fmtDate(todayISO()),amount:patch.commission?patch.commission.amount:null,
+        to,link:(typeof window!=='undefined'?window.location.origin:'')})}).catch(()=>{});
+    }catch{}
     return patch;
   };
   const updateLead=(id,patch)=>{ let updated=null; setLeads(leads.map(l=>{
     if(l.id!==id) return l; const ts=new Date().toISOString(); const m={...l,...patch};
+    /* The deal value drives the commission, and reps set it themselves — so
+       every change is on the record with a name and a time against it.
+       Number fields fire on every keystroke, so consecutive edits by the same
+       person inside 15 minutes are folded into ONE entry that keeps the
+       original "was" figure. Otherwise the feed fills with noise. */
+    if(patch.dealValue!==undefined&&num(patch.dealValue)!==num(l.dealValue)){
+      m.dealValueBy=me; m.dealValueAt=ts;
+      const acts=[...(l.activities||[])];
+      const prev=acts[0];
+      const fresh=prev&&prev.dealEdit&&prev.who===me&&(Date.now()-new Date(prev.ts).getTime()<15*60*1000);
+      const was=fresh?prev.dealWas:num(l.dealValue);
+      const entry={id:fresh?prev.id:uid(),ts,type:'Note',who:me,dealEdit:true,dealWas:was,
+        text:`Deal value set to ${usd(patch.dealValue)}${num(was)>0?` (was ${usd(was)})`:''}.`};
+      m.activities=fresh?[entry,...acts.slice(1)]:[entry,...acts];
+    }
     if(patch.stage&&patch.stage!==l.stage){
       m.activities=[{id:uid(),ts,type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${sOf(patch.stage,stages).label}`,who:me},...l.activities];
       if(sOf(patch.stage,stages).won){
@@ -1698,7 +1729,10 @@ export default function App(){
     updated={...l,meetings:mts,activities:acts}; return updated; })); if(updated) putLead(updated); };
   const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) putLead(updated); };
   const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) putLead(updated); };
-  const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
+  /* deleting is an owner action — the database enforces it too (leads_delete
+     in MIGRATION.sql). This guard just keeps the UI honest. */
+  const delLead=id=>{ if(rep){ window.alert('Only an owner can delete a lead.'); return; }
+    setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); putLead(lead); setActiveId(lead.id); };
   const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await putMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
   /* Converting to a client IS closing the deal. Stamp the close date and move the
@@ -1734,6 +1768,21 @@ export default function App(){
     setUsers(next); try{ await db.upsertUser(next.find(x=>x.id===u.id)); }catch(e){ console.error(e); window.alert('Could not save that person: '+(e.message||e)); setUsers(users); } };
   const removeUser=async id=>{ if(!isOwner) return; const prev=users; setUsers(users.filter(u=>u.id!==id));
     try{ await db.deleteUser(id); }catch(e){ console.error(e); window.alert('Could not remove that person: '+(e.message||e)); setUsers(prev); } };
+  /* When someone leaves, their leads shouldn't leave with them. Moves every
+     lead (name AND owner_id, so RLS follows) from one person to another.
+     Commissions already earned are NOT touched — that history is theirs. */
+  const reassignLeads=async(fromUser,toUser)=>{
+    if(!isOwner||!fromUser) return 0;
+    const mine=leads.filter(l=>l.owner_id===fromUser.id||l.owner===fromUser.name);
+    if(!mine.length) return 0;
+    const ts=new Date().toISOString();
+    const toName=toUser?toUser.name:POOL_OWNER;
+    const moved=mine.map(l=>({...l,owner:toName,owner_id:toUser?toUser.id:null,
+      activities:[{id:uid(),ts,type:'Note',who:me,text:`Reassigned from ${fromUser.name} to ${toName}.`},...(l.activities||[])]}));
+    setLeads(leads.map(l=>moved.find(m=>m.id===l.id)||l));
+    try{ await putMany(moved); }catch(e){ console.error(e); window.alert('Some leads may not have moved: '+(e.message||e)); }
+    return moved.length;
+  };
   /* first-run bootstrap: the person standing here becomes the owner */
   const claimOwner=async()=>{ if(!myUid) return;
     await saveUser({id:myUid,name:me,email:auth.email(session),role:'owner',pools:[],commission_pct:0,active:true,tabs:[],goal_conversions:0}); };
@@ -1843,7 +1892,7 @@ export default function App(){
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
-          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')}/>:
+          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -1856,7 +1905,7 @@ export default function App(){
           view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
           view==='money'?<Money leads={bizLeads} stages={stages}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
-            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} noUsers={noUsers}/>}
+            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers}/>}
       </div>
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
@@ -2008,7 +2057,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUid,board,ack,goBoard}){
+function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages);
   const [drill,setDrill]=useState(null);
@@ -2074,7 +2123,27 @@ function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUi
     </>);
   }
   /* ---- owners from here down: the full board, unchanged ---- */
-  const awaiting=leads.filter(l=>l.onboardingAlert&&!l.onboardingAlert.ack).sort((a,b)=>String(b.onboardingAlert.at||'').localeCompare(String(a.onboardingAlert.at||'')));
+  const alerted=leads.filter(l=>l.onboardingAlert).sort((a,b)=>String(b.onboardingAlert.at||'').localeCompare(String(a.onboardingAlert.at||'')));
+  const awaiting=alerted.filter(l=>!l.onboardingAlert.ack);
+  const handled=alerted.filter(l=>l.onboardingAlert.ack).slice(0,12);
+  /* commissions sitting on an owner's desk */
+  const pendingCmsn=leads.map(l=>({l,c:cmsnOf(l)})).filter(r=>r.c&&r.c.status==='pending')
+    .sort((a,b)=>String(b.c.convertedAt||'').localeCompare(String(a.c.convertedAt||'')));
+  const pendingTotal=pendingCmsn.reduce((a,r)=>a+num(r.c.amount),0);
+  /* per-rep scorecard: what each person actually did this month */
+  const scorecard=(team||[]).filter(u=>u.role==='rep'&&u.active!==false).map(u=>{
+    const mine=leads.filter(l=>l.owner_id===u.id||l.owner===u.name);
+    const touches=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>REAL_TOUCH(x)&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
+    const booked=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>x.type==='Booked'&&x.ts&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
+    const conv=mine.filter(l=>l.isClient&&String(l.convertedAt||'').slice(0,7)===mKey).length;
+    const openL=mine.filter(l=>sOf(l.stage,stages).open);
+    const pipe=openL.reduce((a,l)=>a+num(l.dealValue),0);
+    const cm=mine.map(cmsnOf).filter(c=>c&&c.repId===u.id&&c.status!=='void');
+    const owed=cm.filter(c=>c.status==='earned').reduce((a,c)=>a+num(c.amount),0);
+    const pend=cm.filter(c=>c.status==='pending').reduce((a,c)=>a+num(c.amount),0);
+    const last=mine.flatMap(l=>(l.activities||[]).filter(REAL_TOUCH).map(x=>x.ts)).sort().pop();
+    return {u,touches,booked,conv,open:openL.length,pipe,owed,pend,last};
+  }).sort((a,b)=>b.conv-a.conv||b.touches-a.touches);
   const openLeads=leads.filter(l=>sOf(l.stage,stages).open).sort((a,b)=>num(b.dealValue)-num(a.dealValue));
   const wonLeads=leads.filter(l=>sOf(l.stage,stages).won).sort((a,b)=>(b.closedAt||'').localeCompare(a.closedAt||''));
   const retLeads=leads.filter(l=>l.retainerActive).sort((a,b)=>num(b.retainer)-num(a.retainer));
@@ -2099,6 +2168,40 @@ function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUi
           <div className="subcell">{l.onboardingAlert.repName||'A rep'} converted {fmtDate(String(l.onboardingAlert.at||'').slice(0,10))} — start onboarding.</div></div>
         <button className="btn btn-g btn-sm" onClick={()=>ack&&ack(l.id)}><CheckCircle2 size={14}/>Got it</button>
       </div>))}
+    </div>}
+    {handled.length>0&&<div className="onb-q done">
+      <div className="onb-h" onClick={()=>tog('handled')} style={{cursor:'pointer'}}><CheckCircle2 size={15}/><b>Handled conversions</b>
+        <span>{handled.length} acknowledged · tap to {drill==='handled'?'hide':'see'}</span></div>
+      {drill==='handled'&&handled.map(l=>(<div className="onb-row" key={l.id}>
+        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
+          <div className="subcell">{l.onboardingAlert.repName||'A rep'} · converted {fmtDate(String(l.onboardingAlert.at||'').slice(0,10))}{l.onboardingAlert.ackBy?` · cleared by ${l.onboardingAlert.ackBy}`:''}</div></div>
+      </div>))}
+    </div>}
+    {pendingCmsn.length>0&&<div className="onb-q cmsn">
+      <div className="onb-h"><Percent size={15}/><b>Commissions waiting on you</b><span>{pendingCmsn.length} · {usd(pendingTotal)} total</span></div>
+      {pendingCmsn.map(({l,c})=>(<div className="onb-row" key={l.id}>
+        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
+          <div className="subcell">{c.repName||'Rep'} · {num(c.pct)}% of {usd(c.base)}{l.dealValueBy?` · value entered by ${l.dealValueBy}`:''}</div></div>
+        <span className="drow-v" style={{color:GOLD}}>{usd(c.amount)}</span>
+        {approve&&<button className="btn btn-p btn-sm" onClick={()=>approve(l.id,{status:'earned'})}><BadgeCheck size={14}/>Approve</button>}
+      </div>))}
+    </div>}
+    {scorecard.length>0&&<div className="card" style={{marginBottom:20}}>
+      <div className="sec-title" style={{margin:'0 0 4px'}}><Users size={15}/>The team this month</div>
+      <div className="ch-sub" style={{marginBottom:12}}>Every rep, what they've done since the 1st. Tap a name to see their activity.</div>
+      <div className="tbl-wrap"><table className="tbl sc"><thead><tr>
+        <th>Rep</th><th>Touches</th><th>Booked</th><th>Converted</th><th>Open</th><th>Their pipeline</th><th>Commission</th><th>Last touch</th>
+      </tr></thead><tbody>
+        {scorecard.map(r=>{ const cold=r.last?daysSince(r.last):null;
+          return (<tr key={r.u.id}>
+            <td><div className="namecell">{r.u.name}</div><div className="subcell">{num(r.u.commission_pct)}%</div></td>
+            <td>{r.touches}</td><td>{r.booked}</td>
+            <td><b style={{color:r.conv>0?GREEN:'#8E89A8'}}>{r.conv}</b></td>
+            <td>{r.open}</td><td>{usd(r.pipe)}</td>
+            <td><span style={{color:GOLD}}>{usd(r.pend)}</span> pending · {usd(r.owed)} earned</td>
+            <td>{cold==null?<span className="subcell">never</span>:<span style={{color:cold>7?RED:cold>3?'#C05A1E':'#5A5680',fontWeight:600}}>{cold===0?'today':cold+'d ago'}</span>}</td>
+          </tr>); })}
+      </tbody></table></div>
     </div>}
     <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
@@ -2250,7 +2353,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
       <div className="kco">{l.company||l.businessType}</div>
       {(l.serviceInterest||[]).length>0&&<div className="ktags">{(l.serviceInterest||[]).slice(0,2).map(s2=><span key={s2} className="tag">{s2}</span>)}</div>}
       <div className="kmeta">
-        <span className="kvals">{!rep&&l.dealValue>0&&<span className="kdv">{usd(l.dealValue)}</span>}{!rep&&l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}{rep&&cmsnOf(l)&&<span className="kdv" style={{color:(CMSN_STATE[cmsnOf(l).status]||CMSN_STATE.pending).color}}>{usd(cmsnOf(l).amount)}</span>}</span>
+        <span className="kvals">{l.dealValue>0&&<span className="kdv">{usd(l.dealValue)}</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>
         {l.followUp&&<Due iso={l.followUp}/>}
       </div>
       {stale&&<div className="kstale"><AlertTriangle size={11}/>{daysSince(lastContact(l))}d no contact</div>}
@@ -2270,14 +2373,9 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
      ? ((clients||[]).length?<ClientBoard clients={clients} settings={settings} setClientPhase={setClientPhase} onCard={id=>open(id)}/>:<div className="empty">No clients yet. Move a lead to <b>Signed</b> to start onboarding.</div>)
      : <>
     <div className="kgrid" style={{marginBottom:18}}>
-      {rep?<>
-        <Kpi variant="accent" label="Open Leads" value={<CountUp value={openLeads.length}/>} icon={<KanbanSquare size={14}/>} d="yours right now"/>
-        <Kpi variant="green" label="Clients Closed" value={<CountUp value={wonC}/>} icon={<Award size={14}/>} d={`${winRate}% win rate`}/>
-      </>:<>
-        <Kpi variant="accent" label="Open Pipeline" value={usd(totalOpen)} icon={<KanbanSquare size={14}/>} d={`${openLeads.length} open deal${openLeads.length===1?'':'s'}`}/>
-        <Kpi variant="green" label="Weighted Forecast" value={usd(weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
-        <Kpi label="Win Rate" value={winRate+'%'} icon={<Award size={14}/>} d={`${wonC} won · ${lostC} lost`}/>
-      </>}
+      <Kpi variant="accent" label={rep?'Your Open Pipeline':'Open Pipeline'} value={usd(totalOpen)} icon={<KanbanSquare size={14}/>} d={`${openLeads.length} open deal${openLeads.length===1?'':'s'}`}/>
+      <Kpi variant="green" label="Weighted Forecast" value={usd(weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
+      <Kpi label="Win Rate" value={winRate+'%'} icon={<Award size={14}/>} d={`${wonC} won · ${lostC} lost`}/>
     </div>
     <div className="kanban">{stages.map(s=>{const items=leads.filter(l=>l.stage===s.key).sort((a,b)=>num(b.dealValue)-num(a.dealValue)||(a.followUp||'9999').localeCompare(b.followUp||'9999'));const val=items.reduce((a,l)=>a+num(l.dealValue),0);const wtd=val*(s.prob||0);const isClosed=!s.open;const collapsed=isClosed&&!expanded[s.key];
       if(collapsed){ return (<div key={s.key} className="kcol kcollapsed" title={`${s.label} — tap to expand`} onClick={()=>setExpanded(e=>({...e,[s.key]:true}))} onDragOver={e=>{e.preventDefault();setOver(s.key);}} onDragLeave={()=>setOver(c=>c===s.key?null:c)} onDrop={()=>drop(s.key)}>
@@ -2287,7 +2385,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
       return (<div key={s.key} className={'kcol '+(over===s.key?'drag':'')} onDragOver={e=>{e.preventDefault();setOver(s.key);}} onDragLeave={()=>setOver(c=>c===s.key?null:c)} onDrop={()=>drop(s.key)}>
         <div className="kbar" style={{background:s.color}}/>
         <div className="kcol-h"><span className="kt">{s.label}</span><span style={{display:'flex',alignItems:'center',gap:6}}><span className="kc">{items.length}</span>{isClosed&&<button className="kcoll-x" title="Collapse" onClick={e=>{e.stopPropagation();setExpanded(e2=>({...e2,[s.key]:false}));}}><ChevronLeft size={13}/></button>}</span></div>
-        <div className="kcol-v">{rep?`${items.length} lead${items.length===1?'':'s'}`:(<>{val>0?usd(val):'—'}{s.open&&val>0&&<span className="kwtd"> · {usd(wtd)} weighted</span>}</>)}</div>
+        <div className="kcol-v">{val>0?usd(val):'—'}{s.open&&val>0&&<span className="kwtd"> · {usd(wtd)} weighted</span>}</div>
         <div className="kcol-body">
           {items.map(l=><Card key={l.id} l={l}/>)}
           {dragId&&over===s.key&&<div className="kdrop">Release to move here</div>}
@@ -2311,9 +2409,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   const customFields=settings.customFields||[];
   const defs=leadColumnDefs(stages,customFields);
   const cols=mergeLeadCols(settings.leadColumns||DEFAULT_LEAD_COLS,customFields).filter(c=>defs[c.key]);
-  /* money columns simply do not exist for a rep */
-  const MONEY_COLS=['dealValue','retainer','retainerActive'];
-  const visCols=cols.filter(c=>c.visible&&!(rep&&MONEY_COLS.includes(c.key)));
+  const visCols=cols.filter(c=>c.visible);
   const setCols=next=>saveSettings({...settings,leadColumns:next});
   const moveCol=(i,d)=>{const j=i+d;if(j<0||j>=cols.length)return;const a=cols.slice();[a[i],a[j]]=[a[j],a[i]];setCols(a);};
   const toggleCol=key=>setCols(cols.map(c=>c.key===key?{...c,visible:!c.visible}:c));
@@ -2345,8 +2441,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
     return r;
   },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me]);
   const csv=()=>{
-    const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner']
-      .concat(rep?[]:['dealValue','retainer','retainerActive']);
+    const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
     const head=cols.join(',');const body=rows.map(l=>cols.map(c=>esc(c==='stage'?sOf(l.stage,stages).label:l[c])).join(',')).join('\n');
     const blob=new Blob([head+'\n'+body],{type:'text/csv'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='proytech-leads.csv';a.click();URL.revokeObjectURL(u);
@@ -3405,7 +3500,7 @@ function Activity({leads,tasks,me,open,rep}){
    which pools they can see, which tabs they get, and whether they're active.
    The database enforces the lead-level part of this (see MIGRATION.sql);
    the tab list is a UI convenience on top of it, not a security boundary. */
-function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,me,myUid,noUsers}){
+function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,reassign,me,myUid,noUsers}){
   const [openId,setOpenId]=useState(null);
   const [adding,setAdding]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -3473,6 +3568,17 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,me
                   onClick={()=>set({tabs:toggleIn(tabs,k)})}>{label}{money&&on?' ⚠':''}</button>); })}</div>
               <div className="subcell" style={{marginTop:8}}>Dashboard is always on. Tabs marked ⚠ expose company revenue — leave them off unless you mean it. A rep can never see a tab this install has globally switched off in <b>Sections</b>.</div>
             </>}
+            {isR&&<div className="tm-reassign">
+              <span>Move every lead of theirs to</span>
+              <select defaultValue="" onChange={async e=>{ const v=e.target.value; e.target.value='';
+                if(!v) return; const to=v==='__pool'?null:users.find(x=>x.id===v);
+                if(!window.confirm(`Move every lead owned by ${u.name} to ${to?to.name:'the unclaimed pool'}? Their commission history stays with them.`)) return;
+                const n=await reassign(u,to); window.alert(n?`${n} lead${n===1?'':'s'} moved.`:'They had no leads to move.'); }}>
+                <option value="">— pick someone —</option>
+                {users.filter(x=>x.id!==u.id&&x.active!==false).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
+                <option value="__pool">The unclaimed pool</option>
+              </select>
+            </div>}
             <div className="tm-acts">
               <button className="btn btn-g btn-sm" onClick={()=>set({active:u.active===false})}>{u.active===false?<><BadgeCheck size={14}/>Reactivate</>:<><Ban size={14}/>Deactivate</>}</button>
               {u.email&&<button className="btn btn-g btn-sm" onClick={()=>reset(u.email)}><KeyRound size={14}/>Send password email</button>}
@@ -3516,15 +3622,25 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,me
   </div>);
 }
 
-function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,noUsers}){
+function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,modulesV:num(d.settings.modulesV),pools:Array.isArray(d.settings.pools)?d.settings.pools:[],leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,modulesV:num(d.settings.modulesV),pools:Array.isArray(d.settings.pools)?d.settings.pools:[],notifyEmails:d.settings.notifyEmails||'',leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
     {/* team & roles — owner-only */}
-    {isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} me={me} myUid={myUid} noUsers={noUsers}/>}
+    {isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassign={reassignLeads} me={me} myUid={myUid} noUsers={noUsers}/>}
+
+    {/* conversion alerts */}
+    {isOwner&&<div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><Bell size={15}/>Conversion alerts</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Every rep conversion always lands in <b>Awaiting onboarding</b> on your dashboard. Add addresses here and it gets emailed too.</div>
+      <div className="field full"><label>Email these people on every conversion</label>
+        <input placeholder="garrett@getproytech.com, logan@getproytech.com" value={settings.notifyEmails||''}
+          onChange={e=>saveSettings({...settings,notifyEmails:e.target.value})}/></div>
+      <div className="subcell" style={{marginTop:10}}>Email needs <b>RESEND_API_KEY</b> and <b>NOTIFY_FROM</b> set in Vercel → Settings → Environment Variables, with the sending domain verified at resend.com. Until then this quietly does nothing and the dashboard queue carries on regardless.</div>
+    </div>}
 
     {/* legacy name-based lead visibility (still drives Mine / Pool / All) */}
     {(()=>{ const people=(settings.options?.owner||OWNERS).filter(o=>o!==POOL_OWNER);
@@ -3951,9 +4067,8 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               {k:'qual',  l:'Owner',    v:draft.owner||'—'},
               {k:'qual',  l:'Type',     v:draft.businessType&&draft.businessType!=='—'?draft.businessType:'—'},
               {k:'qual',  l:'Close',    v:draft.expectedClose?fmtDate(draft.expectedClose):'—'},
-              /* reps get their commission here, never the deal value */
-              rep?(cmsnOf(draft)?{k:'mycmsn',l:'Your cut',v:usd(cmsnOf(draft).amount)}:null)
-                 :{k:'deal',l:'Deal',v:num(draft.dealValue)>0?usd(draft.dealValue):'—'},
+              {k:'deal',l:'Deal',v:num(draft.dealValue)>0?usd(draft.dealValue):'—'},
+              (rep&&cmsnOf(draft))?{k:'mycmsn',l:'Your cut',v:usd(cmsnOf(draft).amount)}:null,
               {k:'meetings',l:'Meetings',v:next?fmtDate(next.start):(bc?bc+' booked':'—'),hot:!!next},
             ].filter(Boolean);
             return (<div className="m-facts">{facts.map((f,i)=>(
@@ -4147,6 +4262,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 const patch=p=>{ setCommission&&setCommission(draft.id,p); setDraft(d=>({...d,commission:{...cmsnOf(d),...p,amount:cmsnAmount(p.base??cmsnOf(d).base,p.pct??cmsnOf(d).pct)}})); };
                 return (<div className="cmsn-box">
                   <div className="cmsn-row"><span>Rep</span><b>{c.repName||'—'}</b></div>
+                  {draft.dealValueBy&&<div className="cmsn-row"><span>Deal value entered by</span><b>{draft.dealValueBy}{draft.dealValueAt?` · ${fmtDate(String(draft.dealValueAt).slice(0,10))}`:''}</b></div>}
                   <div className="fgrid" style={{marginTop:8}}>
                     <div className="field"><label>Rate at conversion (%)</label><input type="number" min="0" step="0.5" disabled={locked} value={c.pct??0} onChange={e=>patch({pct:num(e.target.value)})}/></div>
                     <div className="field"><label>Deal value used ($)</label><input type="number" min="0" disabled={locked} value={c.base??0} onChange={e=>patch({base:num(e.target.value)})}/></div>
@@ -4161,7 +4277,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   <div className="subcell" style={{marginTop:8}}>{locked?'Approved and voided commissions are frozen — put it back to pending to edit the numbers.':'Edit the base if the deal value changed before approval. Changing this rep’s % in Settings later will NOT touch this record.'}</div>
                 </div>); })(),true)}
 
-            {!rep&&Sec('deal',<DollarSign size={13}/>,'Deal',
+            {Sec('deal',<DollarSign size={13}/>,'Deal',
               (dealSum(dealBreak)>0||num(draft.retainer)>0)?[dealSum(dealBreak)>0?usd(dealSum(dealBreak)):null,num(draft.retainer)>0?usd(draft.retainer)+'/mo':null].filter(Boolean).join(' · '):'not set',
               <>
                 <div className="fgrid">
@@ -4210,7 +4326,13 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className="ftxt">{a.text}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
               <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div>);})}
               {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
-            <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid #F0F0F6'}}><button className="btn btn-d" onClick={()=>{if(window.confirm('Delete this lead permanently?'))delLead(draft.id);}}><Trash2 size={15}/>Delete lead</button></div>
+            <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid #F0F0F6'}}>{rep
+              ? (()=>{ const lost=(stages||[]).find(x=>x.lost);
+                  return lost&&draft.stage!==lost.key
+                    ? <><button className="btn btn-g" onClick={()=>{ if(window.confirm(`Mark ${draft.name||'this lead'} as ${lost.label}? Nothing is deleted — an owner can bring it back.`)) set({stage:lost.key}); }}><Ban size={15}/>Mark {lost.label}</button>
+                        <div className="subcell" style={{marginTop:8}}>Leads are never deleted — mark it {lost.label.toLowerCase()} and it stays on the record.</div></>
+                    : <div className="subcell">Only an owner can delete a lead. Nothing here is ever lost.</div>; })()
+              : <button className="btn btn-d" onClick={()=>{if(window.confirm('Delete this lead permanently?'))delLead(draft.id);}}><Trash2 size={15}/>Delete lead</button>}</div>
           </>}
         </div>
       </div>
