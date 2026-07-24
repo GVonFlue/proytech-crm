@@ -158,6 +158,14 @@ function ScopeSeg({view,setView,counts,canAll}){
 const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox}];
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
+/* sections that can be switched off per install. Dashboard + Settings always ship. */
+const ALL_MODULES=[['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['invoices','Invoices'],['books','The Books'],['money','Money']];
+const ALWAYS_ON=['dash','settings'];
+const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
+  if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
+const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
+/* meeting types — coffee and discovery are different motions, track them apart */
+const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboarding','Check-in','Other'];
 const ACT_LABEL={Booked:'Meeting Booked'};
 const actLabel=t=>ACT_LABEL[t]||t;
 const actPlural=t=>t==='Booked'?'Booked':t+'s';
@@ -695,6 +703,27 @@ const CSS=`
 .mtg-badges{display:flex;gap:6px;margin-top:4px;flex-wrap:wrap}
 .mtg-b{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:#56527a;background:#EEF0F7;border-radius:20px;padding:2px 8px;text-decoration:none}
 .mtg-b.link{color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff)}
+.mtg-b.type{background:color-mix(in srgb,#7A5CC8 12%,#fff);color:#6A4CB8}
+.mtg-row.held{border-color:color-mix(in srgb,${GREEN} 35%,#fff);background:color-mix(in srgb,${GREEN} 4%,#fff)}
+.mtg-row.noshow{border-color:#F0C9C4;background:rgba(209,67,67,.04)}
+.mtg-status{display:flex;gap:5px;flex:none}
+.ms-b{display:inline-flex;align-items:center;gap:4px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:4px 9px;font-size:10.5px;font-weight:700;color:#8b88a0;cursor:pointer}
+.ms-b.held.on{border-color:${GREEN};background:color-mix(in srgb,${GREEN} 12%,#fff);color:#1a7d46}
+.ms-b.no.on{border-color:${RED};background:rgba(209,67,67,.1);color:#b4322e}
+.ms-b:hover{border-color:#C9C5D9}
+.mtype-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.mtype-row.sm{margin:8px 0 0}
+.mtype{border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:5px 11px;font-size:11.5px;font-weight:700;color:#56527a;cursor:pointer}
+.mtype.on{border-color:#7A5CC8;background:color-mix(in srgb,#7A5CC8 8%,#fff);color:#6A4CB8}
+.mod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.mod-row{display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE;cursor:pointer;font-size:13px;font-weight:600;color:#8b88a0}
+.mod-row.on{border-color:color-mix(in srgb,${GREEN} 30%,#fff);background:color-mix(in srgb,${GREEN} 5%,#fff);color:${INK}}
+.mod-row input{display:none}
+.mod-row span{flex:1}
+.mt-break{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:-4px 0 18px;padding:11px 15px;background:#fff;border:1px solid #EAEBF2;border-radius:12px}
+.mtb-l{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a6a2bc}
+.mtb{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#56527a;font-weight:600;background:#F5F6FB;border-radius:20px;padding:3px 11px}
+.mtb b{font-size:14px;color:${INK};font-family:'Space Grotesk',sans-serif}
 .web-fs{position:fixed;inset:0;z-index:80;background:#F4F6FB;display:flex;flex-direction:column;padding:16px 20px;animation:pop .16s ease}
 .web-fs .web-legend{flex:none;margin-bottom:8px}
 .web-fs .web-trace{flex:none}
@@ -1123,7 +1152,7 @@ export default function App(){
     if(patch.retainerActive&&!l.retainerActive&&!l.retainerStart) m.retainerStart=todayISO();
     updated=m; return m;
   })); if(updated) db.upsertLead(updated).catch(console.error); };
-  const addActivity=(id,type,text,who)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me},...l.activities]}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+  const addActivity=(id,type,text,who,mtype)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(mtype?{mtype}:{})},...l.activities]}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
@@ -1163,13 +1192,14 @@ export default function App(){
   if(!session) return <Login/>;
 
   const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  useEffect(()=>{ if(!modOn(settings,page)) setPage('dash'); },[settings,page]);
   const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <Brand logo={settings.logo} size={settings.logoSize||34} sub="Client CRM"/>
-      {NAV.map(([k,l,ic])=><button key={k} className={'nav-i '+(page===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>)}
+      {NAV.filter(([k])=>modOn(settings,k)).map(([k,l,ic])=><button key={k} className={'nav-i '+(page===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>)}
       <button className="nav-i" style={{marginTop:8,background:'rgba(43,77,224,.16)',color:'#fff'}} onClick={()=>setActiveId('new')}><Plus size={18}/>New Lead</button>
       <button className="nav-i" onClick={()=>auth.logout()}><LogOut size={18}/>Sign out ({me})</button>
       <div className="sb-foot"><b>{BRAND.tagline}</b><br/>{BRAND.taglineSub}</div>
@@ -1222,10 +1252,22 @@ function useMetrics(leads,stages){
        Month is derived in LOCAL time (isoOf) so a late-night booking doesn't
        jump into next month the way a raw UTC string would. */
     const mKey=todayISO().slice(0,7); const nowMs=Date.now();
-    let bookedAll=0,bookedMonth=0,mtgUpcoming=0;
-    leads.forEach(l=>{ (l.activities||[]).forEach(a=>{ if(a.type==='Booked'){ bookedAll++; if(a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey) bookedMonth++; } });
-      (l.meetings||[]).forEach(mt=>{ if(new Date(mt.end||mt.start).getTime()>=nowMs) mtgUpcoming++; }); });
-    return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,bookedAll,bookedMonth,mtgUpcoming};
+    let bookedAll=0,bookedMonth=0,mtgUpcoming=0,heldMonth=0,noShowMonth=0,onboardedMonth=0,depositsMonth=0;
+    const bookedByType={};
+    leads.forEach(l=>{
+      (l.activities||[]).forEach(a=>{ if(a.type==='Booked'){ bookedAll++;
+        if(a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ bookedMonth++; const t=a.mtype||'Other'; bookedByType[t]=(bookedByType[t]||0)+1; } } });
+      (l.meetings||[]).forEach(mt=>{ const st=new Date(mt.end||mt.start).getTime();
+        if(st>=nowMs) mtgUpcoming++;
+        if(mt.start&&isoOf(new Date(mt.start)).slice(0,7)===mKey){ if(mt.status==='held') heldMonth++; else if(mt.status==='noshow') noShowMonth++; } });
+      /* onboarding milestones — already captured, just never surfaced */
+      if(l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey) onboardedMonth++;
+      const dep=l.onboarding&&l.onboarding.deposit_paid&&normEntry(l.onboarding.deposit_paid).done;
+      if(dep&&String(dep).slice(0,7)===mKey) depositsMonth++;
+    });
+    const decided=heldMonth+noShowMonth; const showRate=decided>0?heldMonth/decided:0;
+    return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,
+      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,showRate,bookedByType,onboardedMonth,depositsMonth};
   },[leads,stages]);
 }
 
@@ -1328,8 +1370,14 @@ function Dashboard({leads,stages,open}){
       <Kpi label="Weighted Forecast" value={usd(m.weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
       <Kpi variant="green" label="Deals Closed" value={m.wonCount} icon={<CheckCircle2 size={14}/>} d={`${usd(m.wonValue)} setup`}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`}/>
-      <Kpi label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.bookedAll} all time · ${m.mtgUpcoming} upcoming`}/>
+      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming · ${m.bookedAll} all time`}/>
+      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldMonth+m.noShowMonth)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show`:'mark meetings held to track'}/>
+      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`}/>
     </div>
+    {Object.keys(m.bookedByType||{}).length>0&&<div className="mt-break">
+      <span className="mtb-l">Booked this month</span>
+      {Object.entries(m.bookedByType).sort((a,b)=>b[1]-a[1]).map(([t,c])=><span key={t} className="mtb"><b>{c}</b>{t}</span>)}
+    </div>}
     <div className="row r3">
       <ChartCard title="Pipeline by Stage" sub="Open leads only" empty={stageData.some(d=>d.Leads>0)?null:'No open leads yet.'}>
         <div className="chart-h"><ResponsiveContainer width="100%" height="100%"><BarChart data={stageData} margin={{top:6,right:10,left:-12,bottom:0}}>
@@ -2531,6 +2579,21 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <div className="ch-sub" style={{marginTop:12,marginBottom:0}}>Add a new salesperson under <b>Dropdown options → Owner</b> and they'll appear here. Give them <b>Own + Pool</b> and they'll only ever see their own leads plus the shared pool.</div>
     </div>); })()}
 
+    {/* modules */}
+    {(()=>{ const on=modList(settings);
+      const toggle=k=>{ const next=on.includes(k)?on.filter(x=>x!==k):[...on,k]; saveSettings({...settings,modules:next}); };
+      return (<div className="card" style={{marginBottom:18}}>
+        <div className="sec-title"><LayoutDashboard size={15}/>Sections</div>
+        <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Switch off anything this install doesn’t need — it disappears from the sidebar. Dashboard and Settings always stay. Handy when a client buys the CRM but not invoicing.</div>
+        <div className="mod-grid">{ALL_MODULES.map(([k,label])=>(
+          <label key={k} className={'mod-row'+(on.includes(k)?' on':'')}>
+            <input type="checkbox" checked={on.includes(k)} onChange={()=>toggle(k)}/>
+            <span>{label}</span>
+            {on.includes(k)?<CheckCircle2 size={15} color={GREEN}/>:<Circle size={15} color="#C9C5D9"/>}
+          </label>))}</div>
+        <div className="subcell" style={{marginTop:10}}>{on.length} of {ALL_MODULES.length} sections on. Data is never deleted — switching a section back on brings everything with it.</div>
+      </div>); })()}
+
     {/* google calendar */}
     <div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><CalendarClock size={15}/>Google Calendar</div>
@@ -2748,6 +2811,7 @@ function MeetingScheduler({lead,gcalConnected,onSchedule}){
   const [date,setDate]=useState(todayISO());
   const [time,setTime]=useState('10:00');
   const [dur,setDur]=useState(30);
+  const [mtype,setMtype]=useState('Coffee');
   const [title,setTitle]=useState('');
   const [invite,setInvite]=useState(false);
   const [meet,setMeet]=useState(false);
@@ -2762,18 +2826,19 @@ function MeetingScheduler({lead,gcalConnected,onSchedule}){
     const startDt=new Date(`${date}T${time}:00`);
     if(isNaN(startDt)){ setErr('Pick a valid date and time.'); return; }
     const endDt=new Date(startDt.getTime()+dur*60000);
-    const t=title.trim()||`Meeting with ${lead.name||lead.company||'client'}`;
+    const t=title.trim()||`${mtype} with ${lead.name||lead.company||'client'}`;
     setBusy(true);
     try{
-      await onSchedule({title:t,start:localISO(startDt),end:localISO(endDt),invited:invite&&hasEmail,attendees:(invite&&hasEmail)?[lead.email.trim()]:[],meet,notes:notes.trim()});
+      await onSchedule({title:t,mtype,start:localISO(startDt),end:localISO(endDt),invited:invite&&hasEmail,attendees:(invite&&hasEmail)?[lead.email.trim()]:[],meet,notes:notes.trim()});
       setTitle('');setNotes('');setInvite(false);setMeet(false);
     }catch(e){ setErr(e.message||'Could not schedule'); }
     setBusy(false);
   };
   return (<div className="mtg-form">
     {!gcalConnected&&<div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected. Open <b>Settings → Google Calendar</b> and hit Connect to push meetings to admin@getproytech.com.</span></div>}
+    <div className="mtype-row">{MEETING_TYPES.map(t=><button key={t} type="button" className={'mtype'+(mtype===t?' on':'')} onClick={()=>setMtype(t)}>{t}</button>)}</div>
     <div className="fgrid">
-      <div className="field full"><label>Title</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder={`Meeting with ${lead.name||lead.company||'client'}`}/></div>
+      <div className="field full"><label>Title</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder={`${mtype} with ${lead.name||lead.company||'client'}`}/></div>
       <div className="field"><label>Date</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
       <div className="field"><label>Time</label><input type="time" value={time} onChange={e=>setTime(e.target.value)}/></div>
       <div className="field"><label>Length</label><select value={dur} onChange={e=>setDur(+e.target.value)}>{[15,30,45,60,90,120].map(m=><option key={m} value={m}>{m<60?m+' min':(m/60)+' hr'+(m%60?' 30m':'')}</option>)}</select></div>
@@ -2787,19 +2852,24 @@ function MeetingScheduler({lead,gcalConnected,onSchedule}){
     <button className="btn btn-p" disabled={busy||!gcalConnected} onClick={go}>{busy?<Loader2 size={15} className="spin"/>:<CalendarClock size={15}/>}{busy?'Scheduling…':'Schedule + add to Calendar'}</button>
   </div>);
 }
-function MeetingList({meetings,onRemove}){
+function MeetingList({meetings,onRemove,onStatus}){
   const now=Date.now();
   const sorted=[...(meetings||[])].sort((a,b)=>(a.start||'').localeCompare(b.start||''));
   const upcoming=sorted.filter(m=>new Date(m.end||m.start).getTime()>=now);
   const past=sorted.filter(m=>new Date(m.end||m.start).getTime()<now).reverse();
   if(!sorted.length) return <div className="mtg-empty">No meetings yet. Schedule one below.</div>;
-  const Row=m=>(<div className="mtg-row" key={m.id}>
+  const Row=m=>(<div className={'mtg-row'+(m.status==='held'?' held':'')+(m.status==='noshow'?' noshow':'')} key={m.id}>
     <div className="mtg-when"><CalendarClock size={13}/>{fmtMeetingTime(m.start)}</div>
     <div className="mtg-mid"><div className="mtg-title">{m.title}</div><div className="mtg-badges">
+      {m.mtype&&<span className="mtg-b type">{m.mtype}</span>}
       {m.invited&&<span className="mtg-b"><UserPlus size={10}/>invited</span>}
       {m.meet&&(m.meetLink?<a className="mtg-b link" href={m.meetLink} target="_blank" rel="noreferrer"><Video size={10}/>Join</a>:<span className="mtg-b"><Video size={10}/>Meet</span>)}
       {m.htmlLink&&<a className="mtg-b link" href={m.htmlLink} target="_blank" rel="noreferrer"><Expand size={10}/>Calendar</a>}
     </div></div>
+    <div className="mtg-status">
+      <button className={'ms-b held'+(m.status==='held'?' on':'')} title="It happened" onClick={()=>onStatus&&onStatus(m,'held')}><CheckCircle2 size={12}/>Held</button>
+      <button className={'ms-b no'+(m.status==='noshow'?' on':'')} title="They didn't show" onClick={()=>onStatus&&onStatus(m,'noshow')}><X size={12}/>No-show</button>
+    </div>
     <button className="m-x" style={{width:28,height:28,flex:'none'}} title="Cancel + remove from calendar" onClick={()=>{if(window.confirm('Cancel this meeting and remove it from Google Calendar?'))onRemove(m);}}><X size={14}/></button>
   </div>);
   return (<div className="mtg-list">
@@ -2817,13 +2887,19 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
   const [firstNote,setFirstNote]=useState('');
+  const [logMtype,setLogMtype]=useState('Coffee');
   const [firstType,setFirstType]=useState('Call');
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
   const set=patch=>{if(isNew)setDraft({...draft,...patch});else{setDraft({...draft,...patch});updateLead(draft.id,patch);}};
-  const doSchedule=async(m)=>{ const ev=await createCalendarEvent(m); const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',createdAt:new Date().toISOString()};
-    const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',text:`Meeting booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
+  const doSchedule=async(m)=>{ const ev=await createCalendarEvent(m); const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',createdAt:new Date().toISOString()};
+    const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',mtype:m.mtype||'Other',text:`${m.mtype||'Meeting'} booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
     set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])]}); return meeting; };
   const doRemove=async(mt)=>{ await deleteCalendarEvent(mt.eventId); set({meetings:(draft.meetings||[]).filter(x=>x.id!==mt.id)}); };
+  /* did it actually happen? booked is a promise, held is the result. */
+  const doStatus=(mt,status)=>{ const next=(draft.meetings||[]).map(x=>x.id===mt.id?{...x,status:x.status===status?'':status}:x);
+    const was=(draft.meetings||[]).find(x=>x.id===mt.id); const flip=was&&was.status===status;
+    const act=flip?null:{id:uid(),ts:new Date().toISOString(),type:'Meeting',text:`${status==='held'?'Met':'No-show'}: ${mt.title}`,who:me};
+    set(act?{meetings:next,activities:[act,...(draft.activities||[])]}:{meetings:next}); };
   const setCustom=(id,v)=>set({custom:{...(draft.custom||{}),[id]:v}});
   const toggleSvc=s=>{const cur=draft.serviceInterest||[];set({serviceInterest:cur.includes(s)?cur.filter(x=>x!==s):[...cur,s]});};
   const addCustomAction=()=>{const v=window.prompt('New Next Action:');if(v&&v.trim()){addOption('nextAction',v.trim());set({nextAction:v.trim()});}};
@@ -2852,7 +2928,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
       {isOpen&&<div className="msec-b">{body}</div>}
     </div>);
   };
-  const logIt=()=>{const t=atext.trim()||(atype==='Booked'?'Meeting booked.':'');if(!t)return;addActivity(draft.id,atype,t,who);setAtext('');};
+  const logIt=()=>{const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:'');if(!t)return;addActivity(draft.id,atype,t,who,atype==='Booked'?logMtype:undefined);setAtext('');};
   const create=()=>{
     if(!draft.name.trim()){window.alert('Add a name first.');return;}
     const ts=new Date().toISOString();
@@ -2991,7 +3067,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {Sec('meetings',<CalendarClock size={13}/>,'Meetings',
               (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
               <>
-                <MeetingList meetings={draft.meetings} onRemove={doRemove}/>
+                <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus}/>
                 <MeetingScheduler lead={draft} gcalConnected={gcalConnected} onSchedule={doSchedule}/>
               </>, (draft.meetings||[]).some(m=>new Date(m.end||m.start).getTime()>=Date.now()))}
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
@@ -3098,6 +3174,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
           {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
             <div className="dh"><MessageSquare size={13}/>Activity Log</div>
             <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
+            {atype==='Booked'&&<div className="mtype-row sm">{MEETING_TYPES.map(t=><button key={t} type="button" className={'mtype'+(logMtype===t?' on':'')} onClick={()=>setLogMtype(t)}>{t}</button>)}</div>}
             <textarea className="act-input" placeholder={atype==='Booked'?"Who with / when? Optional — just hit Log Meeting Booked":`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
               <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>
