@@ -11,7 +11,7 @@ import {
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
   BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
-  Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap
+  Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -159,13 +159,89 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['invoices','Invoices'],['books','The Books'],['money','Money']];
+const ALL_MODULES=[['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['invoices','Invoices'],['books','The Books'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
 const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
 /* meeting types — coffee and discovery are different motions, track them apart */
 const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboarding','Check-in','Other'];
+/* ---- Monday Morning Huddle -------------------------------------------------
+   Everything here is plain arithmetic on data already captured. The AI only
+   ever sees the finished digest, never the database. */
+const startOfWeek=d=>{ const x=new Date(d); const dow=(x.getDay()+6)%7; x.setDate(x.getDate()-dow); x.setHours(0,0,0,0); return x; };
+/* the last COMPLETE Mon-Sun, which is what you actually review on a Monday */
+const lastWeekRange=(now=new Date())=>{ const thisMon=startOfWeek(now);
+  const start=new Date(thisMon); start.setDate(thisMon.getDate()-7);
+  const end=new Date(thisMon); end.setMilliseconds(-1);
+  return {start,end,key:isoOf(start)}; };
+const shiftWeek=(r,weeks)=>{ const start=new Date(r.start); start.setDate(start.getDate()-7*weeks);
+  const end=new Date(r.end); end.setDate(end.getDate()-7*weeks); return {start,end,key:isoOf(start)}; };
+const inRange=(ts,r)=>{ if(!ts) return false; const t=new Date(String(ts).length<=10?ts+'T12:00:00':ts).getTime();
+  return !isNaN(t)&&t>=r.start.getTime()&&t<=r.end.getTime(); };
+const pctChange=(a,b)=>b===0?(a>0?null:0):Math.round((a-b)/b*100);
+
+/* one week's worth of counts */
+function weekSlice(leads,tasks,stages,r){
+  const acts={}; let booked=0,held=0,noshow=0,newLeads=0,closed=0,closedValue=0,onboarded=0,deposits=0,fuCleared=0,fuOnTime=0;
+  const bookedByType={}; const moves=[]; const wonNames=[]; const newClientNames=[];
+  (leads||[]).forEach(l=>{
+    const nm=l.company||l.name||'(unnamed)';
+    if(inRange(l.createdAt,r)) newLeads++;
+    if(sOf(l.stage,stages).won&&inRange(l.closedAt,r)){ closed++; closedValue+=num(l.dealValue); wonNames.push(nm+' ('+usd(l.dealValue)+')'); }
+    if(l.isClient&&inRange(l.convertedAt,r)){ onboarded++; newClientNames.push(nm); }
+    const dep=normEntry((l.onboarding||{}).deposit_paid).done; if(inRange(dep,r)) deposits++;
+    (l.activities||[]).forEach(a=>{ if(!inRange(a.ts,r))return;
+      const sys=a.text==='Lead created.'||(typeof a.text==='string'&&a.text.startsWith('Stage moved:'));
+      if(!sys) acts[a.type]=(acts[a.type]||0)+1;   // system notes aren't work done
+      if(a.type==='Booked'){ booked++; const t=a.mtype||'untyped'; bookedByType[t]=(bookedByType[t]||0)+1; }
+      if(a.fuOnTime!==undefined){ fuCleared++; if(a.fuOnTime) fuOnTime++; }
+      if(typeof a.text==='string'&&a.text.startsWith('Stage moved:')) moves.push(nm+': '+a.text.replace('Stage moved: ',''));
+    });
+    (l.meetings||[]).forEach(mt=>{ if(!inRange(mt.start,r))return; if(mt.status==='held')held++; else if(mt.status==='noshow')noshow++; });
+  });
+  const done=(tasks||[]).filter(t=>t.done&&inRange(t.doneAt,r));
+  const touches=(acts.Call||0)+(acts.Text||0)+(acts.Email||0)+(acts.Meeting||0);
+  return {activityCounts:acts,touches,booked,bookedByType,held,noshow,newLeads,closed,closedValue,onboarded,deposits,
+    fuCleared,fuOnTime,stageMoves:moves,wonNames,newClientNames,tasksDone:done.length,taskTitles:done.map(t=>t.title).slice(0,15)};
+}
+
+/* the full packet the huddle page renders and the AI interprets */
+function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
+  const r=lastWeekRange(now), p=shiftWeek(r,1);
+  const cur=weekSlice(leads,tasks,stages,r), prev=weekSlice(leads,tasks,stages,p);
+  const G=goalsOf(settings); const mKey=isoOf(now).slice(0,7);
+  let mtdBooked=0,mtdClosed=0,mtdRevenue=0,mtdOnboarded=0;
+  (leads||[]).forEach(l=>{
+    (l.activities||[]).forEach(a=>{ if(a.type==='Booked'&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey) mtdBooked++; });
+    if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){ mtdClosed++; mtdRevenue+=num(l.dealValue); }
+    if(l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey) mtdOnboarded++;
+  });
+  const openLeads=(leads||[]).filter(l=>sOf(l.stage,stages).open);
+  const overdue=(leads||[]).filter(l=>l.followUp&&daysUntil(l.followUp)<0&&sOf(l.stage,stages).open)
+    .sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
+  const cold=coldList(rels||[]).slice(0,8);
+  const stalled=openLeads.map(l=>({l,d:daysSince(lastTouchTs(l)||l.createdAt||new Date().toISOString())}))
+    .filter(x=>x.d>=14).sort((a,b)=>b.d-a.d).slice(0,8);
+  const untouched=(leads||[]).filter(l=>!(l.activities||[]).some(REAL_TOUCH));
+  return {
+    period:{from:isoOf(r.start),to:isoOf(r.end),label:fmtDate(isoOf(r.start))+' – '+fmtDate(isoOf(r.end))},
+    lastWeek:cur, weekBefore:prev,
+    pipeline:{openDeals:openLeads.length,openValue:Math.round(openLeads.reduce((a,l)=>a+num(l.dealValue),0)),
+      weighted:Math.round(openLeads.reduce((a,l)=>a+num(l.dealValue)*num(sOf(l.stage,stages).prob),0)),
+      mrr:Math.round((leads||[]).filter(l=>l.retainerActive).reduce((a,l)=>a+num(l.retainer),0))},
+    monthToDate:{month:mKey,dayOfMonth:now.getDate(),pctOfMonthElapsed:Math.round(monthPace(now)*100),
+      booked:mtdBooked,closed:mtdClosed,revenue:mtdRevenue,onboarded:mtdOnboarded,
+      goals:{booked:G.booked,closed:G.closed,onboarded:G.onboarded,revenue:G.revenue,mrr:G.mrr}},
+    slipping:{
+      overdueFollowUps:overdue.slice(0,8).map(l=>({who:l.company||l.name,daysLate:Math.abs(daysUntil(l.followUp)),plan:l.nextSteps||l.nextAction||''})),
+      overdueTotal:overdue.length,
+      coldRelationships:cold.map(x=>({who:x.r.company||x.r.name,tier:tierMeta(x.tier)[1],daysSinceTouch:x.days>=9999?null:x.days})),
+      stalledDeals:stalled.map(x=>({who:x.l.company||x.l.name,value:num(x.l.dealValue),stage:sOf(x.l.stage,stages).label,daysSinceTouch:x.d})),
+      neverContacted:untouched.length,
+    },
+  };
+}
 /* monthly targets. 0 or missing = no goal, so nothing renders. */
 const DEFAULT_GOALS={booked:0,closed:0,onboarded:0,revenue:0,mrr:0};
 const GOAL_FIELDS=[
@@ -784,6 +860,52 @@ const CSS=`
 .mtg-type{border:1px solid #E4E5EF;border-radius:20px;padding:4px 9px;font-size:11.5px;font-weight:700;color:#6A4CB8;background:color-mix(in srgb,#7A5CC8 8%,#fff);cursor:pointer;flex:none}
 ".mtg-type.unset{color:#C05A1E;background:color-mix(in srgb,#E0662B 9%,#fff);border-color:#F0C09B}
 .kgroup{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#a6a2bc;margin:2px 0 9px}
+.hud-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.hud-t{font-size:21px;font-weight:800;color:${INK};font-family:'Space Grotesk',sans-serif}
+.hud-d{font-size:12.5px;color:#8b88a0;font-weight:600;margin-top:3px}
+.hud-empty{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;background:#fff;border:1px dashed #DCDEEA;border-radius:14px;padding:30px 22px;margin-bottom:20px}
+.hud-empty svg{color:${COBALT}}
+.hud-empty b{font-size:15px;color:${INK}}
+.hud-empty span{font-size:13px;color:#8b88a0;max-width:460px;line-height:1.5}
+.hud-brief{background:linear-gradient(135deg,${INDIGO},${INK});border-radius:16px;padding:22px 24px;margin-bottom:22px;color:#fff}
+.hb-head{font-size:20px;font-weight:800;line-height:1.3;font-family:'Space Grotesk',sans-serif}
+.hb-read{font-size:14px;line-height:1.6;color:rgba(255,255,255,.82);margin:10px 0 0}
+.hb-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+.hb-col{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:11px;padding:13px 15px}
+.hb-ct{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.62);margin-bottom:8px}
+.hb-col.win .hb-ct{color:#8FE3B4}
+.hb-col.warn .hb-ct{color:#F5C08E}
+.hb-li{font-size:13px;line-height:1.5;color:rgba(255,255,255,.9);padding:4px 0}
+.hb-li+.hb-li{border-top:1px solid rgba(255,255,255,.08)}
+.hb-focus{margin-top:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:11px;padding:13px 15px}
+.hb-focus .hb-ct{color:#BFC8FF}
+.hb-f{padding:6px 0;font-size:13px;line-height:1.5}
+.hb-f+.hb-f{border-top:1px solid rgba(255,255,255,.08)}
+.hb-f b{display:block;color:#fff;font-weight:700}
+.hb-f span{color:rgba(255,255,255,.72)}
+.hb-proj{display:flex;align-items:flex-start;gap:8px;margin-top:14px;font-size:13px;line-height:1.55;color:rgba(255,255,255,.85);background:rgba(255,255,255,.07);border-radius:11px;padding:12px 15px}
+.hb-proj svg{flex:none;margin-top:2px;color:${GOLD}}
+.hb-when{margin-top:12px;font-size:11px;color:rgba(255,255,255,.45)}
+.hstats{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:11px;margin-bottom:20px}
+.hstat{background:#fff;border:1px solid #EAEBF2;border-radius:12px;padding:13px 15px}
+.hs-l{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#a6a2bc}
+.hs-v{display:flex;align-items:baseline;gap:8px;font-size:23px;font-weight:800;color:${INK};margin:5px 0 2px;font-family:'Space Grotesk',sans-serif}
+.hs-p{font-size:11px;color:#b7b4c6}
+.dl{font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:20px}
+.dl.up{background:color-mix(in srgb,${GREEN} 14%,#fff);color:#1a7d46}
+.dl.down{background:rgba(209,67,67,.11);color:#b4322e}
+.dl.flat{background:#F0F1F7;color:#8b88a0}
+.hlist{display:flex;flex-direction:column;gap:6px;margin-top:4px;max-height:330px;overflow-y:auto}
+.hli{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#56527a;padding:7px 10px;border-radius:9px;background:#FAFAFE;line-height:1.4}
+.hli svg{flex:none;color:#a6a2bc}
+.hli.win{background:color-mix(in srgb,${GREEN} 7%,#fff);color:#1a7d46}
+.hli.win svg{color:${GREEN}}
+.hli.bad{background:rgba(209,67,67,.06);color:#b4322e}
+.hli.bad svg{color:${RED}}
+.hli.warn{background:color-mix(in srgb,#E0662B 6%,#fff);color:#9a5a16}
+.hli.warn svg{color:#E0662B}
+.hli.done{color:#8b88a0}
+@media(max-width:820px){.hb-cols{grid-template-columns:1fr}}
 .kgoal{margin-top:9px}
 .kgbar{height:5px;border-radius:20px;background:rgba(24,21,48,.09);overflow:hidden}
 .kgbar div{height:100%;border-radius:20px;transition:width .35s}
@@ -1199,7 +1321,7 @@ export default function App(){
       if(mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
       if(mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},modules:Array.isArray(st.modules)?st.modules:undefined,leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,modules:Array.isArray(st.modules)?st.modules:undefined,leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -1290,12 +1412,12 @@ export default function App(){
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>{BRAND.title}</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it, fall back to the
      dashboard. Computed during render — deliberately NOT a hook, because this
      sits after the auth early-returns above. */
   const view=modOn(settings,page)?page:'dash';
-  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const titles={dash:['Dashboard','The whole board at a glance'],huddle:['Monday Morning Huddle','Last week, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
@@ -1316,6 +1438,7 @@ export default function App(){
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
+          view==='huddle'?<Huddle leads={bizLeads} tasks={tasks} settings={settings} stages={stages} rels={leads.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead} tagBooked={tagBooked} rels={leads.filter(l=>l.isRelationship)} settings={settings}/>:
           view==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity}/>:
           view==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks} open={openLead}/>:
@@ -2782,7 +2905,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
     {/* team access */}
@@ -3447,6 +3570,119 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
 }
 
 /* ===================== shared ===================== */
+function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
+  const H=useMemo(()=>buildHuddle(leads,tasks,settings,stages,rels),[leads,tasks,settings,stages,rels]);
+  const saved=(settings&&settings.huddle)||null;
+  const fresh=saved&&saved.weekKey===H.period.from?saved:null;
+  const [brief,setBrief]=useState(fresh?fresh.brief:null);
+  const [busy,setBusy]=useState(false); const [err,setErr]=useState('');
+  useEffect(()=>{ setBrief(fresh?fresh.brief:null); },[H.period.from,saved&&saved.weekKey]);
+  const cur=H.lastWeek, prev=H.weekBefore;
+  const write=async()=>{ setErr(''); setBusy(true);
+    try{
+      const r=await fetch('/api/huddle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({digest:H,brand:BRAND.name})});
+      const j=await r.json();
+      if(!j.ok) throw new Error(j.error||'could not write the huddle');
+      setBrief(j.brief);
+      saveSettings({...settings,huddle:{weekKey:H.period.from,brief:j.brief,generatedAt:new Date().toISOString(),by:me}});
+    }catch(e){ setErr(e.message||'something went wrong'); }
+    setBusy(false); };
+  const Delta=({a,b,money})=>{ const c=pctChange(a,b);
+    if(c===null) return <span className="dl up">new</span>;
+    if(c===0) return <span className="dl flat">flat</span>;
+    return <span className={'dl '+(c>0?'up':'down')}>{c>0?'▲':'▼'} {Math.abs(c)}%</span>; };
+  const Stat=({label,value,a,b,money})=>(<div className="hstat">
+    <div className="hs-l">{label}</div>
+    <div className="hs-v">{value}<Delta a={a} b={b}/></div>
+    <div className="hs-p">was {money?usd(b):b}</div>
+  </div>);
+  const copyText=()=>{
+    const L=[];
+    L.push(`MONDAY MORNING HUDDLE — ${H.period.label}`);
+    if(brief){ L.push(''); L.push(brief.headline); L.push(''); L.push(brief.readout);
+      if(brief.wins.length){L.push('');L.push('WINS');brief.wins.forEach(w=>L.push('• '+w));}
+      if(brief.concerns.length){L.push('');L.push('WATCH');brief.concerns.forEach(w=>L.push('• '+w));}
+      if(brief.focus.length){L.push('');L.push('FOCUS THIS WEEK');brief.focus.forEach((f,i)=>L.push(`${i+1}. ${f.title} — ${f.why}`));}
+      if(brief.projection){L.push('');L.push('PROJECTION');L.push(brief.projection);} }
+    L.push(''); L.push('LAST WEEK');
+    L.push(`• ${cur.booked} meetings booked (was ${prev.booked})`);
+    L.push(`• ${cur.held} held, ${cur.noshow} no-show`);
+    L.push(`• ${cur.touches} touches (was ${prev.touches})`);
+    L.push(`• ${cur.newLeads} new leads (was ${prev.newLeads})`);
+    L.push(`• ${cur.closed} closed, ${usd(cur.closedValue)} (was ${prev.closed})`);
+    L.push(`• ${cur.tasksDone} tasks done (was ${prev.tasksDone})`);
+    if(H.slipping.overdueTotal) L.push(`• ${H.slipping.overdueTotal} follow-ups overdue`);
+    try{ navigator.clipboard.writeText(L.join('\n')); }catch{}
+  };
+  return (<>
+    <div className="hud-top">
+      <div>
+        <div className="hud-t">Monday Morning Huddle</div>
+        <div className="hud-d">{H.period.label} · last full week</div>
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <button className="btn btn-g btn-sm" onClick={copyText}><Clipboard size={14}/>Copy</button>
+        <button className="btn btn-p" disabled={busy} onClick={write}>{busy?<Loader2 size={15} className="spin"/>:<Sparkles size={15}/>}{busy?'Reading the week…':brief?'Rewrite':'Write the huddle'}</button>
+      </div>
+    </div>
+    {err&&<div className="mtg-warn"><AlertTriangle size={13}/><span>{err}</span></div>}
+
+    {brief?(<div className="hud-brief">
+      <div className="hb-head">{brief.headline}</div>
+      <p className="hb-read">{brief.readout}</p>
+      <div className="hb-cols">
+        {brief.wins.length>0&&<div className="hb-col win"><div className="hb-ct"><CheckCircle2 size={13}/>Wins</div>{brief.wins.map((w,i)=><div className="hb-li" key={i}>{w}</div>)}</div>}
+        {brief.concerns.length>0&&<div className="hb-col warn"><div className="hb-ct"><AlertTriangle size={13}/>Watch</div>{brief.concerns.map((w,i)=><div className="hb-li" key={i}>{w}</div>)}</div>}
+      </div>
+      {brief.focus.length>0&&<div className="hb-focus">
+        <div className="hb-ct"><Target size={13}/>Focus this week</div>
+        {brief.focus.map((f,i)=><div className="hb-f" key={i}><b>{i+1}. {f.title}</b><span>{f.why}</span></div>)}
+      </div>}
+      {brief.projection&&<div className="hb-proj"><Zap size={13}/><span>{brief.projection}</span></div>}
+      {fresh&&<div className="hb-when">Written {fmtStamp(fresh.generatedAt)}{fresh.by?` · ${fresh.by}`:''}</div>}
+    </div>):(<div className="hud-empty">
+      <Sparkles size={22}/><b>Nothing written for this week yet</b>
+      <span>The numbers below are live. Hit <b>Write the huddle</b> and Claude reads the whole week and tells you what it means.</span>
+    </div>)}
+
+    <div className="kgroup">Last week by the numbers</div>
+    <div className="hstats">
+      <Stat label="Meetings booked" value={cur.booked} a={cur.booked} b={prev.booked}/>
+      <Stat label="Meetings held" value={cur.held} a={cur.held} b={prev.held}/>
+      <Stat label="Touches" value={cur.touches} a={cur.touches} b={prev.touches}/>
+      <Stat label="New leads" value={cur.newLeads} a={cur.newLeads} b={prev.newLeads}/>
+      <Stat label="Deals closed" value={cur.closed} a={cur.closed} b={prev.closed}/>
+      <Stat label="Revenue closed" value={usd(cur.closedValue)} a={cur.closedValue} b={prev.closedValue} money/>
+      <Stat label="Tasks done" value={cur.tasksDone} a={cur.tasksDone} b={prev.tasksDone}/>
+      <Stat label="Clients onboarded" value={cur.onboarded} a={cur.onboarded} b={prev.onboarded}/>
+    </div>
+
+    <div className="r2">
+      <div className="card">
+        <h3>What moved</h3>
+        <div className="ch-sub">Deals, clients and work that changed last week</div>
+        {(cur.stageMoves.length||cur.wonNames.length||cur.newClientNames.length||cur.taskTitles.length)?(<div className="hlist">
+          {cur.wonNames.map((w,i)=><div className="hli win" key={'w'+i}><CheckCircle2 size={13}/>Closed — {w}</div>)}
+          {cur.newClientNames.map((w,i)=><div className="hli win" key={'c'+i}><Rocket size={13}/>New client — {w}</div>)}
+          {cur.stageMoves.slice(0,8).map((w,i)=><div className="hli" key={'s'+i}><ArrowUpRight size={13}/>{w}</div>)}
+          {cur.taskTitles.slice(0,8).map((w,i)=><div className="hli done" key={'t'+i}><ListTodo size={13}/>{w}</div>)}
+        </div>):<div className="empty">Quiet week — nothing changed stage.</div>}
+      </div>
+      <div className="card">
+        <h3>What's slipping</h3>
+        <div className="ch-sub">Right now, not last week — this is the to-do list</div>
+        <div className="hlist">
+          {H.slipping.overdueFollowUps.map((o,i)=><div className="hli bad" key={'o'+i}><Bell size={13}/><span onClick={()=>open&&open()}>{o.who}</span> — {o.daysLate}d overdue</div>)}
+          {H.slipping.coldRelationships.map((o,i)=><div className="hli warn" key={'k'+i}><Users size={13}/>{o.who} — {o.daysSinceTouch==null?'never touched':o.daysSinceTouch+'d since contact'} ({o.tier})</div>)}
+          {H.slipping.stalledDeals.map((o,i)=><div className="hli warn" key={'d'+i}><KanbanSquare size={13}/>{o.who} — {o.daysSinceTouch}d cold in {o.stage}{o.value?` · ${usd(o.value)}`:''}</div>)}
+          {H.slipping.neverContacted>0&&<div className="hli bad"><Zap size={13}/>{H.slipping.neverContacted} lead{H.slipping.neverContacted===1?'':'s'} never contacted</div>}
+          {!H.slipping.overdueFollowUps.length&&!H.slipping.coldRelationships.length&&!H.slipping.stalledDeals.length&&!H.slipping.neverContacted&&<div className="empty">Nothing slipping. Clean board.</div>}
+        </div>
+      </div>
+    </div>
+  </>);
+}
+
 function Kpi({label,value,d,variant,icon,onClick,active,goal,current}){
   return (<div className={'kpi '+(variant||'')+(onClick?' clickable':'')+(active?' active':'')} onClick={onClick} role={onClick?'button':undefined}>
     <div className="kl">{icon}{label}{onClick&&<ChevronDown size={13} className={'kpi-ch'+(active?' on':'')}/>}</div>
