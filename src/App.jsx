@@ -1284,6 +1284,7 @@ const CSS=`
 .fu-done h2{font-family:'Space Grotesk';font-size:24px;color:${INK};margin:14px 0 6px}
 .fu-done p{font-size:14px;color:#6a6788;max-width:420px;line-height:1.5}
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
+.linkbtn.q:hover{color:${COBALT}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
 .rmap-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(152px,1fr);gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:18px}
@@ -1418,15 +1419,92 @@ const Brand=({logo,sub,size})=>(<div className="sb-brand">{logo?<img src={logo} 
 /* ===================== login ===================== */
 function Login(){
   const [u,setU]=useState('');const [p,setP]=useState('');const [err,setErr]=useState('');const [busy,setBusy]=useState(false);
-  const go=async()=>{ if(!u||!p){setErr('Enter your username and password.');return;} setBusy(true);setErr(''); try{ const {error}=await auth.login(u,p); if(error)setErr('Wrong username or password.'); }catch(e){ setErr('Could not sign in. Check your connection.'); } setBusy(false); };
+  const [mode,setMode]=useState('in');   // 'in' | 'forgot'
+  const [sent,setSent]=useState('');
+  const go=async()=>{ if(!u||!p){setErr('Enter your email and password.');return;} setBusy(true);setErr(''); try{ const {error}=await auth.login(u,p); if(error)setErr('Wrong email or password.'); }catch(e){ setErr('Could not sign in. Check your connection.'); } setBusy(false); };
+  const forgot=async()=>{ const em=u.trim(); if(!em.includes('@')){ setErr('Type the email address you sign in with.'); return; }
+    setBusy(true); setErr('');
+    try{ await auth.sendReset(em); setSent(em); }catch(e){ setErr(e.message||'Could not send that email.'); }
+    setBusy(false); };
+  if(sent) return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
+    <span className="nucleus" style={{width:18,height:18,margin:'0 auto 12px',display:'block'}}/>
+    <h2>Check your email</h2>
+    <p style={{lineHeight:1.5}}>We sent a link to <b>{sent}</b>. Open it and you'll be asked to choose a new password.</p>
+    <button className="btn btn-g" style={{width:'100%',justifyContent:'center'}} onClick={()=>{setSent('');setMode('in');setP('');}}>Back to sign in</button>
+  </div></div></>);
   return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
     <span className="nucleus" style={{width:18,height:18,margin:'0 auto 12px',display:'block'}}/>
-    <h2>{BRAND.title}</h2><p>Sign in</p>
-    <input placeholder="Username" value={u} autoFocus autoCapitalize="none" autoCorrect="off" onChange={e=>{setU(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&go()}/>
-    <input type="password" placeholder="Password" value={p} onChange={e=>{setP(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&go()}/>
+    <h2>{BRAND.title}</h2><p>{mode==='forgot'?'Reset your password':'Sign in'}</p>
+    <input placeholder="Email" value={u} autoFocus autoCapitalize="none" autoCorrect="off" onChange={e=>{setU(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&(mode==='forgot'?forgot():go())}/>
+    {mode==='in'&&<input type="password" placeholder="Password" value={p} onChange={e=>{setP(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&go()}/>}
     {err&&<div className="gate-err">{err}</div>}
-    <button className="btn btn-p" style={{width:'100%',justifyContent:'center'}} disabled={busy} onClick={go}><Lock size={15}/>{busy?'Signing in…':'Sign in'}</button>
+    {mode==='in'
+      ? <><button className="btn btn-p" style={{width:'100%',justifyContent:'center'}} disabled={busy} onClick={go}><Lock size={15}/>{busy?'Signing in…':'Sign in'}</button>
+          <button className="linkbtn q" style={{marginTop:12}} onClick={()=>{setMode('forgot');setErr('');}}>Forgot your password?</button></>
+      : <><button className="btn btn-p" style={{width:'100%',justifyContent:'center'}} disabled={busy} onClick={forgot}><KeyRound size={15}/>{busy?'Sending…':'Email me a reset link'}</button>
+          <button className="linkbtn q" style={{marginTop:12}} onClick={()=>{setMode('in');setErr('');}}>Back to sign in</button></>}
   </div></div></>);
+}
+
+/* ===================== choose a password =====================
+   Where a reset link lands. Supabase hands us a live session from the link,
+   which is NOT the same as having a password — until they set one, the only
+   way back in is another email. So this screen is a gate, not an option. */
+function SetPassword({email,onDone,firstTime}){
+  const [p1,setP1]=useState('');const [p2,setP2]=useState('');const [err,setErr]=useState('');const [busy,setBusy]=useState(false);
+  const save=async()=>{
+    if(p1.length<8){ setErr('Use at least 8 characters.'); return; }
+    if(p1!==p2){ setErr('Those two don\'t match.'); return; }
+    setBusy(true); setErr('');
+    try{ await auth.setPassword(p1); onDone&&onDone(); }
+    catch(e){ setErr(e.message||'Could not save that password.'); setBusy(false); }
+  };
+  return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
+    <span className="nucleus" style={{width:18,height:18,margin:'0 auto 12px',display:'block'}}/>
+    <h2>{firstTime?'Set your password':'Choose a new password'}</h2>
+    <p style={{lineHeight:1.5}}>{email?<>for <b>{email}</b></>:'This is what you\'ll sign in with from now on.'}</p>
+    <input type="password" placeholder="New password" autoFocus value={p1} onChange={e=>{setP1(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&save()}/>
+    <input type="password" placeholder="Type it again" value={p2} onChange={e=>{setP2(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&save()}/>
+    {err&&<div className="gate-err">{err}</div>}
+    <button className="btn btn-p" style={{width:'100%',justifyContent:'center'}} disabled={busy} onClick={save}><KeyRound size={15}/>{busy?'Saving…':'Save password & continue'}</button>
+    <button className="linkbtn" style={{marginTop:12}} onClick={()=>auth.logout()}>Sign out instead</button>
+  </div></div></>);
+}
+
+/* ===================== my account (everyone, including reps) ===================== */
+function AccountModal({name,email,role,onClose}){
+  const [p1,setP1]=useState('');const [p2,setP2]=useState('');const [err,setErr]=useState('');const [ok,setOk]=useState(false);const [busy,setBusy]=useState(false);
+  const save=async()=>{
+    if(p1.length<8){ setErr('Use at least 8 characters.'); return; }
+    if(p1!==p2){ setErr('Those two don\'t match.'); return; }
+    setBusy(true); setErr('');
+    try{ await auth.setPassword(p1); setOk(true); setP1(''); setP2(''); }
+    catch(e){ setErr(e.message||'Could not change it.'); }
+    setBusy(false);
+  };
+  return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal" style={{maxWidth:460}} onMouseDown={e=>e.stopPropagation()}>
+      <div className="m-head"><div><h2>My account</h2><div className="meta">{role==='owner'?'Owner':'Sales Rep'}</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
+      <div style={{padding:'4px 22px 22px'}}>
+        <div className="fgrid">
+          <div className="field"><label>Name</label><input value={name||''} disabled/></div>
+          <div className="field"><label>Sign-in email</label><input value={email||''} disabled/></div>
+        </div>
+        <div className="tm-sub">Change your password</div>
+        <div className="fgrid">
+          <div className="field"><label>New password</label><input type="password" value={p1} onChange={e=>{setP1(e.target.value);setErr('');setOk(false);}}/></div>
+          <div className="field"><label>Type it again</label><input type="password" value={p2} onChange={e=>{setP2(e.target.value);setErr('');setOk(false);}} onKeyDown={e=>e.key==='Enter'&&save()}/></div>
+        </div>
+        {err&&<div className="note bad" style={{marginTop:12}}>{err}</div>}
+        {ok&&<div className="note" style={{marginTop:12}}><b>Password changed.</b> Use it next time you sign in.</div>}
+        <div className="tm-acts">
+          <button className="btn btn-p btn-sm" disabled={busy} onClick={save}><KeyRound size={14}/>{busy?'Saving…':'Save password'}</button>
+          <button className="btn btn-g btn-sm" onClick={onClose}>Close</button>
+        </div>
+        <div className="subcell" style={{marginTop:10}}>Name and email are set by an owner in Settings → Team.</div>
+      </div>
+    </div>
+  </div>);
 }
 
 /* ===================== main ===================== */
@@ -1459,6 +1537,10 @@ export default function App(){
      a hook added below an early return blanks the app the moment someone
      signs in ("Rendered more hooks than during the previous render"). ---- */
   const [users,setUsers]=useState([]);
+  /* arrived from a password-reset link? checked from the URL on the very first
+     render, because supabase-js consumes the fragment as soon as it boots. */
+  const [recovery,setRecovery]=useState(()=>auth.isRecoveryUrl&&auth.isRecoveryUrl());
+  const [acct,setAcct]=useState(false);
   const [who,setWho]=useState(null);           // {role,active,setup,…} straight from the DB
   const [board,setBoard]=useState(null);       // leaderboard rows from the DB function
   const [celebrate,setCelebrate]=useState(null); // {amount,name} — the one restrained moment
@@ -1472,7 +1554,7 @@ export default function App(){
 
   useEffect(()=>{ const ok=s=>{sessionResolved.current=true;setSession(s||null);};
     auth.session().then(ok).catch(()=>ok(null));
-    const {data:sub}=auth.onChange(ok);
+    const {data:sub}=auth.onChange((s,e)=>{ if(e==='PASSWORD_RECOVERY') setRecovery(true); ok(s); });
     const wd=setTimeout(()=>{ if(!sessionResolved.current) setBootErr(true); },8000);
     return ()=>{clearTimeout(wd);sub?.subscription?.unsubscribe?.();}; },[]);
 
@@ -1691,6 +1773,11 @@ export default function App(){
   </div></div></>);
   if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>{BRAND.title}</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
+  /* A reset link signs them in without them knowing a password. Until they
+     choose one, this is the only screen they get — otherwise they'd land in
+     the app and be locked out again the moment the session expired. */
+  if(recovery) return <SetPassword email={auth.email(session)} firstTime={!users.length}
+    onDone={()=>{ setRecovery(false); try{ window.history.replaceState({},'',window.location.pathname+window.location.search); }catch{} }}/>;
   /* deactivated by an owner — their data stays, their access doesn't */
   if(blocked) return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
     <span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/>
@@ -1729,6 +1816,7 @@ export default function App(){
       <Brand logo={settings.logo} size={settings.logoSize||34} sub={rep?'Sales':'Client CRM'}/>
       {NAV.filter(([k])=>canSee(k)).map(([k,l,ic])=><button key={k} className={'nav-i '+(view===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>)}
       <button className="nav-i" style={{marginTop:8,background:'rgba(43,77,224,.16)',color:'#fff'}} onClick={()=>setActiveId('new')}><Plus size={18}/>New Lead</button>
+      <button className="nav-i" onClick={()=>{setAcct(true);setSbOpen(false);}}><KeyRound size={18}/>My account</button>
       <button className="nav-i" onClick={()=>auth.logout()}><LogOut size={18}/>Sign out ({me})</button>
       <div className="sb-foot"><b>{BRAND.tagline}</b><br/>{BRAND.taglineSub}</div>
     </aside>
@@ -1759,6 +1847,7 @@ export default function App(){
             isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} noUsers={noUsers}/>}
       </div>
     </div>
+    {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
     {celebrate&&<Celebration data={celebrate} onDone={()=>setCelebrate(null)}/>}
     {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
