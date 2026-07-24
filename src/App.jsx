@@ -11,7 +11,7 @@ import {
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
   BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
-  Users, Link2, UserPlus, Expand, Video, CalendarCheck
+  Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -166,6 +166,45 @@ const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return s
 const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
 /* meeting types — coffee and discovery are different motions, track them apart */
 const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboarding','Check-in','Other'];
+/* monthly targets. 0 or missing = no goal, so nothing renders. */
+const DEFAULT_GOALS={booked:0,closed:0,onboarded:0,revenue:0,mrr:0};
+const GOAL_FIELDS=[
+  ['booked','Meetings booked','per month','n'],
+  ['closed','Deals closed','per month','n'],
+  ['onboarded','Clients onboarded','per month','n'],
+  ['revenue','Setup revenue closed','per month','$'],
+  ['mrr','MRR target','running total','$'],
+];
+const goalsOf=settings=>({...DEFAULT_GOALS,...((settings&&settings.goals)||{})});
+/* how far through the month we are — lets a tile say "behind pace" honestly */
+const monthPace=(d=new Date())=>{ const days=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+  return Math.min(1,d.getDate()/days); };
+/* ---- health metrics ------------------------------------------------------
+   All derived from data already captured, so nothing new to type in. */
+const REAL_TOUCH=a=>a&&a.ts&&a.text!=='Lead created.';
+/* hours between a lead landing and the first real touch. null = never touched. */
+const firstTouchHrs=l=>{ const acts=(l.activities||[]).filter(REAL_TOUCH); if(!acts.length||!l.createdAt) return null;
+  const first=acts.reduce((mn,a)=>(!mn||a.ts<mn)?a.ts:mn,null);
+  const h=(new Date(first)-new Date(l.createdAt))/36e5; return isNaN(h)?null:Math.max(0,h); };
+const median=arr=>{ if(!arr.length) return null; const x=[...arr].sort((a,b)=>a-b); const i=Math.floor(x.length/2);
+  return x.length%2?x[i]:(x[i-1]+x[i])/2; };
+const fmtHrs=h=>h==null?'—':h<1?Math.round(h*60)+'m':h<48?Math.round(h)+'h':Math.round(h/24)+'d';
+const lastTouchTs=l=>{ const acts=(l.activities||[]).filter(a=>a&&a.ts); if(!acts.length) return l.createdAt||null;
+  return acts.reduce((mx,a)=>(!mx||a.ts>mx)?a.ts:mx,null); };
+/* champions need watering more often than brand-new contacts */
+const COLD_DAYS={champion:30,b:60,new:90};
+const coldList=rels=>(rels||[]).map(r=>{ const tier=tierOf(r); const last=lastTouchTs(r);
+    return {r,tier,last,days:last?daysSince(last):9999,limit:COLD_DAYS[tier]||90}; })
+  .filter(x=>x.days>=x.limit).sort((a,b)=>b.days-a.days);
+/* how far each lead ever got, read back out of the logged stage moves */
+const funnelOf=(leads,stages)=>{ const flow=(stages||[]).filter(s=>!s.lost); if(!flow.length) return [];
+  const reached=flow.map(()=>0);
+  (leads||[]).forEach(l=>{ let i=flow.findIndex(s=>s.key===l.stage);
+    (l.activities||[]).forEach(a=>{ if(a&&typeof a.text==='string'&&a.text.startsWith('Stage moved:')){
+      const to=a.text.split('\u2192').pop().trim(); const j=flow.findIndex(s=>s.label===to); if(j>i) i=j; } });
+    if(i<0) i=0; for(let k=0;k<=i;k++) reached[k]++; });
+  return flow.map((s,i)=>({key:s.key,label:s.label,color:s.color,count:reached[i],
+    rate:i===0?1:(reached[i-1]?reached[i]/reached[i-1]:0)})); };
 const ACT_LABEL={Booked:'Meeting Booked'};
 const actLabel=t=>ACT_LABEL[t]||t;
 const actPlural=t=>t==='Booked'?'Booked':t+'s';
@@ -743,7 +782,36 @@ const CSS=`
 .drow-t:hover{color:${COBALT};text-decoration:underline}
 .drow-v{font-size:13px;font-weight:700;color:${INK};white-space:nowrap;flex:none}
 .mtg-type{border:1px solid #E4E5EF;border-radius:20px;padding:4px 9px;font-size:11.5px;font-weight:700;color:#6A4CB8;background:color-mix(in srgb,#7A5CC8 8%,#fff);cursor:pointer;flex:none}
-.mtg-type.unset{color:#C05A1E;background:color-mix(in srgb,#E0662B 9%,#fff);border-color:#F0C09B}
+".mtg-type.unset{color:#C05A1E;background:color-mix(in srgb,#E0662B 9%,#fff);border-color:#F0C09B}
+.kgroup{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#a6a2bc;margin:2px 0 9px}
+.kgoal{margin-top:9px}
+.kgbar{height:5px;border-radius:20px;background:rgba(24,21,48,.09);overflow:hidden}
+.kgbar div{height:100%;border-radius:20px;transition:width .35s}
+.kgt{display:flex;justify-content:space-between;align-items:center;margin-top:5px;font-size:10.5px;font-weight:700;color:#8b88a0}
+.kgt b{font-weight:800;color:${COBALT}}
+.kgt b.hit{color:${GREEN}}
+.kgt b.behind{color:#C05A1E}
+.kpi.accent .kgbar,.kpi.green .kgbar,.kpi.gold .kgbar{background:rgba(255,255,255,.28)}
+.kpi.accent .kgt,.kpi.green .kgt,.kpi.gold .kgt{color:rgba(255,255,255,.75)}
+.kpi.accent .kgt b,.kpi.green .kgt b,.kpi.gold .kgt b{color:#fff}
+.goal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.goal-row{display:flex;align-items:center;gap:12px;padding:11px 13px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE}
+.goal-l{flex:1;min-width:0;display:flex;flex-direction:column}
+.goal-l b{font-size:13px;color:${INK};font-weight:700}
+.goal-l span{font-size:11px;color:#9b98ad}
+.goal-in{display:flex;align-items:center;gap:3px;flex:none;border:1px solid #E1E2EC;border-radius:9px;background:#fff;padding:0 9px}
+.goal-in i{font-style:normal;font-size:12px;color:#a6a2bc;font-weight:700}
+.goal-in input{width:74px;border:none;padding:8px 2px;font-size:14px;font-weight:700;color:${INK};text-align:right;background:none}
+.goal-in input:focus{outline:none}
+.kgroup+.kgrid{margin-bottom:16px}
+.funnel{display:flex;flex-direction:column;gap:9px;margin-top:6px}
+.fn-row{display:grid;grid-template-columns:110px 1fr 42px 52px;align-items:center;gap:11px}
+.fn-l{font-size:12.5px;font-weight:700;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fn-bar{height:11px;background:#F1F2F8;border-radius:20px;overflow:hidden}
+.fn-bar div{height:100%;border-radius:20px;transition:width .3s}
+.fn-c{font-size:13px;font-weight:800;color:${INK};text-align:right;font-family:'Space Grotesk',sans-serif}
+.fn-r{font-size:11.5px;font-weight:700;color:#8b88a0;text-align:right}
+@media(max-width:640px){.fn-row{grid-template-columns:84px 1fr 34px 44px;gap:8px}}
 .web-fs{position:fixed;inset:0;z-index:80;background:#F4F6FB;display:flex;flex-direction:column;padding:16px 20px;animation:pop .16s ease}
 .web-fs .web-legend{flex:none;margin-bottom:8px}
 .web-fs .web-trace{flex:none}
@@ -1131,7 +1199,7 @@ export default function App(){
       if(mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
       if(mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,modules:Array.isArray(st.modules)?st.modules:undefined,leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},modules:Array.isArray(st.modules)?st.modules:undefined,leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -1183,7 +1251,7 @@ export default function App(){
     const mts=(l.meetings||[]).map(m=>m.id===meetingId?{...m,mtype}:m);
     const acts=(l.activities||[]).map(a=>a.meetingId===meetingId?{...a,mtype}:a);
     updated={...l,meetings:mts,activities:acts}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
-  const addActivity=(id,type,text,who,mtype)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(mtype?{mtype}:{})},...l.activities]}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
+  const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
   const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
@@ -1248,7 +1316,7 @@ export default function App(){
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
-          view==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead} tagBooked={tagBooked}/>:
+          view==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead} tagBooked={tagBooked} rels={leads.filter(l=>l.isRelationship)} settings={settings}/>:
           view==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity}/>:
           view==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks} open={openLead}/>:
           view==='activity'?<Activity leads={leads} tasks={tasks} me={me} open={openLead}/>:
@@ -1299,9 +1367,21 @@ function useMetrics(leads,stages){
       const dep=l.onboarding&&l.onboarding.deposit_paid&&normEntry(l.onboarding.deposit_paid).done;
       if(dep&&String(dep).slice(0,7)===mKey) depositsMonth++;
     });
+    /* speed to first touch + follow-up discipline */
+    const touchHrs=[]; let untouched=0,fuCleared=0,fuOnTime=0;
+    leads.forEach(l=>{ const h=firstTouchHrs(l);
+      if(h==null){ if(!(l.activities||[]).some(REAL_TOUCH)) untouched++; } else touchHrs.push(h);
+      (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
+    /* monthly close figures — the all-time wonCount can't drive a monthly goal */
+    let closedMonth=0,revenueMonth=0;
+    leads.forEach(l=>{ if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){ closedMonth++; revenueMonth+=num(l.dealValue); } });
+    const firstTouch=median(touchHrs);
+    const fuRate=fuCleared>0?fuOnTime/fuCleared:null;
+    const funnel=funnelOf(leads,stages);
     const decided=heldMonth+noShowMonth; const showRate=decided>0?heldMonth/decided:0;
     return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,
-      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,showRate,bookedByType,onboardedMonth,depositsMonth};
+      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,showRate,bookedByType,onboardedMonth,depositsMonth,
+      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth};
   },[leads,stages]);
 }
 
@@ -1330,7 +1410,8 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity}){
   const confirmNext=l=>{
     const p=pending; if(!p||p.id!==l.id)return;
     const old=(l.nextSteps||'').trim();
-    if(addActivity) addActivity(l.id,'Note',old?`Follow-up done — ${old}`:'Follow-up cleared.',me);
+    const onTime=l.followUp?daysUntil(l.followUp)>=0:true;
+    if(addActivity) addActivity(l.id,'Note',old?`Follow-up done — ${old}`:'Follow-up cleared.',me,{fuOnTime:onTime});
     setPending(null);
     setLeaving(s=>({...s,[l.id]:true})); setCleared(c=>c+1);
     setTimeout(()=>updateLead(l.id,{followUp:p.date,nextSteps:p.note.trim()}),430);
@@ -1393,7 +1474,8 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity}){
   </>);
 }
 
-function Dashboard({leads,stages,open,tagBooked}){
+function Dashboard({leads,stages,open,tagBooked,rels,settings}){
+  const G=goalsOf(settings);
   const m=useMetrics(leads,stages);
   const [drill,setDrill]=useState(null);
   const [scope,setScope]=useState('month');   // booked drill: this month vs all time
@@ -1407,6 +1489,7 @@ function Dashboard({leads,stages,open,tagBooked}){
     .map(a=>({lead:l,act:a}))).filter(r=>scope==='all'||isoOf(new Date(r.act.ts)).slice(0,7)===mKey)
     .sort((a,b)=>(b.act.ts||'').localeCompare(a.act.ts||''));
   const untyped=bookedRows.filter(r=>!r.act.mtype).length;
+  const cold=coldList(rels||[]);
   const heldRows=leads.flatMap(l=>(l.meetings||[]).filter(mt=>mt.status&&mt.start&&isoOf(new Date(mt.start)).slice(0,7)===mKey).map(mt=>({lead:l,mt})))
     .sort((a,b)=>(b.mt.start||'').localeCompare(a.mt.start||''));
   const Name=({l})=><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>;
@@ -1415,14 +1498,21 @@ function Dashboard({leads,stages,open,tagBooked}){
   const revMix=[{name:'Closed Setup',value:m.wonValue},{name:'Annual MRR',value:m.mrr*12}].filter(d=>d.value>0);
   const followUps=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
   return (<>
+    <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
-      <Kpi variant="accent" label="Open Pipeline" value={usd(m.openValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} active leads`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
-      <Kpi label="Weighted Forecast" value={usd(m.weighted)} icon={<Target size={14}/>} d="probability-adjusted" onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
-      <Kpi variant="green" label="Deals Closed" value={m.wonCount} icon={<CheckCircle2 size={14}/>} d={`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'}/>
-      <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'}/>
-      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'}/>
+      <Kpi variant="accent" label="Open Pipeline" value={usd(m.openValue)} icon={<KanbanSquare size={14}/>} d={G.revenue>0?`${m.openCount} leads · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:`${m.openCount} active leads`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
+      <Kpi label="Revenue Closed" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={G.revenue>0?"setup closed this month":"weighted forecast"} onClick={()=>tog('won')} active={drill==='won'} goal={G.revenue} current={m.revenueMonth}/>
+      <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.revenueMonth)} setup`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
+      <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
+    </div>
+    <div className="kgroup">Activity &amp; health</div>
+    <div className="kgrid">
+      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
       <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldMonth+m.noShowMonth)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
-      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'}/>
+      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
+      <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
+      <Kpi label="Follow-Up Health" value={m.fuRate==null?'—':Math.round(m.fuRate*100)+'%'} icon={<Bell size={14}/>} d={m.overdue.length>0?`${m.overdue.length} overdue right now`:(m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time`:'clear a follow-up to start')} onClick={()=>tog('fu')} active={drill==='fu'}/>
+      <Kpi label="Going Cold" value={cold.length} icon={<Users size={14}/>} d={cold.length>0?`${cold.filter(x=>x.tier==='champion').length} champion${cold.filter(x=>x.tier==='champion').length===1?'':'s'} need a touch`:'everyone is warm'} onClick={()=>tog('cold')} active={drill==='cold'}/>
     </div>
 
     {drill==='pipeline'&&<Drill title="Open pipeline" sub={`${openLeads.length} active`} onClose={()=>setDrill(null)}>
@@ -1466,6 +1556,30 @@ function Dashboard({leads,stages,open,tagBooked}){
       </div>)):<Empty t="Nothing marked held or no-show yet this month."/>}
     </Drill>}
 
+    {drill==='speed'&&<Drill title="Speed to first touch" sub={m.firstTouch!=null?`median ${fmtHrs(m.firstTouch)}`:'no touches yet'} onClose={()=>setDrill(null)}>
+      {(()=>{ const rows=leads.map(l=>({l,h:firstTouchHrs(l)}))
+          .filter(r=>r.h!=null||!(r.l.activities||[]).some(REAL_TOUCH))
+          .sort((a,b)=>(a.h==null?-1:1)-(b.h==null?-1:1)||((b.h||0)-(a.h||0)));
+        return rows.length?rows.map(({l,h})=>(<div className={'drow'+(h==null?' untyped':'')} key={l.id}>
+          <div className="drow-m"><Name l={l}/><div className="subcell">{h==null?'never contacted':`added ${fmtDate(l.createdAt)}`}</div></div>
+          <span className="drow-v">{h==null?'—':fmtHrs(h)}</span>
+        </div>)):<Empty t="No leads yet."/>; })()}
+    </Drill>}
+
+    {drill==='fu'&&<Drill title="Follow-ups overdue" sub={m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time this month`:'tracking starts as you clear them'} onClose={()=>setDrill(null)}>
+      {m.overdue.length?[...m.overdue].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).map(l=>(<div className="drow untyped" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">{l.nextSteps||l.nextAction||'follow up'}</div></div>
+        <span className="drow-v" style={{color:RED}}>{Math.abs(daysUntil(l.followUp))}d late</span>
+      </div>)):<Empty t="Nothing overdue — you're clear."/>}
+    </Drill>}
+
+    {drill==='cold'&&<Drill title="Relationships going cold" sub={`champions ${COLD_DAYS.champion}d · b tier ${COLD_DAYS.b}d · new ${COLD_DAYS.new}d`} onClose={()=>setDrill(null)}>
+      {cold.length?cold.map(({r,tier,days,limit})=>(<div className={'drow'+(tier==='champion'?' untyped':'')} key={r.id}>
+        <div className="drow-m"><Name l={r}/><div className="subcell">{tierMeta(tier)[1]} · last touch {days>=9999?'never':fmtDate(lastTouchTs(r))}</div></div>
+        <span className="drow-v" style={{color:days>limit*2?RED:'#C05A1E'}}>{days>=9999?'never':days+'d ago'}</span>
+      </div>)):<Empty t="Everyone's been touched recently. Nice."/>}
+    </Drill>}
+
     {drill==='onboarded'&&<Drill title="Clients onboarded this month" sub={`${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClose={()=>setDrill(null)}>
       {onboardedLeads.length?onboardedLeads.map(l=>{ const st=onboardingStat(l); const dep=normEntry((l.onboarding||{}).deposit_paid).done;
         return (<div className="drow" key={l.id}>
@@ -1477,6 +1591,17 @@ function Dashboard({leads,stages,open,tagBooked}){
     {Object.keys(m.bookedByType||{}).length>0&&<div className="mt-break">
       <span className="mtb-l">Booked this month</span>
       {Object.entries(m.bookedByType).sort((a,b)=>b[1]-a[1]).map(([t,c])=><span key={t} className="mtb"><b>{c}</b>{t}</span>)}
+    </div>}
+    {m.funnel.length>1&&<div className="card" style={{marginBottom:18}}>
+      <h3>Conversion funnel</h3>
+      <div className="ch-sub">How far leads actually get — read back from your stage history</div>
+      <div className="funnel">{m.funnel.map((f,i)=>{ const top=m.funnel[0].count||1;
+        return (<div className="fn-row" key={f.key}>
+          <span className="fn-l">{f.label}</span>
+          <div className="fn-bar"><div style={{width:Math.max(2,Math.round(f.count/top*100))+'%',background:f.color||COBALT}}/></div>
+          <span className="fn-c">{f.count}</span>
+          <span className="fn-r">{i===0?'—':Math.round(f.rate*100)+'%'}</span>
+        </div>); })}</div>
     </div>}
     <div className="row r3">
       <ChartCard title="Pipeline by Stage" sub="Open leads only" empty={stageData.some(d=>d.Leads>0)?null:'No open leads yet.'}>
@@ -2657,7 +2782,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
     {/* team access */}
@@ -2678,6 +2803,21 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       </div>
       <div className="ch-sub" style={{marginTop:12,marginBottom:0}}>Add a new salesperson under <b>Dropdown options → Owner</b> and they'll appear here. Give them <b>Own + Pool</b> and they'll only ever see their own leads plus the shared pool.</div>
     </div>); })()}
+
+    {/* monthly goals */}
+    {(()=>{ const G=goalsOf(settings);
+      const setGoal=(k,v)=>saveSettings({...settings,goals:{...G,[k]:Math.max(0,num(v))}});
+      const anySet=Object.values(G).some(v=>num(v)>0);
+      return (<div className="card" style={{marginBottom:18}}>
+        <div className="sec-title"><Target size={15}/>Monthly goals</div>
+        <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Set a target and the matching dashboard tile grows a progress bar that tells you if you’re on pace for the month. Leave one at 0 to hide it.</div>
+        <div className="goal-grid">{GOAL_FIELDS.map(([k,label,note,kind])=>(
+          <div className="goal-row" key={k}>
+            <div className="goal-l"><b>{label}</b><span>{note}</span></div>
+            <div className="goal-in">{kind==='$'&&<i>$</i>}<input type="number" min="0" value={G[k]||''} placeholder="0" onChange={e=>setGoal(k,e.target.value)}/></div>
+          </div>))}</div>
+        {!anySet&&<div className="subcell" style={{marginTop:10}}>No goals set yet — tiles show plain numbers until you add one.</div>}
+      </div>); })()}
 
     {/* modules */}
     {(()=>{ const on=modList(settings);
@@ -3030,7 +3170,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
       {isOpen&&<div className="msec-b">{body}</div>}
     </div>);
   };
-  const logIt=()=>{const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:'');if(!t)return;addActivity(draft.id,atype,t,who,atype==='Booked'?logMtype:undefined);setAtext('');};
+  const logIt=()=>{const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:'');if(!t)return;addActivity(draft.id,atype,t,who,atype==='Booked'?{mtype:logMtype}:undefined);setAtext('');};
   const create=()=>{
     if(!draft.name.trim()){window.alert('Add a name first.');return;}
     const ts=new Date().toISOString();
@@ -3307,10 +3447,16 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
 }
 
 /* ===================== shared ===================== */
-function Kpi({label,value,d,variant,icon,onClick,active}){
+function Kpi({label,value,d,variant,icon,onClick,active,goal,current}){
   return (<div className={'kpi '+(variant||'')+(onClick?' clickable':'')+(active?' active':'')} onClick={onClick} role={onClick?'button':undefined}>
     <div className="kl">{icon}{label}{onClick&&<ChevronDown size={13} className={'kpi-ch'+(active?' on':'')}/>}</div>
     <div className="kv">{value}</div>{d&&<div className="kd">{d}</div>}
+    {goal>0&&current!=null&&(()=>{ const pct=Math.min(100,Math.round(current/goal*100));
+      const hit=current>=goal; const behind=!hit&&current<goal*monthPace();
+      return (<div className="kgoal">
+        <div className="kgbar"><div style={{width:Math.max(2,pct)+'%',background:hit?GREEN:behind?'#E0662B':COBALT}}/></div>
+        <div className="kgt"><span>{pct}% of goal</span><b className={hit?'hit':behind?'behind':''}>{hit?'hit':behind?'behind pace':'on pace'}</b></div>
+      </div>); })()}
   </div>);
 }
 /* the panel that opens under the tiles when you tap one */
