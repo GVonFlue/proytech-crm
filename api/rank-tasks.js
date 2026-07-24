@@ -40,7 +40,9 @@ export default async function handler(req, res) {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 1500, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] }),
+      // Haiku is ~3x cheaper than Sonnet ($1/$5 vs $3/$15 per Mtok) and plenty for
+      // extraction/ranking. If output quality ever slips, swap back to 'claude-sonnet-4-6'.
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 1500, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] }),
     });
     if (!r.ok) { const t = await r.text(); res.status(200).json({ ok: false, error: 'AI request failed', detail: t.slice(0, 300) }); return; }
     const data = await r.json();
