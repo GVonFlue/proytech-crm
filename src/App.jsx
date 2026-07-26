@@ -1210,6 +1210,16 @@ const CSS=`
 .act-t.on{border-color:${COBALT};background:rgba(43,77,224,.08);color:${COBALT}}
 .act-input{width:100%;padding:11px 12px;border:1px solid #DEDFEA;border-radius:10px;font-size:13.5px;font-family:'Inter';resize:vertical;min-height:52px}
 .act-input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
+.act-t.pay.on{border-color:${GREEN};background:color-mix(in srgb,${GREEN} 10%,#fff);color:#1a7d46}
+.pay-compose-row{display:flex;gap:8px}
+.pc-amt{display:flex;align-items:center;border:1px solid #DEDFEA;border-radius:10px;padding:0 10px;background:#fff;flex:none;width:120px}
+.pc-amt:focus-within{border-color:${GREEN};box-shadow:0 0 0 3px color-mix(in srgb,${GREEN} 18%,#fff)}
+.pc-amt span{color:#8E89A8;font-weight:700;font-size:14px}
+.pc-amt input{border:none;outline:none;padding:11px 6px;font-size:14px;width:100%;font-weight:700;color:${INK}}
+.pc-note{flex:1;border:1px solid #DEDFEA;border-radius:10px;padding:11px 12px;font-size:13.5px;font-family:'Inter'}
+.pc-note:focus{outline:none;border-color:${GREEN};box-shadow:0 0 0 3px color-mix(in srgb,${GREEN} 18%,#fff)}
+.rep-pay-toggle{display:flex;gap:12px;align-items:flex-start;margin-top:16px;padding-top:16px;border-top:1px solid #EFEFF6;cursor:pointer}
+.rep-pay-toggle .sw{margin-top:2px}
 .feed{margin-top:14px;display:flex;flex-direction:column;overflow-y:auto}
 .fitem{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid #F0F0F6}.fitem:last-child{border:none}
 .fic{width:30px;height:30px;border-radius:8px;background:rgba(43,77,224,.09);color:${COBALT};display:flex;align-items:center;justify-content:center;flex:none}
@@ -1738,7 +1748,7 @@ export default function App(){
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
       if(amOwner&&mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,repPayments:!!st.repPayments,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -3710,7 +3720,7 @@ function TxnModal({txn,file,onSave,onDelete,onClose}){
 
 const ACT_COLORS={Booked:'#E0662B',Call:'#2B4DE0',Text:'#1F9D55',Meeting:'#7A5CC8',Note:'#C8A24A',Email:'#D14343',Task:'#0E9AA7'};
 const ACT_ORDER=['Booked','Call','Text','Meeting','Note','Email','Task'];
-const ACT_ICON={Booked:CalendarCheck,Note:StickyNote,Call:PhoneCall,Text:MessageSquare,Meeting:CalendarClock,Email:Mailbox,Task:ListTodo};
+const ACT_ICON={Booked:CalendarCheck,Note:StickyNote,Call:PhoneCall,Text:MessageSquare,Meeting:CalendarClock,Email:Mailbox,Task:ListTodo,Payment:DollarSign};
 function Activity({leads,tasks,me,open,rep}){
   const [mode,setMode]=useState('day');
   const [anchor,setAnchor]=useState(todayISO());
@@ -3936,6 +3946,11 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
         <button className="btn btn-g btn-sm" onClick={()=>reset(msg.email)}><KeyRound size={14}/>Email them a set-password link instead</button></div>}
     </div>}
     <div className="subcell" style={{marginTop:12}}>Creating a login needs <b>Email</b> sign-ups enabled in Supabase → Authentication → Providers, with <b>Confirm email</b> off (otherwise Supabase won't hand back the user id we need).</div>
+
+    <div className="rep-pay-toggle" onClick={()=>saveSettings({...settings,repPayments:!settings.repPayments})}>
+      <span className={'sw '+(settings.repPayments?'on':'')}><b/></span>
+      <div><b>Let sales reps log payments</b><div className="subcell" style={{marginTop:2}}>Off by default. When on, reps get the Payment button in a lead's activity log. They still never see company revenue totals.</div></div>
+    </div>
   </div>);
 }
 
@@ -4304,6 +4319,10 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const [showMore,setShowMore]=useState(false);
   const [firstNote,setFirstNote]=useState('');
   const [logMtype,setLogMtype]=useState('Coffee');
+  const [payAmt,setPayAmt]=useState('');const [payNote,setPayNote]=useState('');
+  /* who can log a payment from the composer: owners always; reps only if the
+     owner has switched it on for the install. */
+  const canLogPayment=!rep||(settings&&settings.repPayments);
   const [firstType,setFirstType]=useState('Call');
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
   const set=patch=>{if(isNew)setDraft({...draft,...patch});else{setDraft({...draft,...patch});updateLead(draft.id,patch);}};
@@ -4377,6 +4396,20 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
       addActivity(draft.id,atype,t,who);
     }
     setAtext('');
+  };
+  /* log a payment straight from the composer — same payments[] the deal panel
+     reads, so paid / remaining update everywhere at once. ONE write: the payment
+     and its activity go together, or the second write clobbers the first from a
+     stale `leads` closure. */
+  const logPaymentFromComposer=()=>{
+    const amount=num(payAmt); if(amount<=0){ window.alert('Enter a payment amount.'); return; }
+    const note=payNote.trim();
+    const pay={id:uid(),amount,date:todayISO(),note};
+    const pays=Array.isArray(draft.payments)?draft.payments:[];
+    const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who};
+    const patch={payments:[...pays,pay],activities:[act,...(draft.activities||[])]};
+    setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
+    setPayAmt(''); setPayNote('');
   };
   const create=()=>{
     if(!draft.name.trim()){window.alert('Add a name first.');return;}
@@ -4682,10 +4715,10 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   const logPayment=()=>{
                     const raw=window.prompt('Payment amount received ($):', remaining>0?String(remaining):'');
                     if(raw===null) return; const amount=num(raw); if(amount<=0){ window.alert('Enter a dollar amount.'); return; }
-                    const note=window.prompt('Note (e.g. "Square deposit", "balance on delivery") — optional:','')||'';
-                    const pay={id:uid(),amount,date:todayISO(),note:note.trim()};
-                    set({payments:[...pays,pay]});
-                    if(addActivity) addActivity(draft.id,'Note',`Payment received: ${usdc(amount)}${note.trim()?` — ${note.trim()}`:''}`,me);
+                    const note=(window.prompt('Note (e.g. "Square deposit", "balance on delivery") — optional:','')||'').trim();
+                    const pay={id:uid(),amount,date:todayISO(),note};
+                    const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who:me};
+                    set({payments:[...pays,pay],activities:[act,...(draft.activities||[])]});
                   };
                   return (<div className="pay-panel">
                     <div className="pay-head"><span>Payments</span>{owed>0&&<b className={remaining>0?'due':'clear'}>{remaining>0?`${usdc(remaining)} remaining`:'paid in full'}</b>}</div>
@@ -4731,14 +4764,25 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
         <div className="m-right">
           {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
             <div className="dh"><MessageSquare size={13}/>Activity Log</div>
-            <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
+            <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
+              {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
+            </div>
             {atype==='Booked'&&<div className="mtype-row sm">{MEETING_TYPES.map(t=><button key={t} type="button" className={'mtype'+(logMtype===t?' on':'')} onClick={()=>setLogMtype(t)}>{t}</button>)}</div>}
-            <textarea className="act-input" placeholder={atype==='Booked'?"Who with / when? Optional — just hit Log Meeting Booked":`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>
+            {atype==='Payment'
+              ? <div className="pay-compose">
+                  <div className="pay-compose-row">
+                    <div className="pc-amt"><span>$</span><input type="number" inputMode="decimal" placeholder="0.00" value={payAmt} onChange={e=>setPayAmt(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/></div>
+                    <input className="pc-note" placeholder="Note (e.g. Square deposit)" value={payNote} onChange={e=>setPayNote(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/>
+                  </div>
+                </div>
+              : <textarea className="act-input" placeholder={atype==='Booked'?"Who with / when? Optional — just hit Log Meeting Booked":`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
               {rep
                 ? <span className="subcell" style={{fontWeight:600}}>logging as {me}</span>
                 : <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>}
-              <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>
+              {atype==='Payment'
+                ? <button className="btn btn-g" style={{padding:'8px 16px'}} onClick={logPaymentFromComposer}><DollarSign size={14}/>Log Payment</button>
+                : <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>}
             </div>
             <div className="afilter" style={{marginTop:16}}>
               <button className={feedFilter==='All'?'on':''} onClick={()=>setFeedFilter('All')}>All</button>
