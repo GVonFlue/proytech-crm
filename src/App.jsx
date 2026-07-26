@@ -523,9 +523,13 @@ const invTax=inv=>invSubtotal(inv)*num(inv.taxRate)/100;
 const invTotal=inv=>invSubtotal(inv)+invTax(inv);
 const invState=inv=>{ if(inv.status==='paid') return 'paid'; if(inv.dueDate&&daysUntil(inv.dueDate)<0) return 'overdue'; return inv.status||'draft'; };
 const addDays=(iso,n)=>{ const d=new Date((iso||todayISO())+'T00:00:00'); d.setDate(d.getDate()+num(n)); return isoOf(d); };
-function itemsFromLead(l){ const items=[]; const d=(l&&l.deal&&typeof l.deal==='object')?l.deal:null;
-  if(d){ if(num(d.setup)) items.push({id:uid(),label:'Setup',qty:1,amount:num(d.setup)}); if(num(d.website)) items.push({id:uid(),label:'Website',qty:1,amount:num(d.website)}); if(num(d.integration)) items.push({id:uid(),label:'AI / Integration',qty:1,amount:num(d.integration)}); (d.extras||[]).forEach(e=>{ if(num(e.amount)) items.push({id:uid(),label:e.label||'Line item',qty:1,amount:num(e.amount)}); }); }
-  else if(l&&num(l.dealValue)){ items.push({id:uid(),label:'Project',qty:1,amount:num(l.dealValue)}); }
+function itemsFromLead(l){ const items=[];
+  const pushDeal=(d,prefix)=>{ if(num(d.setup)) items.push({id:uid(),label:(prefix||'')+'Setup',qty:1,amount:num(d.setup)}); if(num(d.website)) items.push({id:uid(),label:(prefix||'')+'Website',qty:1,amount:num(d.website)}); if(num(d.integration)) items.push({id:uid(),label:(prefix||'')+'AI / Integration',qty:1,amount:num(d.integration)}); (d.extras||[]).forEach(e=>{ if(num(e.amount)) items.push({id:uid(),label:(prefix||'')+(e.label||'Line item'),qty:1,amount:num(e.amount)}); }); };
+  const deals=Array.isArray(l&&l.deals)?l.deals:null;
+  if(deals&&deals.length){ deals.forEach(d=>pushDeal(d,deals.length>1&&d.label?`${d.label} — `:'')); }
+  else { const d=(l&&l.deal&&typeof l.deal==='object')?l.deal:null;
+    if(d){ pushDeal(d,''); }
+    else if(l&&num(l.dealValue)){ items.push({id:uid(),label:'Project',qty:1,amount:num(l.dealValue)}); } }
   if(l&&l.retainerActive&&num(l.retainer)) items.push({id:uid(),label:'Monthly retainer',qty:1,amount:num(l.retainer)});
   if(!items.length) items.push({id:uid(),label:'',qty:1,amount:0});
   return items; }
@@ -716,7 +720,14 @@ const CSS=`
 .dh-v{font-size:14px;font-weight:800;color:#1a7d46;font-family:'Space Grotesk',sans-serif}
 .dh-note{margin-top:9px;padding-top:9px;border-top:1px solid color-mix(in srgb,${GREEN} 14%,#fff);font-size:12px;color:#56527a}
 .dh-note b{color:${INK};font-weight:800}
-.deal-cur-label{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#a6a2bc;margin-bottom:8px}
+.deal-card{border:1px solid #E7E8F1;border-radius:13px;padding:14px;margin-bottom:12px;background:#FBFBFE}
+.deal-card-h{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.deal-name{flex:1;min-width:0;border:none;background:none;font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;color:${INK};padding:2px 0;border-bottom:1.5px solid transparent}
+.deal-name:focus{outline:none;border-bottom-color:${COBALT}}
+.deal-card-v{font-size:14px;font-weight:800;color:${COBALT};font-family:'Space Grotesk',sans-serif}
+.deal-add-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border:1.5px dashed #C9CBDD;border-radius:11px;background:#fff;color:${COBALT};font-size:13px;font-weight:700;cursor:pointer;transition:.15s;margin-bottom:8px}
+.deal-add-btn:hover{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 5%,#fff)}
+.deal-close-btn.sm{margin-top:10px;padding:9px;font-size:12.5px}
 .deal-close-btn{width:100%;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border:none;border-radius:11px;background:${GREEN};color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;transition:.15s}
 .deal-close-btn:hover{filter:brightness(1.05);transform:translateY(-1px)}
 .deal-total{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:11px 13px;background:#F6F7FB;border-radius:10px}
@@ -1085,6 +1096,18 @@ const CSS=`
 .an-v{font-size:27px;font-weight:800;color:${INK};font-family:'Space Grotesk',sans-serif;margin:4px 0 2px}
 .an-d{font-size:11.5px;color:#9b98ad}
 .src-list{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.rbc-list{display:flex;flex-direction:column;gap:3px;margin-top:8px}
+.rbc-row{display:grid;grid-template-columns:1fr 120px 88px;align-items:center;gap:12px;padding:8px 10px;border-radius:9px;cursor:pointer;transition:.12s}
+.rbc-row:hover{background:#FAFAFE}
+.rbc-m{display:flex;align-items:center;gap:8px;min-width:0}
+.rbc-name{font-weight:700;color:${INK};font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rbc-deals{flex:none;font-size:10.5px;font-weight:700;color:${COBALT};background:color-mix(in srgb,${COBALT} 9%,#fff);border-radius:11px;padding:1px 8px}
+.rbc-mrr{flex:none;font-size:10.5px;font-weight:700;color:#1a7d46;background:color-mix(in srgb,${GREEN} 10%,#fff);border-radius:11px;padding:1px 8px}
+.rbc-bar{height:8px;background:#EEF0F8;border-radius:5px;overflow:hidden}
+.rbc-bar>div{height:100%;border-radius:5px;background:linear-gradient(90deg,${COBALT},#4E6BF0)}
+.rbc-v{text-align:right;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:14px;color:${INK}}
+.rbc-more{margin-top:8px;font-size:12px;color:#928DAD;text-align:center}
+@media(max-width:640px){.rbc-row{grid-template-columns:1fr 70px;gap:8px}.rbc-bar{display:none}}
 .src-row{display:grid;grid-template-columns:1fr 60px 60px 56px 90px;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;font-size:13px;color:${INK}}
 .src-row:not(.src-head):hover{background:#FAFAFE}
 .src-row.src-head{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#b7b4c6}
@@ -2136,7 +2159,16 @@ function useMetrics(leads,stages){
     const sourceROI=Object.entries(bySource).map(([source,v])=>({source,...v,rate:v.total?v.won/v.total:0}))
       .sort((a,b)=>b.won-a.won||b.total-a.total);
 
-    return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,
+    /* revenue by client — lifetime booked value per client, biggest first.
+       Counts archived closed deals + any current won dealValue, plus flags MRR. */
+    const byClient=leads.filter(l=>l.isClient||sOf(l.stage,stages).won||closedDealsTotal(l)>0).map(l=>{
+      const closed=closedDealsTotal(l);
+      const current=(sOf(l.stage,stages).won||l.isClient)?num(l.dealValue):0;
+      const lifetime=closed+current;
+      return {id:l.id,name:l.name||l.company||'—',company:l.company,lifetime,closed,current,
+        mrr:l.retainerActive?num(l.retainer):0,deals:((l.closedDeals||[]).length)+((sOf(l.stage,stages).won||l.isClient)&&num(l.dealValue)>0?1:0)};
+    }).filter(c=>c.lifetime>0||c.mrr>0).sort((a,b)=>b.lifetime-a.lifetime);
+    return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
       firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,
       meetCloseRate,metLeads,metAndClosed,avgDaysToClose,movingPct,rotting,sourceROI};
@@ -2525,6 +2557,25 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,tagMeetingType,
         </div>))}
       </div>
     </div>}
+
+    {m.byClient&&m.byClient.length>0&&<div className="card" style={{marginBottom:18}}>
+      <h3>Revenue by client</h3>
+      <div className="ch-sub">Lifetime booked value per client — your biggest relationships first</div>
+      <div className="rbc-list">
+        {(()=>{ const top=m.byClient[0].lifetime||1; return m.byClient.slice(0,12).map(cl=>(
+          <div className="rbc-row" key={cl.id} onClick={()=>open(cl.id)}>
+            <div className="rbc-m">
+              <span className="rbc-name">{cl.name}</span>
+              {cl.deals>1&&<span className="rbc-deals">{cl.deals} deals</span>}
+              {cl.mrr>0&&<span className="rbc-mrr">{usd(cl.mrr)}/mo</span>}
+            </div>
+            <div className="rbc-bar"><div style={{width:Math.max(3,Math.round(cl.lifetime/top*100))+'%'}}/></div>
+            <span className="rbc-v">{usd(cl.lifetime)}</span>
+          </div>)); })()}
+      </div>
+      {m.byClient.length>12&&<div className="rbc-more">+ {m.byClient.length-12} more clients</div>}
+    </div>}
+
     <div className="row r3">
       <ChartCard title="Pipeline by Stage" sub="Open leads only" empty={stageData.some(d=>d.Leads>0)?null:'No open leads yet.'}>
         <div className="chart-h"><ResponsiveContainer width="100%" height="100%"><BarChart data={stageData} margin={{top:6,right:10,left:-12,bottom:0}}>
@@ -2978,8 +3029,8 @@ function ClientBoard({clients,settings,onCard,setClientPhase}){
   const step=(l,dir)=>{ const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake'); const j=i+dir; if(i<0){ if(dir>0)setClientPhase(l.id,order[0]); return;} if(j<0||j>=order.length)return; setClientPhase(l.id,order[j]); };
   const Card=({l})=>{ const st=onboardingStat(l); const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake');
     return (<div className={'kcard'+(st.overdue>0?' od':'')+(dragId===l.id?' dragging':'')} draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>onCard&&onCard(l.id)}>
-      <div className="kcard-top"><div className="kn"><span className="dot" style={{background:phaseInfo(l.clientPhase||'intake',settings,l).color}}/>{l.company||l.name}</div>{l.owner&&<span className="kown">{l.owner[0].toUpperCase()}</span>}</div>
-      <div className="kco">{l.name}</div>
+      <div className="kcard-top"><div className="kn"><span className="dot" style={{background:phaseInfo(l.clientPhase||'intake',settings,l).color}}/>{l.name||l.company}</div>{l.owner&&<span className="kown">{l.owner[0].toUpperCase()}</span>}</div>
+      <div className="kco">{l.company&&l.company!==l.name?l.company:l.businessType||''}</div>
       <div className="kmeta"><span className="kvals">{(l.closedDeals||[]).length>0&&<span className="kltv" title="Lifetime value across all deals">{usd(closedDealsTotal(l)+num(l.dealValue))} lifetime</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
       <div className="kmove" onClick={e=>e.stopPropagation()}>
         <button className="kmv" disabled={i<=0} onClick={()=>step(l,-1)} title="Back a phase"><ChevronLeft size={16}/></button>
@@ -4225,11 +4276,30 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const addCustomAction=()=>{const v=window.prompt('New Next Action:');if(v&&v.trim()){addOption('nextAction',v.trim());set({nextAction:v.trim()});}};
   const addCustomSvc=()=>{const v=window.prompt('New Service Interest:');if(v&&v.trim()){addOption('service',v.trim());toggleSvc(v.trim());}};
   const F=({label,k,type,full})=>(<div className={'field'+(full?' full':'')}><label>{label}</label><input type={type||'text'} value={draft[k]??''} onChange={e=>set({[k]:e.target.value})}/></div>);
-  const dealBreak=(draft.deal&&typeof draft.deal==='object')
-    ? {setup:draft.deal.setup??'',website:draft.deal.website??'',integration:draft.deal.integration??'',extras:Array.isArray(draft.deal.extras)?draft.deal.extras:[]}
-    : {setup:(draft.dealValue||''),website:'',integration:'',extras:[]};
   const dealSum=d=>num(d.setup)+num(d.website)+num(d.integration)+(d.extras||[]).reduce((a,e)=>a+num(e.amount),0);
-  const setDeal=next=>set({deal:next,dealValue:dealSum(next)});
+  /* MULTI-DEAL MODEL. A client can have several deals running at once.
+     draft.deals is the array of OPEN deals; dealValue stays as their sum so
+     every existing metric (commission, forecast, funnel) keeps working.
+     Legacy single-deal records (draft.deal) are migrated on read. */
+  const openDeals=(()=>{
+    if(Array.isArray(draft.deals)) return draft.deals;
+    if(draft.deal&&typeof draft.deal==='object'&&dealSum(draft.deal)>0)
+      return [{id:'d_legacy',label:'Deal',setup:draft.deal.setup??'',website:draft.deal.website??'',integration:draft.deal.integration??'',extras:Array.isArray(draft.deal.extras)?draft.deal.extras:[]}];
+    if(num(draft.dealValue)>0) return [{id:'d_legacy',label:'Deal',setup:draft.dealValue,website:'',integration:'',extras:[]}];
+    return [];
+  })();
+  const openDealsTotal=openDeals.reduce((a,d)=>a+dealSum(d),0);
+  /* write the whole deals array + keep dealValue = sum of open deals */
+  const writeDeals=next=>set({deals:next,dealValue:next.reduce((a,d)=>a+dealSum(d),0)});
+  const updateDeal=(id,patch)=>writeDeals(openDeals.map(d=>d.id===id?{...d,...patch}:d));
+  const addDeal=()=>{ const label=window.prompt('Name this deal (e.g. "Website build", "Q3 advisory"):','Deal '+(openDeals.length+1)); if(label===null) return;
+    writeDeals([...openDeals,{id:uid(),label:label.trim()||('Deal '+(openDeals.length+1)),setup:'',website:'',integration:'',extras:[]}]); };
+  const removeDeal=id=>{ if(!window.confirm('Remove this open deal? Nothing is archived.')) return; writeDeals(openDeals.filter(d=>d.id!==id)); };
+  const closeDeal=d=>{ const amount=dealSum(d); if(amount<=0){ window.alert('Add a dollar amount before closing this deal.'); return; }
+    const closed={id:uid(),label:d.label||'Deal',amount,deal:{...d},closedAt:todayISO(),by:me};
+    writeDeals(openDeals.filter(x=>x.id!==d.id));           // remove from open, keep the rest
+    set({closedDeals:[...(draft.closedDeals||[]),closed]});
+    if(addActivity) addActivity(draft.id,'Note',`Deal closed: ${closed.label} — ${usd(amount)}`,me); };
   const Sel=({label,k,opts})=>(<div className="field"><label>{label}</label><select value={draft[k]} onChange={e=>set({[k]:e.target.value})}>{opts.map(o=>typeof o==='string'?<option key={o} value={o}>{o||'—'}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}</select></div>);
   /* collapsible section. called as a function (not <Sec/>) so inputs inside
      never remount and lose focus while typing. */
@@ -4276,7 +4346,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
     <div className="modal" onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head">
         <div style={{minWidth:0}}>
-          <h2>{draft.name||'New Lead'}</h2>{!isNew&&<div className="co">{draft.company} · {draft.businessType}</div>}
+          <h2>{draft.name||draft.company||'New Lead'}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
           {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · Last contact {fmtDate(lastContact(draft))}</div>}
           {!isNew&&<div className="qa">
             <StageBadge k={draft.stage} stages={stages}/><PriBadge p={draft.priority}/>
@@ -4513,7 +4583,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 </div>); })(),true)}
 
             {Sec('deal',<DollarSign size={13}/>,'Deal',
-              (dealSum(dealBreak)>0||num(draft.retainer)>0)?[dealSum(dealBreak)>0?usd(dealSum(dealBreak)):null,num(draft.retainer)>0?usd(draft.retainer)+'/mo':null].filter(Boolean).join(' · '):'not set',
+              (openDealsTotal>0||num(draft.retainer)>0)?[openDealsTotal>0?usd(openDealsTotal):null,openDeals.length>1?`${openDeals.length} deals`:null,num(draft.retainer)>0?usd(draft.retainer)+'/mo':null].filter(Boolean).join(' · '):'not set',
               <>
                 {(draft.closedDeals||[]).length>0&&(()=>{ const hist=draft.closedDeals||[];
                   const histTotal=hist.reduce((a,d)=>a+num(d.amount),0);
@@ -4524,36 +4594,35 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                       <span className="dh-v">{usd(d.amount)}</span>
                       <button className="ex-del" title="Remove from history" onClick={()=>{ if(window.confirm('Remove this closed deal from history? It will no longer count toward total revenue.')){ set({closedDeals:hist.filter(x=>x.id!==d.id)}); } }}><X size={13}/></button>
                     </div>))}
-                    <div className="dh-note">Lifetime with this client: <b>{usd(histTotal+dealSum(dealBreak))}</b></div>
+                    <div className="dh-note">Lifetime with this client: <b>{usd(histTotal+openDealsTotal)}</b></div>
                   </div>); })()}
 
-                <div className="deal-cur-label">{(draft.closedDeals||[]).length>0?'Current deal':'Deal'}</div>
-                <div className="fgrid">
-                  <div className="field"><label>Setup $</label><input type="number" value={dealBreak.setup} onChange={e=>setDeal({...dealBreak,setup:e.target.value})}/></div>
-                  <div className="field"><label>Website $</label><input type="number" value={dealBreak.website} onChange={e=>setDeal({...dealBreak,website:e.target.value})}/></div>
-                  <div className="field"><label>Integration $</label><input type="number" value={dealBreak.integration} onChange={e=>setDeal({...dealBreak,integration:e.target.value})}/></div>
-                  {F({label:'Monthly Retainer $',k:'retainer',type:'number'})}
-                </div>
-                {dealBreak.extras.length>0&&<div className="extras">{dealBreak.extras.map((ex,i)=>(
-                  <div className="extra-row" key={ex.id||i}>
-                    <input className="ex-label" placeholder="Line item (e.g. Extra web page)" value={ex.label||''} onChange={e=>{const x=dealBreak.extras.slice();x[i]={...x[i],label:e.target.value};setDeal({...dealBreak,extras:x});}}/>
-                    <div className="ex-amt-w"><span>$</span><input className="ex-amt" type="number" placeholder="0" value={ex.amount||''} onChange={e=>{const x=dealBreak.extras.slice();x[i]={...x[i],amount:e.target.value};setDeal({...dealBreak,extras:x});}}/></div>
-                    <button className="ex-del" title="Remove" onClick={()=>{const x=dealBreak.extras.filter((_,j)=>j!==i);setDeal({...dealBreak,extras:x});}}><X size={14}/></button>
-                  </div>))}</div>}
-                <button className="addline" onClick={()=>setDeal({...dealBreak,extras:[...dealBreak.extras,{id:uid(),label:'',amount:''}]})}><Plus size={13}/>Add line item</button>
-                <div className="deal-total"><span>One-time total</span><b>{usd(dealSum(dealBreak))}</b></div>
-                <div className="toggle" onClick={()=>set({retainerActive:!draft.retainerActive})}><span className={'sw '+(draft.retainerActive?'on':'')}><b/></span>{draft.retainerActive?'On monthly retainer':'Not on retainer'}</div>
+                {openDeals.map((d,di)=>(<div className="deal-card" key={d.id}>
+                  <div className="deal-card-h">
+                    <input className="deal-name" value={d.label||''} placeholder={`Deal ${di+1}`} onChange={e=>updateDeal(d.id,{label:e.target.value})}/>
+                    <span className="deal-card-v">{usd(dealSum(d))}</span>
+                    {openDeals.length>1&&<button className="ex-del" title="Remove this deal" onClick={()=>removeDeal(d.id)}><X size={14}/></button>}
+                  </div>
+                  <div className="fgrid">
+                    <div className="field"><label>Setup $</label><input type="number" value={d.setup??''} onChange={e=>updateDeal(d.id,{setup:e.target.value})}/></div>
+                    <div className="field"><label>Website $</label><input type="number" value={d.website??''} onChange={e=>updateDeal(d.id,{website:e.target.value})}/></div>
+                    <div className="field"><label>Integration $</label><input type="number" value={d.integration??''} onChange={e=>updateDeal(d.id,{integration:e.target.value})}/></div>
+                  </div>
+                  {(d.extras||[]).length>0&&<div className="extras">{d.extras.map((ex,i)=>(
+                    <div className="extra-row" key={ex.id||i}>
+                      <input className="ex-label" placeholder="Line item (e.g. Extra web page)" value={ex.label||''} onChange={e=>{const x=d.extras.slice();x[i]={...x[i],label:e.target.value};updateDeal(d.id,{extras:x});}}/>
+                      <div className="ex-amt-w"><span>$</span><input className="ex-amt" type="number" placeholder="0" value={ex.amount||''} onChange={e=>{const x=d.extras.slice();x[i]={...x[i],amount:e.target.value};updateDeal(d.id,{extras:x});}}/></div>
+                      <button className="ex-del" title="Remove" onClick={()=>{const x=d.extras.filter((_,j)=>j!==i);updateDeal(d.id,{extras:x});}}><X size={14}/></button>
+                    </div>))}</div>}
+                  <button className="addline" onClick={()=>updateDeal(d.id,{extras:[...(d.extras||[]),{id:uid(),label:'',amount:''}]})}><Plus size={13}/>Add line item</button>
+                  {dealSum(d)>0&&<button className="deal-close-btn sm" onClick={()=>closeDeal(d)}><CheckCircle2 size={14}/>Close this deal</button>}
+                </div>))}
 
-                {dealSum(dealBreak)>0&&<button className="deal-close-btn" onClick={()=>{
-                  const amount=dealSum(dealBreak); const label=window.prompt('Name this closed deal (e.g. "Website build", "Q3 advisory project"):','Deal '+((draft.closedDeals||[]).length+1));
-                  if(label===null) return;
-                  const closed={id:uid(),label:label.trim()||'Deal',amount,deal:{...dealBreak},closedAt:todayISO(),by:me};
-                  /* archive + clear the current deal. Log through addActivity so the
-                     dealValue-change logger in updateLead doesn't overwrite our note. */
-                  set({ closedDeals:[...(draft.closedDeals||[]),closed],
-                    deal:{setup:'',website:'',integration:'',extras:[]}, dealValue:0 });
-                  if(addActivity) addActivity(draft.id,'Note',`Deal closed: ${closed.label} — ${usd(amount)}`,me);
-                }}><CheckCircle2 size={15}/>Close this deal &amp; start another</button>}
+                <button className="deal-add-btn" onClick={addDeal}><Plus size={15}/>{openDeals.length?'Add another deal':'Add a deal'}</button>
+
+                {openDeals.length>0&&<div className="deal-total"><span>{openDeals.length>1?'All open deals':'One-time total'}</span><b>{usd(openDealsTotal)}</b></div>}
+                <div className="field" style={{marginTop:12}}><label>Monthly Retainer $</label><input type="number" value={draft.retainer??''} onChange={e=>set({retainer:e.target.value})}/></div>
+                <div className="toggle" onClick={()=>set({retainerActive:!draft.retainerActive})}><span className={'sw '+(draft.retainerActive?'on':'')}><b/></span>{draft.retainerActive?'On monthly retainer':'Not on retainer'}</div>
               </>)}
           </div>}
 
