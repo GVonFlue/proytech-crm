@@ -385,6 +385,15 @@ const coldList=rels=>(rels||[]).map(r=>{ const tier=tierOf(r); const last=lastTo
 /* archived (previously-closed) deals on a repeat client */
 const closedDealsTotal=l=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+num(d.amount),0);
 const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.closedAt&&String(d.closedAt).slice(0,7)===mKey)?num(d.amount):0),0);
+/* open deals on a lead, migrating legacy single-deal / bare-dealValue shapes.
+   Mirrors the modal's openDeals so the card and the modal always agree. */
+const dealBits=d=>num(d.setup)+num(d.website)+num(d.integration)+((d.extras||[]).reduce((a,e)=>a+num(e.amount),0));
+const dealsOf=l=>{
+  if(Array.isArray(l&&l.deals)) return l.deals;
+  if(l&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return [{id:'d_legacy',label:'Deal',...l.deal}];
+  if(l&&num(l.dealValue)>0) return [{id:'d_legacy',label:'Deal',setup:l.dealValue}];
+  return [];
+};
 const closedDealsCountInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).filter(d=>d.closedAt&&String(d.closedAt).slice(0,7)===mKey).length;
 const funnelOf=(leads,stages)=>{ const flow=(stages||[]).filter(s=>!s.lost); if(!flow.length) return [];
   const reached=flow.map(()=>0);
@@ -647,6 +656,8 @@ const CSS=`
 .kcard:hover{box-shadow:0 14px 28px -16px rgba(24,21,48,.5);transform:translateY(-1px);border-color:#D9DBEC}
 .kcard .kn{font-weight:600;font-size:14px;color:${INK};display:flex;align-items:center;gap:6px}
 .kcard .kco{font-size:12px;color:#777296;margin:2px 0 9px}
+.kdeals{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 9px}
+.kdeal{font-size:11px;font-weight:700;color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);border:1px solid color-mix(in srgb,${COBALT} 18%,#fff);border-radius:8px;padding:2px 8px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kcard .ktags{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
 .kcard .kmeta{display:flex;align-items:center;justify-content:space-between;gap:6px}
 .kdrop{font-size:12px;color:#B6B2CC;text-align:center;padding:16px 0;border:1.5px dashed #E4E5F0;border-radius:10px;margin:2px 4px 8px}
@@ -3031,6 +3042,8 @@ function ClientBoard({clients,settings,onCard,setClientPhase}){
     return (<div className={'kcard'+(st.overdue>0?' od':'')+(dragId===l.id?' dragging':'')} draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>onCard&&onCard(l.id)}>
       <div className="kcard-top"><div className="kn"><span className="dot" style={{background:phaseInfo(l.clientPhase||'intake',settings,l).color}}/>{l.name||l.company}</div>{l.owner&&<span className="kown">{l.owner[0].toUpperCase()}</span>}</div>
       <div className="kco">{l.company&&l.company!==l.name?l.company:l.businessType||''}</div>
+      {(()=>{ const ds=dealsOf(l).filter(d=>d.label); if(!ds.length) return null;
+        return (<div className="kdeals">{ds.map(d=>(<span className="kdeal" key={d.id} title={d.label}>{d.label}{dealBits(d)>0?` · ${usdK?usdK(dealBits(d)):usd(dealBits(d))}`:''}</span>))}</div>); })()}
       <div className="kmeta"><span className="kvals">{(l.closedDeals||[]).length>0&&<span className="kltv" title="Lifetime value across all deals">{usd(closedDealsTotal(l)+num(l.dealValue))} lifetime</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
       <div className="kmove" onClick={e=>e.stopPropagation()}>
         <button className="kmv" disabled={i<=0} onClick={()=>step(l,-1)} title="Back a phase"><ChevronLeft size={16}/></button>
