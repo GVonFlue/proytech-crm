@@ -294,6 +294,7 @@ function weekSlice(leads,tasks,stages,r){
   (leads||[]).forEach(l=>{
     const nm=l.company||l.name||'(unnamed)';
     if(inRange(l.createdAt,r)) newLeads++;
+    ((l.closedDeals)||[]).forEach(d=>{ if(inRange(d.closedAt,r)){ closed++; closedValue+=num(d.amount); wonNames.push(nm+' ('+usd(d.amount)+') · '+(d.label||'deal')); } });
     if(sOf(l.stage,stages).won&&inRange(l.closedAt,r)){ closed++; closedValue+=num(l.dealValue); wonNames.push(nm+' ('+usd(l.dealValue)+')'); }
     if(l.isClient&&inRange(l.convertedAt,r)){ onboarded++; newClientNames.push(nm); }
     const dep=normEntry((l.onboarding||{}).deposit_paid).done; if(inRange(dep,r)) deposits++;
@@ -381,6 +382,10 @@ const coldList=rels=>(rels||[]).map(r=>{ const tier=tierOf(r); const last=lastTo
 /* how far each lead ever got, read back out of the logged stage moves.
    rate = step conversion (this stage / previous). closeRate = share of leads
    that reached this stage which ultimately CLOSED (the last stage in the flow). */
+/* archived (previously-closed) deals on a repeat client */
+const closedDealsTotal=l=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+num(d.amount),0);
+const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.closedAt&&String(d.closedAt).slice(0,7)===mKey)?num(d.amount):0),0);
+const closedDealsCountInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).filter(d=>d.closedAt&&String(d.closedAt).slice(0,7)===mKey).length;
 const funnelOf=(leads,stages)=>{ const flow=(stages||[]).filter(s=>!s.lost); if(!flow.length) return [];
   const reached=flow.map(()=>0);
   (leads||[]).forEach(l=>{ let i=flow.findIndex(s=>s.key===l.stage);
@@ -536,7 +541,7 @@ function mkLead(o){
     followUp:'',expectedClose:'',serviceInterest:[],owner:BRAND.team[0]||'',dealValue:0,retainer:0,
     potentialSponsor:false,pastSponsor:false,sponsorTier:'',sponsorAmount:0,
     isRelationship:false,introducedBy:'',relNote:'',relTier:'',
-    retainerActive:false,retainerStart:'',closedAt:'',custom:{},createdAt,activities:acts,...rest};
+    retainerActive:false,retainerStart:'',closedAt:'',closedDeals:[],custom:{},createdAt,activities:acts,...rest};
 }
 /* Demo seed. A fresh client install starts EMPTY on purpose — never ship real
    pipeline data into someone else's CRM. Set VITE_SEED_DEMO=true on a demo
@@ -648,6 +653,7 @@ const CSS=`
 .kown{flex:none;width:22px;height:22px;border-radius:50%;background:${INDIGO};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk'}
 .kvals{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .kdv{font-size:12.5px;font-weight:700;color:${INK}}
+.kltv{font-size:11.5px;font-weight:800;color:#1a7d46;background:color-mix(in srgb,${GREEN} 10%,#fff);border-radius:12px;padding:1px 8px}
 .kmrr{font-size:10.5px;font-weight:700;color:${GREEN};background:rgba(31,157,85,.1);padding:2px 7px;border-radius:20px}
 .kstale{display:inline-flex;align-items:center;gap:4px;margin-top:8px;font-size:10.5px;font-weight:700;color:#A9732B;background:rgba(200,135,40,.12);padding:3px 8px;border-radius:20px}
 .kmove{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:10px;padding-top:9px;border-top:1px solid #F1F1F7}
@@ -701,6 +707,18 @@ const CSS=`
 .ex-del:hover{background:rgba(209,67,67,.1);color:${RED}}
 .addline{margin-top:10px;background:none;border:1px dashed #CFD0E0;color:${COBALT};font-weight:600;font-size:12.5px;padding:8px 12px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .addline:hover{background:rgba(43,77,224,.05);border-color:${COBALT}}
+.deal-hist{background:color-mix(in srgb,${GREEN} 4%,#fff);border:1px solid color-mix(in srgb,${GREEN} 22%,#fff);border-radius:12px;padding:12px 14px;margin-bottom:14px}
+.dh-head{display:flex;justify-content:space-between;align-items:center;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#1a7d46;margin-bottom:8px}
+.dh-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid color-mix(in srgb,${GREEN} 14%,#fff)}
+.dh-m{flex:1;min-width:0;display:flex;flex-direction:column}
+.dh-m b{font-size:13px;color:${INK};font-weight:700}
+.dh-m span{font-size:11px;color:#9b98ad}
+.dh-v{font-size:14px;font-weight:800;color:#1a7d46;font-family:'Space Grotesk',sans-serif}
+.dh-note{margin-top:9px;padding-top:9px;border-top:1px solid color-mix(in srgb,${GREEN} 14%,#fff);font-size:12px;color:#56527a}
+.dh-note b{color:${INK};font-weight:800}
+.deal-cur-label{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#a6a2bc;margin-bottom:8px}
+.deal-close-btn{width:100%;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border:none;border-radius:11px;background:${GREEN};color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;transition:.15s}
+.deal-close-btn:hover{filter:brightness(1.05);transform:translateY(-1px)}
 .deal-total{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:11px 13px;background:#F6F7FB;border-radius:10px}
 .deal-total span{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#928DAD}
 .deal-total b{font-family:'Space Grotesk';font-size:17px;color:${INK}}
@@ -2057,7 +2075,7 @@ function useMetrics(leads,stages){
     let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,lostCount=0,mrr=0,retainers=0;
     leads.forEach(l=>{const s=sOf(l.stage,stages);byStage[l.stage]=byStage[l.stage]||{count:0,value:0};byStage[l.stage].count++;byStage[l.stage].value+=num(l.dealValue);
       if(s.open){openCount++;openValue+=num(l.dealValue);weighted+=num(l.dealValue)*num(s.prob);}
-      if(s.won){wonCount++;wonValue+=num(l.dealValue);} if(s.lost) lostCount++;
+      if(s.won){wonCount++;wonValue+=num(l.dealValue);} if(s.lost) lostCount++; wonValue+=closedDealsTotal(l);
       if(l.retainerActive){mrr+=num(l.retainer);retainers++;}});
     const overdue=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<0&&sOf(l.stage,stages).open);
     const dueWeek=leads.filter(l=>{const d=l.followUp?daysUntil(l.followUp):null;return d!==null&&d>=0&&d<=7&&sOf(l.stage,stages).open;});
@@ -2089,7 +2107,7 @@ function useMetrics(leads,stages){
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
     let closedMonth=0,revenueMonth=0;
-    leads.forEach(l=>{ if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){ closedMonth++; revenueMonth+=num(l.dealValue); } });
+    leads.forEach(l=>{ if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){ closedMonth++; revenueMonth+=num(l.dealValue); } const cm=closedDealsInMonth(l,mKey); if(cm>0){ revenueMonth+=cm; closedMonth+=closedDealsCountInMonth(l,mKey); } });
     const firstTouch=median(touchHrs);
     const fuRate=fuCleared>0?fuOnTime/fuCleared:null;
     const funnel=funnelOf(leads,stages);
@@ -2962,7 +2980,7 @@ function ClientBoard({clients,settings,onCard,setClientPhase}){
     return (<div className={'kcard'+(st.overdue>0?' od':'')+(dragId===l.id?' dragging':'')} draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>onCard&&onCard(l.id)}>
       <div className="kcard-top"><div className="kn"><span className="dot" style={{background:phaseInfo(l.clientPhase||'intake',settings,l).color}}/>{l.company||l.name}</div>{l.owner&&<span className="kown">{l.owner[0].toUpperCase()}</span>}</div>
       <div className="kco">{l.name}</div>
-      <div className="kmeta"><span className="kvals">{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
+      <div className="kmeta"><span className="kvals">{(l.closedDeals||[]).length>0&&<span className="kltv" title="Lifetime value across all deals">{usd(closedDealsTotal(l)+num(l.dealValue))} lifetime</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
       <div className="kmove" onClick={e=>e.stopPropagation()}>
         <button className="kmv" disabled={i<=0} onClick={()=>step(l,-1)} title="Back a phase"><ChevronLeft size={16}/></button>
         <span className="kmv-s">{phaseInfo(l.clientPhase||'intake',settings,l).label}</span>
@@ -4497,6 +4515,19 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {Sec('deal',<DollarSign size={13}/>,'Deal',
               (dealSum(dealBreak)>0||num(draft.retainer)>0)?[dealSum(dealBreak)>0?usd(dealSum(dealBreak)):null,num(draft.retainer)>0?usd(draft.retainer)+'/mo':null].filter(Boolean).join(' · '):'not set',
               <>
+                {(draft.closedDeals||[]).length>0&&(()=>{ const hist=draft.closedDeals||[];
+                  const histTotal=hist.reduce((a,d)=>a+num(d.amount),0);
+                  return (<div className="deal-hist">
+                    <div className="dh-head"><span>Closed deals</span><b>{usd(histTotal)} · {hist.length} deal{hist.length===1?'':'s'}</b></div>
+                    {hist.map(d=>(<div className="dh-row" key={d.id}>
+                      <div className="dh-m"><b>{d.label||'Deal'}</b><span>closed {fmtDate(d.closedAt)}{d.by?` · ${d.by}`:''}</span></div>
+                      <span className="dh-v">{usd(d.amount)}</span>
+                      <button className="ex-del" title="Remove from history" onClick={()=>{ if(window.confirm('Remove this closed deal from history? It will no longer count toward total revenue.')){ set({closedDeals:hist.filter(x=>x.id!==d.id)}); } }}><X size={13}/></button>
+                    </div>))}
+                    <div className="dh-note">Lifetime with this client: <b>{usd(histTotal+dealSum(dealBreak))}</b></div>
+                  </div>); })()}
+
+                <div className="deal-cur-label">{(draft.closedDeals||[]).length>0?'Current deal':'Deal'}</div>
                 <div className="fgrid">
                   <div className="field"><label>Setup $</label><input type="number" value={dealBreak.setup} onChange={e=>setDeal({...dealBreak,setup:e.target.value})}/></div>
                   <div className="field"><label>Website $</label><input type="number" value={dealBreak.website} onChange={e=>setDeal({...dealBreak,website:e.target.value})}/></div>
@@ -4512,6 +4543,17 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 <button className="addline" onClick={()=>setDeal({...dealBreak,extras:[...dealBreak.extras,{id:uid(),label:'',amount:''}]})}><Plus size={13}/>Add line item</button>
                 <div className="deal-total"><span>One-time total</span><b>{usd(dealSum(dealBreak))}</b></div>
                 <div className="toggle" onClick={()=>set({retainerActive:!draft.retainerActive})}><span className={'sw '+(draft.retainerActive?'on':'')}><b/></span>{draft.retainerActive?'On monthly retainer':'Not on retainer'}</div>
+
+                {dealSum(dealBreak)>0&&<button className="deal-close-btn" onClick={()=>{
+                  const amount=dealSum(dealBreak); const label=window.prompt('Name this closed deal (e.g. "Website build", "Q3 advisory project"):','Deal '+((draft.closedDeals||[]).length+1));
+                  if(label===null) return;
+                  const closed={id:uid(),label:label.trim()||'Deal',amount,deal:{...dealBreak},closedAt:todayISO(),by:me};
+                  /* archive + clear the current deal. Log through addActivity so the
+                     dealValue-change logger in updateLead doesn't overwrite our note. */
+                  set({ closedDeals:[...(draft.closedDeals||[]),closed],
+                    deal:{setup:'',website:'',integration:'',extras:[]}, dealValue:0 });
+                  if(addActivity) addActivity(draft.id,'Note',`Deal closed: ${closed.label} — ${usd(amount)}`,me);
+                }}><CheckCircle2 size={15}/>Close this deal &amp; start another</button>}
               </>)}
           </div>}
 
