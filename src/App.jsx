@@ -388,6 +388,7 @@ const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.
 /* open deals on a lead, migrating legacy single-deal / bare-dealValue shapes.
    Mirrors the modal's openDeals so the card and the modal always agree. */
 const dealBits=d=>num(d.setup)+num(d.website)+num(d.integration)+((d.extras||[]).reduce((a,e)=>a+num(e.amount),0));
+const paymentsPaid=l=>((l&&l.payments)||[]).reduce((a,p)=>a+(+((''+p.amount).replace(/[^0-9.-]/g,''))||0),0);
 const dealsOf=l=>{
   if(Array.isArray(l&&l.deals)) return l.deals;
   if(l&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return [{id:'d_legacy',label:'Deal',...l.deal}];
@@ -424,6 +425,8 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const cap=s=>s?s.charAt(0).toUpperCase()+s.slice(1):s;
 const num=v=>{const n=Number(v);return isNaN(n)?0:n;};
 const usd=v=>(num(v)<0?'-$':'$')+Math.abs(Math.round(num(v))).toLocaleString();
+/* cents-aware money (payments can be $1,498.50) — shows cents only when non-zero */
+const usdc=v=>{ const x=num(v); const cents=Math.round(Math.abs(x)*100)%100; return (x<0?'-$':'$')+Math.abs(x).toLocaleString(undefined,{minimumFractionDigits:cents?2:0,maximumFractionDigits:2}); };
 const usdK=v=>{v=num(v);return Math.abs(v)>=1000?'$'+(v/1000).toFixed(v%1000===0?0:1)+'k':'$'+Math.round(v);};
 const pct=v=>(num(v)*100).toFixed(0)+'%';
 const isoOf=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -738,6 +741,24 @@ const CSS=`
 .deal-card-v{font-size:14px;font-weight:800;color:${COBALT};font-family:'Space Grotesk',sans-serif}
 .deal-add-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border:1.5px dashed #C9CBDD;border-radius:11px;background:#fff;color:${COBALT};font-size:13px;font-weight:700;cursor:pointer;transition:.15s;margin-bottom:8px}
 .deal-add-btn:hover{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 5%,#fff)}
+.pay-panel{margin-top:16px;padding:14px;border:1px solid #E7E8F1;border-radius:13px;background:#FBFBFE}
+.pay-head{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0;margin-bottom:10px}
+.pay-head b.due{color:#D97706;font-size:13px}
+.pay-head b.clear{color:#1a7d46;font-size:13px}
+.pay-bars{margin-bottom:12px}
+.pay-bar{height:9px;background:#EEF0F8;border-radius:5px;overflow:hidden}
+.pay-bar>div{height:100%;border-radius:5px;background:linear-gradient(90deg,${GREEN},#2BA35C);transition:width .3s}
+.pay-nums{display:flex;justify-content:space-between;font-size:11.5px;color:#8b88a0;font-weight:600;margin-top:5px}
+.pay-nums span:first-child{color:#1a7d46;font-weight:700}
+.pay-list{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+.pay-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #EFEFF6}
+.pay-m{flex:1;display:flex;flex-direction:column}
+.pay-m b{font-size:14px;color:${INK};font-weight:700;font-family:'Space Grotesk',sans-serif}
+.pay-m span{font-size:11px;color:#9b98ad}
+.pay-over{font-size:11.5px;color:#D97706;font-weight:600;margin-bottom:8px}
+.pay-add{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;border:none;border-radius:10px;background:${GREEN};color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:.15s}
+.pay-add:hover{filter:brightness(1.05)}
+.kbal{flex:none;font-size:10.5px;font-weight:700;color:#D97706;background:color-mix(in srgb,#FFA500 12%,#fff);border-radius:11px;padding:1px 8px}
 .deal-close-btn.sm{margin-top:10px;padding:9px;font-size:12.5px}
 .deal-close-btn{width:100%;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border:none;border-radius:11px;background:${GREEN};color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;transition:.15s}
 .deal-close-btn:hover{filter:brightness(1.05);transform:translateY(-1px)}
@@ -3044,7 +3065,7 @@ function ClientBoard({clients,settings,onCard,setClientPhase}){
       <div className="kco">{l.company&&l.company!==l.name?l.company:l.businessType||''}</div>
       {(()=>{ const ds=dealsOf(l).filter(d=>d.label); if(!ds.length) return null;
         return (<div className="kdeals">{ds.map(d=>(<span className="kdeal" key={d.id} title={d.label}>{d.label}{dealBits(d)>0?` · ${usdK?usdK(dealBits(d)):usd(dealBits(d))}`:''}</span>))}</div>); })()}
-      <div className="kmeta"><span className="kvals">{(l.closedDeals||[]).length>0&&<span className="kltv" title="Lifetime value across all deals">{usd(closedDealsTotal(l)+num(l.dealValue))} lifetime</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
+      <div className="kmeta"><span className="kvals">{(()=>{ const owed=num(l.dealValue)+(l.retainerActive?num(l.retainer):0); const rem=owed-paymentsPaid(l); return (l.payments&&l.payments.length&&rem>0)?<span className="kbal" title="Remaining balance">{usdc(rem)} due</span>:null; })()}{(l.closedDeals||[]).length>0&&<span className="kltv" title="Lifetime value across all deals">{usd(closedDealsTotal(l)+num(l.dealValue))} lifetime</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
       <div className="kmove" onClick={e=>e.stopPropagation()}>
         <button className="kmv" disabled={i<=0} onClick={()=>step(l,-1)} title="Back a phase"><ChevronLeft size={16}/></button>
         <span className="kmv-s">{phaseInfo(l.clientPhase||'intake',settings,l).label}</span>
@@ -4636,6 +4657,40 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 {openDeals.length>0&&<div className="deal-total"><span>{openDeals.length>1?'All open deals':'One-time total'}</span><b>{usd(openDealsTotal)}</b></div>}
                 <div className="field" style={{marginTop:12}}><label>Monthly Retainer $</label><input type="number" value={draft.retainer??''} onChange={e=>set({retainer:e.target.value})}/></div>
                 <div className="toggle" onClick={()=>set({retainerActive:!draft.retainerActive})}><span className={'sw '+(draft.retainerActive?'on':'')}><b/></span>{draft.retainerActive?'On monthly retainer':'Not on retainer'}</div>
+
+                {/* ---- Payments: what's been collected against what's owed ---- */}
+                {(()=>{
+                  const pays=Array.isArray(draft.payments)?draft.payments:[];
+                  const paid=pays.reduce((a,p)=>a+num(p.amount),0);
+                  /* owed = one-time deal work + the first month of retainer (option 3:
+                     the client's deal total IS the amount owed) */
+                  const firstMonth=draft.retainerActive?num(draft.retainer):0;
+                  const owed=openDealsTotal+firstMonth;
+                  const remaining=Math.max(0,owed-paid);
+                  const over=paid-owed;
+                  const logPayment=()=>{
+                    const raw=window.prompt('Payment amount received ($):', remaining>0?String(remaining):'');
+                    if(raw===null) return; const amount=num(raw); if(amount<=0){ window.alert('Enter a dollar amount.'); return; }
+                    const note=window.prompt('Note (e.g. "Square deposit", "balance on delivery") — optional:','')||'';
+                    const pay={id:uid(),amount,date:todayISO(),note:note.trim()};
+                    set({payments:[...pays,pay]});
+                    if(addActivity) addActivity(draft.id,'Note',`Payment received: ${usdc(amount)}${note.trim()?` — ${note.trim()}`:''}`,me);
+                  };
+                  return (<div className="pay-panel">
+                    <div className="pay-head"><span>Payments</span>{owed>0&&<b className={remaining>0?'due':'clear'}>{remaining>0?`${usdc(remaining)} remaining`:'paid in full'}</b>}</div>
+                    {owed>0&&<div className="pay-bars">
+                      <div className="pay-bar"><div style={{width:Math.min(100,Math.round(paid/owed*100))+'%'}}/></div>
+                      <div className="pay-nums"><span>{usdc(paid)} paid</span><span>of {usdc(owed)}</span></div>
+                    </div>}
+                    {pays.length>0&&<div className="pay-list">{pays.map(p=>(
+                      <div className="pay-row" key={p.id}>
+                        <div className="pay-m"><b>{usdc(p.amount)}</b><span>{fmtDate(p.date)}{p.note?` · ${p.note}`:''}</span></div>
+                        <button className="ex-del" title="Remove payment" onClick={()=>{ if(window.confirm('Remove this payment?')) set({payments:pays.filter(x=>x.id!==p.id)}); }}><X size={13}/></button>
+                      </div>))}</div>}
+                    {over>0&&<div className="pay-over">{usdc(over)} paid over the deal total (extra / tip / adjust the deal)</div>}
+                    <button className="pay-add" onClick={logPayment}><Plus size={14}/>Log a payment</button>
+                  </div>);
+                })()}
               </>)}
           </div>}
 
