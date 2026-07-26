@@ -256,20 +256,35 @@ const MSTATUS={'':'Upcoming',held:'Held',noshow:'No-show'};
 /* migrate any legacy 'Booked' activity that never became a meeting into one,
    so old history shows up in the new unified views. Idempotent: an activity
    already linked to a meeting (meetingId) is skipped. */
+/* A meeting can exist without anybody ever having said WHEN it is. Two ways in:
+   a legacy 'Booked' activity migrated below, and a meeting logged from the
+   activity composer. Both only ever knew the moment they were typed, so their
+   start is the log time, not the meeting time. Those carry dateUnknown and get
+   asked for a DATE, never for a status — "did this happen?" is the wrong
+   question about a meeting nobody has scheduled yet, and it is the reason a
+   batch of meetings entered in one sitting all turned up overdue five minutes
+   later. Backfill is a heuristic on existing rows (logged, and start never
+   moved off createdAt) and is written down for real the first time a date is
+   set, so it can never flip back. */
+const datelessOf=m=>m.dateUnknown!==undefined&&m.dateUnknown!==null
+  ? !!m.dateUnknown
+  : (!!m.logged&&!!m.start&&m.start===m.createdAt);
 const meetingsOf=l=>{
-  const existing=(l.meetings||[]).map(m=>({...m,status:m.status||''}));
+  const existing=(l.meetings||[]).map(m=>({...m,status:m.status||'',dateUnknown:datelessOf(m)}));
   const haveIds=new Set(existing.map(m=>m.id));
   const linked=new Set(existing.map(m=>m.meetingId).filter(Boolean));
   const fromActs=(l.activities||[])
     .filter(a=>a&&a.type==='Booked'&&a.ts&&!a.meetingId&&!linked.has(a.id))
     .map(a=>({ id:'m_'+a.id, fromActivity:a.id, title:(a.text||'Meeting').replace(/ booked:.*/i,'').replace(/ booked\.?$/i,'')||'Meeting',
-      mtype:a.mtype||'Other', start:a.ts, end:a.ts, status:a.status||'', who:a.who, createdAt:a.ts }))
+      mtype:a.mtype||'Other', start:a.ts, end:a.ts, status:a.status||'', who:a.who, createdAt:a.ts, logged:true, dateUnknown:true }))
     .filter(m=>!haveIds.has(m.id));
   return [...existing,...fromActs];
 };
 const meetingMonthKey=m=>m.start?isoOf(new Date(m.start)).slice(0,7):null;
-const isUpcoming=m=>!m.status&&new Date(m.end||m.start).getTime()>=Date.now();
-const needsStatus=m=>!m.status&&new Date(m.end||m.start).getTime()<Date.now();
+const isDateless=m=>!!m&&!!m.dateUnknown;
+const isUpcoming=m=>!m.status&&!isDateless(m)&&new Date(m.end||m.start).getTime()>=Date.now();
+const needsStatus=m=>!m.status&&!isDateless(m)&&new Date(m.end||m.start).getTime()<Date.now();
+const needsDate=m=>!m.status&&isDateless(m);
 /* every meeting across every lead, flattened with its lead attached */
 const allMeetings=leads=>(leads||[]).flatMap(l=>meetingsOf(l).map(m=>({lead:l,m})));
 /* ---- Monday Morning Huddle -------------------------------------------------
@@ -1121,6 +1136,17 @@ const CSS=`
 .mtg-drow.noshow{background:rgba(209,67,67,.04)}
 .mtg-drow.needs{background:color-mix(in srgb,#E0662B 5%,#fff)}
 .mtg-flag{color:#D97706;font-weight:700}
+.mtab.undated{border-color:${COBALT};color:${COBALT}}
+.mtab.undated .mtab-n{background:color-mix(in srgb,${COBALT} 16%,#fff);color:${COBALT}}
+.mtg-drow.undated{background:color-mix(in srgb,${COBALT} 4%,#fff)}
+.mtg-undated{color:${COBALT};font-weight:700}
+.mtg-fix{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mtg-fix input[type=datetime-local]{border:1px solid #E4E5EF;border-radius:9px;padding:5px 8px;font-size:12px;font-family:inherit;color:${INK};background:#fff}
+.mtg-fix select{border:1px solid #E4E5EF;border-radius:9px;padding:5px 6px;font-size:12px;font-family:inherit;color:${INK};background:#fff}
+.mtg-fix.sm input[type=datetime-local]{font-size:11.5px;padding:4px 6px}
+.mtg-band.undated{color:${COBALT}}
+.mtg-row.undated{background:color-mix(in srgb,${COBALT} 4%,#fff)}
+@media(max-width:640px){.mtg-fix{width:100%}.mtg-fix input[type=datetime-local]{flex:1 1 150px}}
 .an-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:11px;margin-bottom:18px}
 .an-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:14px 16px}
 .an-card.warn{border-color:#FFD59E;background:color-mix(in srgb,#FFA500 6%,#fff)}
@@ -1897,6 +1923,25 @@ export default function App(){
         text:`${nextStatus==='held'?'Met':'No-show'}: ${target.title||target.mtype||'meeting'}`,who:me}:null;
       updated={...l,meetings,...(act?{activities:[act,...(l.activities||[])]}:{})}; return updated;
     })); if(updated) db.upsertLead(updated).catch(console.error); };
+  /* give a dateless meeting its real date. Same materialise-on-first-touch
+     pattern as setMeetingStatus, because the meeting may still only exist as a
+     migrated 'Booked' activity. Writes dateUnknown:false explicitly so the
+     backfill heuristic never reclaims it. */
+  const setMeetingTime=(leadId,meetingId,startLocal,mins)=>{ if(!startLocal)return; let updated=null;
+    const startDt=new Date(startLocal); if(isNaN(startDt))return;
+    const pad=n=>String(n).padStart(2,'0');
+    const loc=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+    const start=loc(startDt), end=loc(new Date(startDt.getTime()+(num(mins)||30)*60000));
+    setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+      const all=meetingsOf(l); const target=all.find(m=>m.id===meetingId); if(!target)return l;
+      const already=(l.meetings||[]).some(m=>m.id===meetingId);
+      const patch={start,end,dateUnknown:false};
+      const meetings=already?(l.meetings||[]).map(m=>m.id===meetingId?{...m,...patch}:m)
+                            :[...(l.meetings||[]),{...target,...patch}];
+      const act={id:uid(),ts:new Date().toISOString(),type:'Note',meetingId,
+        text:`Dated: ${target.title||target.mtype||'meeting'} — ${fmtMeetingTime(start)}`,who:me};
+      updated={...l,meetings,activities:[act,...(l.activities||[])]}; return updated;
+    })); if(updated) db.upsertLead(updated).catch(console.error); };
   const tagMeetingType=(leadId,meetingId,mtype)=>{ let updated=null;
     setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
       const all=meetingsOf(l); const target=all.find(m=>m.id===meetingId); if(!target)return l;
@@ -2121,7 +2166,7 @@ export default function App(){
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
-          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
+          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -2161,7 +2206,7 @@ function useMetrics(leads,stages){
     /* meetings — ONE unified source. Every meeting (scheduled or logged) counts
        once, and held/no-show is read from the same record everywhere. */
     const mKey=todayISO().slice(0,7); const nowMs=Date.now();
-    let bookedAll=0,bookedMonth=0,mtgUpcoming=0,heldMonth=0,noShowMonth=0,heldAll=0,noShowAll=0,needsStatusCount=0,onboardedMonth=0,depositsMonth=0;
+    let bookedAll=0,bookedMonth=0,mtgUpcoming=0,heldMonth=0,noShowMonth=0,heldAll=0,noShowAll=0,needsStatusCount=0,needsDateCount=0,onboardedMonth=0,depositsMonth=0;
     const bookedByType={};
     leads.forEach(l=>{
       meetingsOf(l).forEach(mt=>{ bookedAll++;
@@ -2169,6 +2214,7 @@ function useMetrics(leads,stages){
         if(mk===mKey){ bookedMonth++; const t=mt.mtype||'Other'; bookedByType[t]=(bookedByType[t]||0)+1; }
         if(isUpcoming(mt)) mtgUpcoming++;
         if(needsStatus(mt)) needsStatusCount++;
+        if(needsDate(mt)) needsDateCount++;
         if(mt.status==='held'){ heldAll++; if(mk===mKey) heldMonth++; }
         else if(mt.status==='noshow'){ noShowAll++; if(mk===mKey) noShowMonth++; }
       });
@@ -2222,7 +2268,7 @@ function useMetrics(leads,stages){
         mrr:l.retainerActive?num(l.retainer):0,deals:((l.closedDeals||[]).length)+((sOf(l.stage,stages).won||l.isClient)&&num(l.dealValue)>0?1:0)};
     }).filter(c=>c.lifetime>0||c.mrr>0).sort((a,b)=>b.lifetime-a.lifetime);
     return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
-      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
+      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
       firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,
       meetCloseRate,metLeads,metAndClosed,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages]);
@@ -2320,7 +2366,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,tagMeetingType,rels,settings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages);
   const [drill,setDrill]=useState(null);
@@ -2420,11 +2466,13 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,tagMeetingType,
     else if(mtab==='completed') rows=rows.filter(r=>r.m.status==='held');
     else if(mtab==='noshow') rows=rows.filter(r=>r.m.status==='noshow');
     else if(mtab==='needs') rows=rows.filter(r=>needsStatus(r.m));
+    else if(mtab==='undated') rows=rows.filter(r=>needsDate(r.m));
     const dir=mtab==='upcoming'?1:-1;   // upcoming soonest-first, history newest-first
     return rows.sort((a,b)=>dir*((a.m.start||'').localeCompare(b.m.start||''))); })();
   const mtabCounts=(()=>{ let rows=allMeetings(leads); if(scope==='month') rows=rows.filter(r=>meetingMonthKey(r.m)===mKey);
     return { upcoming:rows.filter(r=>isUpcoming(r.m)).length, completed:rows.filter(r=>r.m.status==='held').length,
-             noshow:rows.filter(r=>r.m.status==='noshow').length, needs:rows.filter(r=>needsStatus(r.m)).length }; })();
+             noshow:rows.filter(r=>r.m.status==='noshow').length, needs:rows.filter(r=>needsStatus(r.m)).length,
+             undated:rows.filter(r=>needsDate(r.m)).length }; })();
   const Name=({l})=><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>;
   const Empty=({t})=><div className="empty" style={{padding:'18px 4px'}}>{t}</div>;
   const stageData=stages.filter(s=>s.open).map(s=>({name:s.label,Leads:m.byStage[s.key]?.count||0,color:s.color}));
@@ -2482,7 +2530,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,tagMeetingType,
     </div>
     <div className="kgroup">Activity &amp; health</div>
     <div className="kgrid">
-      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
+      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming${m.needsDateCount>0?` · ${m.needsDateCount} need a date`:''} · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
       <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
       <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
       <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
@@ -2513,8 +2561,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,tagMeetingType,
 
     {(drill==='booked'||drill==='held')&&<Drill title="Meetings" sub={`${mtabCounts.upcoming} upcoming · ${mtabCounts.completed} held · ${mtabCounts.noshow} no-show`} onClose={()=>setDrill(null)}>
       <div className="mtabs">
-        {[['upcoming','Upcoming'],['completed','Completed'],['noshow','No-shows'],['needs','Needs status']].map(([k,label])=>(
-          <button key={k} className={'mtab'+(mtab===k?' on':'')+(k==='needs'&&mtabCounts.needs>0?' alert':'')} onClick={()=>setMtab(k)}>
+        {[['upcoming','Upcoming'],['completed','Completed'],['noshow','No-shows'],['needs','Needs status'],['undated','Needs a date']].map(([k,label])=>(
+          <button key={k} className={'mtab'+(mtab===k?' on':'')+(k==='needs'&&mtabCounts.needs>0?' alert':'')+(k==='undated'&&mtabCounts.undated>0?' undated':'')} onClick={()=>setMtab(k)}>
             {label}<span className="mtab-n">{mtabCounts[k]}</span>
           </button>))}
         <div className="mtab-time">
@@ -2522,19 +2570,22 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,tagMeetingType,
           <button className={scope==='all'?'on':''} onClick={()=>setScope('all')}>All time</button>
         </div>
       </div>
-      {meetingRows.length?meetingRows.map(({lead,m:mt})=>(<div className={'drow mtg-drow'+(mt.status==='held'?' held':'')+(mt.status==='noshow'?' noshow':'')+(needsStatus(mt)?' needs':'')} key={mt.id}>
+      {meetingRows.length?meetingRows.map(({lead,m:mt})=>(<div className={'drow mtg-drow'+(mt.status==='held'?' held':'')+(mt.status==='noshow'?' noshow':'')+(needsStatus(mt)?' needs':'')+(needsDate(mt)?' undated':'')} key={mt.id}>
         <div className="drow-m"><Name l={lead}/><div className="subcell">
-          {fmtMeetingTime?fmtMeetingTime(mt.start):fmtDate(mt.start)}{mt.who?` · ${mt.who}`:''}
+          {needsDate(mt)
+            ? <>logged {fmtDate(mt.createdAt||mt.start)}<span className="mtg-undated"> · no date set</span></>
+            : <>{fmtMeetingTime?fmtMeetingTime(mt.start):fmtDate(mt.start)}{mt.who?` · ${mt.who}`:''}</>}
           {needsStatus(mt)&&<span className="mtg-flag"> · did this happen?</span>}
         </div></div>
+        {needsDate(mt)&&<DateFix onSet={(v,mins)=>setMeetingTime&&setMeetingTime(lead.id,mt.id,v,mins)}/>}
         <select className={'mtg-type'+(mt.mtype?'':' unset')} value={mt.mtype||''} onChange={e=>tagMeetingType&&tagMeetingType(lead.id,mt.id,e.target.value)}>
           <option value="">+ type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
         </select>
-        <div className="mtg-status">
+        {!needsDate(mt)&&<div className="mtg-status">
           <button className={'ms-b held'+(mt.status==='held'?' on':'')} title="It happened" onClick={()=>setMeetingStatus&&setMeetingStatus(lead.id,mt.id,'held')}><CheckCircle2 size={12}/>Held</button>
           <button className={'ms-b no'+(mt.status==='noshow'?' on':'')} title="They didn't show" onClick={()=>setMeetingStatus&&setMeetingStatus(lead.id,mt.id,'noshow')}><X size={12}/>No-show</button>
-        </div>
-      </div>)):<Empty t={mtab==='upcoming'?'No upcoming meetings.':mtab==='needs'?'Nothing waiting on a status. Clean.':mtab==='noshow'?'No no-shows. Nice.':'Nothing here yet.'}/>}
+        </div>}
+      </div>)):<Empty t={mtab==='upcoming'?'No upcoming meetings.':mtab==='needs'?'Nothing waiting on a status. Clean.':mtab==='undated'?'Every meeting has a real date on it.':mtab==='noshow'?'No no-shows. Nice.':'Nothing here yet.'}/>}
     </Drill>}
 
     {drill==='speed'&&<Drill title="Speed to first touch" sub={m.firstTouch!=null?`median ${fmtHrs(m.firstTouch)}`:'no touches yet'} onClose={()=>setDrill(null)}>
@@ -4235,6 +4286,24 @@ function DeliveryEditor({tracks,services,onChange}){
 /* ===================== MODAL ===================== */
 /* meeting list + scheduler used inside the lead modal. Top-level so form state
    survives modal re-renders. */
+/* the one control a dateless meeting needs: when is it. Defaults to the next
+   round hour so the common case is two taps, and it is deliberately the only
+   thing offered on the row — no Held/No-show, because that question does not
+   apply until somebody says when. */
+function DateFix({onSet,compact}){
+  const pad=n=>String(n).padStart(2,'0');
+  const soon=(()=>{ const d=new Date(); d.setMinutes(0,0,0); d.setHours(d.getHours()+1);
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`; })();
+  const [v,setV]=useState(soon);
+  const [mins,setMins]=useState(30);
+  return (<div className={'mtg-fix'+(compact?' sm':'')} onClick={e=>e.stopPropagation()}>
+    <input type="datetime-local" value={v} onChange={e=>setV(e.target.value)} aria-label="Meeting date and time"/>
+    <select value={mins} onChange={e=>setMins(+e.target.value)} aria-label="Length">
+      {[15,30,45,60,90,120].map(m=><option key={m} value={m}>{m<60?m+'m':(m/60)+'h'+(m%60?'30':'')}</option>)}
+    </select>
+    <button className="btn btn-p btn-sm" disabled={!v} onClick={()=>onSet&&onSet(v,mins)}><CalendarClock size={13}/>Set date</button>
+  </div>);
+}
 function fmtMeetingTime(iso){ try{ const d=new Date(iso); return d.toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch{ return iso; } }
 function MeetingScheduler({lead,gcalConnected,onSchedule}){
   const [date,setDate]=useState(todayISO());
@@ -4281,14 +4350,17 @@ function MeetingScheduler({lead,gcalConnected,onSchedule}){
     <button className="btn btn-p" disabled={busy||!gcalConnected} onClick={go}>{busy?<Loader2 size={15} className="spin"/>:<CalendarClock size={15}/>}{busy?'Scheduling…':'Schedule + add to Calendar'}</button>
   </div>);
 }
-function MeetingList({meetings,onRemove,onStatus,onType}){
+function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
   const now=Date.now();
-  const sorted=[...(meetings||[])].sort((a,b)=>(a.start||'').localeCompare(b.start||''));
-  const upcoming=sorted.filter(m=>new Date(m.end||m.start).getTime()>=now);
-  const past=sorted.filter(m=>new Date(m.end||m.start).getTime()<now).reverse();
+  const all=[...(meetings||[])].map(m=>({...m,dateUnknown:datelessOf(m)}));
+  const sorted=all.sort((a,b)=>(a.start||'').localeCompare(b.start||''));
+  const undated=sorted.filter(m=>needsDate(m));
+  const dated=sorted.filter(m=>!needsDate(m));
+  const upcoming=dated.filter(m=>new Date(m.end||m.start).getTime()>=now);
+  const past=dated.filter(m=>new Date(m.end||m.start).getTime()<now).reverse();
   if(!sorted.length) return <div className="mtg-empty">No meetings yet. Schedule one below.</div>;
-  const Row=m=>(<div className={'mtg-row'+(m.status==='held'?' held':'')+(m.status==='noshow'?' noshow':'')} key={m.id}>
-    <div className="mtg-when"><CalendarClock size={13}/>{fmtMeetingTime(m.start)}</div>
+  const Row=m=>(<div className={'mtg-row'+(m.status==='held'?' held':'')+(m.status==='noshow'?' noshow':'')+(needsDate(m)?' undated':'')} key={m.id}>
+    <div className="mtg-when"><CalendarClock size={13}/>{needsDate(m)?<span className="mtg-undated">no date set</span>:fmtMeetingTime(m.start)}</div>
     <div className="mtg-mid"><div className="mtg-title">{m.title}</div><div className="mtg-badges">
       <select className={'mtg-type'+(m.mtype?'':' unset')} value={m.mtype||''} onClick={e=>e.stopPropagation()} onChange={e=>onType&&onType(m,e.target.value)}>
         <option value="">+ type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
@@ -4297,13 +4369,16 @@ function MeetingList({meetings,onRemove,onStatus,onType}){
       {m.meet&&(m.meetLink?<a className="mtg-b link" href={m.meetLink} target="_blank" rel="noreferrer"><Video size={10}/>Join</a>:<span className="mtg-b"><Video size={10}/>Meet</span>)}
       {m.htmlLink&&<a className="mtg-b link" href={m.htmlLink} target="_blank" rel="noreferrer"><Expand size={10}/>Calendar</a>}
     </div></div>
-    <div className="mtg-status">
-      <button className={'ms-b held'+(m.status==='held'?' on':'')} title="It happened" onClick={()=>onStatus&&onStatus(m,'held')}><CheckCircle2 size={12}/>Held</button>
-      <button className={'ms-b no'+(m.status==='noshow'?' on':'')} title="They didn't show" onClick={()=>onStatus&&onStatus(m,'noshow')}><X size={12}/>No-show</button>
-    </div>
+    {needsDate(m)
+      ? <DateFix compact onSet={(v,mins)=>onTime&&onTime(m,v,mins)}/>
+      : <div className="mtg-status">
+          <button className={'ms-b held'+(m.status==='held'?' on':'')} title="It happened" onClick={()=>onStatus&&onStatus(m,'held')}><CheckCircle2 size={12}/>Held</button>
+          <button className={'ms-b no'+(m.status==='noshow'?' on':'')} title="They didn't show" onClick={()=>onStatus&&onStatus(m,'noshow')}><X size={12}/>No-show</button>
+        </div>}
     <button className="m-x" style={{width:28,height:28,flex:'none'}} title="Cancel + remove from calendar" onClick={()=>{if(window.confirm('Cancel this meeting and remove it from Google Calendar?'))onRemove(m);}}><X size={14}/></button>
   </div>);
   return (<div className="mtg-list">
+    {undated.length>0&&<><div className="mtg-band undated">Needs a date · {undated.length}</div>{undated.map(Row)}</>}
     {upcoming.length>0&&<><div className="mtg-band">Upcoming · {upcoming.length}</div>{upcoming.map(Row)}</>}
     {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
   </div>);
@@ -4335,6 +4410,14 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
     const was=(draft.meetings||[]).find(x=>x.id===mt.id); const flip=was&&was.status===status;
     const act=flip?null:{id:uid(),ts:new Date().toISOString(),type:'Meeting',text:`${status==='held'?'Met':'No-show'}: ${mt.title}`,who:me};
     set(act?{meetings:next,activities:[act,...(draft.activities||[])]}:{meetings:next}); };
+  /* same job as setMeetingTime on the dashboard, against the modal's draft */
+  const doTime=(mt,startLocal,mins)=>{ const d0=new Date(startLocal); if(!startLocal||isNaN(d0))return;
+    const pad=n=>String(n).padStart(2,'0');
+    const loc=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+    const start=loc(d0), end=loc(new Date(d0.getTime()+(num(mins)||30)*60000));
+    const next=(draft.meetings||[]).map(x=>x.id===mt.id?{...x,start,end,dateUnknown:false}:x);
+    const act={id:uid(),ts:new Date().toISOString(),type:'Note',meetingId:mt.id,text:`Dated: ${mt.title||mt.mtype||'meeting'} — ${fmtMeetingTime(start)}`,who:me};
+    set({meetings:next,activities:[act,...(draft.activities||[])]}); };
   const setCustom=(id,v)=>set({custom:{...(draft.custom||{}),[id]:v}});
   const toggleSvc=s=>{const cur=draft.serviceInterest||[];set({serviceInterest:cur.includes(s)?cur.filter(x=>x!==s):[...cur,s]});};
   const addCustomAction=()=>{const v=window.prompt('New Next Action:');if(v&&v.trim()){addOption('nextAction',v.trim());set({nextAction:v.trim()});}};
@@ -4385,10 +4468,14 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const logIt=()=>{
     const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:''); if(!t)return;
     if(atype==='Booked'){
-      /* a logged meeting IS a meeting — create the record so it shows in Upcoming
-         with a Held/No-show control, not just a line in the activity feed. */
+      /* a logged meeting IS a meeting — create the record so it shows up with a
+         Held/No-show control, not just a line in the activity feed. It has no
+         real date though: start is only the moment this was typed. dateUnknown
+         says so out loud, which keeps it out of Upcoming (where it would sit
+         for all of zero seconds) and out of Needs status (where it would turn
+         up overdue a minute later). It lands in Needs a date instead. */
       const mid=uid(); const now=new Date().toISOString();
-      const meeting={id:mid,title:`${logMtype} with ${draft.name||'lead'}`,mtype:logMtype,start:now,end:now,status:'',who,createdAt:now,logged:true};
+      const meeting={id:mid,title:`${logMtype} with ${draft.name||'lead'}`,mtype:logMtype,start:now,end:now,status:'',who,createdAt:now,logged:true,dateUnknown:true};
       const act={id:uid(),ts:now,type:'Booked',mtype:logMtype,meetingId:mid,text:t,who};
       const patch={meetings:[...(draft.meetings||[]),meeting],activities:[act,...(draft.activities||[])]};
       setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
@@ -4551,7 +4638,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {Sec('meetings',<CalendarClock size={13}/>,'Meetings',
               (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
               <>
-                <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus} onType={(mt,v)=>{tagMeeting&&tagMeeting(draft.id,mt.id,v);setDraft(d=>({...d,meetings:(d.meetings||[]).map(x=>x.id===mt.id?{...x,mtype:v}:x)}));}}/>
+                <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus} onTime={doTime} onType={(mt,v)=>{tagMeeting&&tagMeeting(draft.id,mt.id,v);setDraft(d=>({...d,meetings:(d.meetings||[]).map(x=>x.id===mt.id?{...x,mtype:v}:x)}));}}/>
                 <MeetingScheduler lead={draft} gcalConnected={gcalConnected} onSchedule={doSchedule}/>
               </>, (draft.meetings||[]).some(m=>new Date(m.end||m.start).getTime()>=Date.now()))}
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
