@@ -248,6 +248,30 @@ function CountUp({value,format,ms}){
 }
 /* meeting types — coffee and discovery are different motions, track them apart */
 const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboarding','Check-in','Other'];
+/* ---- unified meeting model -------------------------------------------------
+   ONE record per meeting, whether it was scheduled on the calendar or logged
+   after the fact. status: '' = upcoming, 'held', 'noshow'. Every count in the
+   app reads meetingsOf(), so the numbers can never disagree with each other. */
+const MSTATUS={'':'Upcoming',held:'Held',noshow:'No-show'};
+/* migrate any legacy 'Booked' activity that never became a meeting into one,
+   so old history shows up in the new unified views. Idempotent: an activity
+   already linked to a meeting (meetingId) is skipped. */
+const meetingsOf=l=>{
+  const existing=(l.meetings||[]).map(m=>({...m,status:m.status||''}));
+  const haveIds=new Set(existing.map(m=>m.id));
+  const linked=new Set(existing.map(m=>m.meetingId).filter(Boolean));
+  const fromActs=(l.activities||[])
+    .filter(a=>a&&a.type==='Booked'&&a.ts&&!a.meetingId&&!linked.has(a.id))
+    .map(a=>({ id:'m_'+a.id, fromActivity:a.id, title:(a.text||'Meeting').replace(/ booked:.*/i,'').replace(/ booked\.?$/i,'')||'Meeting',
+      mtype:a.mtype||'Other', start:a.ts, end:a.ts, status:a.status||'', who:a.who, createdAt:a.ts }))
+    .filter(m=>!haveIds.has(m.id));
+  return [...existing,...fromActs];
+};
+const meetingMonthKey=m=>m.start?isoOf(new Date(m.start)).slice(0,7):null;
+const isUpcoming=m=>!m.status&&new Date(m.end||m.start).getTime()>=Date.now();
+const needsStatus=m=>!m.status&&new Date(m.end||m.start).getTime()<Date.now();
+/* every meeting across every lead, flattened with its lead attached */
+const allMeetings=leads=>(leads||[]).flatMap(l=>meetingsOf(l).map(m=>({lead:l,m})));
 /* ---- Monday Morning Huddle -------------------------------------------------
    Everything here is plain arithmetic on data already captured. The AI only
    ever sees the finished digest, never the database. */
@@ -354,15 +378,19 @@ const COLD_DAYS={champion:30,b:60,new:90};
 const coldList=rels=>(rels||[]).map(r=>{ const tier=tierOf(r); const last=lastTouchTs(r);
     return {r,tier,last,days:last?daysSince(last):9999,limit:COLD_DAYS[tier]||90}; })
   .filter(x=>x.days>=x.limit).sort((a,b)=>b.days-a.days);
-/* how far each lead ever got, read back out of the logged stage moves */
+/* how far each lead ever got, read back out of the logged stage moves.
+   rate = step conversion (this stage / previous). closeRate = share of leads
+   that reached this stage which ultimately CLOSED (the last stage in the flow). */
 const funnelOf=(leads,stages)=>{ const flow=(stages||[]).filter(s=>!s.lost); if(!flow.length) return [];
   const reached=flow.map(()=>0);
   (leads||[]).forEach(l=>{ let i=flow.findIndex(s=>s.key===l.stage);
     (l.activities||[]).forEach(a=>{ if(a&&typeof a.text==='string'&&a.text.startsWith('Stage moved:')){
       const to=a.text.split('\u2192').pop().trim(); const j=flow.findIndex(s=>s.label===to); if(j>i) i=j; } });
     if(i<0) i=0; for(let k=0;k<=i;k++) reached[k]++; });
+  const closed=reached[reached.length-1]||0;
   return flow.map((s,i)=>({key:s.key,label:s.label,color:s.color,count:reached[i],
-    rate:i===0?1:(reached[i-1]?reached[i]/reached[i-1]:0)})); };
+    rate:i===0?1:(reached[i-1]?reached[i]/reached[i-1]:0),
+    closeRate:reached[i]?closed/reached[i]:0})); };
 const ACT_LABEL={Booked:'Meeting Booked'};
 const actLabel=t=>ACT_LABEL[t]||t;
 const actPlural=t=>t==='Booked'?'Booked':t+'s';
@@ -1009,13 +1037,47 @@ const CSS=`
 .goal-in input:focus{outline:none}
 .kgroup+.kgrid{margin-bottom:16px}
 .funnel{display:flex;flex-direction:column;gap:9px;margin-top:6px}
-.fn-row{display:grid;grid-template-columns:110px 1fr 42px 52px;align-items:center;gap:11px}
+.fn-row{display:grid;grid-template-columns:104px 1fr 40px 44px 52px;align-items:center;gap:10px}
+.fn-row.fn-head{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#b7b4c6}
+.fn-head .fn-c,.fn-head .fn-r{text-align:right}
+.fn-r.close{font-weight:800;color:#1a7d46}
+.fn-r.close.warn{color:#c0392b}
+.mtabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.mtab{display:inline-flex;align-items:center;gap:6px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;color:#8b88a0;cursor:pointer}
+.mtab.on{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);color:${COBALT}}
+.mtab-n{font-size:10.5px;font-weight:800;background:rgba(24,21,48,.08);border-radius:10px;padding:1px 7px}
+.mtab.on .mtab-n{background:color-mix(in srgb,${COBALT} 18%,#fff)}
+.mtab.alert{border-color:#E0662B;color:#C05A1E}
+.mtab.alert .mtab-n{background:color-mix(in srgb,#E0662B 16%,#fff);color:#C05A1E}
+.mtab-time{margin-left:auto;display:inline-flex;gap:4px}
+.mtab-time button{border:1px solid #E4E5EF;background:#fff;border-radius:16px;padding:5px 10px;font-size:11px;font-weight:700;color:#8b88a0;cursor:pointer}
+.mtab-time button.on{border-color:${INK};background:${INK};color:#fff}
+.mtg-drow{gap:10px}
+.mtg-drow.held{background:color-mix(in srgb,${GREEN} 4%,#fff)}
+.mtg-drow.noshow{background:rgba(209,67,67,.04)}
+.mtg-drow.needs{background:color-mix(in srgb,#E0662B 5%,#fff)}
+.mtg-flag{color:#C05A1E;font-weight:700}
+.an-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:11px;margin-bottom:18px}
+.an-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:14px 16px}
+.an-card.warn{border-color:#F0C09B;background:color-mix(in srgb,#E0662B 4%,#fff)}
+.an-l{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#a6a2bc}
+.an-v{font-size:27px;font-weight:800;color:${INK};font-family:'Space Grotesk',sans-serif;margin:4px 0 2px}
+.an-d{font-size:11.5px;color:#9b98ad}
+.src-list{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.src-row{display:grid;grid-template-columns:1fr 60px 60px 56px 90px;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;font-size:13px;color:${INK}}
+.src-row:not(.src-head):hover{background:#FAFAFE}
+.src-row.src-head{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#b7b4c6}
+.src-row span:not(.src-name){text-align:right}
+.src-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.src-hi{color:#1a7d46;font-weight:800}
+.src-lo{color:#c0392b;font-weight:800}
+@media(max-width:640px){.src-row{grid-template-columns:1fr 40px 40px 44px;gap:6px}.src-row span:nth-child(5){display:none}}
 .fn-l{font-size:12.5px;font-weight:700;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fn-bar{height:11px;background:#F1F2F8;border-radius:20px;overflow:hidden}
 .fn-bar div{height:100%;border-radius:20px;transition:width .3s}
 .fn-c{font-size:13px;font-weight:800;color:${INK};text-align:right;font-family:'Space Grotesk',sans-serif}
 .fn-r{font-size:11.5px;font-weight:700;color:#8b88a0;text-align:right}
-@media(max-width:640px){.fn-row{grid-template-columns:84px 1fr 34px 44px;gap:8px}}
+@media(max-width:640px){.fn-row{grid-template-columns:76px 1fr 30px 38px 40px;gap:6px}}
 .web-fs{position:fixed;inset:0;z-index:80;background:#F4F6FB;display:flex;flex-direction:column;padding:16px 20px;animation:pop .16s ease}
 .web-fs .web-legend{flex:none;margin-bottom:8px}
 .web-fs .web-trace{flex:none}
@@ -1718,6 +1780,31 @@ export default function App(){
   })); if(updated) putLead(updated); };
   /* retro-tagging: set the meeting type on a logged 'Booked' activity, and on the
      scheduled meeting it created (when there is one). */
+  /* set a meeting's status from ANYWHERE (dashboard, lead modal, meetings tab).
+     If the meeting only exists as a migrated 'Booked' activity, materialise it
+     as a real meeting record on first touch so the status persists. */
+  const setMeetingStatus=(leadId,meetingId,status)=>{ let updated=null;
+    setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+      const all=meetingsOf(l); const target=all.find(m=>m.id===meetingId); if(!target)return l;
+      const already=(l.meetings||[]).some(m=>m.id===meetingId);
+      const nextStatus=target.status===status?'':status;
+      let meetings;
+      if(already){ meetings=(l.meetings||[]).map(m=>m.id===meetingId?{...m,status:nextStatus}:m); }
+      else { meetings=[...(l.meetings||[]),{...target,status:nextStatus}]; }   // materialise the migrated one
+      const logIt=nextStatus&&nextStatus!==target.status;
+      const act=logIt?{id:uid(),ts:new Date().toISOString(),type:'Meeting',meetingId,
+        text:`${nextStatus==='held'?'Met':'No-show'}: ${target.title||target.mtype||'meeting'}`,who:me}:null;
+      updated={...l,meetings,...(act?{activities:[act,...(l.activities||[])]}:{})}; return updated;
+    })); if(updated) db.upsertLead(updated).catch(console.error); };
+  const tagMeetingType=(leadId,meetingId,mtype)=>{ let updated=null;
+    setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+      const all=meetingsOf(l); const target=all.find(m=>m.id===meetingId); if(!target)return l;
+      const already=(l.meetings||[]).some(m=>m.id===meetingId);
+      let meetings=already?(l.meetings||[]).map(m=>m.id===meetingId?{...m,mtype}:m):[...(l.meetings||[]),{...target,mtype}];
+      // keep the source activity's type in sync so the activity feed still reads right
+      const acts=(l.activities||[]).map(a=>(a.id===target.fromActivity||a.meetingId===meetingId)?{...a,mtype}:a);
+      updated={...l,meetings,activities:acts}; return updated;
+    })); if(updated) db.upsertLead(updated).catch(console.error); };
   const tagBooked=(leadId,actId,mtype)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
     const src=(l.activities||[]).find(a=>a.id===actId); if(!src)return l;
     const acts=(l.activities||[]).map(a=>a.id===actId?{...a,mtype}:a);
@@ -1892,7 +1979,7 @@ export default function App(){
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
-          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
+          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -1929,20 +2016,20 @@ function useMetrics(leads,stages){
     const hot=leads.filter(l=>l.priority==='high'&&sOf(l.stage,stages).open);
     const winRate=(wonCount+lostCount)>0?wonCount/(wonCount+lostCount):0;
     const avgDeal=wonCount>0?wonValue/wonCount:0; const avgRet=retainers>0?mrr/retainers:0;
-    /* meetings booked — counts the canonical 'Booked' activity, so the scheduler
-       and the one-click composer button both land in the same number.
-       Month is derived in LOCAL time (isoOf) so a late-night booking doesn't
-       jump into next month the way a raw UTC string would. */
+    /* meetings — ONE unified source. Every meeting (scheduled or logged) counts
+       once, and held/no-show is read from the same record everywhere. */
     const mKey=todayISO().slice(0,7); const nowMs=Date.now();
-    let bookedAll=0,bookedMonth=0,mtgUpcoming=0,heldMonth=0,noShowMonth=0,onboardedMonth=0,depositsMonth=0;
+    let bookedAll=0,bookedMonth=0,mtgUpcoming=0,heldMonth=0,noShowMonth=0,heldAll=0,noShowAll=0,needsStatusCount=0,onboardedMonth=0,depositsMonth=0;
     const bookedByType={};
     leads.forEach(l=>{
-      (l.activities||[]).forEach(a=>{ if(a.type==='Booked'){ bookedAll++;
-        if(a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ bookedMonth++; const t=a.mtype||'Other'; bookedByType[t]=(bookedByType[t]||0)+1; } } });
-      (l.meetings||[]).forEach(mt=>{ const st=new Date(mt.end||mt.start).getTime();
-        if(st>=nowMs) mtgUpcoming++;
-        if(mt.start&&isoOf(new Date(mt.start)).slice(0,7)===mKey){ if(mt.status==='held') heldMonth++; else if(mt.status==='noshow') noShowMonth++; } });
-      /* onboarding milestones — already captured, just never surfaced */
+      meetingsOf(l).forEach(mt=>{ bookedAll++;
+        const mk=meetingMonthKey(mt);
+        if(mk===mKey){ bookedMonth++; const t=mt.mtype||'Other'; bookedByType[t]=(bookedByType[t]||0)+1; }
+        if(isUpcoming(mt)) mtgUpcoming++;
+        if(needsStatus(mt)) needsStatusCount++;
+        if(mt.status==='held'){ heldAll++; if(mk===mKey) heldMonth++; }
+        else if(mt.status==='noshow'){ noShowAll++; if(mk===mKey) noShowMonth++; }
+      });
       if(l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey) onboardedMonth++;
       const dep=l.onboarding&&l.onboarding.deposit_paid&&normEntry(l.onboarding.deposit_paid).done;
       if(dep&&String(dep).slice(0,7)===mKey) depositsMonth++;
@@ -1958,10 +2045,35 @@ function useMetrics(leads,stages){
     const firstTouch=median(touchHrs);
     const fuRate=fuCleared>0?fuOnTime/fuCleared:null;
     const funnel=funnelOf(leads,stages);
-    const decided=heldMonth+noShowMonth; const showRate=decided>0?heldMonth/decided:0;
+
+    /* ---------- higher-order sales analytics ---------- */
+    // booked -> held: of meetings that already happened, how many actually did
+    const decidedAll=heldAll+noShowAll;
+    const showRate=decidedAll>0?heldAll/decidedAll:0;              // held / (held+noshow), all time
+    const noShowRate=decidedAll>0?noShowAll/decidedAll:0;
+    // meeting -> close: of leads we ever HELD a meeting with, how many converted
+    let metLeads=0,metAndClosed=0;
+    leads.forEach(l=>{ const held=meetingsOf(l).some(m=>m.status==='held'); if(!held)return; metLeads++;
+      if(l.isClient||sOf(l.stage,stages).won) metAndClosed++; });
+    const meetCloseRate=metLeads>0?metAndClosed/metLeads:0;
+    // average days from lead created -> converted (sales-cycle length)
+    const cycleDays=[]; leads.forEach(l=>{ if((l.isClient&&l.convertedAt)||sOf(l.stage,stages).won){
+      const end=l.convertedAt||l.closedAt; if(l.createdAt&&end){ const d=(new Date(end)-new Date(l.createdAt))/864e5; if(!isNaN(d)&&d>=0) cycleDays.push(d); } } });
+    const avgDaysToClose=cycleDays.length?Math.round(median(cycleDays)):null;
+    // pipeline velocity: open deals moving vs rotting (no touch in 14d)
+    const openLeadsArr=leads.filter(l=>sOf(l.stage,stages).open);
+    const rotting=openLeadsArr.filter(l=>daysSince(lastTouchTs(l)||l.createdAt||todayISO())>=14).length;
+    const movingPct=openLeadsArr.length?1-(rotting/openLeadsArr.length):1;
+    // source ROI: which lead source actually closes
+    const bySource={}; leads.forEach(l=>{ const src=l.source||'—'; bySource[src]=bySource[src]||{total:0,won:0,value:0};
+      bySource[src].total++; if(l.isClient||sOf(l.stage,stages).won){ bySource[src].won++; bySource[src].value+=num(l.dealValue); } });
+    const sourceROI=Object.entries(bySource).map(([source,v])=>({source,...v,rate:v.total?v.won/v.total:0}))
+      .sort((a,b)=>b.won-a.won||b.total-a.total);
+
     return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,
-      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,showRate,bookedByType,onboardedMonth,depositsMonth,
-      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth};
+      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
+      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,
+      meetCloseRate,metLeads,metAndClosed,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages]);
 }
 
@@ -2057,11 +2169,12 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,tagMeetingType,rels,settings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages);
   const [drill,setDrill]=useState(null);
-  const [scope,setScope]=useState('month');   // booked drill: this month vs all time
+  const [scope,setScope]=useState('month');   // time filter across meeting tabs
+  const [mtab,setMtab]=useState('upcoming'); // upcoming | completed | noshow | needs
   const tog=k=>{ setDrill(d=>d===k?null:k); };
   const mKey=todayISO().slice(0,7);
 
@@ -2148,13 +2261,19 @@ function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUi
   const wonLeads=leads.filter(l=>sOf(l.stage,stages).won).sort((a,b)=>(b.closedAt||'').localeCompare(a.closedAt||''));
   const retLeads=leads.filter(l=>l.retainerActive).sort((a,b)=>num(b.retainer)-num(a.retainer));
   const onboardedLeads=leads.filter(l=>l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey);
-  const bookedRows=leads.flatMap(l=>(l.activities||[]).filter(a=>a.type==='Booked'&&a.ts)
-    .map(a=>({lead:l,act:a}))).filter(r=>scope==='all'||isoOf(new Date(r.act.ts)).slice(0,7)===mKey)
-    .sort((a,b)=>(b.act.ts||'').localeCompare(a.act.ts||''));
-  const untyped=bookedRows.filter(r=>!r.act.mtype).length;
   const cold=coldList(rels||[]);
-  const heldRows=leads.flatMap(l=>(l.meetings||[]).filter(mt=>mt.status&&mt.start&&isoOf(new Date(mt.start)).slice(0,7)===mKey).map(mt=>({lead:l,mt})))
-    .sort((a,b)=>(b.mt.start||'').localeCompare(a.mt.start||''));
+  /* one flat list of every meeting, filtered by the active tab + time scope */
+  const meetingRows=(()=>{ let rows=allMeetings(leads);
+    if(scope==='month') rows=rows.filter(r=>meetingMonthKey(r.m)===mKey);
+    if(mtab==='upcoming') rows=rows.filter(r=>isUpcoming(r.m));
+    else if(mtab==='completed') rows=rows.filter(r=>r.m.status==='held');
+    else if(mtab==='noshow') rows=rows.filter(r=>r.m.status==='noshow');
+    else if(mtab==='needs') rows=rows.filter(r=>needsStatus(r.m));
+    const dir=mtab==='upcoming'?1:-1;   // upcoming soonest-first, history newest-first
+    return rows.sort((a,b)=>dir*((a.m.start||'').localeCompare(b.m.start||''))); })();
+  const mtabCounts=(()=>{ let rows=allMeetings(leads); if(scope==='month') rows=rows.filter(r=>meetingMonthKey(r.m)===mKey);
+    return { upcoming:rows.filter(r=>isUpcoming(r.m)).length, completed:rows.filter(r=>r.m.status==='held').length,
+             noshow:rows.filter(r=>r.m.status==='noshow').length, needs:rows.filter(r=>needsStatus(r.m)).length }; })();
   const Name=({l})=><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>;
   const Empty=({t})=><div className="empty" style={{padding:'18px 4px'}}>{t}</div>;
   const stageData=stages.filter(s=>s.open).map(s=>({name:s.label,Leads:m.byStage[s.key]?.count||0,color:s.color}));
@@ -2213,7 +2332,7 @@ function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUi
     <div className="kgroup">Activity &amp; health</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
-      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldMonth+m.noShowMonth)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
+      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
       <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
       <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
       <Kpi label="Follow-Up Health" value={m.fuRate==null?'—':Math.round(m.fuRate*100)+'%'} icon={<Bell size={14}/>} d={m.overdue.length>0?`${m.overdue.length} overdue right now`:(m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time`:'clear a follow-up to start')} onClick={()=>tog('fu')} active={drill==='fu'}/>
@@ -2241,24 +2360,30 @@ function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUi
       </div>)):<Empty t="No active retainers."/>}
     </Drill>}
 
-    {drill==='booked'&&<Drill title="Meetings booked" sub={untyped>0?`${untyped} still need a type`:'all tagged'} onClose={()=>setDrill(null)}>
-      <div className="seg" style={{marginBottom:12}}>
-        <button className={scope==='month'?'on':''} onClick={()=>setScope('month')}>This month</button>
-        <button className={scope==='all'?'on':''} onClick={()=>setScope('all')}>All time</button>
+    {(drill==='booked'||drill==='held')&&<Drill title="Meetings" sub={`${mtabCounts.upcoming} upcoming · ${mtabCounts.completed} held · ${mtabCounts.noshow} no-show`} onClose={()=>setDrill(null)}>
+      <div className="mtabs">
+        {[['upcoming','Upcoming'],['completed','Completed'],['noshow','No-shows'],['needs','Needs status']].map(([k,label])=>(
+          <button key={k} className={'mtab'+(mtab===k?' on':'')+(k==='needs'&&mtabCounts.needs>0?' alert':'')} onClick={()=>setMtab(k)}>
+            {label}<span className="mtab-n">{mtabCounts[k]}</span>
+          </button>))}
+        <div className="mtab-time">
+          <button className={scope==='month'?'on':''} onClick={()=>setScope('month')}>This month</button>
+          <button className={scope==='all'?'on':''} onClick={()=>setScope('all')}>All time</button>
+        </div>
       </div>
-      {bookedRows.length?bookedRows.map(({lead,act})=>(<div className={'drow'+(act.mtype?'':' untyped')} key={act.id}>
-        <div className="drow-m"><Name l={lead}/><div className="subcell">{fmtStamp(act.ts)}{act.who?` · ${act.who}`:''}</div></div>
-        <select className={'mtg-type'+(act.mtype?'':' unset')} value={act.mtype||''} onChange={e=>tagBooked&&tagBooked(lead.id,act.id,e.target.value)}>
-          <option value="">+ set type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+      {meetingRows.length?meetingRows.map(({lead,m:mt})=>(<div className={'drow mtg-drow'+(mt.status==='held'?' held':'')+(mt.status==='noshow'?' noshow':'')+(needsStatus(mt)?' needs':'')} key={mt.id}>
+        <div className="drow-m"><Name l={lead}/><div className="subcell">
+          {fmtMeetingTime?fmtMeetingTime(mt.start):fmtDate(mt.start)}{mt.who?` · ${mt.who}`:''}
+          {needsStatus(mt)&&<span className="mtg-flag"> · did this happen?</span>}
+        </div></div>
+        <select className={'mtg-type'+(mt.mtype?'':' unset')} value={mt.mtype||''} onChange={e=>tagMeetingType&&tagMeetingType(lead.id,mt.id,e.target.value)}>
+          <option value="">+ type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
         </select>
-      </div>)):<Empty t="No meetings booked in this window."/>}
-    </Drill>}
-
-    {drill==='held'&&<Drill title="Meetings this month" sub={`${m.heldMonth} held · ${m.noShowMonth} no-show`} onClose={()=>setDrill(null)}>
-      {heldRows.length?heldRows.map(({lead,mt})=>(<div className="drow" key={mt.id}>
-        <div className="drow-m"><Name l={lead}/><div className="subcell">{mt.title} · {fmtDate(mt.start)}{mt.mtype?` · ${mt.mtype}`:''}</div></div>
-        <span className={'badge '+(mt.status==='held'?'done':'over')}>{mt.status==='held'?'Held':'No-show'}</span>
-      </div>)):<Empty t="Nothing marked held or no-show yet this month."/>}
+        <div className="mtg-status">
+          <button className={'ms-b held'+(mt.status==='held'?' on':'')} title="It happened" onClick={()=>setMeetingStatus&&setMeetingStatus(lead.id,mt.id,'held')}><CheckCircle2 size={12}/>Held</button>
+          <button className={'ms-b no'+(mt.status==='noshow'?' on':'')} title="They didn't show" onClick={()=>setMeetingStatus&&setMeetingStatus(lead.id,mt.id,'noshow')}><X size={12}/>No-show</button>
+        </div>
+      </div>)):<Empty t={mtab==='upcoming'?'No upcoming meetings.':mtab==='needs'?'Nothing waiting on a status. Clean.':mtab==='noshow'?'No no-shows. Nice.':'Nothing here yet.'}/>}
     </Drill>}
 
     {drill==='speed'&&<Drill title="Speed to first touch" sub={m.firstTouch!=null?`median ${fmtHrs(m.firstTouch)}`:'no touches yet'} onClose={()=>setDrill(null)}>
@@ -2299,14 +2424,40 @@ function Dashboard({leads,stages,open,tagBooked,rels,settings,rep,me,myUser,myUi
     </div>}
     {m.funnel.length>1&&<div className="card" style={{marginBottom:18}}>
       <h3>Conversion funnel</h3>
-      <div className="ch-sub">How far leads actually get — read back from your stage history</div>
-      <div className="funnel">{m.funnel.map((f,i)=>{ const top=m.funnel[0].count||1;
+      <div className="ch-sub">How far leads get, and the share of each stage that ultimately closes</div>
+      <div className="funnel">
+        <div className="fn-row fn-head"><span className="fn-l"></span><span></span><span className="fn-c">count</span><span className="fn-r">step</span><span className="fn-r">→ close</span></div>
+        {m.funnel.map((f,i)=>{ const top=m.funnel[0].count||1;
         return (<div className="fn-row" key={f.key}>
           <span className="fn-l">{f.label}</span>
           <div className="fn-bar"><div style={{width:Math.max(2,Math.round(f.count/top*100))+'%',background:f.color||COBALT}}/></div>
           <span className="fn-c">{f.count}</span>
           <span className="fn-r">{i===0?'—':Math.round(f.rate*100)+'%'}</span>
+          <span className={'fn-r close'+(i>0&&f.closeRate<0.5?' warn':'')}>{i===m.funnel.length-1?'—':Math.round(f.closeRate*100)+'%'}</span>
         </div>); })}</div>
+    </div>}
+
+    {/* higher-order sales analytics — the numbers a sales leader actually runs on */}
+    <div className="kgroup">Sales analytics</div>
+    <div className="an-grid">
+      <div className="an-card"><div className="an-l">Meeting → Close</div><div className="an-v">{m.metLeads?Math.round(m.meetCloseRate*100)+'%':'—'}</div><div className="an-d">{m.metAndClosed} of {m.metLeads} you met with closed</div></div>
+      <div className="an-card"><div className="an-l">Show Rate</div><div className="an-v">{(m.heldAll+m.noShowAll)?Math.round(m.showRate*100)+'%':'—'}</div><div className="an-d">{m.noShowAll} no-show{m.noShowAll===1?'':'s'} all time</div></div>
+      <div className="an-card"><div className="an-l">Avg Days to Close</div><div className="an-v">{m.avgDaysToClose==null?'—':m.avgDaysToClose+'d'}</div><div className="an-d">lead created → converted</div></div>
+      <div className="an-card"><div className="an-l">Win Rate</div><div className="an-v">{(m.wonCount+m.lostCount)?Math.round(m.winRate*100)+'%':'—'}</div><div className="an-d">of decided deals ({m.wonCount}W · {m.lostCount}L)</div></div>
+      <div className={'an-card'+(m.rotting>0?' warn':'')}><div className="an-l">Pipeline Moving</div><div className="an-v">{m.openCount?Math.round(m.movingPct*100)+'%':'—'}</div><div className="an-d">{m.rotting} deal{m.rotting===1?'':'s'} cold 14+ days</div></div>
+      <div className="an-card"><div className="an-l">Avg Deal Size</div><div className="an-v">{m.avgDeal?usd(m.avgDeal):'—'}</div><div className="an-d">across {m.wonCount} closed</div></div>
+    </div>
+    {m.sourceROI.length>0&&<div className="card" style={{marginBottom:18}}>
+      <h3>Lead source ROI</h3>
+      <div className="ch-sub">Which sources actually close — spend your time where the money is</div>
+      <div className="src-list">
+        <div className="src-row src-head"><span>Source</span><span>Leads</span><span>Closed</span><span>Rate</span><span>Value</span></div>
+        {m.sourceROI.map(s=>(<div className="src-row" key={s.source}>
+          <span className="src-name">{s.source}</span><span>{s.total}</span><span>{s.won}</span>
+          <span className={s.total>=3&&s.rate<0.15?'src-lo':s.rate>=0.4?'src-hi':''}>{Math.round(s.rate*100)}%</span>
+          <span>{s.value?usd(s.value):'—'}</span>
+        </div>))}
+      </div>
     </div>}
     <div className="row r3">
       <ChartCard title="Pipeline by Stage" sub="Open leads only" empty={stageData.some(d=>d.Leads>0)?null:'No open leads yet.'}>
@@ -4027,7 +4178,21 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
       {isOpen&&<div className="msec-b">{body}</div>}
     </div>);
   };
-  const logIt=()=>{const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:'');if(!t)return;addActivity(draft.id,atype,t,who,atype==='Booked'?{mtype:logMtype}:undefined);setAtext('');};
+  const logIt=()=>{
+    const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:''); if(!t)return;
+    if(atype==='Booked'){
+      /* a logged meeting IS a meeting — create the record so it shows in Upcoming
+         with a Held/No-show control, not just a line in the activity feed. */
+      const mid=uid(); const now=new Date().toISOString();
+      const meeting={id:mid,title:`${logMtype} with ${draft.name||'lead'}`,mtype:logMtype,start:now,end:now,status:'',who,createdAt:now,logged:true};
+      const act={id:uid(),ts:now,type:'Booked',mtype:logMtype,meetingId:mid,text:t,who};
+      const patch={meetings:[...(draft.meetings||[]),meeting],activities:[act,...(draft.activities||[])]};
+      setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
+    } else {
+      addActivity(draft.id,atype,t,who);
+    }
+    setAtext('');
+  };
   const create=()=>{
     if(!draft.name.trim()){window.alert('Add a name first.');return;}
     const ts=new Date().toISOString();
