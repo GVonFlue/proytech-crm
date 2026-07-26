@@ -1232,6 +1232,7 @@ const CSS=`
 .logosize input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:50%;background:${COBALT};cursor:pointer;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .logosize input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:${COBALT};cursor:pointer;border:3px solid #fff}
 .note{background:#FBF6E9;border:1px solid #EBDCB5;border-radius:12px;padding:14px 16px;font-size:13px;color:#7a6320;line-height:1.5}.note b{color:#5e4c12}
+.convert-banner.fix{background:color-mix(in srgb,#FFA500 7%,#fff);border-color:#FFD59E}
 .convert-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;background:linear-gradient(135deg,rgba(43,77,224,.08),rgba(59,52,112,.08));border:1px solid #D9DCF2;border-radius:14px;padding:14px 16px;margin-bottom:18px}
 .convert-banner b{font-family:'Space Grotesk';font-size:15px;color:${INK}}
 .deliv{background:#fff;border:1px solid #E8E9F2;border-radius:14px;padding:16px 18px;margin-bottom:18px}
@@ -1968,6 +1969,16 @@ export default function App(){
     updated={...l,onboardingAlert:{...(l.onboardingAlert||{}),ack:true,ackAt:new Date().toISOString(),ackBy:me}}; return updated; }));
     if(updated) putLead(updated); };
   const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
+  /* Backfill close tracking for a client created before closedAt was stamped.
+     Sets the real close date + moves them into the won stage so every "deals
+     closed" and revenue metric counts them, WITHOUT resetting onboarding. */
+  const fixCloseTracking=(id,date)=>{ const l=leads.find(x=>x.id===id); if(!l)return;
+    const wonStage=stages.find(s=>s.won); const d=date||l.closedAt||l.convertedAt||todayISO();
+    const moved=wonStage&&l.stage!==wonStage.key; const ts=new Date().toISOString();
+    const acts=[{id:uid(),ts,type:'Note',text:`Close date set to ${fmtDate(d)} — now counted in revenue.`,who:me}];
+    if(moved) acts.unshift({id:uid(),ts,type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${wonStage.label}`,who:me});
+    const updated={...l,closedAt:d,convertedAt:l.convertedAt||d,stage:wonStage?wonStage.key:l.stage,activities:[...acts,...(l.activities||[])]};
+    setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
   /* toggle one onboarding item + log it — single atomic write */
   const toggleOnboarding=(id,itemKey)=>{ let updated=null; let linkedTaskId=null; let doneState=false;
     setLeads(leads.map(l=>{ if(l.id!==id)return l;
@@ -2118,7 +2129,7 @@ export default function App(){
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
     {celebrate&&<Celebration data={celebrate} onDone={()=>setCelebrate(null)}/>}
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -4282,7 +4293,7 @@ function MeetingList({meetings,onRemove,onStatus,onType}){
     {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
   </div>);
 }
-function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users}){
+function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -4699,6 +4710,22 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'#56527a',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
             <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
           </div>}
+
+          {/* legacy clients created before close-tracking: offer a one-click backfill */}
+          {!isNew&&draft.isClient&&(()=>{
+            const wonStage=stages.find(s=>s.won); const inWon=wonStage&&draft.stage===wonStage.key;
+            const counted=inWon&&draft.closedAt;
+            if(counted) return null;
+            return (<div className="convert-banner fix">
+              <div><b>Not counted in your numbers</b><div style={{fontSize:12.5,color:'#56527a',marginTop:2}}>This client has no close date{!inWon?' and isn’t in your won stage':''}, so deals-closed and revenue skip them. Set the date the deal actually closed.</div></div>
+              <button className="btn btn-p" onClick={()=>{
+                const d=window.prompt('What date did this deal close? (YYYY-MM-DD)', draft.convertedAt||draft.closedAt||todayISO());
+                if(d===null) return; const clean=String(d).trim().slice(0,10);
+                if(!/^\d{4}-\d{2}-\d{2}$/.test(clean)){ window.alert('Please use YYYY-MM-DD, e.g. 2026-07-25.'); return; }
+                fixCloseTracking&&fixCloseTracking(draft.id,clean);
+              }}><CheckCircle2 size={15}/>Fix close tracking</button>
+            </div>);
+          })()}
         </div>
 
         <div className="m-right">
