@@ -503,7 +503,7 @@ function buildNetwork(contacts){
   const depth=nodes.length?Math.max(...nodes.map(n=>n.depth)):0;
   return {byId,kids,roots,nodes,links,inNet,rows:leaf,maxDepth:depth};
 }
-const normEntry=v=>{ if(!v) return {done:null,due:null}; if(typeof v==='string') return {done:v,due:null}; return {done:v.done||null,due:v.due||null}; };
+const normEntry=v=>{ if(!v) return {done:null,due:null,assignee:null,taskId:null}; if(typeof v==='string') return {done:v,due:null,assignee:null,taskId:null}; return {done:v.done||null,due:v.due||null,assignee:v.assignee||null,taskId:v.taskId||null}; };
 const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[track.key])||{}; const ms=track.milestones||[]; const entries={}; let completed=0,overdue=0,nextDue=null;
   ms.forEach(m=>{ const e=normEntry(raw[m]); entries[m]=e; if(e.done) completed++; else if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } });
   const current=ms.find(m=>!entries[m].done)||null;
@@ -1415,6 +1415,9 @@ button,a,label,select,input,textarea,.kcard,.fu-card,.cli-card,.rt-person,.msec-
 .onb-h b{font-family:'Space Grotesk';font-weight:600}
 .onb-h span{font-size:12px;color:#8E89A8;margin-left:auto}
 .onb-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid #F0F0F6}
+.onb-assign{flex:none;border:1px dashed #D8DAE6;background:#fff;border-radius:16px;padding:4px 9px;font-size:11px;font-weight:700;color:#a6a2bc;cursor:pointer;max-width:120px}
+.onb-assign.set{border-style:solid;border-color:#7A5CC8;background:color-mix(in srgb,#7A5CC8 8%,#fff);color:#6A4CB8}
+@media(max-width:640px){.onb-assign{max-width:92px}}
 .onb-m{min-width:0;flex:1}
 /* leaderboard */
 .lb-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
@@ -1679,6 +1682,8 @@ export default function App(){
      username-derived name so single-tenant installs read exactly as before. */
   const me=(myUser&&myUser.name)||cap(auth.username(session))||BRAND.team[0]||'';
   const reps=users.filter(u=>u.role==='rep');
+  /* names assignable to build tasks: real crm_users if present, else BRAND.team */
+  const teamNames=users.length?users.filter(u=>u.active!==false).map(u=>u.name):BRAND.team;
   /* relationships are people, not deals — keep them out of the sales views */
   const bizLeads=useMemo(()=>leads.filter(l=>!l.isRelationship),[leads]);
   /* leaderboard: a rep cannot read other reps' leads, so the ranking comes
@@ -1709,7 +1714,16 @@ export default function App(){
   const upsertTxn=t=>{ const exists=txns.some(x=>x.id===t.id); saveTxns(exists?txns.map(x=>x.id===t.id?t:x):[t,...txns]); };
   const deleteTxn=t=>{ saveTxns(txns.filter(x=>x.id!==t.id)); if(t.receipt?.path&&typeof db.removeReceipt==='function') db.removeReceipt(t.receipt.path).catch(console.error); };
   const saveTasks=n=>{ setTasks(n); if(typeof db.saveTasks==='function') db.saveTasks(n).catch(console.error); };
-  const upsertTask=t=>{ const exists=tasks.some(x=>x.id===t.id); saveTasks(exists?tasks.map(x=>x.id===t.id?t:x):[t,...tasks]); };
+  const upsertTask=t=>{ const exists=tasks.some(x=>x.id===t.id); saveTasks(exists?tasks.map(x=>x.id===t.id?t:x):[t,...tasks]);
+    /* if this task was spawned from a client's build checklist, mirror its
+       done-state back onto that checklist item so the two never disagree.
+       Read leads through the setter so we never act on a stale closure. */
+    if(t.fromOnboarding&&t.leadId){ setLeads(cur=>{ const l=cur.find(x=>x.id===t.leadId); if(!l) return cur;
+      const e=normEntry((l.onboarding||{})[t.fromOnboarding]);
+      if((!!e.done)===(!!t.done)) return cur;
+      const ob={...(l.onboarding||{})}; ob[t.fromOnboarding]={...e,done:t.done?(e.done||todayISO()):null};
+      const nl={...l,onboarding:ob}; db.upsertLead(nl).catch(console.error);
+      return cur.map(x=>x.id===nl.id?nl:x); }); } };
   const deleteTask=id=>{ saveTasks(tasks.filter(x=>x.id!==id)); };
   const upsertInvoice=inv=>{ const exists=invoices.some(x=>x.id===inv.id); saveInvoices(exists?invoices.map(x=>x.id===inv.id?inv:x):[inv,...invoices]); };
   const deleteInvoice=id=>{ saveInvoices(invoices.filter(x=>x.id!==id)); setInvId(null); };
@@ -1879,13 +1893,44 @@ export default function App(){
     if(updated) putLead(updated); };
   const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
   /* toggle one onboarding item + log it — single atomic write */
-  const toggleOnboarding=(id,itemKey)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l;
-    const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); const doneNow=!cur.done;
-    ob[itemKey]={done:doneNow?todayISO():null,due:cur.due||null};
+  const toggleOnboarding=(id,itemKey)=>{ let updated=null; let linkedTaskId=null; let doneState=false;
+    setLeads(leads.map(l=>{ if(l.id!==id)return l;
+      const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); const doneNow=!cur.done; doneState=doneNow;
+      ob[itemKey]={done:doneNow?todayISO():null,due:cur.due||null,assignee:cur.assignee||null,taskId:cur.taskId||null};
+      linkedTaskId=cur.taskId||null;
+      const item=ONB_ITEMS.find(i=>i.key===itemKey); const label=item?item.label:itemKey;
+      updated={...l,onboarding:ob,activities:[{id:uid(),ts:new Date().toISOString(),type:'Task',text:(doneNow?'✓ ':'unchecked: ')+label,who:me},...l.activities]};
+      return updated; })); if(updated) putLead(updated);
+    /* keep the linked task in lock-step with the checklist item */
+    if(linkedTaskId){ const t=tasks.find(x=>x.id===linkedTaskId);
+      if(t) upsertTask({...t,done:doneState,doneAt:doneState?new Date().toISOString():'',doneBy:doneState?me:''}); } };
+  const setOnboardingDue=(id,itemKey,date)=>{ let updated=null; let linkedTaskId=null;
+    setLeads(leads.map(l=>{ if(l.id!==id)return l; const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]);
+      ob[itemKey]={done:cur.done||null,due:date||null,assignee:cur.assignee||null,taskId:cur.taskId||null}; linkedTaskId=cur.taskId||null;
+      updated={...l,onboarding:ob}; return updated; })); if(updated) putLead(updated);
+    if(linkedTaskId){ const t=tasks.find(x=>x.id===linkedTaskId); if(t) upsertTask({...t,due:date||t.due}); } };
+  /* assign (or reassign / unassign) a build-checklist item to a person. Assigning
+     spawns a real task in THAT person's Tasks list, linked back to the item so
+     checking either one completes both. Reassigning moves the task's owner. */
+  const assignOnboarding=(id,itemKey,assignee)=>{ const l=leads.find(x=>x.id===id); if(!l)return;
+    const cur=normEntry((l.onboarding||{})[itemKey]);
     const item=ONB_ITEMS.find(i=>i.key===itemKey); const label=item?item.label:itemKey;
-    updated={...l,onboarding:ob,activities:[{id:uid(),ts:new Date().toISOString(),type:'Task',text:(doneNow?'✓ ':'unchecked: ')+label,who:me},...l.activities]};
-    return updated; })); if(updated) putLead(updated); };
-  const setOnboardingDue=(id,itemKey,date)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); ob[itemKey]={done:cur.done||null,due:date||null}; updated={...l,onboarding:ob}; return updated; })); if(updated) putLead(updated); };
+    const clientName=l.company||l.name||'client';
+    let taskId=cur.taskId||null;
+    if(!assignee){ // unassign: drop the linked task, clear the fields
+      if(taskId) deleteTask(taskId);
+      taskId=null;
+    } else if(taskId&&tasks.some(t=>t.id===taskId)){ // reassign existing task
+      const t=tasks.find(x=>x.id===taskId); upsertTask({...t,owner:assignee});
+    } else { // create a new linked task in their queue
+      taskId=uid();
+      upsertTask({...newTask(assignee),id:taskId,title:`${label} — ${clientName}`,owner:assignee,leadId:id,
+        due:cur.due||todayISO(),done:!!cur.done,doneAt:cur.done?new Date().toISOString():'',
+        notes:`Build task for ${clientName}. Auto-linked to the onboarding checklist.`,fromOnboarding:itemKey});
+    }
+    let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x; const ob={...(x.onboarding||{})};
+      ob[itemKey]={done:cur.done||null,due:cur.due||null,assignee:assignee||null,taskId};
+      updated={...x,onboarding:ob}; return updated; })); if(updated) putLead(updated); };
   /* Phase 5: when a client enters Active, drop two recurring-cadence tasks onto them.
      (No recurring engine — these are one-time tasks the owner recreates on completion.) */
   const seedActiveTasks=(id,ownerHint)=>{ if(tasks.some(t=>t.leadId===id&&t.seededActive)) return;
@@ -1987,7 +2032,7 @@ export default function App(){
           view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
           view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
-          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
+          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
           view==='money'?<Money leads={bizLeads} stages={stages}/>:
@@ -2935,7 +2980,7 @@ function ClientBoard({clients,settings,onCard,setClientPhase}){
     </div>);})}</div>);
 }
 
-function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,setClientPhase,addCustomPhase,removeCustomPhase}){
+function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,team,setClientPhase,addCustomPhase,removeCustomPhase}){
   const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS;
   const [showChurned,setShowChurned]=useState(false);
   const [expand,setExpand]=useState(null);
@@ -2990,6 +3035,10 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,s
               <div className={'onb-item'+(done?' done':'')+(od?' over':'')} key={key}>
                 <span className="onb-check" onClick={()=>toggleOnboarding(l.id,key)}>{done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color={od?RED:'#C9C5D9'}/>}</span>
                 <span className="onb-label" onClick={()=>toggleOnboarding(l.id,key)}>{label}</span>
+                <select className={'onb-assign'+(e.assignee?' set':'')} value={e.assignee||''} onClick={ev=>ev.stopPropagation()} onChange={ev=>assignOnboarding&&assignOnboarding(l.id,key,ev.target.value)} title={e.assignee?`Assigned to ${e.assignee}`:'Assign to a teammate'}>
+                  <option value="">+ assign</option>
+                  {(team||[]).map(n=><option key={n} value={n}>{n}</option>)}
+                </select>
                 {done?<span className="onb-date done">✓ {fmtDate(e.done)}</span>
                      :<label className="onb-due"><span>{od?'overdue':'due'}</span><input type="date" className={od?'over':''} value={e.due||''} onChange={ev=>setOnboardingDue(l.id,key,ev.target.value)}/></label>}
               </div>);})}
