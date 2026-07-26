@@ -565,13 +565,14 @@ const CSS=`
 .gate-card input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .gate-err{color:${RED};font-size:12.5px;font-weight:600;margin-bottom:10px}
 .sb{width:236px;flex:none;background:linear-gradient(180deg,#211d44,${INK});color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:20px 14px;z-index:30}
-.sb-brand{display:flex;align-items:center;gap:11px;padding:6px 8px 20px;border-bottom:1px solid rgba(255,255,255,.09);margin-bottom:14px}
-.sb-brand img{max-height:34px;max-width:150px;object-fit:contain}
+.sb-brand{display:flex;align-items:center;justify-content:center;gap:11px;padding:16px 14px;margin:-4px -6px 16px;background:#000110;border-radius:14px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+.sb-brand img{max-height:46px;max-width:172px;object-fit:contain}
 .nucleus{width:14px;height:14px;border-radius:50%;background:${COBALT};box-shadow:0 0 0 4px rgba(43,77,224,.25),0 0 14px 2px rgba(92,118,238,.6);flex:none}
 .sb-brand b{font-family:'Space Grotesk';font-size:16px;font-weight:600}
 .sb-brand span{display:block;font-size:11px;color:#A9A4CC;font-weight:400;letter-spacing:.04em}
 .nav-i{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:10px;color:#C7C3E6;font-size:14px;font-weight:500;cursor:pointer;transition:.16s;border:none;background:none;width:100%;text-align:left;margin-bottom:2px}
-.nav-i:hover{background:rgba(255,255,255,.06);color:#fff}.nav-i.on{background:${COBALT};color:#fff;box-shadow:0 6px 18px -8px rgba(43,77,224,.9)}
+.nav-i:hover{background:rgba(255,255,255,.06);color:#fff}.nav-i.on{background:${COBALT};color:#fff;box-shadow:0 6px 18px -8px rgba(43,77,224,.9);position:relative}
+.nav-i.on::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:#FFA500}
 .nav-i svg{flex:none}
 .sb-foot{margin-top:auto;font-size:11px;color:#888;padding:12px 8px 2px;border-top:1px solid rgba(255,255,255,.08);line-height:1.5}.sb-foot b{color:#B9B5D8;font-weight:600}
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -950,8 +951,9 @@ const CSS=`
 .mtb{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#56527a;font-weight:600;background:#F5F6FB;border-radius:20px;padding:3px 11px}
 .mtb b{font-size:14px;color:${INK};font-family:'Space Grotesk',sans-serif}
 .kpi.clickable{cursor:pointer;transition:.14s}
-.kpi.clickable:hover{transform:translateY(-1px);box-shadow:0 10px 24px -16px rgba(24,21,48,.45)}
+.kpi.clickable:hover{transform:translateY(-1px);box-shadow:0 12px 26px -14px rgba(19,56,222,.28)}
 .kpi.active{outline:2px solid ${COBALT};outline-offset:-2px}
+.kpi.active .kpi-ch{color:#FFA500}
 .kpi-ch{margin-left:auto;opacity:.5;transition:transform .16s}
 .kpi-ch.on{transform:rotate(180deg);opacity:1}
 .drill{background:#fff;border:1px solid #EAEBF2;border-radius:14px;margin:-4px 0 18px;overflow:hidden;animation:pop .16s ease}
@@ -969,7 +971,8 @@ const CSS=`
 .drow-v{font-size:13px;font-weight:700;color:${INK};white-space:nowrap;flex:none}
 .mtg-type{border:1px solid #E4E5EF;border-radius:20px;padding:4px 9px;font-size:11.5px;font-weight:700;color:#6A4CB8;background:color-mix(in srgb,#7A5CC8 8%,#fff);cursor:pointer;flex:none}
 ".mtg-type.unset{color:#C05A1E;background:color-mix(in srgb,#E0662B 9%,#fff);border-color:#F0C09B}
-.kgroup{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#a6a2bc;margin:2px 0 9px}
+.kgroup{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:${COBALT};margin:2px 0 9px;display:flex;align-items:center;gap:8px}
+.kgroup::before{content:'';width:14px;height:2px;border-radius:2px;background:#FFA500}
 .hud-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}
 .hud-t{font-size:21px;font-weight:800;color:${INK};font-family:'Space Grotesk',sans-serif}
 .hud-d{font-size:12.5px;color:#8b88a0;font-weight:600;margin-top:3px}
@@ -1022,7 +1025,7 @@ const CSS=`
 .kgt{display:flex;justify-content:space-between;align-items:center;margin-top:5px;font-size:10.5px;font-weight:700;color:#8b88a0}
 .kgt b{font-weight:800;color:${COBALT}}
 .kgt b.hit{color:${GREEN}}
-.kgt b.behind{color:#C05A1E}
+.kgt b.behind{color:#D97706}
 .kpi.accent .kgbar,.kpi.green .kgbar,.kpi.gold .kgbar{background:rgba(255,255,255,.28)}
 .kpi.accent .kgt,.kpi.green .kgt,.kpi.gold .kgt{color:rgba(255,255,255,.75)}
 .kpi.accent .kgt b,.kpi.green .kgt b,.kpi.gold .kgt b{color:#fff}
@@ -1047,7 +1050,7 @@ const CSS=`
 .mtab.on{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);color:${COBALT}}
 .mtab-n{font-size:10.5px;font-weight:800;background:rgba(24,21,48,.08);border-radius:10px;padding:1px 7px}
 .mtab.on .mtab-n{background:color-mix(in srgb,${COBALT} 18%,#fff)}
-.mtab.alert{border-color:#E0662B;color:#C05A1E}
+.mtab.alert{border-color:#FFA500;color:#D97706}
 .mtab.alert .mtab-n{background:color-mix(in srgb,#E0662B 16%,#fff);color:#C05A1E}
 .mtab-time{margin-left:auto;display:inline-flex;gap:4px}
 .mtab-time button{border:1px solid #E4E5EF;background:#fff;border-radius:16px;padding:5px 10px;font-size:11px;font-weight:700;color:#8b88a0;cursor:pointer}
@@ -1056,10 +1059,10 @@ const CSS=`
 .mtg-drow.held{background:color-mix(in srgb,${GREEN} 4%,#fff)}
 .mtg-drow.noshow{background:rgba(209,67,67,.04)}
 .mtg-drow.needs{background:color-mix(in srgb,#E0662B 5%,#fff)}
-.mtg-flag{color:#C05A1E;font-weight:700}
+.mtg-flag{color:#D97706;font-weight:700}
 .an-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:11px;margin-bottom:18px}
 .an-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:14px 16px}
-.an-card.warn{border-color:#F0C09B;background:color-mix(in srgb,#E0662B 4%,#fff)}
+.an-card.warn{border-color:#FFD59E;background:color-mix(in srgb,#FFA500 6%,#fff)}
 .an-l{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#a6a2bc}
 .an-v{font-size:27px;font-weight:800;color:${INK};font-family:'Space Grotesk',sans-serif;margin:4px 0 2px}
 .an-d{font-size:11.5px;color:#9b98ad}
@@ -2017,7 +2020,7 @@ export default function App(){
       <div className="top">
         <div style={{display:'flex',alignItems:'center',gap:14}}>
           <button className="hamb" onClick={()=>setSbOpen(true)}><Menu size={22}/></button>
-          <div><h1>{(titles[view]||[view,''])[0]}</h1><div className="sub">{(titles[page]||['',''])[1]}</div></div>
+          <div><h1>{view==='dash'?`Welcome, ${(me||'').split(' ')[0]}`:(titles[view]||[view,''])[0]}</h1><div className="sub">{(titles[page]||['',''])[1]}</div></div>
         </div>
         <button className="btn btn-p" onClick={()=>setActiveId('new')}><Plus size={16}/>New Lead</button>
       </div>
