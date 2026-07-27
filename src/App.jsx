@@ -281,6 +281,12 @@ const meetingsOf=l=>{
   return [...existing,...fromActs];
 };
 const meetingMonthKey=m=>m.start?isoOf(new Date(m.start)).slice(0,7):null;
+/* Two different months live on a meeting and conflating them is what made a
+   meeting booked today for August 6 vanish from July's dashboard. meetingMonthKey
+   is WHEN IT HAPPENS — right for "meetings held". bookingMonthKey is WHEN IT WAS
+   BOOKED — right for "meetings booked", which is an action you take and a goal
+   you're measured against this month, whatever month the meeting itself lands in. */
+const bookingMonthKey=m=>{ const t=m.createdAt||m.start; return t?isoOf(new Date(t)).slice(0,7):null; };
 const isDateless=m=>!!m&&!!m.dateUnknown;
 const isUpcoming=m=>!m.status&&!isDateless(m)&&new Date(m.end||m.start).getTime()>=Date.now();
 const needsStatus=m=>!m.status&&!isDateless(m)&&new Date(m.end||m.start).getTime()<Date.now();
@@ -1136,6 +1142,11 @@ const CSS=`
 .mtg-drow.noshow{background:rgba(209,67,67,.04)}
 .mtg-drow.needs{background:color-mix(in srgb,#E0662B 5%,#fff)}
 .mtg-flag{color:#D97706;font-weight:700}
+.mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
+.mtg-acct b{color:${INK};font-weight:700}
+.mtg-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.bookc{margin-top:10px}
+.bookc .mtg-form{padding:0;border:0;background:none}
 .mtab.undated{border-color:${COBALT};color:${COBALT}}
 .mtab.undated .mtab-n{background:color-mix(in srgb,${COBALT} 16%,#fff);color:${COBALT}}
 .mtg-drow.undated{background:color-mix(in srgb,${COBALT} 4%,#fff)}
@@ -2184,7 +2195,7 @@ export default function App(){
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
     {celebrate&&<Celebration data={celebrate} onDone={()=>setCelebrate(null)}/>}
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -2210,8 +2221,9 @@ function useMetrics(leads,stages){
     const bookedByType={};
     leads.forEach(l=>{
       meetingsOf(l).forEach(mt=>{ bookedAll++;
-        const mk=meetingMonthKey(mt);
-        if(mk===mKey){ bookedMonth++; const t=mt.mtype||'Other'; bookedByType[t]=(bookedByType[t]||0)+1; }
+        const mk=meetingMonthKey(mt);            // when it happens
+        const bk=bookingMonthKey(mt);            // when it was booked
+        if(bk===mKey){ bookedMonth++; const t=mt.mtype||'Other'; bookedByType[t]=(bookedByType[t]||0)+1; }
         if(isUpcoming(mt)) mtgUpcoming++;
         if(needsStatus(mt)) needsStatusCount++;
         if(needsDate(mt)) needsDateCount++;
@@ -2460,8 +2472,13 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
   const onboardedLeads=leads.filter(l=>l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey);
   const cold=coldList(rels||[]);
   /* one flat list of every meeting, filtered by the active tab + time scope */
+  /* which month key a tab is scoped by. Anything that hasn't happened yet is
+     scoped by when it was BOOKED, or a meeting you booked today for next month
+     disappears from the view you booked it in. Anything in the past is scoped by
+     when it happened, which is what "held this month" has to mean. */
+  const scopeKeyFor=(tab,mt)=>(tab==='upcoming'||tab==='undated')?bookingMonthKey(mt):meetingMonthKey(mt);
   const meetingRows=(()=>{ let rows=allMeetings(leads);
-    if(scope==='month') rows=rows.filter(r=>meetingMonthKey(r.m)===mKey);
+    if(scope==='month') rows=rows.filter(r=>scopeKeyFor(mtab,r.m)===mKey);
     if(mtab==='upcoming') rows=rows.filter(r=>isUpcoming(r.m));
     else if(mtab==='completed') rows=rows.filter(r=>r.m.status==='held');
     else if(mtab==='noshow') rows=rows.filter(r=>r.m.status==='noshow');
@@ -2469,10 +2486,13 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     else if(mtab==='undated') rows=rows.filter(r=>needsDate(r.m));
     const dir=mtab==='upcoming'?1:-1;   // upcoming soonest-first, history newest-first
     return rows.sort((a,b)=>dir*((a.m.start||'').localeCompare(b.m.start||''))); })();
-  const mtabCounts=(()=>{ let rows=allMeetings(leads); if(scope==='month') rows=rows.filter(r=>meetingMonthKey(r.m)===mKey);
-    return { upcoming:rows.filter(r=>isUpcoming(r.m)).length, completed:rows.filter(r=>r.m.status==='held').length,
-             noshow:rows.filter(r=>r.m.status==='noshow').length, needs:rows.filter(r=>needsStatus(r.m)).length,
-             undated:rows.filter(r=>needsDate(r.m)).length }; })();
+  const mtabCounts=(()=>{ const rows=allMeetings(leads);
+    const inScope=(tab,r)=>scope!=='month'||scopeKeyFor(tab,r.m)===mKey;
+    return { upcoming:rows.filter(r=>inScope('upcoming',r)&&isUpcoming(r.m)).length,
+             completed:rows.filter(r=>inScope('completed',r)&&r.m.status==='held').length,
+             noshow:rows.filter(r=>inScope('noshow',r)&&r.m.status==='noshow').length,
+             needs:rows.filter(r=>inScope('needs',r)&&needsStatus(r.m)).length,
+             undated:rows.filter(r=>inScope('undated',r)&&needsDate(r.m)).length }; })();
   const Name=({l})=><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>;
   const Empty=({t})=><div className="empty" style={{padding:'18px 4px'}}>{t}</div>;
   const stageData=stages.filter(s=>s.open).map(s=>({name:s.label,Leads:m.byStage[s.key]?.count||0,color:s.color}));
@@ -4297,7 +4317,7 @@ function DateFix({onSet,compact}){
   const [v,setV]=useState(soon);
   const [mins,setMins]=useState(30);
   return (<div className={'mtg-fix'+(compact?' sm':'')} onClick={e=>e.stopPropagation()}>
-    <input type="datetime-local" value={v} onChange={e=>setV(e.target.value)} aria-label="Meeting date and time"/>
+    <input type="datetime-local" step={900} value={v} onChange={e=>setV(e.target.value)} aria-label="Meeting date and time"/>
     <select value={mins} onChange={e=>setMins(+e.target.value)} aria-label="Length">
       {[15,30,45,60,90,120].map(m=><option key={m} value={m}>{m<60?m+'m':(m/60)+'h'+(m%60?'30':'')}</option>)}
     </select>
@@ -4305,7 +4325,17 @@ function DateFix({onSet,compact}){
   </div>);
 }
 function fmtMeetingTime(iso){ try{ const d=new Date(iso); return d.toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch{ return iso; } }
-function MeetingScheduler({lead,gcalConnected,onSchedule}){
+/* The ONE place a meeting gets booked. The Meetings section and the activity
+   log's "Meeting Booked" button both render this, so there is a single path to
+   the calendar and a single path into the numbers. Two things that used to be
+   silently wrong here:
+   - the connected account was hardcoded in the warning text, so when events
+     landed on a different Google account than the one you were looking at there
+     was nothing on screen to tell you. It now names the real account.
+   - "Invite client" was disabled with no visible reason whenever the lead had
+     no email, which reads exactly like a broken checkbox. It now shows the
+     field and writes the address back to the lead. */
+function MeetingScheduler({lead,gcalConnected,gcalEmail,onSchedule,onLogUndated}){
   const [date,setDate]=useState(todayISO());
   const [time,setTime]=useState('10:00');
   const [dur,setDur]=useState(30);
@@ -4316,38 +4346,62 @@ function MeetingScheduler({lead,gcalConnected,onSchedule}){
   const [notes,setNotes]=useState('');
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState('');
-  const hasEmail=!!(lead.email&&lead.email.trim());
+  const [addEmail,setAddEmail]=useState('');
+  /* both the Meetings section and the activity composer can be on screen at
+     once, so the quarter-hour datalist needs an id of its own per instance */
+  const [listId]=useState(()=>'mtgq-'+Math.random().toString(36).slice(2,8));
+  const leadEmail=(lead.email||'').trim();
+  const typed=addEmail.trim();
+  const inviteEmail=leadEmail||typed;
+  const emailOk=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail);
   const pad=n=>String(n).padStart(2,'0');
   const localISO=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
   const go=async()=>{
     setErr('');
     const startDt=new Date(`${date}T${time}:00`);
     if(isNaN(startDt)){ setErr('Pick a valid date and time.'); return; }
+    if(invite&&!emailOk){ setErr('That email doesn’t look right — fix it or switch off Invite client.'); return; }
     const endDt=new Date(startDt.getTime()+dur*60000);
     const t=title.trim()||`${mtype} with ${lead.name||lead.company||'client'}`;
     setBusy(true);
     try{
-      await onSchedule({title:t,mtype,start:localISO(startDt),end:localISO(endDt),invited:invite&&hasEmail,attendees:(invite&&hasEmail)?[lead.email.trim()]:[],meet,notes:notes.trim()});
-      setTitle('');setNotes('');setInvite(false);setMeet(false);
+      /* a typed address rides along IN THE SAME PATCH as the meeting. Saving it
+         separately looks fine and silently loses it: both writes read the same
+         stale draft inside one tick and the second overwrites the first. */
+      await onSchedule({title:t,mtype,start:localISO(startDt),end:localISO(endDt),
+        invited:invite&&emailOk,attendees:(invite&&emailOk)?[inviteEmail]:[],meet,notes:notes.trim(),
+        saveEmail:(invite&&emailOk&&!leadEmail)?inviteEmail:''});
+      setTitle('');setNotes('');setInvite(false);setMeet(false);setAddEmail('');
     }catch(e){ setErr(e.message||'Could not schedule'); }
     setBusy(false);
   };
+  const logUndated=()=>{ if(!onLogUndated)return;
+    onLogUndated({mtype,title:title.trim(),notes:notes.trim()});
+    setTitle('');setNotes(''); };
   return (<div className="mtg-form">
-    {!gcalConnected&&<div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected. Open <b>Settings → Google Calendar</b> and hit Connect to push meetings to admin@getproytech.com.</span></div>}
+    {gcalConnected
+      ? <div className="mtg-acct"><CalendarClock size={12}/>Goes on <b>{gcalEmail||'the connected Google account'}</b>{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>
+      : <div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected, so this won’t reach a calendar. Open <b>Settings → Google Calendar</b> and hit Connect.</span></div>}
     <div className="mtype-row">{MEETING_TYPES.map(t=><button key={t} type="button" className={'mtype'+(mtype===t?' on':'')} onClick={()=>setMtype(t)}>{t}</button>)}</div>
     <div className="fgrid">
       <div className="field full"><label>Title</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder={`${mtype} with ${lead.name||lead.company||'client'}`}/></div>
       <div className="field"><label>Date</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
-      <div className="field"><label>Time</label><input type="time" value={time} onChange={e=>setTime(e.target.value)}/></div>
+      <div className="field"><label>Time</label><input type="time" step={900} value={time} onChange={e=>setTime(e.target.value)} list={listId}/></div>
       <div className="field"><label>Length</label><select value={dur} onChange={e=>setDur(+e.target.value)}>{[15,30,45,60,90,120].map(m=><option key={m} value={m}>{m<60?m+' min':(m/60)+' hr'+(m%60?' 30m':'')}</option>)}</select></div>
       <div className="field"><label>&nbsp;</label><div className="mtg-toggles">
-        <label className={'mtg-chk'+(invite&&hasEmail?' on':'')+(hasEmail?'':' off')} title={hasEmail?lead.email:'Add an email to this lead to invite them'}><input type="checkbox" disabled={!hasEmail} checked={invite&&hasEmail} onChange={e=>setInvite(e.target.checked)}/><UserPlus size={13}/>Invite client</label>
+        <label className={'mtg-chk'+(invite?' on':'')}><input type="checkbox" checked={invite} onChange={e=>setInvite(e.target.checked)}/><UserPlus size={13}/>Invite client</label>
         <label className={'mtg-chk'+(meet?' on':'')}><input type="checkbox" checked={meet} onChange={e=>setMeet(e.target.checked)}/><Video size={13}/>Meet link</label>
       </div></div>
+      {invite&&!leadEmail&&<div className="field full"><label>Client email (saved to the lead)</label>
+        <input type="email" inputMode="email" placeholder="name@company.com" value={addEmail} onChange={e=>setAddEmail(e.target.value)}/></div>}
       <div className="field full"><label>Notes (optional)</label><textarea rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Agenda, what to prep…"/></div>
     </div>
     {err&&<div className="mtg-err">{err}</div>}
-    <button className="btn btn-p" disabled={busy||!gcalConnected} onClick={go}>{busy?<Loader2 size={15} className="spin"/>:<CalendarClock size={15}/>}{busy?'Scheduling…':'Schedule + add to Calendar'}</button>
+    <div className="mtg-actions">
+      <button className="btn btn-p" disabled={busy} onClick={go}>{busy?<Loader2 size={15} className="spin"/>:<CalendarClock size={15}/>}{busy?'Scheduling…':gcalConnected?'Schedule + add to Calendar':'Schedule (no calendar)'}</button>
+      {onLogUndated&&<button className="linkbtn" type="button" onClick={logUndated}>No date yet — just log it</button>}
+    </div>
+    <datalist id={listId}>{Array.from({length:96},(_,i)=>`${pad(Math.floor(i/4))}:${pad((i%4)*15)}`).map(v=><option key={v} value={v}/>)}</datalist>
   </div>);
 }
 function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
@@ -4383,7 +4437,7 @@ function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
     {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
   </div>);
 }
-function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users}){
+function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -4401,9 +4455,26 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const [firstType,setFirstType]=useState('Call');
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
   const set=patch=>{if(isNew)setDraft({...draft,...patch});else{setDraft({...draft,...patch});updateLead(draft.id,patch);}};
-  const doSchedule=async(m)=>{ const ev=await createCalendarEvent(m); const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',createdAt:new Date().toISOString()};
+  /* One booking path, used by the Meetings section AND the activity log's
+     Meeting Booked button. Always writes the meeting + the Booked activity, so
+     it always reaches the dashboard numbers; the Google Calendar event is the
+     part that can be absent. When the calendar isn't connected we skip the call
+     entirely rather than throwing — the meeting is still real, it just isn't on
+     a calendar, and the row says so instead of the booking failing outright. */
+  const doSchedule=async(m)=>{ let ev={eventId:'',htmlLink:'',meetLink:''};
+    if(gcalConnected) ev=await createCalendarEvent(m);
+    const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',createdAt:new Date().toISOString(),dateUnknown:false};
     const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',mtype:m.mtype||'Other',meetingId:meeting.id,text:`${m.mtype||'Meeting'} booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
-    set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])]}); return meeting; };
+    set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])],
+      ...(m.saveEmail?{email:m.saveEmail}:{})}); return meeting; };
+  /* the escape hatch: a meeting you know about but haven't pinned a time to.
+     Lands in Needs a date, exactly where the dated-meeting fix puts them. */
+  const doLogUndated=({mtype,title,notes})=>{ const now=new Date().toISOString(); const mid=uid();
+    const meeting={id:mid,title:title||`${mtype} with ${draft.name||draft.company||'lead'}`,mtype:mtype||'Other',
+      start:now,end:now,status:'',who:me,createdAt:now,logged:true,dateUnknown:true,notes:notes||''};
+    const activity={id:uid(),ts:now,type:'Booked',mtype:mtype||'Other',meetingId:mid,
+      text:`${mtype||'Meeting'} booked${notes?': '+notes:''} — no date set yet`,who:me};
+    set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])]}); };
   const doRemove=async(mt)=>{ await deleteCalendarEvent(mt.eventId); set({meetings:(draft.meetings||[]).filter(x=>x.id!==mt.id)}); };
   /* did it actually happen? booked is a promise, held is the result. */
   const doStatus=(mt,status)=>{ const next=(draft.meetings||[]).map(x=>x.id===mt.id?{...x,status:x.status===status?'':status}:x);
@@ -4639,7 +4710,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
               <>
                 <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus} onTime={doTime} onType={(mt,v)=>{tagMeeting&&tagMeeting(draft.id,mt.id,v);setDraft(d=>({...d,meetings:(d.meetings||[]).map(x=>x.id===mt.id?{...x,mtype:v}:x)}));}}/>
-                <MeetingScheduler lead={draft} gcalConnected={gcalConnected} onSchedule={doSchedule}/>
+                <MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} onSchedule={doSchedule} onLogUndated={doLogUndated}/>
               </>, (draft.meetings||[]).some(m=>new Date(m.end||m.start).getTime()>=Date.now()))}
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
               [draft.source,draft.businessType!=='—'?draft.businessType:null,sOf(draft.stage,stages)?.label,PRIORITIES[draft.priority]?.label].filter(Boolean).join(' · ')||'not set',
@@ -4854,7 +4925,10 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
               {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
             </div>
-            {atype==='Booked'&&<div className="mtype-row sm">{MEETING_TYPES.map(t=><button key={t} type="button" className={'mtype'+(logMtype===t?' on':'')} onClick={()=>setLogMtype(t)}>{t}</button>)}</div>}
+            {atype==='Booked'
+              ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail}
+                  onSchedule={doSchedule} onLogUndated={doLogUndated}/></div>
+              : null}
             {atype==='Payment'
               ? <div className="pay-compose">
                   <div className="pay-compose-row">
@@ -4862,15 +4936,16 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                     <input className="pc-note" placeholder="Note (e.g. Square deposit)" value={payNote} onChange={e=>setPayNote(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/>
                   </div>
                 </div>
-              : <textarea className="act-input" placeholder={atype==='Booked'?"Who with / when? Optional — just hit Log Meeting Booked":`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
+              : atype==='Booked' ? null
+              : <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
+            {atype!=='Booked'&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
               {rep
                 ? <span className="subcell" style={{fontWeight:600}}>logging as {me}</span>
                 : <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>}
               {atype==='Payment'
                 ? <button className="btn btn-g" style={{padding:'8px 16px'}} onClick={logPaymentFromComposer}><DollarSign size={14}/>Log Payment</button>
                 : <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>}
-            </div>
+            </div>}
             <div className="afilter" style={{marginTop:16}}>
               <button className={feedFilter==='All'?'on':''} onClick={()=>setFeedFilter('All')}>All</button>
               <button className={feedFilter==='Note'?'on':''} onClick={()=>setFeedFilter('Note')}>Notes{noteCount?` (${noteCount})`:''}</button>
