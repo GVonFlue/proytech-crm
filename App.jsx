@@ -11,35 +11,444 @@ import {
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
   BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
-  Users, Link2, UserPlus
+  Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
+  Trophy, Crown, Ban, BadgeCheck, KeyRound
 } from 'lucide-react';
 import JSZip from 'jszip';
-import { auth, db } from './lib/supabase';
+import { auth, db, configured } from './lib/supabase';
+import { BRAND } from './lib/brand';
 
 /* ===================== brand ===================== */
-const COBALT='#2B4DE0', INDIGO='#3B3470', INK='#181530', GOLD='#C8A24A', GREEN='#1F9D55', RED='#D14343';
+const COBALT=BRAND.colors.cobalt, INDIGO=BRAND.colors.indigo, INK=BRAND.colors.ink, GOLD=BRAND.colors.gold, GREEN=BRAND.colors.green, RED=BRAND.colors.red;
 const PIE=[COBALT,INDIGO,GOLD,'#5C76EE','#8E86C9',GREEN,'#D98A3D','#7AA0F0'];
 const STAGE_COLORS=['#6B73C9',COBALT,'#7A5CC8',GOLD,GREEN,'#B0606A','#D98A3D','#2BA7A0'];
 
 /* ===================== editable defaults ===================== */
 const DEFAULT_OPTIONS={
-  businessType:['Real Estate','Lending','Restaurant','Retail','Law Firm','Construction','Professional Services','Other'],
-  source:['Referral','Garrett','Logan','Cold Outreach','Instagram','Networking','Realtor Breakfast','Walk-in','Website','Other'],
+  businessType:['—','Real Estate','Lending','Restaurant','Retail','Law Firm','Construction','Professional Services','Other'],
+  source:['Referral',...BRAND.team,'Cold Outreach','Instagram','Networking','Walk-in','Website','Other'],
   service:['Web Design','AI Integration','Both','Unknown','Missed-Call Text-Back','AI Receptionist','Booking / Scheduling','CRM Setup','Full Front Office'],
   nextAction:['Schedule Coffee','Schedule Sit Down','Text in 1 Week','Visit and Introduce','Send Proposal','Follow Up Call','Close','—'],
-  owner:['Garrett','Logan','ProyTech'],
+  owner:[...BRAND.team,BRAND.pool],
 };
 const DEFAULT_STAGES=[
   {key:'new',      label:'New Lead',      color:'#6B73C9', prob:0.10, open:true,  won:false, lost:false},
-  {key:'contacted',label:'Contacted',     color:COBALT,    prob:0.25, open:true,  won:false, lost:false},
-  {key:'meeting',  label:'Meeting Set',   color:'#7A5CC8', prob:0.50, open:true,  won:false, lost:false},
-  {key:'proposal', label:'Proposal Sent', color:GOLD,      prob:0.75, open:true,  won:false, lost:false},
-  {key:'won',      label:'Closed Won',    color:GREEN,     prob:1.00, open:false, won:true,  lost:false},
-  {key:'lost',     label:'Closed Lost',   color:'#B0606A', prob:0.00, open:false, won:false, lost:true},
+  {key:'discovery',label:'Discovery',     color:COBALT,    prob:0.30, open:true,  won:false, lost:false},
+  {key:'proposal', label:'Proposal Sent', color:GOLD,      prob:0.70, open:true,  won:false, lost:false},
+  {key:'signed',   label:'Signed',        color:GREEN,     prob:1.00, open:false, won:true,  lost:false},
+  {key:'lost',     label:'Lost',          color:'#B0606A', prob:0.00, open:false, won:false, lost:true},
 ];
+/* old default set — used to detect a pre-migration install */
+const OLD_STAGE_KEYS=['new','contacted','meeting','proposal','won','lost'];
+const STAGE_REMAP={new:'new',contacted:'discovery',meeting:'discovery',proposal:'proposal',won:'signed',lost:'lost'};
+
+/* ---- Layer 2: client phase + universal onboarding checklist ---- */
+const CLIENT_PHASES=[
+  ['intake','Intake','#6B73C9'],['build','Build',COBALT],['launch','Launch','#7A5CC8'],
+  ['active','Active',GREEN],['atrisk','At Risk','#E0662B'],['churned','Churned','#8E89A8'],
+];
+const PHASE_FLOW=['intake','build','launch','active'];   // the advance path
+const phaseMeta=k=>CLIENT_PHASES.find(p=>p[0]===k)||['intake','Intake','#6B73C9'];
+/* editable standard phases (label/color/order in Settings; keys locked to the checklist) */
+const DEFAULT_CLIENT_PHASES=[
+  {key:'intake',label:'Intake',color:'#6B73C9',flow:true},
+  {key:'build', label:'Build', color:COBALT,   flow:true},
+  {key:'launch',label:'Launch',color:'#7A5CC8',flow:true},
+  {key:'active',label:'Active',color:GREEN,    flow:true},
+  {key:'atrisk',label:'At Risk',color:'#E0662B',terminal:true},
+  {key:'churned',label:'Churned',color:'#8E89A8',terminal:true},
+];
+const stdPhases=settings=>(settings&&settings.clientPhases&&settings.clientPhases.length)?settings.clientPhases:DEFAULT_CLIENT_PHASES;
+/* a client's own ordered phase list = standard phases + that client's custom phases spliced in after their `after` key */
+const clientPhaseList=(settings,client)=>{ const std=stdPhases(settings); const custom=((client&&client.customPhases)||[]).map(c=>({...c,custom:true})); const out=[];
+  std.forEach(p=>{ out.push(p); custom.filter(c=>c.after===p.key).forEach(c=>out.push(c)); });
+  custom.filter(c=>!out.some(o=>o.key===c.key)).forEach(c=>out.push(c));
+  return out; };
+const phaseInfo=(key,settings,client)=>clientPhaseList(settings,client).find(p=>p.key===key)||stdPhases(settings).find(p=>p.key===key)||{key,label:key,color:'#6B73C9'};
+/* advance path for one client: flow std phases + their custom phases, terminals excluded */
+const flowOrder=(settings,client)=>clientPhaseList(settings,client).filter(p=>p.flow||p.custom).map(p=>p.key);
+/* board columns = standard phases with every visible client's custom phases inserted after their `after`.
+   A custom column is derived from one client's data, so it only ever appears for that client. */
+const boardCols=(clients,settings)=>{ const std=stdPhases(settings); const out=[]; const byAfter={};
+  (clients||[]).forEach(c=>((c.customPhases)||[]).forEach(cp=>{ (byAfter[cp.after]=byAfter[cp.after]||[]).push({...cp,custom:true,ownerId:c.id}); }));
+  std.forEach(p=>{ out.push(p); (byAfter[p.key]||[]).forEach(cp=>out.push(cp)); });
+  Object.entries(byAfter).forEach(([after,list])=>{ if(!std.some(p=>p.key===after)) list.forEach(cp=>{ if(!out.some(o=>o.key===cp.key)) out.push(cp); }); });
+  return out; };
+const ONBOARDING=[
+  {phase:'intake',items:[
+    ['agreement_signed','Service agreement signed (Square)'],
+    ['deposit_paid','Deposit / first payment collected'],
+    ['drive_folder','Client folder created in Drive'],
+    ['welcome_sent','Welcome msg + /onboard link sent'],
+    ['intake_form','Intake form completed (/onboard)'],
+    ['logo_received','Logo received (vector/PNG)'],
+    ['headshot_received','Headshot(s) received'],
+    ['brand_assets','Brand colors / assets received'],
+    ['testimonials','Testimonials/reviews received or permission'],
+    ['access_dns','Access: domain / DNS'],
+    ['access_gbp','Access: Google Business Profile'],
+    ['access_social','Access: Facebook / Instagram'],
+    ['access_crm_host','Access: existing CRM / host (if any)'],
+    ['brand_voice_doc','Brand Voice Doc produced'],
+    ['kickoff_call','Kickoff call + voice memo done'],
+  ]},
+  {phase:'build',items:[
+    ['site_built','Website built (preview URL)'],
+    ['revision_round','Revision round collected (one consolidated list)'],
+    ['automations_config','Automations configured (GHL snapshot + Custom Values)'],
+    ['newsletter_setup','Newsletter set up (if sold)'],
+    ['qa_passed','Internal QA passed (forms, automations, mobile, links, license/brokerage disclosure, Equal Housing logo)'],
+  ]},
+  {phase:'launch',items:[
+    ['launch_call','Launch call completed'],
+    ['go_live','Go live (DNS flipped, automations on)'],
+    ['cheat_sheet_sent',"'How your system works' cheat sheet sent"],
+    ['review_scheduled','30-day review scheduled'],
+    ['testimonial_booked','Testimonial / case study booked (founding clients)'],
+    ['retainer_confirmed','First retainer auto-bill confirmed (Square)'],
+  ]},
+  {phase:'active',items:[
+    ['day30_review','Day-30 review call done (results, testimonial, 2 warm intros)'],
+  ]},
+];
+const ONB_ITEMS=ONBOARDING.flatMap(g=>g.items.map(([key,label])=>({key,label,phase:g.phase})));
+const onbByPhase=phase=>ONB_ITEMS.filter(i=>i.phase===phase);
+const seedOnboarding=()=>{const o={};ONB_ITEMS.forEach(i=>o[i.key]={done:null,due:null});return o;};
+/* progress for one phase's checklist (mirrors trackProgress) */
+const phaseProgress=(lead,phase)=>{ const items=onbByPhase(phase); const ob=lead.onboarding||{}; let done=0,overdue=0,nextDue=null,next=null;
+  items.forEach(i=>{ const e=normEntry(ob[i.key]); if(e.done) done++; else { if(!next) next=i; if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } } });
+  return {items,done,total:items.length,pct:items.length?done/items.length:0,overdue,nextDue,next}; };
+/* whole-checklist stats (mirrors clientOverall) */
+const onboardingStat=lead=>{ const ob=lead.onboarding||{}; let done=0,overdue=0,nextDue=null,next=null;
+  ONB_ITEMS.forEach(i=>{ const e=normEntry(ob[i.key]); if(e.done) done++; else { if(!next) next=i; if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } } });
+  return {done,total:ONB_ITEMS.length,pct:ONB_ITEMS.length?done/ONB_ITEMS.length:0,overdue,nextDue,next}; };
+/* one-time, idempotent pipeline migration: pre-migration installs (empty or the
+   old 6-key default) get the new 5 stages, and every lead's stage key is remapped.
+   Safe to run on every load — a no-op once migrated. */
+function migrateStages(settings,leads){
+  const cur=(settings&&settings.stages)||[]; const curKeys=cur.map(s=>s.key);
+  const looksOld=!curKeys.length || (curKeys.length===OLD_STAGE_KEYS.length && OLD_STAGE_KEYS.every(k=>curKeys.includes(k)));
+  const stages=looksOld?DEFAULT_STAGES:cur;
+  const valid=new Set(stages.map(s=>s.key));
+  const changed=[];
+  const migLeads=(leads||[]).map(l=>{
+    if(!l.stage||valid.has(l.stage)) return l;
+    const to=STAGE_REMAP[l.stage]||'new';
+    const nl={...l,stage:valid.has(to)?to:'new'}; changed.push(nl); return nl;
+  });
+  return {stages,stagesChanged:looksOld,leads:migLeads,changed};
+}
 const PRIORITIES={high:{label:'High',color:'#E0662B',bg:'rgba(224,102,43,.12)',rank:0},medium:{label:'Medium',color:COBALT,bg:'rgba(43,77,224,.10)',rank:1},low:{label:'Low',color:'#8E89A8',bg:'#F0F1F7',rank:2}};
-const OWNERS=['Garrett','Logan','ProyTech'];
-const ACT_TYPES=[{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox}];
+const OWNERS=[...BRAND.team,BRAND.pool];
+/* ---- team scoping: everyone sees their own leads; "ProyTech" is the shared pool ---- */
+const POOL_OWNER=BRAND.pool;
+const DEFAULT_TEAM=BRAND.team.map(name=>({name,access:'all'}));
+const teamAccess=(settings,name)=>{ const t=(settings?.team||[]).find(x=>x.name===name); return t?t.access:'all'; };
+/* "the pool" = anything nobody has claimed: the legacy company-owned leads,
+   plus any lead sitting in a named pool with no owner_id on it. */
+const isPoolLead=(l,myPools)=>l.owner===POOL_OWNER||(!l.owner_id&&!!l.pool&&(!myPools||myPools.includes(l.pool)));
+const scopeLeads=(list,view,me,myPools)=>{
+  if(view==='mine') return list.filter(l=>l.owner===me);
+  if(view==='pool') return list.filter(l=>isPoolLead(l,myPools));
+  return list;
+};
+function ScopeSeg({view,setView,counts,canAll}){
+  return (<div className="seg scope-seg">
+    <button className={view==='mine'?'on':''} onClick={()=>setView('mine')}>Mine<i>{counts.mine}</i></button>
+    <button className={view==='pool'?'on':''} onClick={()=>setView('pool')}>Pool<i>{counts.pool}</i></button>
+    {canAll&&<button className={view==='all'?'on':''} onClick={()=>setView('all')}>All<i>{counts.all}</i></button>}
+  </div>);
+}
+const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox}];
+/* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
+   composer button write this type, so every count in the app agrees. */
+/* sections that can be switched off per install. Dashboard + Settings always ship. */
+const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['invoices','Invoices'],['books','The Books'],['money','Money']];
+const ALWAYS_ON=['dash','settings'];
+const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
+  if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
+const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
+
+/* ============================================================================
+   ROLES
+   ----------------------------------------------------------------------------
+   owner — everything, including money, users, pools, commission approvals.
+   rep   — their own leads + the pools they're assigned, a personal dashboard,
+           the leaderboard, and their own commission. No company money.
+   An install with an EMPTY crm_users table behaves exactly as it did before:
+   whoever is signed in is treated as an owner and nothing is scoped.
+   ========================================================================== */
+const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','pipeline'];
+/* a rep can never be given these by accident — they expose company money.
+   An owner CAN still switch them on deliberately (see Team settings). */
+const MONEY_TABS=['invoices','books','money','huddle'];
+/* modules a rep may be granted at all. 'settings' and 'clients' stay with owners:
+   Settings configures the whole install, Clients is the money-side client book. */
+const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients').concat(['dash']);
+const tabsOf=u=>{ if(!u) return REP_DEFAULT_TABS; const t=Array.isArray(u.tabs)?u.tabs:[]; return t.length?t:REP_DEFAULT_TABS; };
+/* named buckets of unclaimed leads. A rep sees the pools they're given. */
+const DEFAULT_POOLS=['General'];
+const poolList=settings=>{ const p=(settings&&settings.pools)||[]; return p.length?p:DEFAULT_POOLS; };
+const isRep=u=>!!u&&u.role==='rep';
+/* what THIS person can open: the install's global modules, narrowed by their
+   own tab list. A rep can never see a tab the install has globally turned off. */
+const canOpen=(settings,user,k)=>{
+  if(!modOn(settings,k)) return false;
+  if(!isRep(user)) return true;
+  if(k==='dash') return true;
+  if(k==='settings'||k==='clients') return false;
+  return tabsOf(user).includes(k);
+};
+
+/* ---- commissions ----------------------------------------------------------
+   A commission is a flat % of the deal, SNAPSHOT onto the lead at conversion:
+   { repId, repName, pct, base, amount, status, convertedAt, approvedAt,
+     approvedBy, voidedAt }. Snapshotting is the point — editing a rep's % or
+   the deal value later must never silently rewrite history.
+   pending = counted in the rep's running total, not money yet.
+   earned  = an owner approved it. void = cancelled, out of every count.       */
+const cmsnAmount=(base,pct)=>Math.round(num(base)*num(pct))/100;
+const cmsnOf=l=>(l&&l.commission&&typeof l.commission==='object')?l.commission:null;
+const mkCommission=(lead,user)=>({repId:user.id,repName:user.name,pct:num(user.commission_pct),
+  base:num(lead.dealValue),amount:cmsnAmount(lead.dealValue,user.commission_pct),
+  status:'pending',convertedAt:new Date().toISOString()});
+/* one rep's own numbers, computed from the leads they can already read */
+const myCommissions=(leads,uid)=>{
+  const rows=(leads||[]).map(l=>({l,c:cmsnOf(l)})).filter(r=>r.c&&r.c.repId===uid&&r.c.status!=='void');
+  const pending=rows.filter(r=>r.c.status==='pending').reduce((a,r)=>a+num(r.c.amount),0);
+  const earned=rows.filter(r=>r.c.status==='earned').reduce((a,r)=>a+num(r.c.amount),0);
+  return {pending,earned,total:pending+earned,rows:rows.sort((a,b)=>(b.c.convertedAt||'').localeCompare(a.c.convertedAt||''))};
+};
+const CMSN_STATE={pending:{label:'Pending',color:'#C8A24A'},earned:{label:'Earned',color:GREEN},void:{label:'Voided',color:'#8E89A8'}};
+
+/* ---- motion: honour the OS setting, everywhere -------------------------- */
+const prefersReduced=()=>{ try{ return !!(typeof window!=='undefined'&&window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches); }catch{ return false; } };
+function useReducedMotion(){
+  const [r,setR]=useState(prefersReduced);
+  useEffect(()=>{ if(typeof window==='undefined'||!window.matchMedia) return; const mq=window.matchMedia('(prefers-reduced-motion: reduce)');
+    const on=()=>setR(!!mq.matches); on();
+    if(mq.addEventListener){ mq.addEventListener('change',on); return ()=>mq.removeEventListener('change',on); }
+    if(mq.addListener){ mq.addListener(on); return ()=>mq.removeListener(on); } },[]);
+  return r;
+}
+/* a number that ticks up to its value on load. Reduced motion → final value,
+   immediately. Never blocks: the DOM is correct on the very first paint. */
+function CountUp({value,format,ms}){
+  const reduced=useReducedMotion();
+  const [v,setV]=useState(value);
+  const from=React.useRef(value);
+  useEffect(()=>{ const target=num(value); const start=num(from.current); from.current=target;
+    if(reduced||start===target||typeof window==='undefined'||!window.requestAnimationFrame){ setV(target); return; }
+    const dur=ms||800; const t0=Date.now(); let raf=0;
+    const tick=()=>{ const p=Math.min(1,(Date.now()-t0)/dur); const e=1-Math.pow(1-p,3);
+      setV(start+(target-start)*e); if(p<1) raf=window.requestAnimationFrame(tick); else setV(target); };
+    raf=window.requestAnimationFrame(tick);
+    return ()=>{ if(raf) window.cancelAnimationFrame(raf); }; },[value,reduced,ms]);
+  return <>{format?format(v):Math.round(num(v)).toLocaleString()}</>;
+}
+/* meeting types — coffee and discovery are different motions, track them apart */
+const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboarding','Check-in','Other'];
+/* ---- unified meeting model -------------------------------------------------
+   ONE record per meeting, whether it was scheduled on the calendar or logged
+   after the fact. status: '' = upcoming, 'held', 'noshow'. Every count in the
+   app reads meetingsOf(), so the numbers can never disagree with each other. */
+const MSTATUS={'':'Upcoming',held:'Held',noshow:'No-show'};
+/* migrate any legacy 'Booked' activity that never became a meeting into one,
+   so old history shows up in the new unified views. Idempotent: an activity
+   already linked to a meeting (meetingId) is skipped. */
+/* A meeting can exist without anybody ever having said WHEN it is. Two ways in:
+   a legacy 'Booked' activity migrated below, and a meeting logged from the
+   activity composer. Both only ever knew the moment they were typed, so their
+   start is the log time, not the meeting time. Those carry dateUnknown and get
+   asked for a DATE, never for a status — "did this happen?" is the wrong
+   question about a meeting nobody has scheduled yet, and it is the reason a
+   batch of meetings entered in one sitting all turned up overdue five minutes
+   later. Backfill is a heuristic on existing rows (logged, and start never
+   moved off createdAt) and is written down for real the first time a date is
+   set, so it can never flip back. */
+const datelessOf=m=>m.dateUnknown!==undefined&&m.dateUnknown!==null
+  ? !!m.dateUnknown
+  : (!!m.logged&&!!m.start&&m.start===m.createdAt);
+const meetingsOf=l=>{
+  const existing=(l.meetings||[]).map(m=>({...m,status:m.status||'',dateUnknown:datelessOf(m)}));
+  const haveIds=new Set(existing.map(m=>m.id));
+  const linked=new Set(existing.map(m=>m.meetingId).filter(Boolean));
+  const fromActs=(l.activities||[])
+    .filter(a=>a&&a.type==='Booked'&&a.ts&&!a.meetingId&&!linked.has(a.id))
+    .map(a=>({ id:'m_'+a.id, fromActivity:a.id, title:(a.text||'Meeting').replace(/ booked:.*/i,'').replace(/ booked\.?$/i,'')||'Meeting',
+      mtype:a.mtype||'Other', start:a.ts, end:a.ts, status:a.status||'', who:a.who, createdAt:a.ts, logged:true, dateUnknown:true }))
+    .filter(m=>!haveIds.has(m.id));
+  return [...existing,...fromActs];
+};
+const meetingMonthKey=m=>m.start?isoOf(new Date(m.start)).slice(0,7):null;
+/* Two different months live on a meeting and conflating them is what made a
+   meeting booked today for August 6 vanish from July's dashboard. meetingMonthKey
+   is WHEN IT HAPPENS — right for "meetings held". bookingMonthKey is WHEN IT WAS
+   BOOKED — right for "meetings booked", which is an action you take and a goal
+   you're measured against this month, whatever month the meeting itself lands in. */
+const bookingMonthKey=m=>{ const t=m.createdAt||m.start; return t?isoOf(new Date(t)).slice(0,7):null; };
+const isDateless=m=>!!m&&!!m.dateUnknown;
+const isUpcoming=m=>!m.status&&!isDateless(m)&&new Date(m.end||m.start).getTime()>=Date.now();
+const needsStatus=m=>!m.status&&!isDateless(m)&&new Date(m.end||m.start).getTime()<Date.now();
+const needsDate=m=>!m.status&&isDateless(m);
+/* every meeting across every lead, flattened with its lead attached */
+const allMeetings=leads=>(leads||[]).flatMap(l=>meetingsOf(l).map(m=>({lead:l,m})));
+/* ---- Monday Morning Huddle -------------------------------------------------
+   Everything here is plain arithmetic on data already captured. The AI only
+   ever sees the finished digest, never the database. */
+const startOfWeek=d=>{ const x=new Date(d); const dow=(x.getDay()+6)%7; x.setDate(x.getDate()-dow); x.setHours(0,0,0,0); return x; };
+/* the last COMPLETE Mon-Sun, which is what you actually review on a Monday */
+const lastWeekRange=(now=new Date())=>{ const thisMon=startOfWeek(now);
+  const start=new Date(thisMon); start.setDate(thisMon.getDate()-7);
+  const end=new Date(thisMon); end.setMilliseconds(-1);
+  return {start,end,key:isoOf(start)}; };
+const shiftWeek=(r,weeks)=>{ const start=new Date(r.start); start.setDate(start.getDate()-7*weeks);
+  const end=new Date(r.end); end.setDate(end.getDate()-7*weeks); return {start,end,key:isoOf(start)}; };
+const inRange=(ts,r)=>{ if(!ts) return false; const t=new Date(String(ts).length<=10?ts+'T12:00:00':ts).getTime();
+  return !isNaN(t)&&t>=r.start.getTime()&&t<=r.end.getTime(); };
+const pctChange=(a,b)=>b===0?(a>0?null:0):Math.round((a-b)/b*100);
+
+/* one week's worth of counts */
+function weekSlice(leads,tasks,stages,r){
+  const acts={}; let booked=0,held=0,noshow=0,newLeads=0,closed=0,closedValue=0,onboarded=0,deposits=0,fuCleared=0,fuOnTime=0;
+  const bookedByType={}; const moves=[]; const wonNames=[]; const newClientNames=[];
+  (leads||[]).forEach(l=>{
+    const nm=l.company||l.name||'(unnamed)';
+    if(inRange(l.createdAt,r)) newLeads++;
+    ((l.closedDeals)||[]).forEach(d=>{ if(inRange(d.closedAt,r)){ closed++; closedValue+=num(d.amount); wonNames.push(nm+' ('+usd(d.amount)+') · '+(d.label||'deal')); } });
+    if(sOf(l.stage,stages).won&&inRange(l.closedAt,r)){ closed++; closedValue+=num(l.dealValue); wonNames.push(nm+' ('+usd(l.dealValue)+')'); }
+    if(l.isClient&&inRange(l.convertedAt,r)){ onboarded++; newClientNames.push(nm); }
+    const dep=normEntry((l.onboarding||{}).deposit_paid).done; if(inRange(dep,r)) deposits++;
+    (l.activities||[]).forEach(a=>{ if(!inRange(a.ts,r))return;
+      const sys=a.text==='Lead created.'||(typeof a.text==='string'&&a.text.startsWith('Stage moved:'));
+      if(!sys&&bookingLive(l,a)) acts[a.type]=(acts[a.type]||0)+1;   // system notes and cancelled bookings aren't work done
+      if(a.type==='Booked'&&bookingLive(l,a)){ booked++; const t=a.mtype||'untyped'; bookedByType[t]=(bookedByType[t]||0)+1; }
+      if(a.fuOnTime!==undefined){ fuCleared++; if(a.fuOnTime) fuOnTime++; }
+      if(typeof a.text==='string'&&a.text.startsWith('Stage moved:')) moves.push(nm+': '+a.text.replace('Stage moved: ',''));
+    });
+    (l.meetings||[]).forEach(mt=>{ if(!inRange(mt.start,r))return; if(mt.status==='held')held++; else if(mt.status==='noshow')noshow++; });
+  });
+  const done=(tasks||[]).filter(t=>t.done&&inRange(t.doneAt,r));
+  const touches=(acts.Call||0)+(acts.Text||0)+(acts.Email||0)+(acts.Meeting||0);
+  return {activityCounts:acts,touches,booked,bookedByType,held,noshow,newLeads,closed,closedValue,onboarded,deposits,
+    fuCleared,fuOnTime,stageMoves:moves,wonNames,newClientNames,tasksDone:done.length,taskTitles:done.map(t=>t.title).slice(0,15)};
+}
+
+/* the full packet the huddle page renders and the AI interprets */
+function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
+  const r=lastWeekRange(now), p=shiftWeek(r,1);
+  const cur=weekSlice(leads,tasks,stages,r), prev=weekSlice(leads,tasks,stages,p);
+  const G=goalsOf(settings); const mKey=isoOf(now).slice(0,7);
+  let mtdBooked=0,mtdClosed=0,mtdRevenue=0,mtdOnboarded=0;
+  (leads||[]).forEach(l=>{
+    (l.activities||[]).forEach(a=>{ if(a.type==='Booked'&&bookingLive(l,a)&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey) mtdBooked++; });
+    if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){ mtdClosed++; mtdRevenue+=num(l.dealValue); }
+    if(l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey) mtdOnboarded++;
+  });
+  const openLeads=(leads||[]).filter(l=>sOf(l.stage,stages).open);
+  const overdue=(leads||[]).filter(l=>l.followUp&&daysUntil(l.followUp)<0&&sOf(l.stage,stages).open)
+    .sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
+  const cold=coldList(rels||[]).slice(0,8);
+  const stalled=openLeads.map(l=>({l,d:daysSince(lastTouchTs(l)||l.createdAt||new Date().toISOString())}))
+    .filter(x=>x.d>=14).sort((a,b)=>b.d-a.d).slice(0,8);
+  const untouched=(leads||[]).filter(l=>!(l.activities||[]).some(REAL_TOUCH));
+  return {
+    period:{from:isoOf(r.start),to:isoOf(r.end),label:fmtDate(isoOf(r.start))+' – '+fmtDate(isoOf(r.end))},
+    lastWeek:cur, weekBefore:prev,
+    pipeline:{openDeals:openLeads.length,openValue:Math.round(openLeads.reduce((a,l)=>a+num(l.dealValue),0)),
+      weighted:Math.round(openLeads.reduce((a,l)=>a+num(l.dealValue)*num(sOf(l.stage,stages).prob),0)),
+      mrr:Math.round((leads||[]).filter(l=>l.retainerActive).reduce((a,l)=>a+num(l.retainer),0))},
+    monthToDate:{month:mKey,dayOfMonth:now.getDate(),pctOfMonthElapsed:Math.round(monthPace(now)*100),
+      booked:mtdBooked,closed:mtdClosed,revenue:mtdRevenue,onboarded:mtdOnboarded,
+      goals:{booked:G.booked,closed:G.closed,onboarded:G.onboarded,revenue:G.revenue,mrr:G.mrr}},
+    slipping:{
+      overdueFollowUps:overdue.slice(0,8).map(l=>({who:l.company||l.name,daysLate:Math.abs(daysUntil(l.followUp)),plan:l.nextSteps||l.nextAction||''})),
+      overdueTotal:overdue.length,
+      coldRelationships:cold.map(x=>({who:x.r.company||x.r.name,tier:tierMeta(x.tier)[1],daysSinceTouch:x.days>=9999?null:x.days})),
+      stalledDeals:stalled.map(x=>({who:x.l.company||x.l.name,value:num(x.l.dealValue),stage:sOf(x.l.stage,stages).label,daysSinceTouch:x.d})),
+      neverContacted:untouched.length,
+    },
+  };
+}
+/* monthly targets. 0 or missing = no goal, so nothing renders. */
+const DEFAULT_GOALS={booked:0,closed:0,onboarded:0,revenue:0,mrr:0};
+const GOAL_FIELDS=[
+  ['booked','Meetings booked','per month','n'],
+  ['closed','Deals closed','per month','n'],
+  ['onboarded','Clients onboarded','per month','n'],
+  ['revenue','Setup revenue closed','per month','$'],
+  ['mrr','MRR target','running total','$'],
+];
+const goalsOf=settings=>({...DEFAULT_GOALS,...((settings&&settings.goals)||{})});
+/* how far through the month we are — lets a tile say "behind pace" honestly */
+const monthPace=(d=new Date())=>{ const days=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
+  return Math.min(1,d.getDate()/days); };
+/* ---- health metrics ------------------------------------------------------
+   All derived from data already captured, so nothing new to type in. */
+const REAL_TOUCH=a=>a&&a.ts&&a.text!=='Lead created.';
+/* hours between a lead landing and the first real touch. null = never touched. */
+const firstTouchHrs=l=>{ const acts=(l.activities||[]).filter(REAL_TOUCH); if(!acts.length||!l.createdAt) return null;
+  const first=acts.reduce((mn,a)=>(!mn||a.ts<mn)?a.ts:mn,null);
+  const h=(new Date(first)-new Date(l.createdAt))/36e5; return isNaN(h)?null:Math.max(0,h); };
+const median=arr=>{ if(!arr.length) return null; const x=[...arr].sort((a,b)=>a-b); const i=Math.floor(x.length/2);
+  return x.length%2?x[i]:(x[i-1]+x[i])/2; };
+const fmtHrs=h=>h==null?'—':h<1?Math.round(h*60)+'m':h<48?Math.round(h)+'h':Math.round(h/24)+'d';
+const lastTouchTs=l=>{ const acts=(l.activities||[]).filter(a=>a&&a.ts); if(!acts.length) return l.createdAt||null;
+  return acts.reduce((mx,a)=>(!mx||a.ts>mx)?a.ts:mx,null); };
+/* champions need watering more often than brand-new contacts */
+const COLD_DAYS={champion:30,b:60,new:90};
+const coldList=rels=>(rels||[]).map(r=>{ const tier=tierOf(r); const last=lastTouchTs(r);
+    return {r,tier,last,days:last?daysSince(last):9999,limit:COLD_DAYS[tier]||90}; })
+  .filter(x=>x.days>=x.limit).sort((a,b)=>b.days-a.days);
+/* how far each lead ever got, read back out of the logged stage moves.
+   rate = step conversion (this stage / previous). closeRate = share of leads
+   that reached this stage which ultimately CLOSED (the last stage in the flow). */
+/* archived (previously-closed) deals on a repeat client */
+const closedDealsTotal=l=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+num(d.amount),0);
+const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.closedAt&&String(d.closedAt).slice(0,7)===mKey)?num(d.amount):0),0);
+/* open deals on a lead, migrating legacy single-deal / bare-dealValue shapes.
+   Mirrors the modal's openDeals so the card and the modal always agree. */
+const dealBits=d=>num(d.setup)+num(d.website)+num(d.integration)+((d.extras||[]).reduce((a,e)=>a+num(e.amount),0));
+const paymentsPaid=l=>((l&&l.payments)||[]).reduce((a,p)=>a+(+((''+p.amount).replace(/[^0-9.-]/g,''))||0),0);
+const dealsOf=l=>{
+  if(Array.isArray(l&&l.deals)) return l.deals;
+  if(l&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return [{id:'d_legacy',label:'Deal',...l.deal}];
+  if(l&&num(l.dealValue)>0) return [{id:'d_legacy',label:'Deal',setup:l.dealValue}];
+  return [];
+};
+const closedDealsCountInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).filter(d=>d.closedAt&&String(d.closedAt).slice(0,7)===mKey).length;
+const funnelOf=(leads,stages)=>{ const flow=(stages||[]).filter(s=>!s.lost); if(!flow.length) return [];
+  const reached=flow.map(()=>0);
+  (leads||[]).forEach(l=>{ let i=flow.findIndex(s=>s.key===l.stage);
+    (l.activities||[]).forEach(a=>{ if(a&&typeof a.text==='string'&&a.text.startsWith('Stage moved:')){
+      const to=a.text.split('\u2192').pop().trim(); const j=flow.findIndex(s=>s.label===to); if(j>i) i=j; } });
+    if(i<0) i=0; for(let k=0;k<=i;k++) reached[k]++; });
+  const closed=reached[reached.length-1]||0;
+  return flow.map((s,i)=>({key:s.key,label:s.label,color:s.color,count:reached[i],
+    rate:i===0?1:(reached[i-1]?reached[i]/reached[i-1]:0),
+    closeRate:reached[i]?closed/reached[i]:0})); };
+const ACT_LABEL={Booked:'Meeting Booked'};
+const actLabel=t=>ACT_LABEL[t]||t;
+const actPlural=t=>t==='Booked'?'Booked':t+'s';
+/* Counts come from meetingsOf() and nowhere else. This used to count 'Booked'
+   ACTIVITIES instead, which is why cancelling a meeting left the header saying
+   "2 booked" over a list that said "No meetings yet" — the meeting was gone, the
+   activity that announced it wasn't. The activity feed is history and should
+   keep the cancelled booking; the count is state and must not. */
+const bookedCount=l=>meetingsOf(l).length;
+/* A 'Booked' activity is only a booking while its meeting still exists.
+   Cancelling now flags the activity, but meetings cancelled BEFORE that flag
+   existed left no mark at all — so an activity pointing at a meetingId the lead
+   no longer holds is treated as cancelled too. That backfill is what makes
+   already-deleted test meetings drop off without anyone editing history.
+   No meetingId at all = a legacy booking that never had a meeting record;
+   meetingsOf() migrates those into real meetings, so they stay live. */
+const bookingLive=(l,a)=>{
+  if(!a||a.type!=='Booked') return true;
+  if(a.cancelled) return false;
+  if(!a.meetingId) return true;
+  return (l.meetings||[]).some(m=>m.id===a.meetingId);
+};
 const fmtCustom=(v,type)=>{if(v===undefined||v==='')return '—';if(type==='checkbox')return v?'✓':'—';return String(v);};
 const DEFAULT_LEAD_COLS=[
   {key:'businessType',visible:true},{key:'stage',visible:true},{key:'source',visible:true},
@@ -55,9 +464,12 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const cap=s=>s?s.charAt(0).toUpperCase()+s.slice(1):s;
 const num=v=>{const n=Number(v);return isNaN(n)?0:n;};
 const usd=v=>(num(v)<0?'-$':'$')+Math.abs(Math.round(num(v))).toLocaleString();
+/* cents-aware money (payments can be $1,498.50) — shows cents only when non-zero */
+const usdc=v=>{ const x=num(v); const cents=Math.round(Math.abs(x)*100)%100; return (x<0?'-$':'$')+Math.abs(x).toLocaleString(undefined,{minimumFractionDigits:cents?2:0,maximumFractionDigits:2}); };
 const usdK=v=>{v=num(v);return Math.abs(v)>=1000?'$'+(v/1000).toFixed(v%1000===0?0:1)+'k':'$'+Math.round(v);};
 const pct=v=>(num(v)*100).toFixed(0)+'%';
-const todayISO=()=>new Date().toISOString().slice(0,10);
+const isoOf=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const todayISO=()=>isoOf(new Date());
 const fmtDate=iso=>{if(!iso)return '';const d=new Date(iso+(iso.length<=10?'T00:00:00':''));return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});};
 const fmtStamp=ts=>{const d=new Date(ts);return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 const daysUntil=iso=>{if(!iso)return null;const a=new Date(iso+'T00:00:00'),b=new Date(todayISO()+'T00:00:00');return Math.round((a-b)/86400000);};
@@ -106,7 +518,48 @@ const DEFAULT_DELIVERY_TRACKS=[
     milestones:['Discovery & scoping','Integrations started','Build & configuration','Testing','Integrations delivered'] },
 ];
 const activeTracks=(lead,tracks)=>{ const svc=lead.serviceInterest||[]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]); };
-const normEntry=v=>{ if(!v) return {done:null,due:null}; if(typeof v==='string') return {done:v,due:null}; return {done:v.done||null,due:v.due||null}; };
+
+/* ---- introduction network: who introduced whom ---- */
+/* returns [root, ..., directIntroducer] for a contact — cycle-safe */
+function introChain(lead,all){
+  if(!lead) return [];
+  const byId={}; (all||[]).forEach(x=>byId[x.id]=x);
+  const chain=[]; const seen=new Set([lead.id]); let cur=lead;
+  while(cur&&cur.introducedBy){
+    const p=byId[cur.introducedBy];
+    if(!p||seen.has(p.id))break;
+    seen.add(p.id); chain.unshift(p); cur=p;
+  }
+  return chain;
+}
+/* builds the intro forest + a tidy left-to-right layout */
+function buildNetwork(contacts){
+  const byId={}; contacts.forEach(c=>byId[c.id]=c);
+  const parentOf=id=>{const c=byId[id];const p=c&&c.introducedBy;return (p&&p!==id&&byId[p])?p:null;};
+  const kids={}; contacts.forEach(c=>{const p=parentOf(c.id); if(p)(kids[p]=kids[p]||[]).push(c.id);});
+  Object.values(kids).forEach(a=>a.sort((x,y)=>(byId[x].name||'').localeCompare(byId[y].name||'')));
+  const inNet=new Set();
+  contacts.forEach(c=>{ if(parentOf(c.id)||(kids[c.id]||[]).length) inNet.add(c.id); });
+  const roots=[...inNet].filter(id=>!parentOf(id)).sort((a,b)=>{
+    const ca=(kids[a]||[]).length, cb=(kids[b]||[]).length;
+    return cb-ca||(byId[a].name||'').localeCompare(byId[b].name||'');
+  });
+  const nodes=[],links=[]; let leaf=0; const seen=new Set();
+  const place=(id,depth)=>{
+    if(seen.has(id))return null;
+    seen.add(id);
+    const ch=(kids[id]||[]).filter(k=>!seen.has(k));
+    let y;
+    if(!ch.length){ y=leaf; leaf+=1; }
+    else{ const ys=ch.map(k=>place(k,depth+1)).filter(v=>v!=null); y=ys.length?(ys[0]+ys[ys.length-1])/2:(leaf++); ch.forEach(k=>links.push([id,k])); }
+    nodes.push({id,depth,y,kids:(kids[id]||[]).length});
+    return y;
+  };
+  roots.forEach(r=>place(r,1));
+  const depth=nodes.length?Math.max(...nodes.map(n=>n.depth)):0;
+  return {byId,kids,roots,nodes,links,inNet,rows:leaf,maxDepth:depth};
+}
+const normEntry=v=>{ if(!v) return {done:null,due:null,assignee:null,taskId:null}; if(typeof v==='string') return {done:v,due:null,assignee:null,taskId:null}; return {done:v.done||null,due:v.due||null,assignee:v.assignee||null,taskId:v.taskId||null}; };
 const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[track.key])||{}; const ms=track.milestones||[]; const entries={}; let completed=0,overdue=0,nextDue=null;
   ms.forEach(m=>{ const e=normEntry(raw[m]); entries[m]=e; if(e.done) completed++; else if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } });
   const current=ms.find(m=>!entries[m].done)||null;
@@ -115,15 +568,19 @@ const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0
 
 /* ===================== invoicing ===================== */
 const DEFAULT_INV_SECTIONS={ headerLeft:{fz:10,lh:1.55}, headerRight:{fz:10,lh:1.4}, billto:{fz:10,lh:1.45}, items:{fz:10.5,lh:1.5}, totals:{fz:10.5,lh:1.5}, pay:{fz:10,lh:1.45}, notes:{fz:9.5,lh:1.5} };
-const DEFAULT_INVOICING={ biz:{ name:'ProyTech', address:'150 N Main St\nWichita, KS 67202', email:'getproytech@gmail.com', phone:'' }, prefix:'INV-', seq:1, taxRate:0, terms:14, notes:'Thank you for your business.', paymentLink:'', accent:'#2B4DE0', logoH:46, showNotes:true, showPay:true, showLogo:true, layout:{order:['billto','items','totals','pay','notes'],headerSwap:false}, sections:DEFAULT_INV_SECTIONS };
+const DEFAULT_INVOICING={ biz:{ name:BRAND.biz.name, address:BRAND.biz.address, email:BRAND.biz.email, phone:BRAND.biz.phone }, prefix:'INV-', seq:1, taxRate:0, terms:14, notes:'Thank you for your business.', paymentLink:'', accent:'#2B4DE0', logoH:46, showNotes:true, showPay:true, showLogo:true, layout:{order:['billto','items','totals','pay','notes'],headerSwap:false}, sections:DEFAULT_INV_SECTIONS };
 const invSubtotal=inv=>(inv.items||[]).reduce((a,it)=>a+num(it.qty)*num(it.amount),0);
 const invTax=inv=>invSubtotal(inv)*num(inv.taxRate)/100;
 const invTotal=inv=>invSubtotal(inv)+invTax(inv);
 const invState=inv=>{ if(inv.status==='paid') return 'paid'; if(inv.dueDate&&daysUntil(inv.dueDate)<0) return 'overdue'; return inv.status||'draft'; };
-const addDays=(iso,n)=>{ const d=new Date((iso||todayISO())+'T00:00:00'); d.setDate(d.getDate()+num(n)); return d.toISOString().slice(0,10); };
-function itemsFromLead(l){ const items=[]; const d=(l&&l.deal&&typeof l.deal==='object')?l.deal:null;
-  if(d){ if(num(d.setup)) items.push({id:uid(),label:'Setup',qty:1,amount:num(d.setup)}); if(num(d.website)) items.push({id:uid(),label:'Website',qty:1,amount:num(d.website)}); if(num(d.integration)) items.push({id:uid(),label:'AI / Integration',qty:1,amount:num(d.integration)}); (d.extras||[]).forEach(e=>{ if(num(e.amount)) items.push({id:uid(),label:e.label||'Line item',qty:1,amount:num(e.amount)}); }); }
-  else if(l&&num(l.dealValue)){ items.push({id:uid(),label:'Project',qty:1,amount:num(l.dealValue)}); }
+const addDays=(iso,n)=>{ const d=new Date((iso||todayISO())+'T00:00:00'); d.setDate(d.getDate()+num(n)); return isoOf(d); };
+function itemsFromLead(l){ const items=[];
+  const pushDeal=(d,prefix)=>{ if(num(d.setup)) items.push({id:uid(),label:(prefix||'')+'Setup',qty:1,amount:num(d.setup)}); if(num(d.website)) items.push({id:uid(),label:(prefix||'')+'Website',qty:1,amount:num(d.website)}); if(num(d.integration)) items.push({id:uid(),label:(prefix||'')+'AI / Integration',qty:1,amount:num(d.integration)}); (d.extras||[]).forEach(e=>{ if(num(e.amount)) items.push({id:uid(),label:(prefix||'')+(e.label||'Line item'),qty:1,amount:num(e.amount)}); }); };
+  const deals=Array.isArray(l&&l.deals)?l.deals:null;
+  if(deals&&deals.length){ deals.forEach(d=>pushDeal(d,deals.length>1&&d.label?`${d.label} — `:'')); }
+  else { const d=(l&&l.deal&&typeof l.deal==='object')?l.deal:null;
+    if(d){ pushDeal(d,''); }
+    else if(l&&num(l.dealValue)){ items.push({id:uid(),label:'Project',qty:1,amount:num(l.dealValue)}); } }
   if(l&&l.retainerActive&&num(l.retainer)) items.push({id:uid(),label:'Monthly retainer',qty:1,amount:num(l.retainer)});
   if(!items.length) items.push({id:uid(),label:'',qty:1,amount:0});
   return items; }
@@ -134,24 +591,25 @@ function mkLead(o){
   const acts=[{id:uid(),ts:createdAt,type:'Note',text:'Lead created.'}];
   if(o.note) acts.unshift({id:uid(),ts:createdAt,type:'Note',text:o.note});
   const {note,_ago,...rest}=o;
-  return {id:uid(),name:'',company:'',businessType:'Real Estate',phone:'',email:'',website:'',
-    stage:'new',priority:'medium',source:'',nextAction:'Schedule Coffee',nextSteps:'Follow up',
-    followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,
+  return {id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',
+    stage:'new',priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',
+    followUp:'',expectedClose:'',serviceInterest:[],owner:BRAND.team[0]||'',dealValue:0,retainer:0,
     potentialSponsor:false,pastSponsor:false,sponsorTier:'',sponsorAmount:0,
-    isRelationship:false,introducedBy:'',relNote:'',
-    retainerActive:false,retainerStart:'',closedAt:'',custom:{},createdAt,activities:acts,...rest};
+    isRelationship:false,introducedBy:'',relNote:'',relTier:'',
+    retainerActive:false,retainerStart:'',closedAt:'',closedDeals:[],custom:{},createdAt,activities:acts,...rest};
 }
-function seed(){return [
-  mkLead({_ago:10,name:'Chris Waipa',company:'Mortgage Punk',businessType:'Lending',phone:'3163035151',stage:'contacted',priority:'high',source:'Networking',nextAction:'Schedule Sit Down',followUp:'2026-06-29',serviceInterest:['Both'],note:'Anchor relationship — hosts the Wednesday realtor breakfast.'}),
-  mkLead({_ago:9,name:'Beverly',company:'EggCetra',businessType:'Restaurant',phone:'7025056866',stage:'contacted',priority:'medium',nextAction:'Text in 1 Week',serviceInterest:['Web Design'],note:'Meeting scheduled.'}),
-  mkLead({_ago:8,name:'Sophii Jones',company:'Jupiter Marketing',businessType:'Professional Services',phone:'3162265444',stage:'contacted',priority:'medium',nextAction:'Schedule Sit Down',followUp:'2026-06-27',serviceInterest:['Both'],note:'Looking to build out site.'}),
-  mkLead({_ago:7,name:'Mathew Agnew',company:'Agnew Law',businessType:'Law Firm',stage:'new',priority:'medium',nextAction:'Schedule Coffee',followUp:'2026-06-29',serviceInterest:['AI Integration']}),
-  mkLead({_ago:6,name:'Jason Bell',company:'Specs Eyewear and Eyewear',businessType:'Retail',phone:'3168800220',stage:'contacted',priority:'medium',source:'Referral',nextAction:'Schedule Coffee',followUp:'2026-06-30',serviceInterest:['Unknown'],note:'Site isnt great, needs work.'}),
-  mkLead({_ago:5,name:'Matthew Rochat',company:'Leader One Financial',businessType:'Lending',stage:'contacted',priority:'medium',source:'Garrett',nextAction:'Schedule Coffee',followUp:'2026-06-30',serviceInterest:['Unknown']}),
-  mkLead({_ago:4,name:'Erica Boller',company:'Midwest Fresh',businessType:'Real Estate',stage:'new',priority:'medium',source:'Garrett',nextAction:'Schedule Coffee',followUp:'2026-06-30',serviceInterest:['Unknown'],website:'https://www.midwestfresh.com',note:'Site sucks.'}),
-  mkLead({_ago:3,name:'Derek Sorrells',company:'Sweet n Saucy Wichita',businessType:'Retail',phone:'(316) 730-4932',stage:'new',priority:'high',source:'Cold Outreach',nextAction:'Visit and Introduce',followUp:'2026-06-30',serviceInterest:['Unknown'],website:'https://sweetnsaucywichita.com',note:'Site sucks — duckwichita angle.'}),
-  mkLead({_ago:2,name:'Tai To',company:'316 Home Buyers',businessType:'Real Estate',phone:'3162100094',stage:'new',priority:'medium',source:'Garrett',nextAction:'Schedule Sit Down',followUp:'2026-06-30',serviceInterest:['Unknown'],note:'Think we can for sure help.'}),
-  mkLead({_ago:1,name:'Robert Fluke',company:'Wichita Construction',businessType:'Construction',stage:'new',priority:'medium',source:'Garrett',nextAction:'Schedule Sit Down',followUp:'2026-06-30',serviceInterest:['Web Design'],note:'Think we can help with the site.'}),
+/* Demo seed. A fresh client install starts EMPTY on purpose — never ship real
+   pipeline data into someone else's CRM. Set VITE_SEED_DEMO=true on a demo
+   deploy to populate these obviously-fake sample leads instead. */
+const DEMO_SEED=(import.meta.env.VITE_SEED_DEMO||'').toString().toLowerCase()==='true';
+function seed(){
+  if(!DEMO_SEED) return [];
+  const A=BRAND.team[0]||'Owner', B=BRAND.team[1]||A;
+  return [
+  mkLead({_ago:8,name:'Sample Client',company:'Northside Realty',businessType:'Real Estate',stage:'contacted',priority:'high',source:'Referral',owner:A,nextAction:'Follow up',dealValue:1200}),
+  mkLead({_ago:6,name:'Demo Prospect',company:'Meridian Lending',businessType:'Lending',stage:'meeting',priority:'medium',source:'Networking',owner:B,nextAction:'Send proposal',dealValue:1499}),
+  mkLead({_ago:4,name:'Example Lead',company:'Bright Path Insurance',businessType:'Professional Services',stage:'new',priority:'low',source:'Website',owner:BRAND.pool,nextAction:'Intro call'}),
+  mkLead({_ago:2,name:'Test Contact',company:'Harbor Group',businessType:'Real Estate',stage:'proposal',priority:'high',source:'Referral',owner:A,nextAction:'Close',dealValue:2400}),
 ];}
 
 /* ===================== CSS ===================== */
@@ -167,13 +625,14 @@ const CSS=`
 .gate-card input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .gate-err{color:${RED};font-size:12.5px;font-weight:600;margin-bottom:10px}
 .sb{width:236px;flex:none;background:linear-gradient(180deg,#211d44,${INK});color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:20px 14px;z-index:30}
-.sb-brand{display:flex;align-items:center;gap:11px;padding:6px 8px 20px;border-bottom:1px solid rgba(255,255,255,.09);margin-bottom:14px}
-.sb-brand img{max-height:34px;max-width:150px;object-fit:contain}
+.sb-brand{display:flex;align-items:center;justify-content:center;gap:11px;padding:16px 14px;margin:-4px -6px 16px;background:#000110;border-radius:14px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
+.sb-brand img{max-height:46px;max-width:172px;object-fit:contain}
 .nucleus{width:14px;height:14px;border-radius:50%;background:${COBALT};box-shadow:0 0 0 4px rgba(43,77,224,.25),0 0 14px 2px rgba(92,118,238,.6);flex:none}
 .sb-brand b{font-family:'Space Grotesk';font-size:16px;font-weight:600}
 .sb-brand span{display:block;font-size:11px;color:#A9A4CC;font-weight:400;letter-spacing:.04em}
 .nav-i{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:10px;color:#C7C3E6;font-size:14px;font-weight:500;cursor:pointer;transition:.16s;border:none;background:none;width:100%;text-align:left;margin-bottom:2px}
-.nav-i:hover{background:rgba(255,255,255,.06);color:#fff}.nav-i.on{background:${COBALT};color:#fff;box-shadow:0 6px 18px -8px rgba(43,77,224,.9)}
+.nav-i:hover{background:rgba(255,255,255,.06);color:#fff}.nav-i.on{background:${COBALT};color:#fff;box-shadow:0 6px 18px -8px rgba(43,77,224,.9);position:relative}
+.nav-i.on::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:#FFA500}
 .nav-i svg{flex:none}
 .sb-foot{margin-top:auto;font-size:11px;color:#888;padding:12px 8px 2px;border-top:1px solid rgba(255,255,255,.08);line-height:1.5}.sb-foot b{color:#B9B5D8;font-weight:600}
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -239,6 +698,8 @@ const CSS=`
 .kcard:hover{box-shadow:0 14px 28px -16px rgba(24,21,48,.5);transform:translateY(-1px);border-color:#D9DBEC}
 .kcard .kn{font-weight:600;font-size:14px;color:${INK};display:flex;align-items:center;gap:6px}
 .kcard .kco{font-size:12px;color:#777296;margin:2px 0 9px}
+.kdeals{display:flex;flex-wrap:wrap;gap:5px;margin:0 0 9px}
+.kdeal{font-size:11px;font-weight:700;color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);border:1px solid color-mix(in srgb,${COBALT} 18%,#fff);border-radius:8px;padding:2px 8px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .kcard .ktags{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:9px}
 .kcard .kmeta{display:flex;align-items:center;justify-content:space-between;gap:6px}
 .kdrop{font-size:12px;color:#B6B2CC;text-align:center;padding:16px 0;border:1.5px dashed #E4E5F0;border-radius:10px;margin:2px 4px 8px}
@@ -249,6 +710,7 @@ const CSS=`
 .kown{flex:none;width:22px;height:22px;border-radius:50%;background:${INDIGO};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk'}
 .kvals{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .kdv{font-size:12.5px;font-weight:700;color:${INK}}
+.kltv{font-size:11.5px;font-weight:800;color:#1a7d46;background:color-mix(in srgb,${GREEN} 10%,#fff);border-radius:12px;padding:1px 8px}
 .kmrr{font-size:10.5px;font-weight:700;color:${GREEN};background:rgba(31,157,85,.1);padding:2px 7px;border-radius:20px}
 .kstale{display:inline-flex;align-items:center;gap:4px;margin-top:8px;font-size:10.5px;font-weight:700;color:#A9732B;background:rgba(200,135,40,.12);padding:3px 8px;border-radius:20px}
 .kmove{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-top:10px;padding-top:9px;border-top:1px solid #F1F1F7}
@@ -302,6 +764,43 @@ const CSS=`
 .ex-del:hover{background:rgba(209,67,67,.1);color:${RED}}
 .addline{margin-top:10px;background:none;border:1px dashed #CFD0E0;color:${COBALT};font-weight:600;font-size:12.5px;padding:8px 12px;border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
 .addline:hover{background:rgba(43,77,224,.05);border-color:${COBALT}}
+.deal-hist{background:color-mix(in srgb,${GREEN} 4%,#fff);border:1px solid color-mix(in srgb,${GREEN} 22%,#fff);border-radius:12px;padding:12px 14px;margin-bottom:14px}
+.dh-head{display:flex;justify-content:space-between;align-items:center;font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#1a7d46;margin-bottom:8px}
+.dh-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid color-mix(in srgb,${GREEN} 14%,#fff)}
+.dh-m{flex:1;min-width:0;display:flex;flex-direction:column}
+.dh-m b{font-size:13px;color:${INK};font-weight:700}
+.dh-m span{font-size:11px;color:#9b98ad}
+.dh-v{font-size:14px;font-weight:800;color:#1a7d46;font-family:'Space Grotesk',sans-serif}
+.dh-note{margin-top:9px;padding-top:9px;border-top:1px solid color-mix(in srgb,${GREEN} 14%,#fff);font-size:12px;color:#56527a}
+.dh-note b{color:${INK};font-weight:800}
+.deal-card{border:1px solid #E7E8F1;border-radius:13px;padding:14px;margin-bottom:12px;background:#FBFBFE}
+.deal-card-h{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.deal-name{flex:1;min-width:0;border:none;background:none;font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;color:${INK};padding:2px 0;border-bottom:1.5px solid transparent}
+.deal-name:focus{outline:none;border-bottom-color:${COBALT}}
+.deal-card-v{font-size:14px;font-weight:800;color:${COBALT};font-family:'Space Grotesk',sans-serif}
+.deal-add-btn{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:11px;border:1.5px dashed #C9CBDD;border-radius:11px;background:#fff;color:${COBALT};font-size:13px;font-weight:700;cursor:pointer;transition:.15s;margin-bottom:8px}
+.deal-add-btn:hover{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 5%,#fff)}
+.pay-panel{margin-top:16px;padding:14px;border:1px solid #E7E8F1;border-radius:13px;background:#FBFBFE}
+.pay-head{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0;margin-bottom:10px}
+.pay-head b.due{color:#D97706;font-size:13px}
+.pay-head b.clear{color:#1a7d46;font-size:13px}
+.pay-bars{margin-bottom:12px}
+.pay-bar{height:9px;background:#EEF0F8;border-radius:5px;overflow:hidden}
+.pay-bar>div{height:100%;border-radius:5px;background:linear-gradient(90deg,${GREEN},#2BA35C);transition:width .3s}
+.pay-nums{display:flex;justify-content:space-between;font-size:11.5px;color:#8b88a0;font-weight:600;margin-top:5px}
+.pay-nums span:first-child{color:#1a7d46;font-weight:700}
+.pay-list{display:flex;flex-direction:column;gap:2px;margin-bottom:10px}
+.pay-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #EFEFF6}
+.pay-m{flex:1;display:flex;flex-direction:column}
+.pay-m b{font-size:14px;color:${INK};font-weight:700;font-family:'Space Grotesk',sans-serif}
+.pay-m span{font-size:11px;color:#9b98ad}
+.pay-over{font-size:11.5px;color:#D97706;font-weight:600;margin-bottom:8px}
+.pay-add{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;border:none;border-radius:10px;background:${GREEN};color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:.15s}
+.pay-add:hover{filter:brightness(1.05)}
+.kbal{flex:none;font-size:10.5px;font-weight:700;color:#D97706;background:color-mix(in srgb,#FFA500 12%,#fff);border-radius:11px;padding:1px 8px}
+.deal-close-btn.sm{margin-top:10px;padding:9px;font-size:12.5px}
+.deal-close-btn{width:100%;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border:none;border-radius:11px;background:${GREEN};color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;transition:.15s}
+.deal-close-btn:hover{filter:brightness(1.05);transform:translateY(-1px)}
 .deal-total{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:11px 13px;background:#F6F7FB;border-radius:10px}
 .deal-total span{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#928DAD}
 .deal-total b{font-family:'Space Grotesk';font-size:17px;color:${INK}}
@@ -323,6 +822,35 @@ const CSS=`
 .spon-tog.rel input{accent-color:#7A5CC8}
 .spon-tog.rel.on{border-color:#7A5CC8;background:rgba(122,92,200,.1);color:#5b3fa6}
 .rel-hint{font-size:11.5px;color:#8b88a0;margin-top:7px;line-height:1.45}
+.rel-tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}
+.rel-tier{display:flex;flex-direction:column;min-height:280px;background:#fff;border:1.5px solid #EAEBF2;border-radius:14px;overflow:hidden;position:relative;transition:.14s}
+.rel-tier::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc);z-index:1}
+.rel-tier:hover{border-color:var(--tc)}
+.rel-tier.on{border-color:var(--tc);box-shadow:0 10px 26px -16px var(--tc)}
+.rt-head{padding:15px 16px 12px;cursor:pointer;border-bottom:1px solid #F1F1F7}
+.rel-tier.on .rt-head{background:color-mix(in srgb,var(--tc) 8%,#fff)}
+.rt-top{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800;color:${INK}}
+.rt-dot{width:9px;height:9px;border-radius:50%;background:var(--tc);flex:none}
+.rt-count{margin-left:auto;font-size:13px;font-weight:800;color:#fff;background:var(--tc);min-width:24px;text-align:center;padding:2px 8px;border-radius:20px}
+.rt-d{font-size:11.5px;color:#8b88a0;font-weight:500;margin-top:5px}
+.rt-people{flex:1;overflow-y:auto;padding:6px}
+.rt-person{display:flex;align-items:baseline;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer}
+.rt-person:hover{background:color-mix(in srgb,var(--tc) 8%,#fff)}
+.rt-pn{font-size:13px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rt-pc{font-size:11px;color:#928DAD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
+.rt-empty{padding:24px 12px;text-align:center;font-size:12px;color:#b7b4c6}
+.rt-foot{padding:9px 14px;font-size:11px;font-weight:700;color:var(--tc);text-align:center;border-top:1px solid #F1F1F7;cursor:pointer;background:#FCFCFE}
+.rt-foot:hover{background:color-mix(in srgb,var(--tc) 6%,#fff)}
+.rel-netline{display:flex;align-items:center;gap:8px;font-size:12px;color:#8b88a0;font-weight:600;margin-bottom:16px;flex-wrap:wrap}
+.rel-clearf{margin-left:auto;border:1px solid #E1E2EC;background:#fff;border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:700;color:${COBALT};cursor:pointer}
+.rel-clearf:hover{background:rgba(43,77,224,.06)}
+.tier-pick{display:inline-flex;align-items:center;gap:5px}
+.tier-dot{width:8px;height:8px;border-radius:50%;background:var(--tc);flex:none}
+.tier-pick select{border:1px solid #E7E8F0;border-radius:20px;padding:3px 8px;font-size:11.5px;font-weight:700;color:var(--tc);background:#fff;cursor:pointer}
+.tier-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.tier-btn{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #E1E2EC;background:#fff;border-radius:20px;padding:6px 13px;font-size:12.5px;font-weight:700;color:#56527a;cursor:pointer}
+.tier-btn.on{border-color:var(--tc);color:var(--tc);background:color-mix(in srgb,var(--tc) 8%,#fff)}
+@media(max-width:640px){.rel-tiers{grid-template-columns:1fr}}
 .rel-from{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:7px 11px;border-radius:9px;background:rgba(122,92,200,.08);border:1px solid rgba(122,92,200,.22);color:#5b3fa6;font-size:12.5px;cursor:pointer}
 .rel-from:hover{background:rgba(122,92,200,.15)}
 .rel-gave{display:flex;align-items:center;gap:7px;margin-top:10px;padding:8px 11px;border-radius:9px;background:#F4F5FA;border:1px solid #E5E6F0;color:#56527a;font-size:12.5px}
@@ -333,6 +861,402 @@ const CSS=`
 .rel-gname.plain{color:#8b88a0;cursor:default}
 .rel-gname.plain:hover{text-decoration:none}
 .rel-gcount{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#EEF0F7;color:#56527a}
+/* collapsible modal sections */
+.msecs{margin-top:18px;border-top:1px solid #F0F0F6}
+.msec{border-bottom:1px solid #F0F0F6}
+.msec-h{display:flex;align-items:center;gap:9px;padding:13px 2px;cursor:pointer;user-select:none}
+.msec-h:hover .msec-t{color:${COBALT}}
+.msec-t{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:${INK};transition:.12s}
+.msec-s{margin-left:auto;font-size:12px;color:#9b98ad;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:52%}
+.msec-ch{color:#c0bdd0;flex:none;transition:transform .16s;margin-left:auto}
+.msec-s+.msec-ch{margin-left:6px}
+.msec.open .msec-ch{transform:rotate(180deg);color:${COBALT}}
+.msec-b{padding:2px 2px 16px}
+/* quick add */
+.morebtn{display:flex;align-items:center;gap:7px;width:100%;margin-top:16px;padding:11px 12px;border:1px dashed #D6D8E6;border-radius:10px;background:#FAFAFE;color:#56527a;font-size:12.5px;font-weight:700;cursor:pointer}
+.morebtn:hover{border-color:${COBALT};color:${COBALT}}
+.morebtn i{margin-left:auto;font-style:normal;font-size:11.5px;color:#9b98ad;font-weight:500}
+.mb-ch{transition:transform .16s}.mb-ch.on{transform:rotate(180deg)}
+.dupe-warn{display:flex;align-items:center;gap:8px;margin-top:10px;padding:9px 12px;border-radius:9px;background:#FFF7ED;border:1px solid #FCD9B6;color:#9a5a16;font-size:12.5px}
+.dupe-warn b{cursor:pointer;text-decoration:underline}
+/* follow-up block in modal */
+.fu-block{background:#FAFAFE;border:1px solid #EDEEF5;border-radius:11px;padding:13px}
+.fu-note{width:100%;border:1px solid #E1E2EC;border-radius:9px;padding:9px 11px;font-size:13px;font-family:inherit;color:${INK};resize:vertical;line-height:1.5}
+.fu-note:focus{outline:none;border-color:${COBALT}}
+.fu-when{margin-top:10px;font-size:11.5px;font-weight:700;color:#1f8a55}
+.fu-when.od{color:#b4322e}
+.fn-block{background:#FAFAFE;border:1px solid #EDEEF5;border-radius:11px;padding:13px}
+.fn-hint{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11.5px;color:#9b98ad;font-weight:500}
+.chip-toggle{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:#56527a;cursor:pointer}
+.chip-toggle input{accent-color:${COBALT};width:15px;height:15px;cursor:pointer}
+.phase-badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:3px 11px;border-radius:20px;white-space:nowrap}
+.cli-list{display:flex;flex-direction:column;gap:10px}
+.cli-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;overflow:hidden}
+.cli-card.od{border-color:#F3C9C2}
+.cli-main{display:grid;grid-template-columns:1.4fr auto 1.5fr 1.6fr auto;gap:16px;align-items:center;padding:14px 16px;cursor:pointer}
+.cli-main:hover{background:#FCFCFE}
+.cli-id{min-width:0}
+.cli-name{font-weight:700;color:${INK};font-size:14.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cli-name:hover{color:${COBALT};text-decoration:underline}
+.cli-prog2{min-width:0}
+.cli-prog2-top{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#8b88a0;margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em}
+.cli-status{display:flex;flex-direction:column;gap:5px;align-items:flex-start;min-width:0}
+.cli-next{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#56527a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.cli-next svg{flex:none;color:#C9C5D9}
+.cli-ch{color:#c0bdd0;transition:transform .16s;flex:none}
+.cli-ch.open{transform:rotate(180deg);color:${COBALT}}
+.cli-body{border-top:1px solid #EEF0F6;padding:14px 16px;background:#FAFBFE}
+.cli-actions{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+.phase-sel{border:1px solid #E1E2EC;border-radius:8px;padding:6px 10px;font-size:12.5px;color:${INK};background:#fff;font-weight:600}
+.onb-group{margin-bottom:14px}
+.onb-gh{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.onb-gc{font-size:11px;font-weight:700;color:#8b88a0}
+.onb-item{display:flex;align-items:center;gap:10px;padding:7px 9px;border-radius:8px}
+.onb-item:hover{background:#fff}
+.onb-item.over{background:rgba(209,67,67,.05)}
+.onb-check{cursor:pointer;flex:none;display:flex}
+.onb-label{flex:1;min-width:0;font-size:13px;color:${INK};cursor:pointer;line-height:1.4}
+.onb-item.done .onb-label{color:#9b98ad;text-decoration:line-through}
+.onb-date{font-size:11.5px;font-weight:600;color:#1f8a55;white-space:nowrap;flex:none}
+.onb-due{display:inline-flex;align-items:center;gap:6px;flex:none}
+.onb-due span{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#a6a2bc}
+.onb-due input{border:1px solid #E1E2EC;border-radius:7px;padding:3px 7px;font-size:11.5px;color:#56527a;background:#fff}
+.onb-due input.over{border-color:#E0967F;color:#b4322e}
+@media(max-width:820px){.cli-main{grid-template-columns:1fr auto;gap:9px}.cli-prog2,.cli-status{grid-column:1/-1}.cli-ch{position:absolute;right:16px;top:16px}}
+.seg i{font-style:normal;font-size:10px;font-weight:800;padding:1px 6px;border-radius:20px;background:#DFE2EE;color:#56527a;margin-left:6px}
+.seg button.on i{background:${COBALT};color:#fff}
+.cp-tag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:rgba(122,92,200,.15);color:#7A5CC8;padding:1px 5px;border-radius:5px;margin-left:6px}
+.cli-hint{display:flex;align-items:center;gap:7px;justify-content:center;padding:20px;color:#a6a2bc;font-size:13px}
+.cli-detail{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:16px;margin-top:14px}
+.cli-detail-h{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:14px}
+.cp-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.cp-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border:1px solid;border-radius:20px;padding:3px 10px}
+.cp-chip button{background:none;border:none;cursor:pointer;color:inherit;display:flex;opacity:.6;padding:0}
+.cp-chip button:hover{opacity:1}
+.cp-add{display:flex;align-items:center;gap:7px;flex-wrap:wrap;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 9px}
+.cp-add input[type=text],.cp-add>input:not([type=color]){border:1px solid #E1E2EC;border-radius:7px;padding:5px 8px;font-size:12.5px}
+.cp-add input[type=color]{width:30px;height:30px;border:1px solid #E1E2EC;border-radius:7px;padding:2px;background:#fff;cursor:pointer}
+.cp-add label{display:inline-flex;align-items:center;gap:5px;font-size:12px;color:#56527a}
+.cp-add select{border:1px solid #E1E2EC;border-radius:7px;padding:5px 7px;font-size:12px}
+.phase-editor{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.phase-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE}
+.phase-row input[type=color]{width:30px;height:30px;border:1px solid #E1E2EC;border-radius:7px;padding:2px;background:#fff;cursor:pointer;flex:none}
+.phase-label{flex:1;border:1px solid #E1E2EC;border-radius:7px;padding:6px 9px;font-size:13px;font-weight:600;color:${INK}}
+.phase-key{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#a6a2bc;flex:none}
+.phase-moves{display:flex;gap:3px;flex:none}
+.m-foot{flex:none;background:#fff;border-top:1px solid #E8E9F2;padding:13px 22px;display:flex;align-items:center;gap:10px;box-shadow:0 -6px 20px -12px rgba(0,0,0,.18)}
+.m-foot-n{display:flex;align-items:center;gap:5px;margin-left:auto;font-size:12px;color:#8b88a0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+/* follow-up card: plan + next flow */
+.fu-plan{display:flex;gap:7px;align-items:flex-start;margin:9px 0 0;padding:8px 10px;background:#FFFDF5;border:1px solid #F0E4C0;border-radius:8px;font-size:12.5px;color:#6a5a2f;line-height:1.45}
+.fu-plan svg{flex:none;margin-top:1px;color:#B9932F}
+.fu-next{background:#F4F7FF;border:1px solid #D6E0FA;border-radius:10px;padding:11px}
+.fu-next-h{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:${INK};margin-bottom:8px}
+.fu-next-h b{color:${COBALT}}
+.fu-next-b{display:flex;align-items:center;gap:8px;margin-top:9px;flex-wrap:wrap}
+.fu-next-note{font-size:11px;color:#9b98ad}
+.rel-chain{margin-top:12px;padding:11px 13px;border-radius:10px;background:#F7F8FC;border:1px solid #EDEEF5}
+.rc-lbl{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#9b98ad;margin-bottom:7px}
+.rc-path{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.rc-node{font-size:12.5px;font-weight:700;color:#5b3fa6;background:rgba(122,92,200,.1);padding:3px 9px;border-radius:20px;cursor:pointer}
+.rc-node:hover{background:rgba(122,92,200,.2)}
+.rc-node.root{background:rgba(200,162,74,.18);color:#8a6a1f}
+.rc-node.self{background:${INK};color:#fff;cursor:default}
+.rc-arrow{color:#c7c5d4;flex:none}
+.rc-root{margin-top:8px;font-size:12px;color:#8b88a0}
+.rc-root b{color:#8a6a1f;cursor:pointer}
+.rc-root b:hover{text-decoration:underline}
+.web-card{padding:14px}
+.web-actions{margin-left:auto;display:flex;gap:8px}
+.task-daypick{display:flex;align-items:center;gap:6px}
+.day-chip{border:1px solid #E1E2EC;background:#fff;border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:700;color:#56527a;cursor:pointer}
+.day-chip.on{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);color:${COBALT}}
+.day-date{display:inline-flex;align-items:center;gap:6px;border:1px solid #E1E2EC;border-radius:9px;padding:8px 11px;color:#56527a;cursor:pointer}
+.day-date input{border:none;background:none;font-size:12.5px;font-family:inherit;color:#56527a;cursor:pointer;width:120px}
+.day-date input:focus{outline:none}
+.task-due-chip{position:relative;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;cursor:pointer}
+.task-due-chip input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.gcal-on{display:flex;align-items:center;gap:11px;background:color-mix(in srgb,${GREEN} 7%,#fff);border:1px solid color-mix(in srgb,${GREEN} 25%,#fff);border-radius:11px;padding:13px 15px}
+.gcal-dot{width:10px;height:10px;border-radius:50%;background:${GREEN};flex:none;box-shadow:0 0 0 4px color-mix(in srgb,${GREEN} 18%,#fff)}
+.gcal-off{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.mtg-warn{display:flex;align-items:flex-start;gap:7px;background:#FFF7ED;border:1px solid #FCD9B6;color:#9a5a16;border-radius:9px;padding:9px 11px;font-size:12.5px;margin-bottom:12px;line-height:1.45}
+.mtg-warn svg{flex:none;margin-top:2px}
+.act-t.booked{border-color:#F0C09B;color:#C05A1E}
+.act-t.booked.on{background:#E0662B;border-color:#E0662B;color:#fff}
+/* header quick facts (the qualifying data, surfaced at the top) */
+.m-headright{display:flex;flex-direction:column;align-items:flex-end;gap:10px;flex:none;min-width:0}
+.m-facts{display:flex;flex-wrap:wrap;gap:7px;justify-content:flex-end;max-width:430px}
+.mf{display:flex;flex-direction:column;align-items:flex-start;gap:1px;background:#F7F8FC;border:1px solid #EAEBF2;border-radius:9px;padding:5px 10px;cursor:pointer;text-align:left;min-width:72px;transition:.12s}
+.mf:hover{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 6%,#fff)}
+.mf i{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a6a2bc}
+.mf b{font-size:12.5px;font-weight:700;color:${INK};white-space:nowrap;max-width:130px;overflow:hidden;text-overflow:ellipsis}
+.mf.hot{border-color:#EFB98F;background:color-mix(in srgb,#E0662B 8%,#fff)}
+.mf.hot b{color:#C05A1E}
+/* jump bar — one tap to any section, no scrolling */
+.m-jump{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px 24px;background:#fff;border-bottom:1px solid #E8E9F2;flex:none}
+.mj-l{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#a6a2bc;margin-right:2px}
+.mj{display:inline-flex;align-items:center;gap:6px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:6px 13px;font-size:12.5px;font-weight:700;color:#56527a;cursor:pointer;transition:.12s}
+.mj:hover{border-color:${COBALT};color:${COBALT}}
+.mj.on{background:color-mix(in srgb,${COBALT} 8%,#fff);border-color:${COBALT};color:${COBALT}}
+.mj i{font-style:normal;font-size:10px;font-weight:800;background:#EEF0F7;color:#56527a;border-radius:20px;padding:1px 6px}
+.mj.on i{background:${COBALT};color:#fff}
+@media(max-width:820px){
+  .m-head{flex-wrap:wrap}
+  .m-headright{max-width:100%}
+  .m-facts{max-width:100%;gap:6px}
+  .mf{min-width:0;padding:4px 8px}
+  .mf b{font-size:12px;max-width:92px}
+  .mf:nth-child(n+5){display:none}
+  .m-jump{padding:9px 16px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+  .mj{flex:none}
+  .mj-l{display:none}
+}
+.mtg-form{margin-top:6px}
+.mtg-toggles{display:flex;gap:8px;flex-wrap:wrap}
+.mtg-chk{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #E1E2EC;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:600;color:#56527a;cursor:pointer}
+.mtg-chk input{display:none}
+.mtg-chk.on{border-color:${COBALT};color:${COBALT};background:color-mix(in srgb,${COBALT} 7%,#fff)}
+.mtg-chk.off{opacity:.5;cursor:not-allowed}
+.mtg-err{color:#b4322e;font-size:12.5px;margin:8px 0}
+.mtg-list{margin-bottom:14px}
+.mtg-empty{font-size:12.5px;color:#9b98ad;padding:8px 0 14px}
+.mtg-band{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#8b88a0;margin:10px 0 7px}
+.mtg-band.past{color:#b7b4c6}
+.mtg-row{display:flex;align-items:center;gap:11px;padding:9px 11px;border:1px solid #EDEEF5;border-radius:10px;margin-bottom:7px;background:#FBFBFE}
+.mtg-when{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:${INK};white-space:nowrap;flex:none}
+.mtg-when svg{color:${COBALT}}
+.mtg-mid{flex:1;min-width:0}
+.mtg-title{font-size:13px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mtg-badges{display:flex;gap:6px;margin-top:4px;flex-wrap:wrap}
+.mtg-b{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:#56527a;background:#EEF0F7;border-radius:20px;padding:2px 8px;text-decoration:none}
+.mtg-b.link{color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff)}
+.mtg-b.type{background:color-mix(in srgb,#7A5CC8 12%,#fff);color:#6A4CB8}
+.mtg-row.held{border-color:color-mix(in srgb,${GREEN} 35%,#fff);background:color-mix(in srgb,${GREEN} 4%,#fff)}
+.mtg-row.noshow{border-color:#F0C9C4;background:rgba(209,67,67,.04)}
+.mtg-status{display:flex;gap:5px;flex:none}
+.ms-b{display:inline-flex;align-items:center;gap:4px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:4px 9px;font-size:10.5px;font-weight:700;color:#8b88a0;cursor:pointer}
+.ms-b.held.on{border-color:${GREEN};background:color-mix(in srgb,${GREEN} 12%,#fff);color:#1a7d46}
+.ms-b.no.on{border-color:${RED};background:rgba(209,67,67,.1);color:#b4322e}
+.ms-b:hover{border-color:#C9C5D9}
+.mtype-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.mtype-row.sm{margin:8px 0 0}
+.mtype{border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:5px 11px;font-size:11.5px;font-weight:700;color:#56527a;cursor:pointer}
+.mtype.on{border-color:#7A5CC8;background:color-mix(in srgb,#7A5CC8 8%,#fff);color:#6A4CB8}
+.mod-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.mod-row{display:flex;align-items:center;gap:9px;padding:10px 12px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE;cursor:pointer;font-size:13px;font-weight:600;color:#8b88a0}
+.mod-row.on{border-color:color-mix(in srgb,${GREEN} 30%,#fff);background:color-mix(in srgb,${GREEN} 5%,#fff);color:${INK}}
+.mod-row input{display:none}
+.mod-row span{flex:1}
+.mt-break{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:-4px 0 18px;padding:11px 15px;background:#fff;border:1px solid #EAEBF2;border-radius:12px}
+.mtb-l{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a6a2bc}
+.mtb{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#56527a;font-weight:600;background:#F5F6FB;border-radius:20px;padding:3px 11px}
+.mtb b{font-size:14px;color:${INK};font-family:'Space Grotesk',sans-serif}
+.kpi.clickable{cursor:pointer;transition:.14s}
+.kpi.clickable:hover{transform:translateY(-1px);box-shadow:0 12px 26px -14px rgba(19,56,222,.28)}
+.kpi.active{outline:2px solid ${COBALT};outline-offset:-2px}
+.kpi.active .kpi-ch{color:#FFA500}
+.kpi-ch{margin-left:auto;opacity:.5;transition:transform .16s}
+.kpi-ch.on{transform:rotate(180deg);opacity:1}
+.drill{background:#fff;border:1px solid #EAEBF2;border-radius:14px;margin:-4px 0 18px;overflow:hidden;animation:pop .16s ease}
+.drill-h{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid #F0F1F7;background:#FBFBFE}
+.drill-t{font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:${INK}}
+.drill-s{font-size:12px;color:#8b88a0;font-weight:600}
+.drill-b{max-height:420px;overflow-y:auto;padding:8px 10px}
+.drow{display:flex;align-items:center;gap:12px;padding:9px 11px;border-radius:9px}
+.drow:hover{background:#FAFAFE}
+.drow+.drow{border-top:1px solid #F4F4FA}
+.drow.untyped{background:color-mix(in srgb,#E0662B 5%,#fff)}
+.drow-m{flex:1;min-width:0}
+.drow-t{font-size:13.5px;font-weight:700;color:${INK};cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.drow-t:hover{color:${COBALT};text-decoration:underline}
+.drow-v{font-size:13px;font-weight:700;color:${INK};white-space:nowrap;flex:none}
+.mtg-type{border:1px solid #E4E5EF;border-radius:20px;padding:4px 9px;font-size:11.5px;font-weight:700;color:#6A4CB8;background:color-mix(in srgb,#7A5CC8 8%,#fff);cursor:pointer;flex:none}
+".mtg-type.unset{color:#C05A1E;background:color-mix(in srgb,#E0662B 9%,#fff);border-color:#F0C09B}
+.kgroup{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:${COBALT};margin:2px 0 9px;display:flex;align-items:center;gap:8px}
+.kgroup::before{content:'';width:14px;height:2px;border-radius:2px;background:#FFA500}
+.hud-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.hud-t{font-size:21px;font-weight:800;color:${INK};font-family:'Space Grotesk',sans-serif}
+.hud-d{font-size:12.5px;color:#8b88a0;font-weight:600;margin-top:3px}
+.hud-empty{display:flex;flex-direction:column;align-items:center;gap:7px;text-align:center;background:#fff;border:1px dashed #DCDEEA;border-radius:14px;padding:30px 22px;margin-bottom:20px}
+.hud-empty svg{color:${COBALT}}
+.hud-empty b{font-size:15px;color:${INK}}
+.hud-empty span{font-size:13px;color:#8b88a0;max-width:460px;line-height:1.5}
+.hud-brief{background:linear-gradient(135deg,${INDIGO},${INK});border-radius:16px;padding:22px 24px;margin-bottom:22px;color:#fff}
+.hb-head{font-size:20px;font-weight:800;line-height:1.3;font-family:'Space Grotesk',sans-serif}
+.hb-read{font-size:14px;line-height:1.6;color:rgba(255,255,255,.82);margin:10px 0 0}
+.hb-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:18px}
+.hb-col{background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:11px;padding:13px 15px}
+.hb-ct{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:rgba(255,255,255,.62);margin-bottom:8px}
+.hb-col.win .hb-ct{color:#8FE3B4}
+.hb-col.warn .hb-ct{color:#F5C08E}
+.hb-li{font-size:13px;line-height:1.5;color:rgba(255,255,255,.9);padding:4px 0}
+.hb-li+.hb-li{border-top:1px solid rgba(255,255,255,.08)}
+.hb-focus{margin-top:14px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:11px;padding:13px 15px}
+.hb-focus .hb-ct{color:#BFC8FF}
+.hb-f{padding:6px 0;font-size:13px;line-height:1.5}
+.hb-f+.hb-f{border-top:1px solid rgba(255,255,255,.08)}
+.hb-f b{display:block;color:#fff;font-weight:700}
+.hb-f span{color:rgba(255,255,255,.72)}
+.hb-proj{display:flex;align-items:flex-start;gap:8px;margin-top:14px;font-size:13px;line-height:1.55;color:rgba(255,255,255,.85);background:rgba(255,255,255,.07);border-radius:11px;padding:12px 15px}
+.hb-proj svg{flex:none;margin-top:2px;color:${GOLD}}
+.hb-when{margin-top:12px;font-size:11px;color:rgba(255,255,255,.45)}
+.hstats{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:11px;margin-bottom:20px}
+.hstat{background:#fff;border:1px solid #EAEBF2;border-radius:12px;padding:13px 15px}
+.hs-l{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#a6a2bc}
+.hs-v{display:flex;align-items:baseline;gap:8px;font-size:23px;font-weight:800;color:${INK};margin:5px 0 2px;font-family:'Space Grotesk',sans-serif}
+.hs-p{font-size:11px;color:#b7b4c6}
+.dl{font-size:10.5px;font-weight:800;padding:1px 7px;border-radius:20px}
+.dl.up{background:color-mix(in srgb,${GREEN} 14%,#fff);color:#1a7d46}
+.dl.down{background:rgba(209,67,67,.11);color:#b4322e}
+.dl.flat{background:#F0F1F7;color:#8b88a0}
+.hlist{display:flex;flex-direction:column;gap:6px;margin-top:4px;max-height:330px;overflow-y:auto}
+.hli{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#56527a;padding:7px 10px;border-radius:9px;background:#FAFAFE;line-height:1.4}
+.hli svg{flex:none;color:#a6a2bc}
+.hli.win{background:color-mix(in srgb,${GREEN} 7%,#fff);color:#1a7d46}
+.hli.win svg{color:${GREEN}}
+.hli.bad{background:rgba(209,67,67,.06);color:#b4322e}
+.hli.bad svg{color:${RED}}
+.hli.warn{background:color-mix(in srgb,#E0662B 6%,#fff);color:#9a5a16}
+.hli.warn svg{color:#E0662B}
+.hli.done{color:#8b88a0}
+@media(max-width:820px){.hb-cols{grid-template-columns:1fr}}
+.kgoal{margin-top:9px}
+.kgbar{height:5px;border-radius:20px;background:rgba(24,21,48,.09);overflow:hidden}
+.kgbar div{height:100%;border-radius:20px;transition:width .35s}
+.kgt{display:flex;justify-content:space-between;align-items:center;margin-top:5px;font-size:10.5px;font-weight:700;color:#8b88a0}
+.kgt b{font-weight:800;color:${COBALT}}
+.kgt b.hit{color:${GREEN}}
+.kgt b.behind{color:#D97706}
+.kpi.accent .kgbar,.kpi.green .kgbar,.kpi.gold .kgbar{background:rgba(255,255,255,.28)}
+.kpi.accent .kgt,.kpi.green .kgt,.kpi.gold .kgt{color:rgba(255,255,255,.75)}
+.kpi.accent .kgt b,.kpi.green .kgt b,.kpi.gold .kgt b{color:#fff}
+.goal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
+.goal-row{display:flex;align-items:center;gap:12px;padding:11px 13px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE}
+.goal-l{flex:1;min-width:0;display:flex;flex-direction:column}
+.goal-l b{font-size:13px;color:${INK};font-weight:700}
+.goal-l span{font-size:11px;color:#9b98ad}
+.goal-in{display:flex;align-items:center;gap:3px;flex:none;border:1px solid #E1E2EC;border-radius:9px;background:#fff;padding:0 9px}
+.goal-in i{font-style:normal;font-size:12px;color:#a6a2bc;font-weight:700}
+.goal-in input{width:74px;border:none;padding:8px 2px;font-size:14px;font-weight:700;color:${INK};text-align:right;background:none}
+.goal-in input:focus{outline:none}
+.kgroup+.kgrid{margin-bottom:16px}
+.funnel{display:flex;flex-direction:column;gap:9px;margin-top:6px}
+.fn-row{display:grid;grid-template-columns:104px 1fr 40px 44px 52px;align-items:center;gap:10px}
+.fn-row.fn-head{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#b7b4c6}
+.fn-head .fn-c,.fn-head .fn-r{text-align:right}
+.fn-r.close{font-weight:800;color:#1a7d46}
+.fn-r.close.warn{color:#c0392b}
+.mtabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.mtab{display:inline-flex;align-items:center;gap:6px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:6px 12px;font-size:12px;font-weight:700;color:#8b88a0;cursor:pointer}
+.mtab.on{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);color:${COBALT}}
+.mtab-n{font-size:10.5px;font-weight:800;background:rgba(24,21,48,.08);border-radius:10px;padding:1px 7px}
+.mtab.on .mtab-n{background:color-mix(in srgb,${COBALT} 18%,#fff)}
+.mtab.alert{border-color:#FFA500;color:#D97706}
+.mtab.alert .mtab-n{background:color-mix(in srgb,#E0662B 16%,#fff);color:#C05A1E}
+.mtab-time{margin-left:auto;display:inline-flex;gap:4px}
+.mtab-time button{border:1px solid #E4E5EF;background:#fff;border-radius:16px;padding:5px 10px;font-size:11px;font-weight:700;color:#8b88a0;cursor:pointer}
+.mtab-time button.on{border-color:${INK};background:${INK};color:#fff}
+.mtg-drow{gap:10px}
+.mtg-drow.held{background:color-mix(in srgb,${GREEN} 4%,#fff)}
+.mtg-drow.noshow{background:rgba(209,67,67,.04)}
+.mtg-drow.needs{background:color-mix(in srgb,#E0662B 5%,#fff)}
+.mtg-flag{color:#D97706;font-weight:700}
+.mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
+.mtg-acct b{color:${INK};font-weight:700}
+.ftxt.cancelled{color:#8E89A8;text-decoration:line-through;text-decoration-color:#C9C6D8}
+.act-row.cancelled .act-txt,.act-row.cancelled .act-lead{color:#9A96AC;text-decoration:line-through;text-decoration-color:#D5D2E0}
+.act-row.cancelled .fcancel{text-decoration:none}
+.fcancel{display:inline-block;margin-left:7px;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:${RED};background:rgba(209,67,67,.09);border-radius:6px;padding:1px 6px;text-decoration:none;vertical-align:1px}
+.mtg-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.bookc{margin-top:10px}
+.bookc .mtg-form{padding:0;border:0;background:none}
+.mtab.undated{border-color:${COBALT};color:${COBALT}}
+.mtab.undated .mtab-n{background:color-mix(in srgb,${COBALT} 16%,#fff);color:${COBALT}}
+.mtg-drow.undated{background:color-mix(in srgb,${COBALT} 4%,#fff)}
+.mtg-undated{color:${COBALT};font-weight:700}
+.mtg-fix{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mtg-fix input[type=datetime-local]{border:1px solid #E4E5EF;border-radius:9px;padding:5px 8px;font-size:12px;font-family:inherit;color:${INK};background:#fff}
+.mtg-fix select{border:1px solid #E4E5EF;border-radius:9px;padding:5px 6px;font-size:12px;font-family:inherit;color:${INK};background:#fff}
+.mtg-fix.sm input[type=datetime-local]{font-size:11.5px;padding:4px 6px}
+.mtg-band.undated{color:${COBALT}}
+.mtg-row.undated{background:color-mix(in srgb,${COBALT} 4%,#fff)}
+@media(max-width:640px){.mtg-fix{width:100%}.mtg-fix input[type=datetime-local]{flex:1 1 150px}}
+.an-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:11px;margin-bottom:18px}
+.an-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:14px 16px}
+.an-card.warn{border-color:#FFD59E;background:color-mix(in srgb,#FFA500 6%,#fff)}
+.an-l{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#a6a2bc}
+.an-v{font-size:27px;font-weight:800;color:${INK};font-family:'Space Grotesk',sans-serif;margin:4px 0 2px}
+.an-d{font-size:11.5px;color:#9b98ad}
+.src-list{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.rbc-list{display:flex;flex-direction:column;gap:3px;margin-top:8px}
+.rbc-row{display:grid;grid-template-columns:1fr 120px 88px;align-items:center;gap:12px;padding:8px 10px;border-radius:9px;cursor:pointer;transition:.12s}
+.rbc-row:hover{background:#FAFAFE}
+.rbc-m{display:flex;align-items:center;gap:8px;min-width:0}
+.rbc-name{font-weight:700;color:${INK};font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rbc-deals{flex:none;font-size:10.5px;font-weight:700;color:${COBALT};background:color-mix(in srgb,${COBALT} 9%,#fff);border-radius:11px;padding:1px 8px}
+.rbc-mrr{flex:none;font-size:10.5px;font-weight:700;color:#1a7d46;background:color-mix(in srgb,${GREEN} 10%,#fff);border-radius:11px;padding:1px 8px}
+.rbc-bar{height:8px;background:#EEF0F8;border-radius:5px;overflow:hidden}
+.rbc-bar>div{height:100%;border-radius:5px;background:linear-gradient(90deg,${COBALT},#4E6BF0)}
+.rbc-v{text-align:right;font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:14px;color:${INK}}
+.rbc-more{margin-top:8px;font-size:12px;color:#928DAD;text-align:center}
+@media(max-width:640px){.rbc-row{grid-template-columns:1fr 70px;gap:8px}.rbc-bar{display:none}}
+.src-row{display:grid;grid-template-columns:1fr 60px 60px 56px 90px;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;font-size:13px;color:${INK}}
+.src-row:not(.src-head):hover{background:#FAFAFE}
+.src-row.src-head{font-size:10px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#b7b4c6}
+.src-row span:not(.src-name){text-align:right}
+.src-name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.src-hi{color:#1a7d46;font-weight:800}
+.src-lo{color:#c0392b;font-weight:800}
+@media(max-width:640px){.src-row{grid-template-columns:1fr 40px 40px 44px;gap:6px}.src-row span:nth-child(5){display:none}}
+.fn-l{font-size:12.5px;font-weight:700;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fn-bar{height:11px;background:#F1F2F8;border-radius:20px;overflow:hidden}
+.fn-bar div{height:100%;border-radius:20px;transition:width .3s}
+.fn-c{font-size:13px;font-weight:800;color:${INK};text-align:right;font-family:'Space Grotesk',sans-serif}
+.fn-r{font-size:11.5px;font-weight:700;color:#8b88a0;text-align:right}
+@media(max-width:640px){.fn-row{grid-template-columns:76px 1fr 30px 38px 40px;gap:6px}}
+.web-fs{position:fixed;inset:0;z-index:80;background:#F4F6FB;display:flex;flex-direction:column;padding:16px 20px;animation:pop .16s ease}
+.web-fs .web-legend{flex:none;margin-bottom:8px}
+.web-fs .web-trace{flex:none}
+.web-fs-stage{flex:1;min-height:0;background:#fff;border:1px solid #EAEBF2;border-radius:14px;overflow:hidden;margin-top:8px}
+@media(max-width:640px){.web-fs{padding:10px 12px}}
+.web-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:10px;font-size:11.5px;color:#8b88a0;font-weight:600}
+.web-legend span{display:inline-flex;align-items:center;gap:5px}
+.web-legend i{width:9px;height:9px;border-radius:3px;display:inline-block}
+.web-tip{color:#c0bdd0!important;font-weight:500}
+.web-trace{font-size:12.5px;color:#56527a;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:8px 12px;margin-bottom:10px;line-height:1.5}
+.web-trace b{color:${INK}}
+.web-trace span{color:#5b3fa6;font-weight:600;cursor:pointer}
+.web-trace span:hover{text-decoration:underline}
+.web-scroll{overflow:auto;max-height:66vh;border:1px solid #F0F1F6;border-radius:10px;background:linear-gradient(#FCFCFE,#FCFCFE)}
+.web-svg{display:block}
+.web-you{fill:${INK}}
+.web-youtxt{fill:#fff;font-size:12px;font-weight:700;font-family:'Space Grotesk',sans-serif}
+.web-link{fill:none;stroke:#DCDEEA;stroke-width:1.5}
+.web-link.you{stroke:#C9CBDA;stroke-dasharray:4 3}
+.web-link.on{stroke:${COBALT};stroke-width:2.5}
+.web-node{cursor:pointer}
+.web-node rect{transition:.12s}
+.web-node.dim{opacity:.32}
+.web-node:hover rect:first-child{filter:drop-shadow(0 3px 8px rgba(0,0,0,.13))}
+.web-name{font-size:12px;font-weight:700;fill:${INK};font-family:'Inter',sans-serif}
+.web-co{font-size:9.5px;fill:#9b98ad;font-family:'Inter',sans-serif}
+.web-kids{font-size:9.5px;font-weight:700;fill:#56527a}
+.scope-seg{flex:none}
+.scope-seg button{display:inline-flex;align-items:center;gap:6px}
+.scope-seg button i{font-style:normal;font-size:10px;font-weight:800;padding:1px 6px;border-radius:20px;background:#DFE2EE;color:#56527a;min-width:16px;text-align:center}
+.scope-seg button.on i{background:${COBALT};color:#fff}
+.claim-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid ${COBALT};background:rgba(43,77,224,.06);color:${COBALT};font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:20px;cursor:pointer;white-space:nowrap}
+.claim-btn:hover{background:${COBALT};color:#fff}
+.pool-note{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#56527a;background:#F4F5FA;border:1px solid #E5E6F0;border-radius:9px;padding:9px 12px;margin-bottom:12px}
+.own-badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#EEF0F7;color:#4a4763}
+.fu-scope{margin-bottom:14px}
+.fu-owner{margin-top:8px}
+.team-list{display:flex;flex-direction:column;gap:8px}
+.team-row{display:flex;align-items:center;gap:11px;padding:10px 12px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE}
+.team-av{width:28px;height:28px;border-radius:50%;background:${INK};color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;flex:none}
+.team-name{font-weight:700;color:${INK};font-size:13.5px;flex:1;min-width:0}
+.team-seg{flex:none}
+.team-seg button{font-size:11.5px;padding:5px 11px}
+@media(max-width:640px){.team-row{flex-wrap:wrap}.team-seg{width:100%}.team-seg button{flex:1}}
 .imp-sub{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#8b88a0;margin-bottom:8px}
 .imp-map{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .imp-row{display:flex;align-items:center;gap:7px;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 10px}
@@ -345,6 +1269,16 @@ const CSS=`
 .act-t.on{border-color:${COBALT};background:rgba(43,77,224,.08);color:${COBALT}}
 .act-input{width:100%;padding:11px 12px;border:1px solid #DEDFEA;border-radius:10px;font-size:13.5px;font-family:'Inter';resize:vertical;min-height:52px}
 .act-input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
+.act-t.pay.on{border-color:${GREEN};background:color-mix(in srgb,${GREEN} 10%,#fff);color:#1a7d46}
+.pay-compose-row{display:flex;gap:8px}
+.pc-amt{display:flex;align-items:center;border:1px solid #DEDFEA;border-radius:10px;padding:0 10px;background:#fff;flex:none;width:120px}
+.pc-amt:focus-within{border-color:${GREEN};box-shadow:0 0 0 3px color-mix(in srgb,${GREEN} 18%,#fff)}
+.pc-amt span{color:#8E89A8;font-weight:700;font-size:14px}
+.pc-amt input{border:none;outline:none;padding:11px 6px;font-size:14px;width:100%;font-weight:700;color:${INK}}
+.pc-note{flex:1;border:1px solid #DEDFEA;border-radius:10px;padding:11px 12px;font-size:13.5px;font-family:'Inter'}
+.pc-note:focus{outline:none;border-color:${GREEN};box-shadow:0 0 0 3px color-mix(in srgb,${GREEN} 18%,#fff)}
+.rep-pay-toggle{display:flex;gap:12px;align-items:flex-start;margin-top:16px;padding-top:16px;border-top:1px solid #EFEFF6;cursor:pointer}
+.rep-pay-toggle .sw{margin-top:2px}
 .feed{margin-top:14px;display:flex;flex-direction:column;overflow-y:auto}
 .fitem{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid #F0F0F6}.fitem:last-child{border:none}
 .fic{width:30px;height:30px;border-radius:8px;background:rgba(43,77,224,.09);color:${COBALT};display:flex;align-items:center;justify-content:center;flex:none}
@@ -367,6 +1301,7 @@ const CSS=`
 .logosize input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:50%;background:${COBALT};cursor:pointer;border:3px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.2)}
 .logosize input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:${COBALT};cursor:pointer;border:3px solid #fff}
 .note{background:#FBF6E9;border:1px solid #EBDCB5;border-radius:12px;padding:14px 16px;font-size:13px;color:#7a6320;line-height:1.5}.note b{color:#5e4c12}
+.convert-banner.fix{background:color-mix(in srgb,#FFA500 7%,#fff);border-color:#FFD59E}
 .convert-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;background:linear-gradient(135deg,rgba(43,77,224,.08),rgba(59,52,112,.08));border:1px solid #D9DCF2;border-radius:14px;padding:14px 16px;margin-bottom:18px}
 .convert-banner b{font-family:'Space Grotesk';font-size:15px;color:${INK}}
 .deliv{background:#fff;border:1px solid #E8E9F2;border-radius:14px;padding:16px 18px;margin-bottom:18px}
@@ -557,6 +1492,7 @@ const CSS=`
 .fu-done h2{font-family:'Space Grotesk';font-size:24px;color:${INK};margin:14px 0 6px}
 .fu-done p{font-size:14px;color:#6a6788;max-width:420px;line-height:1.5}
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
+.linkbtn.q:hover{color:${COBALT}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
 .rmap-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(152px,1fr);gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:18px}
@@ -580,8 +1516,115 @@ const CSS=`
 .iconbtn{background:#F1F2F8;border:none;border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a;flex:none}.iconbtn:hover{background:#E6E7F1}.iconbtn:disabled{opacity:.35;cursor:default}
 @media(max-width:820px){
   .sb{position:fixed;left:0;top:0;transform:translateX(-100%);transition:transform .25s;box-shadow:0 0 60px rgba(0,0,0,.4)}.sb.open{transform:none}.hamb{display:block}
+  .m-grid{grid-template-columns:1fr;overflow-y:auto}
+  .m-left,.m-right{overflow:visible}
+  .m-right{border-left:none;border-top:1px solid #E8E9F2}
+  .modal{max-height:94vh}
+  .m-foot{padding:11px 16px;flex-wrap:wrap}
+  .m-foot-n{width:100%;margin-left:0;white-space:normal}
   .scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25}.body{padding:18px}.top{padding:14px 18px}.fgrid{grid-template-columns:1fr}
 }
+/* ---- touch devices: stop iOS from zooming ----
+   Safari auto-zooms whenever you focus a field whose font-size is under 16px.
+   Forcing every control to 16px on touch screens removes the trigger entirely.
+   !important because many controls set their size inline. */
+@media (pointer:coarse){
+  input,select,textarea{font-size:16px !important}
+  .onb-due input,.day-date input{width:auto;max-width:160px}
+  .tier-pick select{padding:5px 10px}
+}
+/* never auto-resize text, and kill the double-tap-to-zoom gesture */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}
+button,a,label,select,input,textarea,.kcard,.fu-card,.cli-card,.rt-person,.msec-h,.rel-tier,.web-node{touch-action:manipulation}
+
+/* ============================================================
+   ROLES · COMMISSION · LEADERBOARD · the premium bits
+   ============================================================ */
+/* the rep's hero: two numbers, calm, gold for pending, green for earned */
+.cmsn-hero{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;margin-bottom:22px}
+.cmsn-main{background:linear-gradient(135deg,${INK},#241f47);border-radius:18px;padding:22px 24px;color:#fff;position:relative;overflow:hidden;box-shadow:0 22px 50px -34px rgba(24,21,48,.9)}
+.cmsn-main.earned{background:linear-gradient(135deg,${GREEN},#12613a)}
+.cmsn-main:after{content:'';position:absolute;inset:0;background:radial-gradient(120% 90% at 100% 0%,rgba(255,255,255,.16),transparent 60%);pointer-events:none}
+.cmsn-l{font-size:11px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:rgba(255,255,255,.66)}
+.cmsn-v{font-family:'Space Grotesk';font-size:40px;font-weight:600;line-height:1.05;margin:10px 0 6px;font-variant-numeric:tabular-nums}
+.cmsn-d{font-size:12.5px;font-weight:600;color:rgba(255,255,255,.72)}
+.cmsn-box{background:#F7F8FC;border:1px solid #E8E9F2;border-radius:12px;padding:14px}
+.cmsn-row{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;color:#56527a;padding:5px 0}
+.cmsn-row b{font-weight:700;color:${INK}}
+.cmsn-row.big{border-top:1px solid #E8E9F2;margin-top:8px;padding-top:10px;font-size:14px}
+.cmsn-row.big b{font-family:'Space Grotesk';font-size:20px}
+.rank-big{font-family:'Space Grotesk';font-size:38px;font-weight:600;color:${INK};line-height:1}
+.rank-big span{font-size:15px;color:#8E89A8;margin-left:6px}
+/* owner queue: newly converted clients waiting to be onboarded */
+.onb-q{background:#fff;border:1px solid #D9DCF2;border-left:3px solid ${COBALT};border-radius:14px;padding:14px 16px;margin-bottom:20px}
+.onb-h{display:flex;align-items:center;gap:8px;color:${INK};font-size:14px}
+.onb-h b{font-family:'Space Grotesk';font-weight:600}
+.onb-h span{font-size:12px;color:#8E89A8;margin-left:auto}
+.onb-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid #F0F0F6}
+.onb-assign{flex:none;border:1px dashed #D8DAE6;background:#fff;border-radius:16px;padding:4px 9px;font-size:11px;font-weight:700;color:#a6a2bc;cursor:pointer;max-width:120px}
+.onb-assign.set{border-style:solid;border-color:#7A5CC8;background:color-mix(in srgb,#7A5CC8 8%,#fff);color:#6A4CB8}
+@media(max-width:640px){.onb-assign{max-width:92px}}
+.onb-m{min-width:0;flex:1}
+/* leaderboard */
+.lb-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.lb{background:#fff;border:1px solid #E8E9F2;border-radius:16px;overflow:hidden;box-shadow:0 12px 30px -28px rgba(24,21,48,.5)}
+.lb-row{display:flex;align-items:center;gap:14px;padding:14px 18px;border-bottom:1px solid #F2F3F8}
+.lb-row:last-child{border-bottom:none}
+.lb-row.me{background:linear-gradient(90deg,rgba(43,77,224,.07),rgba(43,77,224,0))}
+.lb-rank{width:30px;height:30px;border-radius:50%;background:#F0F1F7;color:#56527a;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;flex:none}
+.lb-row:first-child .lb-rank{background:rgba(200,162,74,.16);color:${GOLD}}
+.lb-mid{flex:1;min-width:0}
+.lb-name{font-weight:600;color:${INK};font-size:14px;display:flex;align-items:center;gap:7px}
+.lb-name i{font-style:normal;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:${COBALT};background:rgba(43,77,224,.1);padding:2px 6px;border-radius:20px}
+.lb-bar{height:6px;border-radius:20px;background:#F0F1F7;overflow:hidden;margin-top:7px}
+.lb-bar div{height:100%;border-radius:20px;background:linear-gradient(90deg,${COBALT},#5C76EE);transition:width .5s cubic-bezier(.22,1,.36,1)}
+.lb-n{text-align:right;flex:none;font-size:11px;color:#8E89A8;font-weight:600;display:flex;flex-direction:column;line-height:1.2}
+.lb-n b{font-family:'Space Grotesk';font-size:19px;color:${INK};font-weight:600;font-variant-numeric:tabular-nums}
+/* team card */
+.tm-list{display:flex;flex-direction:column;gap:10px}
+.tm-row{border:1px solid #E8E9F2;border-radius:12px;overflow:hidden}
+.tm-row.off{opacity:.62}
+.tm-head{display:flex;align-items:center;gap:10px;padding:11px 13px;cursor:pointer;background:#FAFBFE}
+.tm-name{display:flex;flex-direction:column;min-width:0;flex:1;font-weight:600;color:${INK};font-size:14px}
+.tm-name i{font-style:normal;font-size:10px;font-weight:800;color:${COBALT};margin-left:6px}
+.tm-role{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#F0F1F7;color:#56527a}
+.tm-role.owner{background:rgba(43,77,224,.12);color:${COBALT}}
+.tm-pct{font-size:12px;font-weight:700;color:${GOLD}}
+.tm-off{font-size:10.5px;font-weight:800;text-transform:uppercase;color:#B0606A}
+.tm-body{padding:14px 13px;border-top:1px solid #EFF0F6}
+.tm-sub{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#a6a2bc;margin:14px 0 8px}
+.tm-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.tm-add{border:1px dashed #D9DCF2;border-radius:12px;padding:14px;margin-top:12px;background:#FAFBFE}
+.chip.warn{border-color:#E8C9A0}
+.note.bad{border-color:#EBC3C3;background:#FDF6F6;color:#8a3b3b}
+/* the one celebration — under a second of motion, never blocks a click */
+.cel{position:fixed;right:22px;bottom:22px;z-index:90;display:flex;align-items:center;gap:12px;padding:14px 18px;border-radius:14px;background:linear-gradient(135deg,${INK},#241f47);color:#fff;box-shadow:0 26px 60px -28px rgba(24,21,48,.85);cursor:pointer;max-width:min(92vw,340px);animation:celIn .42s cubic-bezier(.22,1,.36,1)}
+.cel:after{content:'';position:absolute;inset:0;border-radius:14px;background:linear-gradient(105deg,transparent 30%,rgba(255,255,255,.22) 50%,transparent 70%);transform:translateX(-120%);animation:celSweep .9s .16s ease-out;pointer-events:none}
+.cel.still{animation:none}.cel.still:after{display:none}
+.cel-ic{width:34px;height:34px;border-radius:50%;background:rgba(200,162,74,.22);color:${GOLD};display:flex;align-items:center;justify-content:center;flex:none}
+.cel b{display:block;font-family:'Space Grotesk';font-size:16px;font-weight:600}
+.cel span{display:block;font-size:12.5px;color:rgba(255,255,255,.72);margin-top:2px}
+@keyframes celIn{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+@keyframes celSweep{to{transform:translateX(120%)}}
+/* gentle lift — only where a card is genuinely a target, never on forms */
+@media (hover:hover){
+  .lift{transition:transform .16s cubic-bezier(.22,1,.36,1),box-shadow .16s}
+  .lift:hover{transform:translateY(-3px);box-shadow:0 18px 34px -24px rgba(24,21,48,.55)}
+  .lb-row.lift:hover{background:#FBFBFE}
+}
+/* the OS setting wins. No motion, final values, nothing delayed. */
+@media (prefers-reduced-motion:reduce){
+  *,*:before,*:after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important;scroll-behavior:auto !important}
+  .lift:hover{transform:none}
+}
+.onb-q.cmsn{border-left-color:${GOLD}}
+.onb-q.done{border-left-color:#C9C5D9;background:#FAFBFE}
+.onb-q.done .onb-h b{color:#56527a}
+.tm-reassign{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid #EFF0F6;font-size:12.5px;color:#56527a;font-weight:600}
+.tm-reassign select{padding:7px 10px;border:1px solid #E2E3EE;border-radius:9px;font-size:12.5px;background:#fff;color:${INK}}
+.tbl.sc td,.tbl.sc th{white-space:nowrap}
+.tbl.sc tbody tr{cursor:default}
+@media (max-width:640px){ .cmsn-v{font-size:32px} .cel{left:14px;right:14px;bottom:14px;max-width:none} }
 `;
 
 /* ===================== small UI ===================== */
@@ -594,15 +1637,92 @@ const Brand=({logo,sub,size})=>(<div className="sb-brand">{logo?<img src={logo} 
 /* ===================== login ===================== */
 function Login(){
   const [u,setU]=useState('');const [p,setP]=useState('');const [err,setErr]=useState('');const [busy,setBusy]=useState(false);
-  const go=async()=>{ if(!u||!p){setErr('Enter your username and password.');return;} setBusy(true);setErr(''); try{ const {error}=await auth.login(u,p); if(error)setErr('Wrong username or password.'); }catch(e){ setErr('Could not sign in. Check your connection.'); } setBusy(false); };
+  const [mode,setMode]=useState('in');   // 'in' | 'forgot'
+  const [sent,setSent]=useState('');
+  const go=async()=>{ if(!u||!p){setErr('Enter your email and password.');return;} setBusy(true);setErr(''); try{ const {error}=await auth.login(u,p); if(error)setErr('Wrong email or password.'); }catch(e){ setErr('Could not sign in. Check your connection.'); } setBusy(false); };
+  const forgot=async()=>{ const em=u.trim(); if(!em.includes('@')){ setErr('Type the email address you sign in with.'); return; }
+    setBusy(true); setErr('');
+    try{ await auth.sendReset(em); setSent(em); }catch(e){ setErr(e.message||'Could not send that email.'); }
+    setBusy(false); };
+  if(sent) return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
+    <span className="nucleus" style={{width:18,height:18,margin:'0 auto 12px',display:'block'}}/>
+    <h2>Check your email</h2>
+    <p style={{lineHeight:1.5}}>We sent a link to <b>{sent}</b>. Open it and you'll be asked to choose a new password.</p>
+    <button className="btn btn-g" style={{width:'100%',justifyContent:'center'}} onClick={()=>{setSent('');setMode('in');setP('');}}>Back to sign in</button>
+  </div></div></>);
   return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
     <span className="nucleus" style={{width:18,height:18,margin:'0 auto 12px',display:'block'}}/>
-    <h2>ProyTech CRM</h2><p>Sign in</p>
-    <input placeholder="Username" value={u} autoFocus autoCapitalize="none" autoCorrect="off" onChange={e=>{setU(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&go()}/>
-    <input type="password" placeholder="Password" value={p} onChange={e=>{setP(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&go()}/>
+    <h2>{BRAND.title}</h2><p>{mode==='forgot'?'Reset your password':'Sign in'}</p>
+    <input placeholder="Email" value={u} autoFocus autoCapitalize="none" autoCorrect="off" onChange={e=>{setU(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&(mode==='forgot'?forgot():go())}/>
+    {mode==='in'&&<input type="password" placeholder="Password" value={p} onChange={e=>{setP(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&go()}/>}
     {err&&<div className="gate-err">{err}</div>}
-    <button className="btn btn-p" style={{width:'100%',justifyContent:'center'}} disabled={busy} onClick={go}><Lock size={15}/>{busy?'Signing in…':'Sign in'}</button>
+    {mode==='in'
+      ? <><button className="btn btn-p" style={{width:'100%',justifyContent:'center'}} disabled={busy} onClick={go}><Lock size={15}/>{busy?'Signing in…':'Sign in'}</button>
+          <button className="linkbtn q" style={{marginTop:12}} onClick={()=>{setMode('forgot');setErr('');}}>Forgot your password?</button></>
+      : <><button className="btn btn-p" style={{width:'100%',justifyContent:'center'}} disabled={busy} onClick={forgot}><KeyRound size={15}/>{busy?'Sending…':'Email me a reset link'}</button>
+          <button className="linkbtn q" style={{marginTop:12}} onClick={()=>{setMode('in');setErr('');}}>Back to sign in</button></>}
   </div></div></>);
+}
+
+/* ===================== choose a password =====================
+   Where a reset link lands. Supabase hands us a live session from the link,
+   which is NOT the same as having a password — until they set one, the only
+   way back in is another email. So this screen is a gate, not an option. */
+function SetPassword({email,onDone,firstTime}){
+  const [p1,setP1]=useState('');const [p2,setP2]=useState('');const [err,setErr]=useState('');const [busy,setBusy]=useState(false);
+  const save=async()=>{
+    if(p1.length<8){ setErr('Use at least 8 characters.'); return; }
+    if(p1!==p2){ setErr('Those two don\'t match.'); return; }
+    setBusy(true); setErr('');
+    try{ await auth.setPassword(p1); onDone&&onDone(); }
+    catch(e){ setErr(e.message||'Could not save that password.'); setBusy(false); }
+  };
+  return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
+    <span className="nucleus" style={{width:18,height:18,margin:'0 auto 12px',display:'block'}}/>
+    <h2>{firstTime?'Set your password':'Choose a new password'}</h2>
+    <p style={{lineHeight:1.5}}>{email?<>for <b>{email}</b></>:'This is what you\'ll sign in with from now on.'}</p>
+    <input type="password" placeholder="New password" autoFocus value={p1} onChange={e=>{setP1(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&save()}/>
+    <input type="password" placeholder="Type it again" value={p2} onChange={e=>{setP2(e.target.value);setErr('');}} onKeyDown={e=>e.key==='Enter'&&save()}/>
+    {err&&<div className="gate-err">{err}</div>}
+    <button className="btn btn-p" style={{width:'100%',justifyContent:'center'}} disabled={busy} onClick={save}><KeyRound size={15}/>{busy?'Saving…':'Save password & continue'}</button>
+    <button className="linkbtn" style={{marginTop:12}} onClick={()=>auth.logout()}>Sign out instead</button>
+  </div></div></>);
+}
+
+/* ===================== my account (everyone, including reps) ===================== */
+function AccountModal({name,email,role,onClose}){
+  const [p1,setP1]=useState('');const [p2,setP2]=useState('');const [err,setErr]=useState('');const [ok,setOk]=useState(false);const [busy,setBusy]=useState(false);
+  const save=async()=>{
+    if(p1.length<8){ setErr('Use at least 8 characters.'); return; }
+    if(p1!==p2){ setErr('Those two don\'t match.'); return; }
+    setBusy(true); setErr('');
+    try{ await auth.setPassword(p1); setOk(true); setP1(''); setP2(''); }
+    catch(e){ setErr(e.message||'Could not change it.'); }
+    setBusy(false);
+  };
+  return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal" style={{maxWidth:460}} onMouseDown={e=>e.stopPropagation()}>
+      <div className="m-head"><div><h2>My account</h2><div className="meta">{role==='owner'?'Owner':'Sales Rep'}</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
+      <div style={{padding:'4px 22px 22px'}}>
+        <div className="fgrid">
+          <div className="field"><label>Name</label><input value={name||''} disabled/></div>
+          <div className="field"><label>Sign-in email</label><input value={email||''} disabled/></div>
+        </div>
+        <div className="tm-sub">Change your password</div>
+        <div className="fgrid">
+          <div className="field"><label>New password</label><input type="password" value={p1} onChange={e=>{setP1(e.target.value);setErr('');setOk(false);}}/></div>
+          <div className="field"><label>Type it again</label><input type="password" value={p2} onChange={e=>{setP2(e.target.value);setErr('');setOk(false);}} onKeyDown={e=>e.key==='Enter'&&save()}/></div>
+        </div>
+        {err&&<div className="note bad" style={{marginTop:12}}>{err}</div>}
+        {ok&&<div className="note" style={{marginTop:12}}><b>Password changed.</b> Use it next time you sign in.</div>}
+        <div className="tm-acts">
+          <button className="btn btn-p btn-sm" disabled={busy} onClick={save}><KeyRound size={14}/>{busy?'Saving…':'Save password'}</button>
+          <button className="btn btn-g btn-sm" onClick={onClose}>Close</button>
+        </div>
+        <div className="subcell" style={{marginTop:10}}>Name and email are set by an owner in Settings → Team.</div>
+      </div>
+    </div>
+  </div>);
 }
 
 /* ===================== main ===================== */
@@ -615,8 +1735,35 @@ export default function App(){
   const [invoices,setInvoices]=useState([]);
   const [txns,setTxns]=useState([]);
   const [tasks,setTasks]=useState([]);
+  const [gcal,setGcal]=useState({connected:false,email:'',loaded:false});
+  const refreshGcal=async()=>{ try{ const r=await fetch('/api/google-status'); const j=await r.json(); setGcal({connected:!!j.connected,email:j.email||'',loaded:true}); }catch{ setGcal(g=>({...g,loaded:true})); } };
+  useEffect(()=>{ refreshGcal();
+    const p=new URLSearchParams(window.location.search);
+    if(p.get('gcal')){ const u=new URL(window.location.href); u.searchParams.delete('gcal'); u.searchParams.delete('reason'); window.history.replaceState({},'',u.pathname+u.search); }
+  },[]);
+  const disconnectGcal=async()=>{ try{ await fetch('/api/google-disconnect',{method:'POST'}); }catch{} setGcal({connected:false,email:'',loaded:true}); };
+  /* creates the event on Google Calendar; returns {eventId,htmlLink,meetLink}. Persistence
+     of the meeting onto the lead happens in the Modal (single patch) to avoid clobbering. */
+  const createCalendarEvent=async(m)=>{
+    const r=await fetch('/api/calendar-event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:m.title,start:m.start,end:m.end,notes:m.notes,attendees:m.attendees,meet:m.meet,timezone:'America/Chicago'})});
+    const j=await r.json().catch(()=>({ok:false,error:'bad response'}));
+    if(!j.ok) throw new Error(j.error==='not_connected'?'Google Calendar isn’t connected — connect it in Settings.':(j.error||'Could not create the event'));
+    return {eventId:j.eventId,htmlLink:j.htmlLink||'',meetLink:j.meetLink||''};
+  };
+  const deleteCalendarEvent=async(eventId)=>{ if(!eventId)return; try{ await fetch('/api/calendar-event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'delete',eventId})}); }catch{} };
+  /* ---- people & roles. Declared with every other hook, ABOVE the auth gates:
+     a hook added below an early return blanks the app the moment someone
+     signs in ("Rendered more hooks than during the previous render"). ---- */
+  const [users,setUsers]=useState([]);
+  /* arrived from a password-reset link? checked from the URL on the very first
+     render, because supabase-js consumes the fragment as soon as it boots. */
+  const [recovery,setRecovery]=useState(()=>auth.isRecoveryUrl&&auth.isRecoveryUrl());
+  const [acct,setAcct]=useState(false);
+  const [who,setWho]=useState(null);           // {role,active,setup,…} straight from the DB
+  const [board,setBoard]=useState(null);       // leaderboard rows from the DB function
+  const [celebrate,setCelebrate]=useState(null); // {amount,name} — the one restrained moment
   const [invId,setInvId]=useState(null);
-  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING});
+  const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES,pools:[],modulesV:0,notifyEmails:''});
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
@@ -625,29 +1772,87 @@ export default function App(){
 
   useEffect(()=>{ const ok=s=>{sessionResolved.current=true;setSession(s||null);};
     auth.session().then(ok).catch(()=>ok(null));
-    const {data:sub}=auth.onChange(ok);
+    const {data:sub}=auth.onChange((s,e)=>{ if(e==='PASSWORD_RECOVERY') setRecovery(true); ok(s); });
     const wd=setTimeout(()=>{ if(!sessionResolved.current) setBootErr(true); },8000);
     return ()=>{clearTimeout(wd);sub?.subscription?.unsubscribe?.();}; },[]);
 
-  useEffect(()=>{ if(!session){setLoaded(false);return;} (async()=>{
+  useEffect(()=>{ if(!session){setLoaded(false);setUsers([]);setWho(null);setBoard(null);return;} (async()=>{
     try{
+      /* who am I, before anything else — a rep must never trigger a demo seed */
+      let me1=null; try{ me1=await db.whoami(); }catch(err){ console.error('whoami failed',err); }
+      let people=[]; try{ people=await db.getUsers(); }catch(err){ console.error('users load failed',err); }
+      setUsers(people); setWho(me1);
+      const myRow=people.find(u=>u.id===auth.uid(session))||null;
+      /* whoami is the truth when the migration has been run. Before it has,
+         fall back to what we can see: an install with no crm_users at all
+         behaves exactly as it always did. */
+      const amOwner=me1?(me1.role==='owner'||!me1.setup):(!people.length||(!!myRow&&myRow.role==='owner'));
       let s=await db.getLeads(); let st=await db.getSettings();
       let iv=[]; try{ if(typeof db.getInvoices==='function') iv=await db.getInvoices(); }catch(err){ console.error('invoices load failed',err); }
       let tx=[]; try{ if(typeof db.getTxns==='function') tx=await db.getTxns(); }catch(err){ console.error('txns load failed',err); }
       let tk=[]; try{ if(typeof db.getTasks==='function') tk=await db.getTasks(); }catch(err){ console.error('tasks load failed',err); }
-      if(!s||!s.length){ s=seed(); await db.upsertMany(s); }
-      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING}; await db.saveSettings(st); }
+      /* Seeding and migrating are OWNER jobs. A rep legitimately sees zero
+         leads on day one — that must never be mistaken for an empty install
+         and refilled with demo data. */
+      if(amOwner&&(!s||!s.length)){ s=seed(); await db.upsertMany(s); }
+      if(!st){ st={logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES}; if(amOwner) await db.saveSettings(st); }
+      /* the Leaderboard is new: an install that already saved a module list
+         has never seen it, so switch it on once (and remember we did). */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<2){
+        st={...st,modules:st.modules.includes('board')?st.modules:[...st.modules,'board'],modulesV:2};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
+      /* migrate the sales pipeline (idempotent) */
+      const mig=migrateStages(st,s);
+      if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
+      if(amOwner&&mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,repPayments:!!st.repPayments,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
 
   const stages=settings.stages?.length?settings.stages:DEFAULT_STAGES;
-  const me=cap(auth.username(session))||'Garrett';
+  /* ---- who is signed in (plain values — deliberately NOT hooks) ---- */
+  const myUid=auth.uid(session);
+  /* my own crm_users row — from the table when I can read it, otherwise
+     rebuilt from whoami (a rep can always read their own row, so this is
+     belt and braces for the moment right after a role change). */
+  const myUser=users.find(u=>u.id===myUid)||((who&&who.role==='rep')?{id:myUid,name:who.name,role:'rep',pools:who.pools,commission_pct:who.commission_pct,tabs:who.tabs,goal_conversions:who.goal_conversions,active:who.active}:null);
+  /* "nobody has been set up yet" is a DB fact, not a guess from what I can see */
+  const noUsers=who?!who.setup:users.length===0;
+  const isOwner=who?(who.role==='owner'||!who.setup):(users.length===0||(!!myUser&&myUser.role==='owner'));
+  const rep=!isOwner;
+  const blocked=(who&&who.active===false)||(!!myUser&&myUser.active===false);
+  /* display name: their crm_users name when they have one, else the legacy
+     username-derived name so single-tenant installs read exactly as before. */
+  const me=(myUser&&myUser.name)||cap(auth.username(session))||BRAND.team[0]||'';
+  const reps=users.filter(u=>u.role==='rep');
+  /* names assignable to build tasks: real crm_users if present, else BRAND.team */
+  const teamNames=users.length?users.filter(u=>u.active!==false).map(u=>u.name):BRAND.team;
   /* relationships are people, not deals — keep them out of the sales views */
   const bizLeads=useMemo(()=>leads.filter(l=>!l.isRelationship),[leads]);
-  const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await db.upsertMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
+  /* leaderboard: a rep cannot read other reps' leads, so the ranking comes
+     from a security-definer DB function (names + counts, never dollars). */
+  useEffect(()=>{ let dead=false;
+    if(!session||!loaded){ return; }
+    (async()=>{ try{ const rows=await db.leaderboard(); if(!dead) setBoard(rows); }
+      catch(err){ console.error('leaderboard failed',err); if(!dead) setBoard(null); } })();
+    return ()=>{dead=true;}; },[session,loaded,users.length,leads.filter(l=>l.isClient).length]);
+  /* Every write mirrors the owner name into the real owner_id column (and
+     carries the pool) so Row Level Security has something it can actually
+     enforce. The name string stays the display truth; owner_id is the law. */
+  const stampOwner=l=>{
+    if(!l) return l;
+    let oid=l.owner_id||null;
+    if(!l.owner||l.owner===POOL_OWNER) oid=null;                       // unclaimed → pool
+    else if(l.owner===me) oid=myUid||oid;                              // me, whoever I am
+    else { const u=users.find(x=>x.name===l.owner); oid=u?u.id:null; } // someone else
+    return {...l,owner_id:oid,pool:l.pool||null};
+  };
+  const putLead=l=>db.upsertLead(stampOwner(l)).catch(console.error);
+  const putMany=arr=>db.upsertMany((arr||[]).map(stampOwner));
+  const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await putMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
   const settingsTimer=React.useRef(null);
   const saveSettings=n=>{ setSettings(n); if(settingsTimer.current)clearTimeout(settingsTimer.current); settingsTimer.current=setTimeout(()=>{ db.saveSettings(n).catch(console.error); },700); };
   const saveInvoices=n=>{ setInvoices(n); if(typeof db.saveInvoices==='function') db.saveInvoices(n).catch(console.error); };
@@ -655,73 +1860,364 @@ export default function App(){
   const upsertTxn=t=>{ const exists=txns.some(x=>x.id===t.id); saveTxns(exists?txns.map(x=>x.id===t.id?t:x):[t,...txns]); };
   const deleteTxn=t=>{ saveTxns(txns.filter(x=>x.id!==t.id)); if(t.receipt?.path&&typeof db.removeReceipt==='function') db.removeReceipt(t.receipt.path).catch(console.error); };
   const saveTasks=n=>{ setTasks(n); if(typeof db.saveTasks==='function') db.saveTasks(n).catch(console.error); };
-  const upsertTask=t=>{ const exists=tasks.some(x=>x.id===t.id); saveTasks(exists?tasks.map(x=>x.id===t.id?t:x):[t,...tasks]); };
+  const upsertTask=t=>{ const exists=tasks.some(x=>x.id===t.id); saveTasks(exists?tasks.map(x=>x.id===t.id?t:x):[t,...tasks]);
+    /* if this task was spawned from a client's build checklist, mirror its
+       done-state back onto that checklist item so the two never disagree.
+       Read leads through the setter so we never act on a stale closure. */
+    if(t.fromOnboarding&&t.leadId){ setLeads(cur=>{ const l=cur.find(x=>x.id===t.leadId); if(!l) return cur;
+      const e=normEntry((l.onboarding||{})[t.fromOnboarding]);
+      if((!!e.done)===(!!t.done)) return cur;
+      const ob={...(l.onboarding||{})}; ob[t.fromOnboarding]={...e,done:t.done?(e.done||todayISO()):null};
+      const nl={...l,onboarding:ob}; db.upsertLead(nl).catch(console.error);
+      return cur.map(x=>x.id===nl.id?nl:x); }); } };
   const deleteTask=id=>{ saveTasks(tasks.filter(x=>x.id!==id)); };
   const upsertInvoice=inv=>{ const exists=invoices.some(x=>x.id===inv.id); saveInvoices(exists?invoices.map(x=>x.id===inv.id?inv:x):[inv,...invoices]); };
   const deleteInvoice=id=>{ saveInvoices(invoices.filter(x=>x.id!==id)); setInvId(null); };
   const newInvoice=(lead)=>{ const ivset=settings.invoicing||DEFAULT_INVOICING; const number=(ivset.prefix||'INV-')+String(ivset.seq||1).padStart(4,'0'); saveSettings({...settings,invoicing:{...ivset,seq:(ivset.seq||1)+1}}); const issue=todayISO(); const inv={ id:uid(), number, clientId:lead?lead.id:'', billTo:lead?{name:lead.name||'',company:lead.company||'',email:lead.email||'',address:''}:{name:'',company:'',email:'',address:''}, issueDate:issue, dueDate:addDays(issue,ivset.terms||14), items:lead?itemsFromLead(lead):[{id:uid(),label:'',qty:1,amount:0}], taxRate:num(ivset.taxRate), notes:ivset.notes||'', paymentLink:ivset.paymentLink||'', status:'draft', paidDate:'', createdAt:new Date().toISOString() }; upsertInvoice(inv); setInvId(inv.id); };
   const addOption=(listKey,val)=>{const v=(val||'').trim();if(!v)return;const cur=settings.options[listKey]||[];if(cur.includes(v))return;saveSettings({...settings,options:{...settings.options,[listKey]:[...cur,v]}});};
 
+  /* ---- conversion side-effects: commission snapshot + owner alert --------
+     Credit goes to the lead's OWNER when that owner is a rep (an owner
+     closing a rep's deal doesn't steal it), otherwise to whoever is doing
+     the converting if they're a rep. Owners earn no commission. */
+  const repForLead=l=>{
+    const oid=stampOwner(l).owner_id;
+    const byOwner=oid?users.find(u=>u.id===oid):null;
+    if(byOwner&&byOwner.role==='rep'&&byOwner.active!==false) return byOwner;
+    if(myUser&&myUser.role==='rep') return myUser;
+    return null;
+  };
+  /* returns the patch to merge onto a lead the moment it becomes a client */
+  const conversionPatch=l=>{
+    const r=repForLead(l); if(!r) return {};
+    const patch={};
+    if(!cmsnOf(l)&&num(r.commission_pct)>0) patch.commission=mkCommission(l,r);
+    patch.onboardingAlert={at:new Date().toISOString(),repId:r.id,repName:r.name,ack:false};
+    if(patch.commission&&r.id===myUid) setTimeout(()=>setCelebrate({amount:patch.commission.amount,name:l.company||l.name||'that client'}),0);
+    /* Email the owners too, if /api/notify has a provider configured. This is
+       deliberately fire-and-forget: the in-app queue above is the real record,
+       and a mail failure must never interfere with closing a deal. */
+    const to=(settings.notifyEmails||'').split(',').map(x=>x.trim()).filter(x=>x.includes('@'));
+    try{ fetch('/api/notify',{method:'POST',headers:{'content-type':'application/json'},
+      body:JSON.stringify({kind:'conversion',rep:r.name,client:l.company||l.name||'a client',
+        when:fmtDate(todayISO()),amount:patch.commission?patch.commission.amount:null,
+        to,link:(typeof window!=='undefined'?window.location.origin:'')})}).catch(()=>{});
+    }catch{}
+    return patch;
+  };
   const updateLead=(id,patch)=>{ let updated=null; setLeads(leads.map(l=>{
-    if(l.id!==id) return l; const m={...l,...patch};
+    if(l.id!==id) return l; const ts=new Date().toISOString(); const m={...l,...patch};
+    /* The deal value drives the commission, and reps set it themselves — so
+       every change is on the record with a name and a time against it.
+       Number fields fire on every keystroke, so consecutive edits by the same
+       person inside 15 minutes are folded into ONE entry that keeps the
+       original "was" figure. Otherwise the feed fills with noise. */
+    if(patch.dealValue!==undefined&&num(patch.dealValue)!==num(l.dealValue)){
+      m.dealValueBy=me; m.dealValueAt=ts;
+      const acts=[...(l.activities||[])];
+      const prev=acts[0];
+      const fresh=prev&&prev.dealEdit&&prev.who===me&&(Date.now()-new Date(prev.ts).getTime()<15*60*1000);
+      const was=fresh?prev.dealWas:num(l.dealValue);
+      const entry={id:fresh?prev.id:uid(),ts,type:'Note',who:me,dealEdit:true,dealWas:was,
+        text:`Deal value set to ${usd(patch.dealValue)}${num(was)>0?` (was ${usd(was)})`:''}.`};
+      m.activities=fresh?[entry,...acts.slice(1)]:[entry,...acts];
+    }
     if(patch.stage&&patch.stage!==l.stage){
-      m.activities=[{id:uid(),ts:new Date().toISOString(),type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${sOf(patch.stage,stages).label}`},...l.activities];
-      if(sOf(patch.stage,stages).won&&!l.closedAt) m.closedAt=todayISO();
+      m.activities=[{id:uid(),ts,type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${sOf(patch.stage,stages).label}`,who:me},...l.activities];
+      if(sOf(patch.stage,stages).won){
+        if(!l.closedAt) m.closedAt=todayISO();
+        /* Signed = auto-onboard: flip to client, seed the universal checklist, start Intake */
+        if(!l.isClient){
+          m.isClient=true; m.clientPhase=m.clientPhase||'intake'; m.convertedAt=m.convertedAt||todayISO();
+          m.onboarding=(l.onboarding&&Object.keys(l.onboarding).length)?l.onboarding:seedOnboarding();
+          m.activities=[{id:uid(),ts,type:'Note',text:'Signed — onboarding started.',who:me},...m.activities];
+          Object.assign(m,conversionPatch(l));
+        }
+      }
     }
     if(patch.retainerActive&&!l.retainerActive&&!l.retainerStart) m.retainerStart=todayISO();
     updated=m; return m;
-  })); if(updated) db.upsertLead(updated).catch(console.error); };
-  const addActivity=(id,type,text,who)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me},...l.activities]}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
-  const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) db.upsertLead(updated).catch(console.error); };
-  const delLead=id=>{ setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
-  const createNew=lead=>{ setLeads([lead,...leads]); db.upsertLead(lead).catch(console.error); setActiveId(lead.id); };
-  const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await db.upsertMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
-  const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:true,convertedAt:todayISO(),delivery:l.delivery||{},activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Converted to client — delivery started.',who:me},...l.activities]}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
-  const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); db.upsertLead(updated).catch(console.error); };
+  })); if(updated) putLead(updated); };
+  /* retro-tagging: set the meeting type on a logged 'Booked' activity, and on the
+     scheduled meeting it created (when there is one). */
+  /* set a meeting's status from ANYWHERE (dashboard, lead modal, meetings tab).
+     If the meeting only exists as a migrated 'Booked' activity, materialise it
+     as a real meeting record on first touch so the status persists. */
+  const setMeetingStatus=(leadId,meetingId,status)=>{ let updated=null;
+    setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+      const all=meetingsOf(l); const target=all.find(m=>m.id===meetingId); if(!target)return l;
+      const already=(l.meetings||[]).some(m=>m.id===meetingId);
+      const nextStatus=target.status===status?'':status;
+      let meetings;
+      if(already){ meetings=(l.meetings||[]).map(m=>m.id===meetingId?{...m,status:nextStatus}:m); }
+      else { meetings=[...(l.meetings||[]),{...target,status:nextStatus}]; }   // materialise the migrated one
+      const logIt=nextStatus&&nextStatus!==target.status;
+      const act=logIt?{id:uid(),ts:new Date().toISOString(),type:'Meeting',meetingId,
+        text:`${nextStatus==='held'?'Met':'No-show'}: ${target.title||target.mtype||'meeting'}`,who:me}:null;
+      updated={...l,meetings,...(act?{activities:[act,...(l.activities||[])]}:{})}; return updated;
+    })); if(updated) db.upsertLead(updated).catch(console.error); };
+  /* give a dateless meeting its real date. Same materialise-on-first-touch
+     pattern as setMeetingStatus, because the meeting may still only exist as a
+     migrated 'Booked' activity. Writes dateUnknown:false explicitly so the
+     backfill heuristic never reclaims it. */
+  const setMeetingTime=(leadId,meetingId,startLocal,mins)=>{ if(!startLocal)return; let updated=null;
+    const startDt=new Date(startLocal); if(isNaN(startDt))return;
+    const pad=n=>String(n).padStart(2,'0');
+    const loc=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+    const start=loc(startDt), end=loc(new Date(startDt.getTime()+(num(mins)||30)*60000));
+    setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+      const all=meetingsOf(l); const target=all.find(m=>m.id===meetingId); if(!target)return l;
+      const already=(l.meetings||[]).some(m=>m.id===meetingId);
+      const patch={start,end,dateUnknown:false};
+      const meetings=already?(l.meetings||[]).map(m=>m.id===meetingId?{...m,...patch}:m)
+                            :[...(l.meetings||[]),{...target,...patch}];
+      const act={id:uid(),ts:new Date().toISOString(),type:'Note',meetingId,
+        text:`Dated: ${target.title||target.mtype||'meeting'} — ${fmtMeetingTime(start)}`,who:me};
+      updated={...l,meetings,activities:[act,...(l.activities||[])]}; return updated;
+    })); if(updated) db.upsertLead(updated).catch(console.error); };
+  const tagMeetingType=(leadId,meetingId,mtype)=>{ let updated=null;
+    setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+      const all=meetingsOf(l); const target=all.find(m=>m.id===meetingId); if(!target)return l;
+      const already=(l.meetings||[]).some(m=>m.id===meetingId);
+      let meetings=already?(l.meetings||[]).map(m=>m.id===meetingId?{...m,mtype}:m):[...(l.meetings||[]),{...target,mtype}];
+      // keep the source activity's type in sync so the activity feed still reads right
+      const acts=(l.activities||[]).map(a=>(a.id===target.fromActivity||a.meetingId===meetingId)?{...a,mtype}:a);
+      updated={...l,meetings,activities:acts}; return updated;
+    })); if(updated) db.upsertLead(updated).catch(console.error); };
+  const tagBooked=(leadId,actId,mtype)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+    const src=(l.activities||[]).find(a=>a.id===actId); if(!src)return l;
+    const acts=(l.activities||[]).map(a=>a.id===actId?{...a,mtype}:a);
+    const mts=(l.meetings||[]).map(m=>(src.meetingId&&m.id===src.meetingId)?{...m,mtype}:m);
+    updated={...l,activities:acts,meetings:mts}; return updated; })); if(updated) putLead(updated); };
+  const tagMeeting=(leadId,meetingId,mtype)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
+    const mts=(l.meetings||[]).map(m=>m.id===meetingId?{...m,mtype}:m);
+    const acts=(l.activities||[]).map(a=>a.meetingId===meetingId?{...a,mtype}:a);
+    updated={...l,meetings:mts,activities:acts}; return updated; })); if(updated) putLead(updated); };
+  const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) putLead(updated); };
+  const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) putLead(updated); };
+  /* deleting is an owner action — the database enforces it too (leads_delete
+     in MIGRATION.sql). This guard just keeps the UI honest. */
+  const delLead=id=>{ if(rep){ window.alert('Only an owner can delete a lead.'); return; }
+    setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
+  const createNew=lead=>{ setLeads([lead,...leads]); putLead(lead); setActiveId(lead.id); };
+  const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await putMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
+  /* Converting to a client IS closing the deal. Stamp the close date and move the
+     lead onto the won stage so the pipeline, the money numbers and the client board
+     all agree — a client should never still be sitting in "Proposal Sent". */
+  const convertToClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return;
+    const ob=(l.onboarding&&Object.keys(l.onboarding).length)?l.onboarding:seedOnboarding();
+    const wonStage=stages.find(s=>s.won);
+    const moved=wonStage&&l.stage!==wonStage.key;
+    const ts=new Date().toISOString();
+    const acts=[{id:uid(),ts,type:'Note',text:'Converted to client — onboarding started.',who:me}];
+    if(moved) acts.unshift({id:uid(),ts,type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${wonStage.label}`,who:me});
+    const updated={...l,isClient:true,clientPhase:l.clientPhase||'intake',convertedAt:l.convertedAt||todayISO(),
+      stage:wonStage?wonStage.key:l.stage,
+      closedAt:l.closedAt||todayISO(),
+      delivery:l.delivery||{},onboarding:ob,activities:[...acts,...l.activities],
+      ...conversionPatch(l)};
+    setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
+  /* ---- owner-only commission controls (live on the client record) ---- */
+  const setCommission=(id,patch)=>{ if(!isOwner) return; let updated=null;
+    setLeads(leads.map(l=>{ if(l.id!==id) return l; const c=cmsnOf(l); if(!c) return l;
+      const next={...c,...patch}; next.amount=cmsnAmount(next.base,next.pct);
+      const ts=new Date().toISOString();
+      let act=null;
+      if(patch.status==='earned'&&c.status!=='earned'){ next.approvedAt=ts; next.approvedBy=me; next.voidedAt=null;
+        act={id:uid(),ts,type:'Note',text:`Commission approved — ${usd(next.amount)} to ${next.repName||'rep'}.`,who:me}; }
+      if(patch.status==='void'&&c.status!=='void'){ next.voidedAt=ts;
+        act={id:uid(),ts,type:'Note',text:`Commission voided${next.repName?' — '+next.repName:''}.`,who:me}; }
+      updated={...l,commission:next,activities:act?[act,...(l.activities||[])]:l.activities};
+      return updated; })); if(updated) putLead(updated); };
+  /* ---- team management (owner-only; the DB enforces it too) ---- */
+  const saveUser=async u=>{ if(!isOwner) return; const next=users.some(x=>x.id===u.id)?users.map(x=>x.id===u.id?{...x,...u}:x):[...users,u];
+    setUsers(next); try{ await db.upsertUser(next.find(x=>x.id===u.id)); }catch(e){ console.error(e); window.alert('Could not save that person: '+(e.message||e)); setUsers(users); } };
+  const removeUser=async id=>{ if(!isOwner) return; const prev=users; setUsers(users.filter(u=>u.id!==id));
+    try{ await db.deleteUser(id); }catch(e){ console.error(e); window.alert('Could not remove that person: '+(e.message||e)); setUsers(prev); } };
+  /* When someone leaves, their leads shouldn't leave with them. Moves every
+     lead (name AND owner_id, so RLS follows) from one person to another.
+     Commissions already earned are NOT touched — that history is theirs. */
+  const reassignLeads=async(fromUser,toUser)=>{
+    if(!isOwner||!fromUser) return 0;
+    const mine=leads.filter(l=>l.owner_id===fromUser.id||l.owner===fromUser.name);
+    if(!mine.length) return 0;
+    const ts=new Date().toISOString();
+    const toName=toUser?toUser.name:POOL_OWNER;
+    const moved=mine.map(l=>({...l,owner:toName,owner_id:toUser?toUser.id:null,
+      activities:[{id:uid(),ts,type:'Note',who:me,text:`Reassigned from ${fromUser.name} to ${toName}.`},...(l.activities||[])]}));
+    setLeads(leads.map(l=>moved.find(m=>m.id===l.id)||l));
+    try{ await putMany(moved); }catch(e){ console.error(e); window.alert('Some leads may not have moved: '+(e.message||e)); }
+    return moved.length;
+  };
+  /* first-run bootstrap: the person standing here becomes the owner */
+  const claimOwner=async()=>{ if(!myUid) return;
+    await saveUser({id:myUid,name:me,email:auth.email(session),role:'owner',pools:[],commission_pct:0,active:true,tabs:[],goal_conversions:0}); };
+  /* owner acknowledges a newly converted client in the onboarding queue */
+  const ackOnboarding=id=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id) return l;
+    updated={...l,onboardingAlert:{...(l.onboardingAlert||{}),ack:true,ackAt:new Date().toISOString(),ackBy:me}}; return updated; }));
+    if(updated) putLead(updated); };
+  const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
+  /* Backfill close tracking for a client created before closedAt was stamped.
+     Sets the real close date + moves them into the won stage so every "deals
+     closed" and revenue metric counts them, WITHOUT resetting onboarding. */
+  const fixCloseTracking=(id,date)=>{ const l=leads.find(x=>x.id===id); if(!l)return;
+    const wonStage=stages.find(s=>s.won); const d=date||l.closedAt||l.convertedAt||todayISO();
+    const moved=wonStage&&l.stage!==wonStage.key; const ts=new Date().toISOString();
+    const acts=[{id:uid(),ts,type:'Note',text:`Close date set to ${fmtDate(d)} — now counted in revenue.`,who:me}];
+    if(moved) acts.unshift({id:uid(),ts,type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${wonStage.label}`,who:me});
+    const updated={...l,closedAt:d,convertedAt:l.convertedAt||d,stage:wonStage?wonStage.key:l.stage,activities:[...acts,...(l.activities||[])]};
+    setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
+  /* toggle one onboarding item + log it — single atomic write */
+  const toggleOnboarding=(id,itemKey)=>{ let updated=null; let linkedTaskId=null; let doneState=false;
+    setLeads(leads.map(l=>{ if(l.id!==id)return l;
+      const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); const doneNow=!cur.done; doneState=doneNow;
+      ob[itemKey]={done:doneNow?todayISO():null,due:cur.due||null,assignee:cur.assignee||null,taskId:cur.taskId||null};
+      linkedTaskId=cur.taskId||null;
+      const item=ONB_ITEMS.find(i=>i.key===itemKey); const label=item?item.label:itemKey;
+      updated={...l,onboarding:ob,activities:[{id:uid(),ts:new Date().toISOString(),type:'Task',text:(doneNow?'✓ ':'unchecked: ')+label,who:me},...l.activities]};
+      return updated; })); if(updated) putLead(updated);
+    /* keep the linked task in lock-step with the checklist item */
+    if(linkedTaskId){ const t=tasks.find(x=>x.id===linkedTaskId);
+      if(t) upsertTask({...t,done:doneState,doneAt:doneState?new Date().toISOString():'',doneBy:doneState?me:''}); } };
+  const setOnboardingDue=(id,itemKey,date)=>{ let updated=null; let linkedTaskId=null;
+    setLeads(leads.map(l=>{ if(l.id!==id)return l; const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]);
+      ob[itemKey]={done:cur.done||null,due:date||null,assignee:cur.assignee||null,taskId:cur.taskId||null}; linkedTaskId=cur.taskId||null;
+      updated={...l,onboarding:ob}; return updated; })); if(updated) putLead(updated);
+    if(linkedTaskId){ const t=tasks.find(x=>x.id===linkedTaskId); if(t) upsertTask({...t,due:date||t.due}); } };
+  /* assign (or reassign / unassign) a build-checklist item to a person. Assigning
+     spawns a real task in THAT person's Tasks list, linked back to the item so
+     checking either one completes both. Reassigning moves the task's owner. */
+  const assignOnboarding=(id,itemKey,assignee)=>{ const l=leads.find(x=>x.id===id); if(!l)return;
+    const cur=normEntry((l.onboarding||{})[itemKey]);
+    const item=ONB_ITEMS.find(i=>i.key===itemKey); const label=item?item.label:itemKey;
+    const clientName=l.company||l.name||'client';
+    let taskId=cur.taskId||null;
+    if(!assignee){ // unassign: drop the linked task, clear the fields
+      if(taskId) deleteTask(taskId);
+      taskId=null;
+    } else if(taskId&&tasks.some(t=>t.id===taskId)){ // reassign existing task
+      const t=tasks.find(x=>x.id===taskId); upsertTask({...t,owner:assignee});
+    } else { // create a new linked task in their queue
+      taskId=uid();
+      upsertTask({...newTask(assignee),id:taskId,title:`${label} — ${clientName}`,owner:assignee,leadId:id,
+        due:cur.due||todayISO(),done:!!cur.done,doneAt:cur.done?new Date().toISOString():'',
+        notes:`Build task for ${clientName}. Auto-linked to the onboarding checklist.`,fromOnboarding:itemKey});
+    }
+    let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x; const ob={...(x.onboarding||{})};
+      ob[itemKey]={done:cur.done||null,due:cur.due||null,assignee:assignee||null,taskId};
+      updated={...x,onboarding:ob}; return updated; })); if(updated) putLead(updated); };
+  /* Phase 5: when a client enters Active, drop two recurring-cadence tasks onto them.
+     (No recurring engine — these are one-time tasks the owner recreates on completion.) */
+  const seedActiveTasks=(id,ownerHint)=>{ if(tasks.some(t=>t.leadId===id&&t.seededActive)) return;
+    const owner=ownerHint&&ownerHint!==POOL_OWNER?ownerHint:me;
+    const mk=(title,cadence,days)=>({...newTask(owner),title,leadId:id,seededActive:true,notes:`Recurring ${cadence} — recreate when done.`,due:addDays(todayISO(),days)});
+    saveTasks([mk('Monthly results text/email','monthly',30),mk('Quarterly system check + upsell scan','quarterly',90),...tasks]); };
+  /* set/advance a client's phase + log it; entering Active seeds handoff tasks */
+  const setClientPhase=(id,phase)=>{ const l=leads.find(x=>x.id===id); if(!l)return; let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x;
+    updated={...x,isClient:true,clientPhase:phase,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Phase → '+phaseInfo(phase,settings,l).label,who:me},...x.activities]}; return updated; }));
+    if(updated){ putLead(updated); if(phase==='active') seedActiveTasks(id,l.owner); } };
+  const addCustomPhase=(id,info)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cp={key:'cp_'+uid(),label:(info.label||'Custom').trim(),color:info.color||'#7A5CC8',after:info.after||'build'}; updated={...l,customPhases:[...(l.customPhases||[]),cp]}; return updated; })); if(updated) putLead(updated); };
+  const removeCustomPhase=(id,key)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cps=(l.customPhases||[]).filter(c=>c.key!==key); updated={...l,customPhases:cps,clientPhase:l.clientPhase===key?'build':l.clientPhase}; return updated; })); if(updated) putLead(updated); };
   const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done?null:todayISO(),due:cur.due||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; const patch={delivery:d}; const o=clientOverall({...l,delivery:d},settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const won=(stages||[]).find(s=>s.won); if(o.delivered&&won&&l.stage!==won.key) patch.stage=won.key; updateLead(id,patch); };
   const setMilestoneDue=(id,trackKey,milestone,date)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done||null,due:date||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; updateLead(id,{delivery:d}); };
   const active=activeId&&activeId!=='new'?leads.find(l=>l.id===activeId):null;
 
-  if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>ProyTech CRM</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
+  if(!configured) return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
+    <span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/>
+    <h2>{BRAND.title}</h2>
+    <p style={{color:'#b4322e',lineHeight:1.5}}>This deployment isn't connected to a database yet. Add <b>VITE_SUPABASE_URL</b> and <b>VITE_SUPABASE_KEY</b> in Vercel → Settings → Environment Variables, then redeploy.</p>
+  </div></div></>);
+  if(session===undefined) return (<><style>{CSS}</style><div className="gate"><div className="gate-card"><span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/><h2>{BRAND.title}</h2>{bootErr?<><p style={{color:'#b4322e',lineHeight:1.5}}>Can't reach the database. Your Supabase project may be paused — open the Supabase dashboard and restore it, then retry.</p><button className="btn btn-p" style={{width:'100%',justifyContent:'center',marginTop:6}} onClick={()=>window.location.reload()}>Retry</button></>:<p>Loading…</p>}</div></div></>);
   if(!session) return <Login/>;
+  /* A reset link signs them in without them knowing a password. Until they
+     choose one, this is the only screen they get — otherwise they'd land in
+     the app and be locked out again the moment the session expired. */
+  if(recovery) return <SetPassword email={auth.email(session)} firstTime={!users.length}
+    onDone={()=>{ setRecovery(false); try{ window.history.replaceState({},'',window.location.pathname+window.location.search); }catch{} }}/>;
+  /* deactivated by an owner — their data stays, their access doesn't */
+  if(blocked) return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
+    <span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/>
+    <h2>{BRAND.title}</h2>
+    <p style={{lineHeight:1.5}}>Your access has been switched off. Ask an owner to turn it back on.</p>
+    <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
+  </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
-  const titles={dash:['Dashboard','The whole board at a glance'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  /* if a section is switched off while you're standing on it — or a rep lands
+     on something only owners get — fall back to the dashboard. Computed during
+     render — deliberately NOT a hook, because this sits after the auth
+     early-returns above. */
+  /* a rep with no readable row (signed in, never added) is still a rep —
+     never fall back to "not a rep", which would hand them every tab. */
+  const repUser=rep?(myUser||{id:myUid,name:me,role:'rep',pools:[],tabs:[],commission_pct:0,active:true}):null;
+  const canSee=k=>canOpen(settings,repUser,k);
+  const view=canSee(page)?page:'dash';
+  /* a rep's world: their own leads, and the pools they've been given */
+  const myPools=(repUser&&repUser.pools)||(myUser&&myUser.pools)||[];
+  const inMyWorld=l=>!rep||l.owner_id===myUid||l.owner===me||(l.pool&&myPools.includes(l.pool));
+  const scoped=leads.filter(inMyWorld);
+  const scopedBiz=bizLeads.filter(inMyWorld);
+  /* A rep sees only tasks addressed to them by name. "Both" is the owners'
+     shared list and is none of their business. (UI filter over a shared blob —
+     see BUILD-NOTES; the blob itself is not splittable by RLS.) */
+  const myTasks=rep?tasks.filter(t=>t.owner===me):tasks;
+  /* The Tasks page is handed a FILTERED list for a rep, but "AI rank" and
+     "Clear ranking" re-save the whole list they were given. Saving that
+     straight to the shared blob would wipe every task belonging to anyone
+     else. Merge the rep's slice back over the untouched remainder instead. */
+  const saveScopedTasks=next=>{
+    if(!rep) return saveTasks(next);
+    const others=tasks.filter(t=>t.owner!==me);
+    saveTasks([...(next||[]).filter(t=>t.owner===me),...others]);
+  };
+  const titles={dash:['Dashboard','The whole board at a glance'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Morning Huddle','Last week, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; }
+  /* the leaderboard the DB gave us; pre-migration an owner can still see one
+     computed locally (an owner can read every lead, a rep never could). */
+  const localBoard=()=>reps.filter(u=>u.active!==false).map(u=>{ const mine=leads.filter(l=>l.isClient&&l.convertedAt&&l.owner_id===u.id);
+    return {id:u.id,name:u.name,month:mine.filter(l=>String(l.convertedAt).slice(0,7)===todayISO().slice(0,7)).length,all:mine.length}; });
+  const boardRows=board||(isOwner?localBoard():null);
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
-      <Brand logo={settings.logo} size={settings.logoSize||34} sub="Client CRM"/>
-      {NAV.map(([k,l,ic])=><button key={k} className={'nav-i '+(page===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>)}
+      <Brand logo={settings.logo} size={settings.logoSize||34} sub={rep?'Sales':'Client CRM'}/>
+      {NAV.filter(([k])=>canSee(k)).map(([k,l,ic])=><button key={k} className={'nav-i '+(view===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>)}
       <button className="nav-i" style={{marginTop:8,background:'rgba(43,77,224,.16)',color:'#fff'}} onClick={()=>setActiveId('new')}><Plus size={18}/>New Lead</button>
+      <button className="nav-i" onClick={()=>{setAcct(true);setSbOpen(false);}}><KeyRound size={18}/>My account</button>
       <button className="nav-i" onClick={()=>auth.logout()}><LogOut size={18}/>Sign out ({me})</button>
-      <div className="sb-foot"><b>No conversation lives outside the CRM.</b><br/>Capture it the moment it happens.</div>
+      <div className="sb-foot"><b>{BRAND.tagline}</b><br/>{BRAND.taglineSub}</div>
     </aside>
     <div className="main">
       <div className="top">
         <div style={{display:'flex',alignItems:'center',gap:14}}>
           <button className="hamb" onClick={()=>setSbOpen(true)}><Menu size={22}/></button>
-          <div><h1>{(titles[page]||[page,''])[0]}</h1><div className="sub">{(titles[page]||['',''])[1]}</div></div>
+          <div><h1>{view==='dash'?`Welcome, ${(me||'').split(' ')[0]}`:(titles[view]||[view,''])[0]}</h1><div className="sub">{(titles[page]||['',''])[1]}</div></div>
         </div>
         <button className="btn btn-p" onClick={()=>setActiveId('new')}><Plus size={16}/>New Lead</button>
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
-          page==='dash'?<Dashboard leads={bizLeads} stages={stages} open={openLead}/>:
-          page==='followup'?<FollowUp leads={leads} stages={stages} open={openLead} updateLead={updateLead}/>:
-          page==='tasks'?<Tasks tasks={tasks} leads={leads} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveTasks}/>:
-          page==='activity'?<Activity leads={leads} me={me} open={openLead}/>:
-          page==='pipeline'?<Pipeline leads={bizLeads} stages={stages} open={openLead} updateLead={updateLead}/>:
-          page==='leads'?<Leads leads={bizLeads} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads}/>:
-          page==='rels'?<Relationships leads={leads} open={openLead}/>:
-          page==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead}/>:
-          page==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
-          page==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
-          page==='money'?<Money leads={bizLeads} stages={stages}/>:
-          <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices}/>}
+          view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
+          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
+          view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
+          view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
+          view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
+          view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
+          view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
+          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools}/>:
+          view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
+          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
+          view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
+          view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
+          view==='money'?<Money leads={bizLeads} stages={stages}/>:
+          <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
+            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers}/>}
       </div>
     </div>
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew}/>}
+    {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
+    {celebrate&&<Celebration data={celebrate} onDone={()=>setCelebrate(null)}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -733,60 +2229,160 @@ function useMetrics(leads,stages){
     let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,lostCount=0,mrr=0,retainers=0;
     leads.forEach(l=>{const s=sOf(l.stage,stages);byStage[l.stage]=byStage[l.stage]||{count:0,value:0};byStage[l.stage].count++;byStage[l.stage].value+=num(l.dealValue);
       if(s.open){openCount++;openValue+=num(l.dealValue);weighted+=num(l.dealValue)*num(s.prob);}
-      if(s.won){wonCount++;wonValue+=num(l.dealValue);} if(s.lost) lostCount++;
+      if(s.won){wonCount++;wonValue+=num(l.dealValue);} if(s.lost) lostCount++; wonValue+=closedDealsTotal(l);
       if(l.retainerActive){mrr+=num(l.retainer);retainers++;}});
     const overdue=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<0&&sOf(l.stage,stages).open);
     const dueWeek=leads.filter(l=>{const d=l.followUp?daysUntil(l.followUp):null;return d!==null&&d>=0&&d<=7&&sOf(l.stage,stages).open;});
     const hot=leads.filter(l=>l.priority==='high'&&sOf(l.stage,stages).open);
     const winRate=(wonCount+lostCount)>0?wonCount/(wonCount+lostCount):0;
     const avgDeal=wonCount>0?wonValue/wonCount:0; const avgRet=retainers>0?mrr/retainers:0;
-    return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet};
+    /* meetings — ONE unified source. Every meeting (scheduled or logged) counts
+       once, and held/no-show is read from the same record everywhere. */
+    const mKey=todayISO().slice(0,7); const nowMs=Date.now();
+    let bookedAll=0,bookedMonth=0,mtgUpcoming=0,heldMonth=0,noShowMonth=0,heldAll=0,noShowAll=0,needsStatusCount=0,needsDateCount=0,onboardedMonth=0,depositsMonth=0;
+    const bookedByType={};
+    leads.forEach(l=>{
+      meetingsOf(l).forEach(mt=>{ bookedAll++;
+        const mk=meetingMonthKey(mt);            // when it happens
+        const bk=bookingMonthKey(mt);            // when it was booked
+        if(bk===mKey){ bookedMonth++; const t=mt.mtype||'Other'; bookedByType[t]=(bookedByType[t]||0)+1; }
+        if(isUpcoming(mt)) mtgUpcoming++;
+        if(needsStatus(mt)) needsStatusCount++;
+        if(needsDate(mt)) needsDateCount++;
+        if(mt.status==='held'){ heldAll++; if(mk===mKey) heldMonth++; }
+        else if(mt.status==='noshow'){ noShowAll++; if(mk===mKey) noShowMonth++; }
+      });
+      if(l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey) onboardedMonth++;
+      const dep=l.onboarding&&l.onboarding.deposit_paid&&normEntry(l.onboarding.deposit_paid).done;
+      if(dep&&String(dep).slice(0,7)===mKey) depositsMonth++;
+    });
+    /* speed to first touch + follow-up discipline */
+    const touchHrs=[]; let untouched=0,fuCleared=0,fuOnTime=0;
+    leads.forEach(l=>{ const h=firstTouchHrs(l);
+      if(h==null){ if(!(l.activities||[]).some(REAL_TOUCH)) untouched++; } else touchHrs.push(h);
+      (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
+    /* monthly close figures — the all-time wonCount can't drive a monthly goal */
+    let closedMonth=0,revenueMonth=0;
+    leads.forEach(l=>{ if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){ closedMonth++; revenueMonth+=num(l.dealValue); } const cm=closedDealsInMonth(l,mKey); if(cm>0){ revenueMonth+=cm; closedMonth+=closedDealsCountInMonth(l,mKey); } });
+    const firstTouch=median(touchHrs);
+    const fuRate=fuCleared>0?fuOnTime/fuCleared:null;
+    const funnel=funnelOf(leads,stages);
+
+    /* ---------- higher-order sales analytics ---------- */
+    // booked -> held: of meetings that already happened, how many actually did
+    const decidedAll=heldAll+noShowAll;
+    const showRate=decidedAll>0?heldAll/decidedAll:0;              // held / (held+noshow), all time
+    const noShowRate=decidedAll>0?noShowAll/decidedAll:0;
+    // meeting -> close: of leads we ever HELD a meeting with, how many converted
+    let metLeads=0,metAndClosed=0;
+    leads.forEach(l=>{ const held=meetingsOf(l).some(m=>m.status==='held'); if(!held)return; metLeads++;
+      if(l.isClient||sOf(l.stage,stages).won) metAndClosed++; });
+    const meetCloseRate=metLeads>0?metAndClosed/metLeads:0;
+    // average days from lead created -> converted (sales-cycle length)
+    const cycleDays=[]; leads.forEach(l=>{ if((l.isClient&&l.convertedAt)||sOf(l.stage,stages).won){
+      const end=l.convertedAt||l.closedAt; if(l.createdAt&&end){ const d=(new Date(end)-new Date(l.createdAt))/864e5; if(!isNaN(d)&&d>=0) cycleDays.push(d); } } });
+    const avgDaysToClose=cycleDays.length?Math.round(median(cycleDays)):null;
+    // pipeline velocity: open deals moving vs rotting (no touch in 14d)
+    const openLeadsArr=leads.filter(l=>sOf(l.stage,stages).open);
+    const rotting=openLeadsArr.filter(l=>daysSince(lastTouchTs(l)||l.createdAt||todayISO())>=14).length;
+    const movingPct=openLeadsArr.length?1-(rotting/openLeadsArr.length):1;
+    // source ROI: which lead source actually closes
+    const bySource={}; leads.forEach(l=>{ const src=l.source||'—'; bySource[src]=bySource[src]||{total:0,won:0,value:0};
+      bySource[src].total++; if(l.isClient||sOf(l.stage,stages).won){ bySource[src].won++; bySource[src].value+=num(l.dealValue); } });
+    const sourceROI=Object.entries(bySource).map(([source,v])=>({source,...v,rate:v.total?v.won/v.total:0}))
+      .sort((a,b)=>b.won-a.won||b.total-a.total);
+
+    /* revenue by client — lifetime booked value per client, biggest first.
+       Counts archived closed deals + any current won dealValue, plus flags MRR. */
+    const byClient=leads.filter(l=>l.isClient||sOf(l.stage,stages).won||closedDealsTotal(l)>0).map(l=>{
+      const closed=closedDealsTotal(l);
+      const current=(sOf(l.stage,stages).won||l.isClient)?num(l.dealValue):0;
+      const lifetime=closed+current;
+      return {id:l.id,name:l.name||l.company||'—',company:l.company,lifetime,closed,current,
+        mrr:l.retainerActive?num(l.retainer):0,deals:((l.closedDeals||[]).length)+((sOf(l.stage,stages).won||l.isClient)&&num(l.dealValue)>0?1:0)};
+    }).filter(c=>c.lifetime>0||c.mrr>0).sort((a,b)=>b.lifetime-a.lifetime);
+    return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
+      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
+      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,
+      meetCloseRate,metLeads,metAndClosed,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages]);
 }
 
 /* ===================== DASHBOARD ===================== */
 /* ===================== FOLLOW-UP ===================== */
-function FollowUp({leads,stages,open,updateLead}){
+function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPools}){
   const [leaving,setLeaving]=useState({});
   const [cleared,setCleared]=useState(0);
   const t=todayISO();
-  const due=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<=0).sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
+  const canAll=!rep&&teamAccess(settings,me)==='all';
+  const [view,setView]=useState('mine');
+  useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
+  const isDue=l=>l.followUp&&daysUntil(l.followUp)<=0;
+  const counts={mine:leads.filter(l=>isDue(l)&&l.owner===me).length,pool:leads.filter(l=>isDue(l)&&isPoolLead(l,rep?myPools:null)).length,all:leads.filter(isDue).length};
+  const due=scopeLeads(leads,view,me,rep?myPools:null).filter(isDue).sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
   const ids=due.map(l=>l.id);
   const overdue=due.filter(l=>daysUntil(l.followUp)<0);
   const today=due.filter(l=>daysUntil(l.followUp)===0);
   const remaining=due.length;
   const total=remaining+cleared;
   const pct=total?Math.round(cleared/total*100):0;
-  const reschedule=(l,date)=>{ if(leaving[l.id]||!date)return; setLeaving(s=>({...s,[l.id]:true})); setCleared(c=>c+1); setTimeout(()=>updateLead(l.id,{followUp:date}),430); };
+  /* FUB-style: the note lives with the date. Clearing a follow-up auto-logs the
+     old note to the activity feed, then asks for the next date + next note. */
+  const [pending,setPending]=useState(null); // {id,date,note}
+  const startNext=(l,date)=>{ if(leaving[l.id]||!date)return; setPending({id:l.id,date,note:''}); };
+  const confirmNext=l=>{
+    const p=pending; if(!p||p.id!==l.id)return;
+    const old=(l.nextSteps||'').trim();
+    const onTime=l.followUp?daysUntil(l.followUp)>=0:true;
+    if(addActivity) addActivity(l.id,'Note',old?`Follow-up done — ${old}`:'Follow-up cleared.',me,{fuOnTime:onTime});
+    setPending(null);
+    setLeaving(s=>({...s,[l.id]:true})); setCleared(c=>c+1);
+    setTimeout(()=>updateLead(l.id,{followUp:p.date,nextSteps:p.note.trim()}),430);
+  };
   const QUICK=[['Tomorrow',1],['+3 days',3],['Next week',7],['+2 weeks',14]];
   const Card=({l})=>{ const d=daysUntil(l.followUp); const od=d<0; const lv=!!leaving[l.id];
     const lastTouch=(l.activities||[]).find(a=>a.type&&a.type!=='Note');
-    return (<div className={'fu-card'+(od?' od':'')+(lv?' leaving':'')} onClick={()=>!lv&&open(l.id,ids)}>
+    const pend=pending&&pending.id===l.id?pending:null;
+    return (<div key={l.id} className={'fu-card'+(od?' od':'')+(lv?' leaving':'')} onClick={()=>!lv&&!pend&&open(l.id,ids)}>
       <div className="fu-top">
         <div style={{minWidth:0}}><div className="fu-name">{l.name||'(no name)'}</div><div className="subcell">{l.company||l.businessType||'—'}</div></div>
         <span className={'badge '+(od?'inv-overdue':'inv-sent')}>{od?Math.abs(d)+'d overdue':'Due today'}</span>
       </div>
+      {view!=='mine'&&<div className="fu-owner">{isPoolLead(l,rep?myPools:null)?<button className="claim-btn" onClick={e=>{e.stopPropagation();updateLead(l.id,{owner:me});}}><UserCheck size={13}/>Claim</button>:<span className="own-badge">{l.owner||'—'}</span>}</div>}
+      {l.nextSteps?<div className="fu-plan"><StickyNote size={13}/><span>{l.nextSteps}</span></div>:null}
       <div className="fu-meta">{l.nextAction||'Follow up'}{lastTouch?' · last touch '+fmtDate(lastTouch.ts):''}</div>
       <div className="fu-act" onClick={e=>e.stopPropagation()}>
-        <div className="fu-quick">
-          {l.phone&&<a className="fu-ic" href={'tel:'+l.phone} title="Call"><Phone size={15}/></a>}
-          {l.phone&&<a className="fu-ic" href={'sms:'+l.phone} title="Text"><MessageSquare size={15}/></a>}
-          {l.email&&<a className="fu-ic" href={'mailto:'+l.email} title="Email"><Mail size={15}/></a>}
-          {!l.phone&&!l.email&&<span className="subcell" style={{fontSize:11}}>no contact info</span>}
-        </div>
-        <div className="fu-chips">
-          {QUICK.map(([lbl,n])=><button key={lbl} className="fu-chip" onClick={()=>reschedule(l,addDays(t,n))}>{lbl}</button>)}
-          <label className="fu-chip fu-date" title="Pick a date"><CalendarClock size={13}/><input type="date" min={t} onClick={e=>e.stopPropagation()} onChange={e=>reschedule(l,e.target.value)}/></label>
-        </div>
+        {pend?(<div className="fu-next">
+          <div className="fu-next-h"><CheckCircle2 size={13} color={GREEN}/>Next follow-up <b>{fmtDate(pend.date)}</b></div>
+          <textarea className="fu-note" rows={2} autoFocus placeholder="What's the plan for next time? (optional)" value={pend.note} onChange={e=>setPending({...pend,note:e.target.value})} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))confirmNext(l);}}/>
+          <div className="fu-next-b">
+            <button className="btn btn-p btn-sm" onClick={()=>confirmNext(l)}><CheckCircle2 size={14}/>Save &amp; clear</button>
+            <button className="btn btn-g btn-sm" onClick={()=>setPending(null)}>Cancel</button>
+            {(l.nextSteps||'').trim()&&<span className="fu-next-note">Old note gets logged to activity</span>}
+          </div>
+        </div>):(<>
+          <div className="fu-quick">
+            {l.phone&&<a className="fu-ic" href={'tel:'+l.phone} title="Call"><Phone size={15}/></a>}
+            {l.phone&&<a className="fu-ic" href={'sms:'+l.phone} title="Text"><MessageSquare size={15}/></a>}
+            {l.email&&<a className="fu-ic" href={'mailto:'+l.email} title="Email"><Mail size={15}/></a>}
+            {!l.phone&&!l.email&&<span className="subcell" style={{fontSize:11}}>no contact info</span>}
+          </div>
+          <div className="fu-chips">
+            {QUICK.map(([lbl,n])=><button key={lbl} className="fu-chip" onClick={()=>startNext(l,addDays(t,n))}>{lbl}</button>)}
+            <label className="fu-chip fu-date" title="Pick a date"><CalendarClock size={13}/><input type="date" min={t} onClick={e=>e.stopPropagation()} onChange={e=>startNext(l,e.target.value)}/></label>
+          </div>
+        </>)}
       </div>
     </div>);
   };
-  if(!due.length){ return (<div className="fu-done">
+  const Scope=()=>(<div className="fu-scope"><ScopeSeg view={view} setView={setView} counts={counts} canAll={canAll}/></div>);
+  if(!due.length){ return (<><Scope/><div className="fu-done">
     <div className="fu-done-burst"><Sparkles size={20} className="s1"/><Sparkles size={14} className="s2"/><Sparkles size={16} className="s3"/><div className="fu-done-ring"><CheckCircle2 size={54} color={GREEN}/></div></div>
-    <h2>{cleared>0?'Inbox zero. Nice work.':'All caught up'}</h2>
-    <p>{cleared>0?`You cleared ${cleared} follow-up${cleared>1?'s':''} today — every lead's been handled.`:'Nothing is due or overdue right now. Set follow-up dates on your leads and they\u2019ll show up here the day they\u2019re due.'}</p>
-  </div>); }
+    <h2>{cleared>0?'Inbox zero. Nice work.':view==='mine'?'You\u2019re all caught up':view==='pool'?'Nothing waiting in the pool':'All caught up'}</h2>
+    <p>{cleared>0?`You cleared ${cleared} follow-up${cleared>1?'s':''} today — every lead's been handled.`:view==='mine'?(counts.pool>0?`Nothing of yours is due. There ${counts.pool===1?'is':'are'} ${counts.pool} unclaimed follow-up${counts.pool>1?'s':''} in the pool.`:(counts.all>0&&canAll?'Nothing of yours is due — switch to All to see the team\u2019s.':'Nothing is due or overdue right now.')):'Nothing is due or overdue right now. Set follow-up dates on your leads and they\u2019ll show up here the day they\u2019re due.'}</p>
+  </div></>); }
   return (<>
+    <Scope/>
     <div className="fu-hero">
       <div className="fu-hero-l"><div className="fu-hero-n">{remaining}</div><div className="fu-hero-lbl">lead{remaining>1?'s':''} to clear</div></div>
       <div className="fu-hero-stats">
@@ -796,23 +2392,336 @@ function FollowUp({leads,stages,open,updateLead}){
       </div>
       <div className="fu-ring" style={{'--p':pct}}><span>{pct}%</span></div>
     </div>
-    {overdue.length>0&&<><div className="fu-band od"><AlertTriangle size={14}/>Overdue · {overdue.length}</div><div className="fu-grid">{overdue.map(l=><Card key={l.id} l={l}/>)}</div></>}
-    {today.length>0&&<><div className="fu-band"><CalendarClock size={14}/>Due Today · {today.length}</div><div className="fu-grid">{today.map(l=><Card key={l.id} l={l}/>)}</div></>}
+    {overdue.length>0&&<><div className="fu-band od"><AlertTriangle size={14}/>Overdue · {overdue.length}</div><div className="fu-grid">{overdue.map(l=>Card({l}))}</div></>}
+    {today.length>0&&<><div className="fu-band"><CalendarClock size={14}/>Due Today · {today.length}</div><div className="fu-grid">{today.map(l=>Card({l}))}</div></>}
   </>);
 }
 
-function Dashboard({leads,stages,open}){
+/* One Dashboard, two audiences. Owners get everything they had before; a rep
+   gets their own world — no company pipeline, no MRR, no owner numbers. Every
+   hook is declared before the role branch so the hook order never changes. */
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
+  const G=goalsOf(settings);
   const m=useMetrics(leads,stages);
+  const [drill,setDrill]=useState(null);
+  const [scope,setScope]=useState('month');   // time filter across meeting tabs
+  const [mtab,setMtab]=useState('upcoming'); // upcoming | completed | noshow | needs
+  const tog=k=>{ setDrill(d=>d===k?null:k); };
+  const mKey=todayISO().slice(0,7);
+
+  if(rep){
+    const mine=myCommissions(leads,myUid);
+    const conv=leads.filter(l=>l.isClient&&l.convertedAt);
+    const convMonth=conv.filter(l=>String(l.convertedAt).slice(0,7)===mKey);
+    const worked=leads.filter(l=>(l.activities||[]).some(a=>REAL_TOUCH(a)&&isoOf(new Date(a.ts)).slice(0,7)===mKey)).length;
+    const goal=num(myUser&&myUser.goal_conversions);
+    const ranked=[...(board||[])].sort((a,b)=>(b.month-a.month)||String(a.name||'').localeCompare(String(b.name||'')));
+    const myRank=ranked.findIndex(r=>r.id===myUid)+1;
+    const ahead=myRank>1?ranked[myRank-2]:null;
+    const openMine=leads.filter(l=>sOf(l.stage,stages).open);
+    const fu=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
+    return (<>
+      <div className="kgroup">Your commission</div>
+      <div className="cmsn-hero">
+        <div className="cmsn-main">
+          <div className="cmsn-l">Pending</div>
+          <div className="cmsn-v"><CountUp value={mine.pending} format={v=>usd(v)}/></div>
+          <div className="cmsn-d">{mine.rows.filter(r=>r.c.status==='pending').length} client{mine.rows.filter(r=>r.c.status==='pending').length===1?'':'s'} awaiting owner approval</div>
+        </div>
+        <div className="cmsn-main earned">
+          <div className="cmsn-l">Earned</div>
+          <div className="cmsn-v"><CountUp value={mine.earned} format={v=>usd(v)}/></div>
+          <div className="cmsn-d">approved — this is real money</div>
+        </div>
+      </div>
+      <div className="kgroup">This month at a glance</div>
+      <div className="kgrid">
+        <Kpi variant="green" label="Clients Converted" value={<CountUp value={convMonth.length}/>} icon={<UserCheck size={14}/>} d={`${conv.length} all time`} goal={goal} current={convMonth.length}/>
+        <Kpi label="Meetings Booked" value={<CountUp value={m.bookedMonth}/>} icon={<CalendarCheck size={14}/>} d={`${m.mtgUpcoming} upcoming`}/>
+        <Kpi label="Leads Worked" value={<CountUp value={worked}/>} icon={<Zap size={14}/>} d={`${openMine.length} open right now`}/>
+        <Kpi label="Follow-Ups Due" value={m.overdue.length+m.dueWeek.length} icon={<Bell size={14}/>} d={m.overdue.length?`${m.overdue.length} overdue`:'nothing overdue'} onClick={()=>tog('fu')} active={drill==='fu'}/>
+      </div>
+      {drill==='fu'&&<Drill title="Follow-ups due" sub={`${m.overdue.length} overdue`} onClose={()=>setDrill(null)}>
+        {fu.length?fu.map(l=>(<div className="drow" key={l.id}>
+          <div className="drow-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span><div className="subcell">{l.nextSteps||l.nextAction||'follow up'}</div></div>
+          <Due iso={l.followUp}/>
+        </div>)):<div className="empty" style={{padding:'18px 4px'}}>Nothing due — you're clear.</div>}
+      </Drill>}
+      <div className="row r2">
+        <div className="card lift">
+          <div className="sec-title" style={{margin:'0 0 4px'}}><Trophy size={15}/>Your rank</div>
+          {myRank>0?(<>
+            <div className="rank-big">#{myRank}<span> of {ranked.length}</span></div>
+            <div className="ch-sub" style={{marginBottom:12}}>{myRank===1?'Top of the board this month. Hold it.':ahead?`${Math.max(1,ahead.month-(ranked[myRank-1]?.month||0))} more client${Math.max(1,ahead.month-(ranked[myRank-1]?.month||0))===1?'':'s'} to pass ${ahead.name}.`:'Convert a client to get on the board.'}</div>
+            <button className="btn btn-g btn-sm" onClick={goBoard}><Trophy size={14}/>See the leaderboard</button>
+          </>):<div className="empty" style={{padding:'14px 0'}}>The leaderboard turns on once you're set up as a rep.</div>}
+        </div>
+        <div className="card">
+          <div className="sec-title" style={{margin:'0 0 12px'}}><DollarSign size={15}/>Your clients</div>
+          {mine.rows.length?mine.rows.slice(0,8).map(({l,c})=>(<div className="drow" key={l.id}>
+            <div className="drow-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span><div className="subcell">{fmtDate(String(c.convertedAt).slice(0,10))} · {(CMSN_STATE[c.status]||CMSN_STATE.pending).label}</div></div>
+            <span className="drow-v" style={{color:(CMSN_STATE[c.status]||CMSN_STATE.pending).color}}>{usd(c.amount)}</span>
+          </div>)):<div className="empty" style={{padding:'14px 0'}}>Convert your first client and your commission shows up here.</div>}
+        </div>
+      </div>
+    </>);
+  }
+  /* ---- owners from here down: the full board, unchanged ---- */
+  const alerted=leads.filter(l=>l.onboardingAlert).sort((a,b)=>String(b.onboardingAlert.at||'').localeCompare(String(a.onboardingAlert.at||'')));
+  const awaiting=alerted.filter(l=>!l.onboardingAlert.ack);
+  const handled=alerted.filter(l=>l.onboardingAlert.ack).slice(0,12);
+  /* commissions sitting on an owner's desk */
+  const pendingCmsn=leads.map(l=>({l,c:cmsnOf(l)})).filter(r=>r.c&&r.c.status==='pending')
+    .sort((a,b)=>String(b.c.convertedAt||'').localeCompare(String(a.c.convertedAt||'')));
+  const pendingTotal=pendingCmsn.reduce((a,r)=>a+num(r.c.amount),0);
+  /* per-rep scorecard: what each person actually did this month */
+  const scorecard=(team||[]).filter(u=>u.role==='rep'&&u.active!==false).map(u=>{
+    const mine=leads.filter(l=>l.owner_id===u.id||l.owner===u.name);
+    const touches=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>REAL_TOUCH(x)&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
+    const booked=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>x.type==='Booked'&&bookingLive(l,x)&&x.ts&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
+    const conv=mine.filter(l=>l.isClient&&String(l.convertedAt||'').slice(0,7)===mKey).length;
+    const openL=mine.filter(l=>sOf(l.stage,stages).open);
+    const pipe=openL.reduce((a,l)=>a+num(l.dealValue),0);
+    const cm=mine.map(cmsnOf).filter(c=>c&&c.repId===u.id&&c.status!=='void');
+    const owed=cm.filter(c=>c.status==='earned').reduce((a,c)=>a+num(c.amount),0);
+    const pend=cm.filter(c=>c.status==='pending').reduce((a,c)=>a+num(c.amount),0);
+    const last=mine.flatMap(l=>(l.activities||[]).filter(REAL_TOUCH).map(x=>x.ts)).sort().pop();
+    return {u,touches,booked,conv,open:openL.length,pipe,owed,pend,last};
+  }).sort((a,b)=>b.conv-a.conv||b.touches-a.touches);
+  const openLeads=leads.filter(l=>sOf(l.stage,stages).open).sort((a,b)=>num(b.dealValue)-num(a.dealValue));
+  const wonLeads=leads.filter(l=>sOf(l.stage,stages).won).sort((a,b)=>(b.closedAt||'').localeCompare(a.closedAt||''));
+  const retLeads=leads.filter(l=>l.retainerActive).sort((a,b)=>num(b.retainer)-num(a.retainer));
+  const onboardedLeads=leads.filter(l=>l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey);
+  const cold=coldList(rels||[]);
+  /* one flat list of every meeting, filtered by the active tab + time scope */
+  /* which month key a tab is scoped by. Anything that hasn't happened yet is
+     scoped by when it was BOOKED, or a meeting you booked today for next month
+     disappears from the view you booked it in. Anything in the past is scoped by
+     when it happened, which is what "held this month" has to mean. */
+  const scopeKeyFor=(tab,mt)=>(tab==='upcoming'||tab==='undated')?bookingMonthKey(mt):meetingMonthKey(mt);
+  const meetingRows=(()=>{ let rows=allMeetings(leads);
+    if(scope==='month') rows=rows.filter(r=>scopeKeyFor(mtab,r.m)===mKey);
+    if(mtab==='upcoming') rows=rows.filter(r=>isUpcoming(r.m));
+    else if(mtab==='completed') rows=rows.filter(r=>r.m.status==='held');
+    else if(mtab==='noshow') rows=rows.filter(r=>r.m.status==='noshow');
+    else if(mtab==='needs') rows=rows.filter(r=>needsStatus(r.m));
+    else if(mtab==='undated') rows=rows.filter(r=>needsDate(r.m));
+    const dir=mtab==='upcoming'?1:-1;   // upcoming soonest-first, history newest-first
+    return rows.sort((a,b)=>dir*((a.m.start||'').localeCompare(b.m.start||''))); })();
+  const mtabCounts=(()=>{ const rows=allMeetings(leads);
+    const inScope=(tab,r)=>scope!=='month'||scopeKeyFor(tab,r.m)===mKey;
+    return { upcoming:rows.filter(r=>inScope('upcoming',r)&&isUpcoming(r.m)).length,
+             completed:rows.filter(r=>inScope('completed',r)&&r.m.status==='held').length,
+             noshow:rows.filter(r=>inScope('noshow',r)&&r.m.status==='noshow').length,
+             needs:rows.filter(r=>inScope('needs',r)&&needsStatus(r.m)).length,
+             undated:rows.filter(r=>inScope('undated',r)&&needsDate(r.m)).length }; })();
+  const Name=({l})=><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>;
+  const Empty=({t})=><div className="empty" style={{padding:'18px 4px'}}>{t}</div>;
   const stageData=stages.filter(s=>s.open).map(s=>({name:s.label,Leads:m.byStage[s.key]?.count||0,color:s.color}));
   const revMix=[{name:'Closed Setup',value:m.wonValue},{name:'Annual MRR',value:m.mrr*12}].filter(d=>d.value>0);
   const followUps=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
   return (<>
+    {awaiting.length>0&&<div className="onb-q">
+      <div className="onb-h"><Rocket size={15}/><b>Awaiting onboarding</b><span>{awaiting.length} newly converted client{awaiting.length===1?'':'s'}</span></div>
+      {awaiting.map(l=>(<div className="onb-row" key={l.id}>
+        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
+          <div className="subcell">{l.onboardingAlert.repName||'A rep'} converted {fmtDate(String(l.onboardingAlert.at||'').slice(0,10))} — start onboarding.</div></div>
+        <button className="btn btn-g btn-sm" onClick={()=>ack&&ack(l.id)}><CheckCircle2 size={14}/>Got it</button>
+      </div>))}
+    </div>}
+    {handled.length>0&&<div className="onb-q done">
+      <div className="onb-h" onClick={()=>tog('handled')} style={{cursor:'pointer'}}><CheckCircle2 size={15}/><b>Handled conversions</b>
+        <span>{handled.length} acknowledged · tap to {drill==='handled'?'hide':'see'}</span></div>
+      {drill==='handled'&&handled.map(l=>(<div className="onb-row" key={l.id}>
+        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
+          <div className="subcell">{l.onboardingAlert.repName||'A rep'} · converted {fmtDate(String(l.onboardingAlert.at||'').slice(0,10))}{l.onboardingAlert.ackBy?` · cleared by ${l.onboardingAlert.ackBy}`:''}</div></div>
+      </div>))}
+    </div>}
+    {pendingCmsn.length>0&&<div className="onb-q cmsn">
+      <div className="onb-h"><Percent size={15}/><b>Commissions waiting on you</b><span>{pendingCmsn.length} · {usd(pendingTotal)} total</span></div>
+      {pendingCmsn.map(({l,c})=>(<div className="onb-row" key={l.id}>
+        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
+          <div className="subcell">{c.repName||'Rep'} · {num(c.pct)}% of {usd(c.base)}{l.dealValueBy?` · value entered by ${l.dealValueBy}`:''}</div></div>
+        <span className="drow-v" style={{color:GOLD}}>{usd(c.amount)}</span>
+        {approve&&<button className="btn btn-p btn-sm" onClick={()=>approve(l.id,{status:'earned'})}><BadgeCheck size={14}/>Approve</button>}
+      </div>))}
+    </div>}
+    {scorecard.length>0&&<div className="card" style={{marginBottom:20}}>
+      <div className="sec-title" style={{margin:'0 0 4px'}}><Users size={15}/>The team this month</div>
+      <div className="ch-sub" style={{marginBottom:12}}>Every rep, what they've done since the 1st. Tap a name to see their activity.</div>
+      <div className="tbl-wrap"><table className="tbl sc"><thead><tr>
+        <th>Rep</th><th>Touches</th><th>Booked</th><th>Converted</th><th>Open</th><th>Their pipeline</th><th>Commission</th><th>Last touch</th>
+      </tr></thead><tbody>
+        {scorecard.map(r=>{ const cold=r.last?daysSince(r.last):null;
+          return (<tr key={r.u.id}>
+            <td><div className="namecell">{r.u.name}</div><div className="subcell">{num(r.u.commission_pct)}%</div></td>
+            <td>{r.touches}</td><td>{r.booked}</td>
+            <td><b style={{color:r.conv>0?GREEN:'#8E89A8'}}>{r.conv}</b></td>
+            <td>{r.open}</td><td>{usd(r.pipe)}</td>
+            <td><span style={{color:GOLD}}>{usd(r.pend)}</span> pending · {usd(r.owed)} earned</td>
+            <td>{cold==null?<span className="subcell">never</span>:<span style={{color:cold>7?RED:cold>3?'#C05A1E':'#5A5680',fontWeight:600}}>{cold===0?'today':cold+'d ago'}</span>}</td>
+          </tr>); })}
+      </tbody></table></div>
+    </div>}
+    <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
-      <Kpi variant="accent" label="Open Pipeline" value={usd(m.openValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} active leads`}/>
-      <Kpi label="Weighted Forecast" value={usd(m.weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
-      <Kpi variant="green" label="Deals Closed" value={m.wonCount} icon={<CheckCircle2 size={14}/>} d={`${usd(m.wonValue)} setup`}/>
-      <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`}/>
+      <Kpi variant="accent" label="Open Pipeline" value={usd(m.openValue)} icon={<KanbanSquare size={14}/>} d={G.revenue>0?`${m.openCount} leads · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:`${m.openCount} active leads`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
+      <Kpi label="Revenue Closed" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={G.revenue>0?"setup closed this month":"weighted forecast"} onClick={()=>tog('won')} active={drill==='won'} goal={G.revenue} current={m.revenueMonth}/>
+      <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.revenueMonth)} setup`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
+      <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
+    <div className="kgroup">Activity &amp; health</div>
+    <div className="kgrid">
+      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming${m.needsDateCount>0?` · ${m.needsDateCount} need a date`:''} · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
+      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
+      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
+      <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
+      <Kpi label="Follow-Up Health" value={m.fuRate==null?'—':Math.round(m.fuRate*100)+'%'} icon={<Bell size={14}/>} d={m.overdue.length>0?`${m.overdue.length} overdue right now`:(m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time`:'clear a follow-up to start')} onClick={()=>tog('fu')} active={drill==='fu'}/>
+      <Kpi label="Going Cold" value={cold.length} icon={<Users size={14}/>} d={cold.length>0?`${cold.filter(x=>x.tier==='champion').length} champion${cold.filter(x=>x.tier==='champion').length===1?'':'s'} need a touch`:'everyone is warm'} onClick={()=>tog('cold')} active={drill==='cold'}/>
+    </div>
+
+    {drill==='pipeline'&&<Drill title="Open pipeline" sub={`${openLeads.length} active`} onClose={()=>setDrill(null)}>
+      {openLeads.length?openLeads.map(l=>(<div className="drow" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">{sOf(l.stage,stages).label}{l.followUp?` · follow-up ${fmtDate(l.followUp)}`:''}</div></div>
+        <span className="drow-v">{num(l.dealValue)>0?usd(l.dealValue):'—'}</span>
+      </div>)):<Empty t="No open leads."/>}
+    </Drill>}
+
+    {drill==='won'&&<Drill title="Deals closed" sub={usd(m.wonValue)+' total'} onClose={()=>setDrill(null)}>
+      {wonLeads.length?wonLeads.map(l=>(<div className="drow" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">{l.closedAt?`closed ${fmtDate(l.closedAt)}`:'—'}{l.owner?` · ${l.owner}`:''}</div></div>
+        <span className="drow-v">{usd(l.dealValue)}</span>
+      </div>)):<Empty t="No closed deals yet."/>}
+    </Drill>}
+
+    {drill==='mrr'&&<Drill title="Retainer clients" sub={usd(m.mrr)+'/mo'} onClose={()=>setDrill(null)}>
+      {retLeads.length?retLeads.map(l=>(<div className="drow" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">{l.retainerStart?`since ${fmtDate(l.retainerStart)}`:'active'}</div></div>
+        <span className="drow-v">{usd(l.retainer)}/mo</span>
+      </div>)):<Empty t="No active retainers."/>}
+    </Drill>}
+
+    {(drill==='booked'||drill==='held')&&<Drill title="Meetings" sub={`${mtabCounts.upcoming} upcoming · ${mtabCounts.completed} held · ${mtabCounts.noshow} no-show`} onClose={()=>setDrill(null)}>
+      <div className="mtabs">
+        {[['upcoming','Upcoming'],['completed','Completed'],['noshow','No-shows'],['needs','Needs status'],['undated','Needs a date']].map(([k,label])=>(
+          <button key={k} className={'mtab'+(mtab===k?' on':'')+(k==='needs'&&mtabCounts.needs>0?' alert':'')+(k==='undated'&&mtabCounts.undated>0?' undated':'')} onClick={()=>setMtab(k)}>
+            {label}<span className="mtab-n">{mtabCounts[k]}</span>
+          </button>))}
+        <div className="mtab-time">
+          <button className={scope==='month'?'on':''} onClick={()=>setScope('month')}>This month</button>
+          <button className={scope==='all'?'on':''} onClick={()=>setScope('all')}>All time</button>
+        </div>
+      </div>
+      {meetingRows.length?meetingRows.map(({lead,m:mt})=>(<div className={'drow mtg-drow'+(mt.status==='held'?' held':'')+(mt.status==='noshow'?' noshow':'')+(needsStatus(mt)?' needs':'')+(needsDate(mt)?' undated':'')} key={mt.id}>
+        <div className="drow-m"><Name l={lead}/><div className="subcell">
+          {needsDate(mt)
+            ? <>logged {fmtDate(mt.createdAt||mt.start)}<span className="mtg-undated"> · no date set</span></>
+            : <>{fmtMeetingTime?fmtMeetingTime(mt.start):fmtDate(mt.start)}{mt.who?` · ${mt.who}`:''}</>}
+          {needsStatus(mt)&&<span className="mtg-flag"> · did this happen?</span>}
+        </div></div>
+        {needsDate(mt)&&<DateFix onSet={(v,mins)=>setMeetingTime&&setMeetingTime(lead.id,mt.id,v,mins)}/>}
+        <select className={'mtg-type'+(mt.mtype?'':' unset')} value={mt.mtype||''} onChange={e=>tagMeetingType&&tagMeetingType(lead.id,mt.id,e.target.value)}>
+          <option value="">+ type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+        {!needsDate(mt)&&<div className="mtg-status">
+          <button className={'ms-b held'+(mt.status==='held'?' on':'')} title="It happened" onClick={()=>setMeetingStatus&&setMeetingStatus(lead.id,mt.id,'held')}><CheckCircle2 size={12}/>Held</button>
+          <button className={'ms-b no'+(mt.status==='noshow'?' on':'')} title="They didn't show" onClick={()=>setMeetingStatus&&setMeetingStatus(lead.id,mt.id,'noshow')}><X size={12}/>No-show</button>
+        </div>}
+      </div>)):<Empty t={mtab==='upcoming'?'No upcoming meetings.':mtab==='needs'?'Nothing waiting on a status. Clean.':mtab==='undated'?'Every meeting has a real date on it.':mtab==='noshow'?'No no-shows. Nice.':'Nothing here yet.'}/>}
+    </Drill>}
+
+    {drill==='speed'&&<Drill title="Speed to first touch" sub={m.firstTouch!=null?`median ${fmtHrs(m.firstTouch)}`:'no touches yet'} onClose={()=>setDrill(null)}>
+      {(()=>{ const rows=leads.map(l=>({l,h:firstTouchHrs(l)}))
+          .filter(r=>r.h!=null||!(r.l.activities||[]).some(REAL_TOUCH))
+          .sort((a,b)=>(a.h==null?-1:1)-(b.h==null?-1:1)||((b.h||0)-(a.h||0)));
+        return rows.length?rows.map(({l,h})=>(<div className={'drow'+(h==null?' untyped':'')} key={l.id}>
+          <div className="drow-m"><Name l={l}/><div className="subcell">{h==null?'never contacted':`added ${fmtDate(l.createdAt)}`}</div></div>
+          <span className="drow-v">{h==null?'—':fmtHrs(h)}</span>
+        </div>)):<Empty t="No leads yet."/>; })()}
+    </Drill>}
+
+    {drill==='fu'&&<Drill title="Follow-ups overdue" sub={m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time this month`:'tracking starts as you clear them'} onClose={()=>setDrill(null)}>
+      {m.overdue.length?[...m.overdue].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).map(l=>(<div className="drow untyped" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">{l.nextSteps||l.nextAction||'follow up'}</div></div>
+        <span className="drow-v" style={{color:RED}}>{Math.abs(daysUntil(l.followUp))}d late</span>
+      </div>)):<Empty t="Nothing overdue — you're clear."/>}
+    </Drill>}
+
+    {drill==='cold'&&<Drill title="Relationships going cold" sub={`champions ${COLD_DAYS.champion}d · b tier ${COLD_DAYS.b}d · new ${COLD_DAYS.new}d`} onClose={()=>setDrill(null)}>
+      {cold.length?cold.map(({r,tier,days,limit})=>(<div className={'drow'+(tier==='champion'?' untyped':'')} key={r.id}>
+        <div className="drow-m"><Name l={r}/><div className="subcell">{tierMeta(tier)[1]} · last touch {days>=9999?'never':fmtDate(lastTouchTs(r))}</div></div>
+        <span className="drow-v" style={{color:days>limit*2?RED:'#C05A1E'}}>{days>=9999?'never':days+'d ago'}</span>
+      </div>)):<Empty t="Everyone's been touched recently. Nice."/>}
+    </Drill>}
+
+    {drill==='onboarded'&&<Drill title="Clients onboarded this month" sub={`${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClose={()=>setDrill(null)}>
+      {onboardedLeads.length?onboardedLeads.map(l=>{ const st=onboardingStat(l); const dep=normEntry((l.onboarding||{}).deposit_paid).done;
+        return (<div className="drow" key={l.id}>
+          <div className="drow-m"><Name l={l}/><div className="subcell">since {fmtDate(l.convertedAt)} · {st.done}/{st.total} onboarding{dep?` · deposit ${fmtDate(dep)}`:' · no deposit yet'}</div></div>
+          <span className="drow-v">{l.retainerActive?usd(l.retainer)+'/mo':'—'}</span>
+        </div>); }):<Empty t="No clients onboarded this month."/>}
+    </Drill>}
+
+    {Object.keys(m.bookedByType||{}).length>0&&<div className="mt-break">
+      <span className="mtb-l">Booked this month</span>
+      {Object.entries(m.bookedByType).sort((a,b)=>b[1]-a[1]).map(([t,c])=><span key={t} className="mtb"><b>{c}</b>{t}</span>)}
+    </div>}
+    {m.funnel.length>1&&<div className="card" style={{marginBottom:18}}>
+      <h3>Conversion funnel</h3>
+      <div className="ch-sub">How far leads get, and the share of each stage that ultimately closes</div>
+      <div className="funnel">
+        <div className="fn-row fn-head"><span className="fn-l"></span><span></span><span className="fn-c">count</span><span className="fn-r">step</span><span className="fn-r">→ close</span></div>
+        {m.funnel.map((f,i)=>{ const top=m.funnel[0].count||1;
+        return (<div className="fn-row" key={f.key}>
+          <span className="fn-l">{f.label}</span>
+          <div className="fn-bar"><div style={{width:Math.max(2,Math.round(f.count/top*100))+'%',background:f.color||COBALT}}/></div>
+          <span className="fn-c">{f.count}</span>
+          <span className="fn-r">{i===0?'—':Math.round(f.rate*100)+'%'}</span>
+          <span className={'fn-r close'+(i>0&&f.closeRate<0.5?' warn':'')}>{i===m.funnel.length-1?'—':Math.round(f.closeRate*100)+'%'}</span>
+        </div>); })}</div>
+    </div>}
+
+    {/* higher-order sales analytics — the numbers a sales leader actually runs on */}
+    <div className="kgroup">Sales analytics</div>
+    <div className="an-grid">
+      <div className="an-card"><div className="an-l">Meeting → Close</div><div className="an-v">{m.metLeads?Math.round(m.meetCloseRate*100)+'%':'—'}</div><div className="an-d">{m.metAndClosed} of {m.metLeads} you met with closed</div></div>
+      <div className="an-card"><div className="an-l">Show Rate</div><div className="an-v">{(m.heldAll+m.noShowAll)?Math.round(m.showRate*100)+'%':'—'}</div><div className="an-d">{m.noShowAll} no-show{m.noShowAll===1?'':'s'} all time</div></div>
+      <div className="an-card"><div className="an-l">Avg Days to Close</div><div className="an-v">{m.avgDaysToClose==null?'—':m.avgDaysToClose+'d'}</div><div className="an-d">lead created → converted</div></div>
+      <div className="an-card"><div className="an-l">Win Rate</div><div className="an-v">{(m.wonCount+m.lostCount)?Math.round(m.winRate*100)+'%':'—'}</div><div className="an-d">of decided deals ({m.wonCount}W · {m.lostCount}L)</div></div>
+      <div className={'an-card'+(m.rotting>0?' warn':'')}><div className="an-l">Pipeline Moving</div><div className="an-v">{m.openCount?Math.round(m.movingPct*100)+'%':'—'}</div><div className="an-d">{m.rotting} deal{m.rotting===1?'':'s'} cold 14+ days</div></div>
+      <div className="an-card"><div className="an-l">Avg Deal Size</div><div className="an-v">{m.avgDeal?usd(m.avgDeal):'—'}</div><div className="an-d">across {m.wonCount} closed</div></div>
+    </div>
+    {m.sourceROI.length>0&&<div className="card" style={{marginBottom:18}}>
+      <h3>Lead source ROI</h3>
+      <div className="ch-sub">Which sources actually close — spend your time where the money is</div>
+      <div className="src-list">
+        <div className="src-row src-head"><span>Source</span><span>Leads</span><span>Closed</span><span>Rate</span><span>Value</span></div>
+        {m.sourceROI.map(s=>(<div className="src-row" key={s.source}>
+          <span className="src-name">{s.source}</span><span>{s.total}</span><span>{s.won}</span>
+          <span className={s.total>=3&&s.rate<0.15?'src-lo':s.rate>=0.4?'src-hi':''}>{Math.round(s.rate*100)}%</span>
+          <span>{s.value?usd(s.value):'—'}</span>
+        </div>))}
+      </div>
+    </div>}
+
+    {m.byClient&&m.byClient.length>0&&<div className="card" style={{marginBottom:18}}>
+      <h3>Revenue by client</h3>
+      <div className="ch-sub">Lifetime booked value per client — your biggest relationships first</div>
+      <div className="rbc-list">
+        {(()=>{ const top=m.byClient[0].lifetime||1; return m.byClient.slice(0,12).map(cl=>(
+          <div className="rbc-row" key={cl.id} onClick={()=>open(cl.id)}>
+            <div className="rbc-m">
+              <span className="rbc-name">{cl.name}</span>
+              {cl.deals>1&&<span className="rbc-deals">{cl.deals} deals</span>}
+              {cl.mrr>0&&<span className="rbc-mrr">{usd(cl.mrr)}/mo</span>}
+            </div>
+            <div className="rbc-bar"><div style={{width:Math.max(3,Math.round(cl.lifetime/top*100))+'%'}}/></div>
+            <span className="rbc-v">{usd(cl.lifetime)}</span>
+          </div>)); })()}
+      </div>
+      {m.byClient.length>12&&<div className="rbc-more">+ {m.byClient.length-12} more clients</div>}
+    </div>}
+
     <div className="row r3">
       <ChartCard title="Pipeline by Stage" sub="Open leads only" empty={stageData.some(d=>d.Leads>0)?null:'No open leads yet.'}>
         <div className="chart-h"><ResponsiveContainer width="100%" height="100%"><BarChart data={stageData} margin={{top:6,right:10,left:-12,bottom:0}}>
@@ -838,7 +2747,8 @@ function Dashboard({leads,stages,open}){
 }
 
 /* ===================== PIPELINE (cleaner kanban) ===================== */
-function Pipeline({leads,stages,open,updateLead}){
+function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,rep}){
+  const [board,setBoard]=useState('leads');
   const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);const [expanded,setExpanded]=useState({});
   const drop=stage=>{if(dragId)updateLead(dragId,{stage});setDragId(null);setOver(null);};
   const move=(l,dir)=>{const i=sIdx(l.stage,stages);const j=i+dir;if(j<0||j>=stages.length)return;updateLead(l.id,{stage:stages[j].key});};
@@ -869,8 +2779,15 @@ function Pipeline({leads,stages,open,updateLead}){
     </div>);
   };
   return (<>
+    <div className="seg" style={{marginBottom:16}}>
+      <button className={board==='leads'?'on':''} onClick={()=>setBoard('leads')}>Leads<i>{openLeads.length}</i></button>
+      <button className={board==='clients'?'on':''} onClick={()=>setBoard('clients')}>Clients<i>{(clients||[]).length}</i></button>
+    </div>
+    {board==='clients'
+     ? ((clients||[]).length?<ClientBoard clients={clients} settings={settings} setClientPhase={setClientPhase} onCard={id=>open(id)}/>:<div className="empty">No clients yet. Move a lead to <b>Signed</b> to start onboarding.</div>)
+     : <>
     <div className="kgrid" style={{marginBottom:18}}>
-      <Kpi variant="accent" label="Open Pipeline" value={usd(totalOpen)} icon={<KanbanSquare size={14}/>} d={`${openLeads.length} open deal${openLeads.length===1?'':'s'}`}/>
+      <Kpi variant="accent" label={rep?'Your Open Pipeline':'Open Pipeline'} value={usd(totalOpen)} icon={<KanbanSquare size={14}/>} d={`${openLeads.length} open deal${openLeads.length===1?'':'s'}`}/>
       <Kpi variant="green" label="Weighted Forecast" value={usd(weighted)} icon={<Target size={14}/>} d="probability-adjusted"/>
       <Kpi label="Win Rate" value={winRate+'%'} icon={<Award size={14}/>} d={`${wonC} won · ${lostC} lost`}/>
     </div>
@@ -889,12 +2806,20 @@ function Pipeline({leads,stages,open,updateLead}){
           {!items.length&&!(dragId&&over===s.key)&&<div className="kdrop">No leads</div>}
         </div>
       </div>);})}</div>
+    </>}
   </>);
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings,importLeads}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools}){
   const [importOpen,setImportOpen]=useState(false);
+  /* a rep always has the whole-company view switched off — the database
+     wouldn't return anyone else's leads anyway. */
+  const canAll=!rep&&teamAccess(settings,me)==='all';
+  const [view,setView]=useState('mine');
+  useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
+  const counts={mine:leads.filter(l=>l.owner===me).length,pool:leads.filter(l=>isPoolLead(l,rep?myPools:null)).length,all:leads.length};
+  const claim=(e,l)=>{ e.stopPropagation(); if(updateLead) updateLead(l.id,{owner:me}); };
   const customFields=settings.customFields||[];
   const defs=leadColumnDefs(stages,customFields);
   const cols=mergeLeadCols(settings.leadColumns||DEFAULT_LEAD_COLS,customFields).filter(c=>defs[c.key]);
@@ -916,7 +2841,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads}){
   };
   const toggleSort=k=>{ if(sortK===k) setDir(d=>d==='asc'?'desc':'asc'); else {setSortK(k);setDir('asc');} };
   const rows=useMemo(()=>{
-    let r=leads.filter(l=>{
+    let r=scopeLeads(leads,view,me,rep?myPools:null).filter(l=>{
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
       if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
@@ -928,7 +2853,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads}){
     });
     r.sort((a,b)=>{const av=sortVal(a,sortK),bv=sortVal(b,sortK);const c=av<bv?-1:av>bv?1:0;return dir==='asc'?c:-c;});
     return r;
-  },[leads,q,stage,pri,cold,spon,sortK,dir,stages]);
+  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me]);
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
@@ -938,6 +2863,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads}){
   const Th=({k,children})=>(<th className={sortK===k?'sorted':''} onClick={()=>toggleSort(k)}>{children}<span className="ar">{sortK===k?(dir==='asc'?'▲':'▼'):'↕'}</span></th>);
   return (<>
     <div className="toolbar">
+      <ScopeSeg view={view} setView={setView} counts={counts} canAll={canAll}/>
       <div className="searchbox"><Search size={16} color="#928DAD"/><input placeholder="Search name, company, phone, service…" value={q} onChange={e=>setQ(e.target.value)}/></div>
       <select className="selctl" value={stage} onChange={e=>setStage(e.target.value)}><option value="all">All stages</option>{stages.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}</select>
       <select className="selctl" value={pri} onChange={e=>setPri(e.target.value)}><option value="all">All priority</option>{Object.entries(PRIORITIES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
@@ -954,12 +2880,14 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads}){
       <button className="btn btn-g" onClick={csv}><Download size={15}/>CSV</button>
       {importLeads&&<button className="btn btn-p" onClick={()=>setImportOpen(true)}><Upload size={15}/>Import</button>}
     </div>
+    {view==='pool'&&<div className="pool-note"><Users size={14}/>{rep?`Unclaimed leads in ${(myPools&&myPools.length)?myPools.join(', '):'your pools'}. Claim one and it becomes yours.`:'Unclaimed leads owned by '+POOL_OWNER+'. Claim one and it moves to your list.'}</div>}
     <div className="tbl-wrap"><table className="tbl"><thead><tr>
-      <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}
+      <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}{view==='pool'&&<th></th>}
     </tr></thead><tbody>{rows.map(l=>(<tr key={l.id} onClick={()=>open(l.id,rows.map(r=>r.id))}>
       <td><div className="namecell">{l.name}</div><div className="subcell">{l.company}</div></td>
       {visCols.map(c=><td key={c.key}>{defs[c.key].render(l)}</td>)}
-    </tr>))}</tbody></table>{!rows.length&&<div className="empty">No leads match. Adjust filters or add a new lead.</div>}</div>
+      {view==='pool'&&<td style={{textAlign:'right'}}><button className="claim-btn" onClick={e=>claim(e,l)}><UserCheck size={13}/>Claim</button></td>}
+    </tr>))}</tbody></table>{!rows.length&&<div className="empty">{view==='mine'?<>No leads assigned to you{q||stage!=='all'?' match those filters':''}. Check the <b>Pool</b> for unclaimed leads{canAll?<> or switch to <b>All</b></>:''}.</>:view==='pool'?'The pool is empty — every lead is claimed.':'No leads match. Adjust filters or add a new lead.'}</div>}</div>
     {importOpen&&<ImportModal onClose={()=>setImportOpen(false)} onImport={arr=>{importLeads(arr);setImportOpen(false);}} businessTypes={settings.options?.businessType||[]}/>}
   </>);
 }
@@ -1036,13 +2964,91 @@ function ImportModal({onClose,onImport,businessTypes}){
   </div>);
 }
 
+/* ===================== INTRO WEB ===================== */
+function NetworkWeb({contacts,open}){
+  const [sel,setSel]=useState(null);
+  const [fs,setFs]=useState(false);
+  useEffect(()=>{ if(!fs)return; const h=e=>{if(e.key==='Escape')setFs(false);}; window.addEventListener('keydown',h); return ()=>window.removeEventListener('keydown',h); },[fs]);
+  const net=useMemo(()=>buildNetwork(contacts),[contacts]);
+  const COL=196,ROW=52,NW=164,NH=36,PAD=22;
+  if(!net.nodes.length) return (<div className="card"><div className="empty">No introductions mapped yet. Open any contact, set <b>Introduced by</b>, and the web will draw itself here.</div></div>);
+  const rootYs=net.nodes.filter(n=>n.depth===1).map(n=>n.y);
+  const youY=rootYs.length?(Math.min(...rootYs)+Math.max(...rootYs))/2:0;
+  const X=d=>PAD+d*COL, Y=y=>PAD+y*ROW+NH/2;
+  const W=X(net.maxDepth)+NW+PAD, H=PAD*2+Math.max(net.rows,1)*ROW;
+  const ancestors=id=>{const c=net.byId[id];return c?introChain(c,contacts).map(p=>p.id):[];};
+  const selPath=sel?[...ancestors(sel),sel]:[];
+  const onPath=id=>selPath.includes(id);
+  const linkOn=(a,b)=>{const i=selPath.indexOf(a);return i>=0&&selPath[i+1]===b;};
+  const curve=(x1,y1,x2,y2)=>{const mx=(x1+x2)/2;return `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;};
+  const colorOf=c=>c.isRelationship?'#7A5CC8':(c.isClient?GREEN:COBALT);
+  const inner=(<>
+        {net.roots.length>0&&<>
+          <rect x={X(0)} y={Y(youY)-NH/2} width={NW} height={NH} rx={9} className="web-you"/>
+          <text x={X(0)+NW/2} y={Y(youY)+4} textAnchor="middle" className="web-youtxt">You · ProyTech</text>
+          {net.nodes.filter(n=>n.depth===1).map(n=>(
+            <path key={'y'+n.id} d={curve(X(0)+NW,Y(youY),X(1),Y(n.y))} className="web-link you"/>
+          ))}
+        </>}
+        {net.links.map(([a,b])=>{
+          const na=net.nodes.find(n=>n.id===a),nb=net.nodes.find(n=>n.id===b);
+          if(!na||!nb)return null;
+          return <path key={a+'>'+b} d={curve(X(na.depth)+NW,Y(na.y),X(nb.depth),Y(nb.y))} className={'web-link'+(linkOn(a,b)?' on':'')}/>;
+        })}
+        {net.nodes.map(n=>{const c=net.byId[n.id];if(!c)return null;
+          const dim=sel&&!onPath(n.id);
+          return (<g key={n.id} className={'web-node'+(dim?' dim':'')+(sel===n.id?' sel':'')} onClick={()=>setSel(n.id)} onDoubleClick={()=>open&&open(n.id)}>
+            <rect x={X(n.depth)} y={Y(n.y)-NH/2} width={NW} height={NH} rx={9} fill="#fff" stroke={onPath(n.id)?colorOf(c):'#E1E2EC'} strokeWidth={onPath(n.id)?2:1}/>
+            <rect x={X(n.depth)} y={Y(n.y)-NH/2} width={4} height={NH} rx={2} fill={colorOf(c)}/>
+            <text x={X(n.depth)+12} y={Y(n.y)-1} className="web-name">{(c.name||'').slice(0,20)}</text>
+            <text x={X(n.depth)+12} y={Y(n.y)+11} className="web-co">{(c.company||'').slice(0,22)}</text>
+            {n.kids>0&&<><circle cx={X(n.depth)+NW-14} cy={Y(n.y)} r={9} fill="#F1F2F8"/><text x={X(n.depth)+NW-14} y={Y(n.y)+3.5} textAnchor="middle" className="web-kids">{n.kids}</text></>}
+          </g>);
+        })}
+  </>);
+  const svgEl=fit=>fit
+    ? <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="xMidYMid meet" className="web-svg" style={{width:'100%',height:'100%',display:'block'}}>{inner}</svg>
+    : <svg width={W} height={H} className="web-svg">{inner}</svg>;
+  const legendEl=full=>(<div className="web-legend">
+    <span><i style={{background:'#7A5CC8'}}/>Relationship</span>
+    <span><i style={{background:COBALT}}/>Lead</span>
+    <span><i style={{background:GREEN}}/>Client</span>
+    <span className="web-tip">Tap a name to trace it back · double-tap to open</span>
+    <div className="web-actions">
+      {sel&&<button className="btn btn-s btn-sm" onClick={()=>setSel(null)}>Clear trace</button>}
+      {full?<button className="btn btn-s btn-sm" onClick={()=>setFs(false)}><X size={14}/>Exit</button>
+           :<button className="btn btn-s btn-sm" onClick={()=>setFs(true)}><Expand size={14}/>Full screen</button>}
+    </div>
+  </div>);
+  const traceEl=sel?(()=>{const chain=[...ancestors(sel).map(id=>net.byId[id]),net.byId[sel]].filter(Boolean);
+    return (<div className="web-trace"><b>{chain[chain.length-1].name}</b>{chain.length>1?<> traces back through {chain.slice(0,-1).map((p,i)=><React.Fragment key={p.id}>{i>0&&' → '}<span onClick={()=>setSel(p.id)}>{p.name}</span></React.Fragment>)}</>:<> — you met them directly</>}</div>);})():null;
+  return (<>
+    <div className="card web-card">
+      {legendEl(false)}
+      {traceEl}
+      <div className="web-scroll">{svgEl(false)}</div>
+    </div>
+    {fs&&<div className="web-fs">
+      {legendEl(true)}
+      {traceEl}
+      <div className="web-fs-stage">{svgEl(true)}</div>
+    </div>}
+  </>);
+}
+
 /* ===================== RELATIONSHIPS ===================== */
-function Relationships({leads,open}){
+const REL_TIERS=[['champion','Champions','#C8A24A'],['b','B Tier','#2B4DE0'],['new','New Relationships','#1F9D55']];
+const REL_TIER_DESC={champion:'Your top referrers & hubs',b:'Warm — keep nurturing',new:'Just met — start farming'};
+const tierOf=r=>r.relTier||'new';
+const tierMeta=k=>REL_TIERS.find(t=>t[0]===k)||REL_TIERS[2];
+function Relationships({leads,open,updateLead}){
   const [q,setQ]=useState('');
   const [src,setSrc]=useState('all');
+  const [tier,setTier]=useState(null);
   const [view,setView]=useState('grouped');
   const rels=useMemo(()=>leads.filter(l=>l.isRelationship),[leads]);
   const nameOf=id=>{const x=leads.find(l=>l.id===id);return x?x.name:'';};
+  const tierCount=k=>rels.filter(r=>tierOf(r)===k).length;
   const sources=useMemo(()=>{
     const m={};
     rels.forEach(r=>{const k=r.introducedBy||'';m[k]=(m[k]||0)+1;});
@@ -1050,10 +3056,11 @@ function Relationships({leads,open}){
       .sort((a,b)=>b.count-a.count||a.name.localeCompare(b.name));
   },[rels,leads]);
   const shown=useMemo(()=>rels.filter(r=>{
+    if(tier&&tierOf(r)!==tier)return false;
     if(src!=='all'&&(r.introducedBy||'')!==src)return false;
     if(q){const s=(r.name+' '+r.company+' '+(r.relNote||'')+' '+nameOf(r.introducedBy)).toLowerCase();if(!s.includes(q.toLowerCase()))return false;}
     return true;
-  }).sort((a,b)=>(a.name||'').localeCompare(b.name||'')),[rels,q,src,leads]);
+  }).sort((a,b)=>(a.name||'').localeCompare(b.name||'')),[rels,q,src,tier,leads]);
   const groups=useMemo(()=>{
     const m={};
     shown.forEach(r=>{const k=r.introducedBy||'';(m[k]=m[k]||[]).push(r);});
@@ -1061,20 +3068,51 @@ function Relationships({leads,open}){
       .sort((a,b)=>b.list.length-a.list.length||a.name.localeCompare(b.name));
   },[shown,leads]);
   const topConnector=sources.filter(s=>s.id)[0];
+  const allIntro=useMemo(()=>{
+    const m={};
+    leads.forEach(l=>{ if(l.introducedBy&&l.introducedBy!==l.id&&leads.some(x=>x.id===l.introducedBy)) m[l.introducedBy]=(m[l.introducedBy]||0)+1; });
+    return Object.entries(m).map(([id,count])=>({id,count,name:nameOf(id)})).sort((a,b)=>b.count-a.count);
+  },[leads]);
+  const topAll=allIntro[0];
+  const deepest=useMemo(()=>{
+    let best=0,who=null;
+    leads.forEach(l=>{const c=introChain(l,leads);if(c.length>best){best=c.length;who=l;}});
+    return {len:best,who};
+  },[leads]);
+  const TierPick=({r})=>{const m=tierMeta(tierOf(r));return (<span className="tier-pick" style={{'--tc':m[2]}} onClick={e=>e.stopPropagation()}>
+    <span className="tier-dot"/>
+    <select value={tierOf(r)} onChange={e=>updateLead&&updateLead(r.id,{relTier:e.target.value})}>{REL_TIERS.map(([k,l])=><option key={k} value={k}>{l}</option>)}</select>
+  </span>);};
   const Row=r=>(<tr key={r.id} onClick={()=>open(r.id,shown.map(x=>x.id))}>
     <td><div className="namecell">{r.name}</div><div className="subcell">{r.company||'—'}</div></td>
+    <td onClick={e=>e.stopPropagation()}><TierPick r={r}/></td>
     <td className="subcell">{r.relNote||'—'}</td>
     <td>{r.introducedBy?<span className="rel-chip"><Link2 size={11}/>{nameOf(r.introducedBy)||'—'}</span>:<span className="subcell">Direct</span>}</td>
-    <td className="subcell">{r.phone||'—'}</td>
     <td><Due iso={r.followUp}/></td>
     <td className="subcell">{r.owner||'—'}</td>
   </tr>);
   return (<>
-    <div className="kpis">
-      <Kpi variant="accent" label="Relationships" value={rels.length} icon={<Users size={14}/>} d="Kept out of sales numbers"/>
-      <Kpi label="Introduced by someone" value={rels.filter(r=>r.introducedBy).length} icon={<Link2 size={14}/>} d={`${rels.filter(r=>!r.introducedBy).length} direct`}/>
-      <Kpi label="Connectors" value={sources.filter(s=>s.id).length} icon={<UserPlus size={14}/>} d="People who intro'd you"/>
-      <Kpi label="Top connector" value={topConnector?topConnector.count:0} icon={<Award size={14}/>} d={topConnector?topConnector.name:'—'}/>
+    <div className="rel-tiers">
+      {REL_TIERS.map(([key,label,color])=>{const people=rels.filter(r=>tierOf(r)===key).sort((a,b)=>(a.name||'').localeCompare(b.name||''));const on=tier===key;
+        const pick=()=>{ if(on){setTier(null);} else {setTier(key);setView('list');} };
+        return (<div key={key} className={'rel-tier'+(on?' on':'')} style={{'--tc':color}}>
+          <div className="rt-head" onClick={pick}>
+            <div className="rt-top"><span className="rt-dot"/>{label}<span className="rt-count">{people.length}</span></div>
+            <div className="rt-d">{REL_TIER_DESC[key]}</div>
+          </div>
+          <div className="rt-people">
+            {people.length?people.map(r=>(<div key={r.id} className="rt-person" onClick={()=>open(r.id)}>
+              <span className="rt-pn">{r.name||'(no name)'}</span>{r.company?<span className="rt-pc">{r.company}</span>:null}
+            </div>)):<div className="rt-empty">No one here yet</div>}
+          </div>
+          <div className="rt-foot" onClick={pick}>{on?'Listed below · tap to clear':`Tap to list all ${people.length}`}</div>
+        </div>);})}
+    </div>
+    <div className="rel-netline">
+      <span>{allIntro.length} connectors</span><span>·</span>
+      <span>top: {topAll?`${topAll.name} (${topAll.count})`:'—'}</span><span>·</span>
+      <span>longest chain {deepest.len?deepest.len+1:0}</span>
+      {tier&&<button className="rel-clearf" onClick={()=>setTier(null)}>Showing {tierMeta(tier)[1]} · clear</button>}
     </div>
     <div className="toolbar">
       <div className="searchbox"><Search size={16} color="#928DAD"/><input placeholder="Search name, company, how you know them…" value={q} onChange={e=>setQ(e.target.value)}/></div>
@@ -1085,17 +3123,19 @@ function Relationships({leads,open}){
       <div className="seg" style={{marginLeft:'auto'}}>
         <button className={view==='grouped'?'on':''} onClick={()=>setView('grouped')}>Grouped</button>
         <button className={view==='list'?'on':''} onClick={()=>setView('list')}>List</button>
+        <button className={view==='web'?'on':''} onClick={()=>setView('web')}>Web</button>
       </div>
     </div>
-    {!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
-    :!shown.length?<div className="card"><div className="empty">No relationships match that search.</div></div>
-    :view==='list'?<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>How you know them</th><th>Introduced by</th><th>Phone</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{shown.map(Row)}</tbody></table></div>
+    {view==='web'?<NetworkWeb contacts={leads} open={open}/>
+    :!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
+    :!shown.length?<div className="card"><div className="empty">No relationships in {tier?tierMeta(tier)[1]:'this view'}{q?' matching that search':''}.</div></div>
+    :view==='list'?<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>Tier</th><th>How you know them</th><th>Introduced by</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{shown.map(Row)}</tbody></table></div>
     :<>{groups.map(g=>(<div className="card" style={{marginBottom:14}} key={g.id||'direct'}>
         <div className="rel-ghead">
           {g.id?<><span className="rel-gname" onClick={()=>open(g.id)}><Link2 size={13}/>{g.name}</span><span className="rel-gcount">{g.list.length} {g.list.length===1?'intro':'intros'}</span></>
               :<><span className="rel-gname plain"><Users size={13}/>Direct / no intro</span><span className="rel-gcount">{g.list.length}</span></>}
         </div>
-        <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>How you know them</th><th>Introduced by</th><th>Phone</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{g.list.map(Row)}</tbody></table></div>
+        <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>Tier</th><th>How you know them</th><th>Introduced by</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{g.list.map(Row)}</tbody></table></div>
       </div>))}</>}
   </>);
 }
@@ -1127,40 +3167,122 @@ function ClientRoadmap({clients,tracks,open}){
   </div>);
 }
 
-function Clients({leads,stages,settings,open}){
+/* shared client kanban — used in the Clients tab and the Pipeline toggle */
+function ClientBoard({clients,settings,onCard,setClientPhase}){
+  const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);
+  const cols=boardCols(clients,settings);
+  const drop=col=>{ if(!dragId){setOver(null);return;} if(!(col.custom&&col.ownerId&&col.ownerId!==dragId)) setClientPhase(dragId,col.key); setDragId(null);setOver(null); };
+  const step=(l,dir)=>{ const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake'); const j=i+dir; if(i<0){ if(dir>0)setClientPhase(l.id,order[0]); return;} if(j<0||j>=order.length)return; setClientPhase(l.id,order[j]); };
+  const Card=({l})=>{ const st=onboardingStat(l); const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake');
+    return (<div className={'kcard'+(st.overdue>0?' od':'')+(dragId===l.id?' dragging':'')} draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>onCard&&onCard(l.id)}>
+      <div className="kcard-top"><div className="kn"><span className="dot" style={{background:phaseInfo(l.clientPhase||'intake',settings,l).color}}/>{l.name||l.company}</div>{l.owner&&<span className="kown">{l.owner[0].toUpperCase()}</span>}</div>
+      <div className="kco">{l.company&&l.company!==l.name?l.company:l.businessType||''}</div>
+      {(()=>{ const ds=dealsOf(l).filter(d=>d.label); if(!ds.length) return null;
+        return (<div className="kdeals">{ds.map(d=>(<span className="kdeal" key={d.id} title={d.label}>{d.label}{dealBits(d)>0?` · ${usdK?usdK(dealBits(d)):usd(dealBits(d))}`:''}</span>))}</div>); })()}
+      <div className="kmeta"><span className="kvals">{(()=>{ const owed=num(l.dealValue)+(l.retainerActive?num(l.retainer):0); const rem=owed-paymentsPaid(l); return (l.payments&&l.payments.length&&rem>0)?<span className="kbal" title="Remaining balance">{usdc(rem)} due</span>:null; })()}{(l.closedDeals||[]).length>0&&<span className="kltv" title="Lifetime value across all deals">{usd(closedDealsTotal(l)+num(l.dealValue))} lifetime</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
+      <div className="kmove" onClick={e=>e.stopPropagation()}>
+        <button className="kmv" disabled={i<=0} onClick={()=>step(l,-1)} title="Back a phase"><ChevronLeft size={16}/></button>
+        <span className="kmv-s">{phaseInfo(l.clientPhase||'intake',settings,l).label}</span>
+        <button className="kmv" disabled={i>=0&&i>=order.length-1} onClick={()=>step(l,1)} title="Advance a phase"><ChevronRight size={16}/></button>
+      </div>
+    </div>);
+  };
+  return (<div className="kanban">{cols.map(col=>{ const items=clients.filter(l=>(l.clientPhase||'intake')===col.key); const mrr=items.reduce((a,l)=>a+(l.retainerActive?num(l.retainer):0),0); const od=items.reduce((a,l)=>a+onboardingStat(l).overdue,0);
+    return (<div key={col.key} className={'kcol '+(over===col.key?'drag':'')} onDragOver={e=>{e.preventDefault();setOver(col.key);}} onDragLeave={()=>setOver(c=>c===col.key?null:c)} onDrop={()=>drop(col)}>
+      <div className="kbar" style={{background:col.color}}/>
+      <div className="kcol-h"><span className="kt">{col.label}{col.custom&&<span className="cp-tag">custom</span>}</span><span className="kc">{items.length}</span></div>
+      <div className="kcol-v">{mrr>0?usd(mrr)+'/mo':'—'}{od>0&&<span className="kwtd" style={{color:RED}}> · {od} overdue</span>}</div>
+      <div className="kcol-body">
+        {items.map(l=><Card key={l.id} l={l}/>)}
+        {dragId&&over===col.key&&<div className="kdrop">Release to move here</div>}
+        {!items.length&&!(dragId&&over===col.key)&&<div className="kdrop">{col.custom?'custom phase':'No clients'}</div>}
+      </div>
+    </div>);})}</div>);
+}
+
+function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,team,setClientPhase,addCustomPhase,removeCustomPhase}){
   const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS;
+  const [showChurned,setShowChurned]=useState(false);
+  const [expand,setExpand]=useState(null);
+  const t=todayISO();
   const clients=leads.filter(l=>l.isClient);
-  const active=clients.filter(l=>!clientOverall(l,tracks).delivered);
-  const done=clients.filter(l=>clientOverall(l,tracks).delivered);
-  const retainerClients=clients.filter(l=>l.retainerActive);
-  const mrr=retainerClients.reduce((a,l)=>a+num(l.retainer),0);
   const wonNotConverted=leads.filter(l=>sOf(l.stage,stages).won&&!l.isClient);
-  const Prog=({l})=>{const o=clientOverall(l,tracks);return (<div className="cli-prog"><div className="pbar"><div style={{width:Math.round(o.pct*100)+'%'}}/></div><span className="pp">{Math.round(o.pct*100)}%</span></div>);};
-  const Status=({o})=>o.delivered?<span className="badge done"><CheckCircle2 size={12}/>Delivered{o.doneDate?' · '+fmtDate(o.doneDate):''}</span>:o.overdue>0?<span className="badge over">{o.overdue} overdue</span>:<span className="subcell">{o.phase}</span>;
-  const Section=({title,list})=>(<div className="tbl-wrap" style={{marginBottom:18}}>
-    <div className="tbl-cap">{title} · {list.length}</div>
-    {list.length?<table className="tbl"><thead><tr><th>Client</th><th>Service</th><th>Delivery</th><th>Status</th><th>Setup</th><th>Retainer</th><th>Owner</th></tr></thead><tbody>{list.map(l=>{const o=clientOverall(l,tracks);return (<tr key={l.id} onClick={()=>open(l.id)}>
-      <td><div className="namecell">{l.company||l.name}{l.retainerActive&&<span className="rtag">retainer</span>}</div><div className="subcell">{l.name}</div></td>
-      <td className="subcell">{(l.serviceInterest||[]).join(', ')||l.businessType}</td>
-      <td><Prog l={l}/></td>
-      <td><Status o={o}/></td>
-      <td style={{fontWeight:600,color:INK}}>{usd(l.dealValue)}</td>
-      <td>{l.retainerActive?<span style={{fontWeight:600,color:GREEN}}>{usd(l.retainer)}/mo</span>:<span className="subcell">—</span>}</td>
-      <td className="subcell">{l.owner}</td>
-    </tr>);})}</tbody></table>:<div className="empty">None yet.</div>}</div>);
+  const visible=clients.filter(l=>showChurned?true:(l.clientPhase||'intake')!=='churned');
+  /* daily "what needs doing": overdue first, then earliest next-due */
+  const ranked=visible.map(l=>({l,st:onboardingStat(l),phase:l.clientPhase||'intake'}))
+    .sort((a,b)=>{ if((b.st.overdue>0)-(a.st.overdue>0))return (b.st.overdue>0)-(a.st.overdue>0);
+      const ad=a.st.nextDue||'9999',bd=b.st.nextDue||'9999'; return ad.localeCompare(bd); });
+  const byPhase=k=>clients.filter(l=>(l.clientPhase||'intake')===k).length;
+  const retainerClients=clients.filter(l=>l.retainerActive); const mrr=retainerClients.reduce((a,l)=>a+num(l.retainer),0);
+  const totalOverdue=clients.reduce((a,l)=>a+onboardingStat(l).overdue,0);
+  const advance=l=>{ const order=flowOrder(settings,l); const cur=l.clientPhase||'intake'; const i=order.indexOf(cur); if(i<0||i>=order.length-1)return; const nextKey=order[i+1];
+    const isStd=stdPhases(settings).some(p=>p.key===cur&&p.flow); const pp=isStd?phaseProgress(l,cur):{total:0,done:0}; const left=pp.total-pp.done;
+    if(left>0 && !window.confirm(`${left} item${left>1?'s':''} still unchecked in ${phaseInfo(cur,settings,l).label} — advance to ${phaseInfo(nextKey,settings,l).label} anyway?`)) return;
+    setClientPhase(l.id,nextKey); };
+  const PhaseBadge=({k,client})=>{const m=phaseInfo(k,settings,client);return <span className="phase-badge" style={{background:m.color+'1A',color:m.color}}><span className="dot" style={{background:m.color}}/>{m.label}</span>;};
+  const sel=visible.find(l=>l.id===expand);
   return (<>
     <div className="kgrid">
-      <Kpi variant="accent" label="Total Clients" value={clients.length} icon={<Award size={14}/>} d={`${retainerClients.length} on retainer`}/>
-      <Kpi variant="green" label="Active Retainers" value={retainerClients.length} icon={<Repeat size={14}/>} d={`${usd(mrr)} MRR`}/>
-      <Kpi label="In Delivery" value={active.length} icon={<Rocket size={14}/>} d="active projects"/>
-      <Kpi label="Completed" value={done.length} icon={<CheckCircle2 size={14}/>} d="fully delivered"/>
+      <Kpi variant="accent" label="Active Clients" value={visible.length} icon={<Award size={14}/>} d={`${byPhase('intake')} intake · ${byPhase('build')} build · ${byPhase('launch')} launch`}/>
+      <Kpi variant="green" label="Retainers" value={retainerClients.length} icon={<Repeat size={14}/>} d={`${usd(mrr)} MRR`}/>
+      <Kpi label="Overdue items" value={totalOverdue} icon={<AlertTriangle size={14}/>} d="across all onboarding"/>
+      <Kpi label="At risk / churned" value={byPhase('atrisk')+byPhase('churned')} icon={<Flag size={14}/>} d={`${byPhase('active')} active`}/>
     </div>
-    {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} closed-won {wonNotConverted.length===1?'lead is':'leads are'} not converted yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b> to start delivery tracking: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
-    <ClientRoadmap clients={active} tracks={tracks} open={open}/>
-    <Section title="In Delivery" list={active}/>
-    <Section title="Completed" list={done}/>
-    {!clients.length&&<div className="empty">No clients yet. Open a closed lead and hit <b>Convert to Client</b> to begin.</div>}
+    {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} signed {wonNotConverted.length===1?'lead is':'leads are'} not onboarding yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b>: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
+    <div className="toolbar" style={{marginBottom:14}}>
+      <div className="sec-title" style={{margin:0}}><KanbanSquare size={15}/>Client Pipeline</div>
+      <label className="chip-toggle" style={{marginLeft:'auto'}}><input type="checkbox" checked={showChurned} onChange={e=>setShowChurned(e.target.checked)}/>Show churned</label>
+    </div>
+    {!visible.length?<div className="empty">No clients yet. Move a lead to <b>Signed</b> (or hit Convert to Client) to start onboarding.</div>
+    :<><ClientBoard clients={visible} settings={settings} setClientPhase={setClientPhase} onCard={id=>setExpand(id===expand?null:id)}/>
+      {sel?(()=>{ const l=sel; const phase=l.clientPhase||'intake'; const order=flowOrder(settings,l); const i=order.indexOf(phase); const canAdvance=i>=0&&i<order.length-1;
+        return (<div className="cli-detail">
+          <div className="cli-detail-h">
+            <div><div className="cli-name" onClick={()=>open(l.id)}>{l.company||l.name}</div><div className="subcell">{l.name} · {onboardingStat(l).done}/{ONB_ITEMS.length} onboarding complete</div></div>
+            <button className="m-x" onClick={()=>setExpand(null)}><X size={17}/></button>
+          </div>
+          <div className="cli-actions">
+            {canAdvance&&<button className="btn btn-p btn-sm" onClick={()=>advance(l)}><ArrowUpRight size={14}/>Advance to {phaseInfo(order[i+1],settings,l).label}</button>}
+            <select className="phase-sel" value={phase} onChange={e=>{ if(e.target.value==='churned'&&!window.confirm('Mark this client churned? They drop out of the default view.')) return; setClientPhase(l.id,e.target.value); }}>
+              {clientPhaseList(settings,l).map(p=><option key={p.key} value={p.key}>{p.label}{p.custom?' (custom)':''}</option>)}
+            </select>
+            <CustomPhaseAdd settings={settings} onAdd={info=>addCustomPhase(l.id,info)}/>
+          </div>
+          {(l.customPhases||[]).length>0&&<div className="cp-list">{(l.customPhases||[]).map(cp=><span key={cp.key} className="cp-chip" style={{borderColor:cp.color,color:cp.color}}><span className="dot" style={{background:cp.color}}/>{cp.label}<span className="subcell" style={{fontWeight:400}}>after {phaseInfo(cp.after,settings).label}</span><button onClick={()=>{if(window.confirm(`Remove custom phase "${cp.label}"?`))removeCustomPhase(l.id,cp.key);}}><X size={11}/></button></span>)}</div>}
+          {ONBOARDING.map(g=>{const gp=phaseProgress(l,g.phase);return (<div className="onb-group" key={g.phase}>
+            <div className="onb-gh"><PhaseBadge k={g.phase}/><span className="onb-gc">{gp.done}/{gp.total}</span></div>
+            {g.items.map(([key,label])=>{const e=normEntry((l.onboarding||{})[key]);const done=!!e.done;const od=!done&&e.due&&daysUntil(e.due)<0;return (
+              <div className={'onb-item'+(done?' done':'')+(od?' over':'')} key={key}>
+                <span className="onb-check" onClick={()=>toggleOnboarding(l.id,key)}>{done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color={od?RED:'#C9C5D9'}/>}</span>
+                <span className="onb-label" onClick={()=>toggleOnboarding(l.id,key)}>{label}</span>
+                <select className={'onb-assign'+(e.assignee?' set':'')} value={e.assignee||''} onClick={ev=>ev.stopPropagation()} onChange={ev=>assignOnboarding&&assignOnboarding(l.id,key,ev.target.value)} title={e.assignee?`Assigned to ${e.assignee}`:'Assign to a teammate'}>
+                  <option value="">+ assign</option>
+                  {(team||[]).map(n=><option key={n} value={n}>{n}</option>)}
+                </select>
+                {done?<span className="onb-date done">✓ {fmtDate(e.done)}</span>
+                     :<label className="onb-due"><span>{od?'overdue':'due'}</span><input type="date" className={od?'over':''} value={e.due||''} onChange={ev=>setOnboardingDue(l.id,key,ev.target.value)}/></label>}
+              </div>);})}
+          </div>);})}
+        </div>);
+      })():<div className="cli-hint"><ChevronUp size={14}/>Tap a client card to open its onboarding checklist and phase controls.</div>}
+    </>}
   </>);
+}
+
+/* add-a-custom-phase popover (per client) */
+function CustomPhaseAdd({settings,onAdd}){
+  const [openF,setOpenF]=useState(false);
+  const [label,setLabel]=useState(''); const [color,setColor]=useState('#7A5CC8'); const [after,setAfter]=useState('build');
+  const flowStd=stdPhases(settings).filter(p=>p.flow);
+  const submit=()=>{ if(!label.trim())return; onAdd({label,color,after}); setLabel(''); setOpenF(false); };
+  if(!openF) return <button className="btn btn-s btn-sm" onClick={()=>setOpenF(true)}><Plus size={13}/>Custom phase</button>;
+  return (<div className="cp-add">
+    <input placeholder="Phase name (e.g. Paused)" value={label} onChange={e=>setLabel(e.target.value)} autoFocus/>
+    <input type="color" value={color} onChange={e=>setColor(e.target.value)} title="Color"/>
+    <label>after<select value={after} onChange={e=>setAfter(e.target.value)}>{flowStd.map(p=><option key={p.key} value={p.key}>{p.label}</option>)}</select></label>
+    <button className="btn btn-p btn-sm" onClick={submit}>Add</button>
+    <button className="btn btn-g btn-sm" onClick={()=>setOpenF(false)}>Cancel</button>
+  </div>);
 }
 
 /* ===================== MONEY ===================== */
@@ -1387,31 +3509,38 @@ const TX_TYPES={
 };
 const EXP_CATS=['Software','Advertising','Office','Meals','Travel','Contractors','Fees','Equipment','Other'];
 const INC_CATS=['Client payment','Retainer','Refund','Other'];
-const TX_WHO=['Business','Garrett','Logan'];
+const TX_WHO=['Business',...BRAND.team];
 const TX_METHODS=['Card','Bank transfer','Cash','Check','Other'];
 const csvq=s=>{s=String(s==null?'':s);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
 const toB64=file=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]);r.onerror=rej;r.readAsDataURL(file);});
 
 /* ===================== Tasks (shared · AI-ranked) ===================== */
-const TASK_OWNERS=['Garrett','Logan','Both'];
-const ownerColor=o=>o==='Garrett'?COBALT:o==='Logan'?'#7A5CC8':GREEN;
-const meOwner=me=>me==='Logan'?'Logan':'Garrett';
-const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:'',revenue:3,urgency:3,effort:3,done:false,aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
+const TASK_OWNERS=[...BRAND.team,'Both'];
+const OWNER_PALETTE=[COBALT,'#7A5CC8','#0E9AA7','#D97706'];
+const ownerColor=o=>{const i=BRAND.team.indexOf(o);return i>=0?OWNER_PALETTE[i%OWNER_PALETTE.length]:GREEN;};
+const meOwner=me=>BRAND.team.includes(me)?me:(BRAND.team[0]||'');
+const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:todayISO(),revenue:3,urgency:3,effort:3,done:false,doneAt:'',doneBy:'',aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
 const taskScore=t=>num(t.revenue)*num(t.urgency);
 
-function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
+function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
   const [who,setWho]=useState('all');
   const [show,setShow]=useState('open');
   const [title,setTitle]=useState('');
-  const [addOwner,setAddOwner]=useState(meOwner(me));
+  /* meOwner() falls back to the first name in VITE_TEAM for anyone who isn't
+     in it — which for a rep means "Mine" would mean an owner's tasks and new
+     tasks would be filed under an owner. A rep is always simply themselves. */
+  const mineName=rep?me:meOwner(me);
+  const [addOwner,setAddOwner]=useState(mineName);
+  const [addDue,setAddDue]=useState(todayISO());
   const [edit,setEdit]=useState(null);
   const [busy,setBusy]=useState(false);
   const leadName=id=>{const l=leads.find(x=>x.id===id);return l?(l.company||l.name||'Lead'):'';};
 
-  const add=()=>{ const t=title.trim(); if(!t)return; upsertTask({...newTask(addOwner),title:t}); setTitle(''); };
+  const add=()=>{ const t=title.trim(); if(!t)return; upsertTask({...newTask(addOwner),title:t,due:addDue||todayISO()}); setTitle(''); };
 
   const filtered=tasks.filter(t=>{
-    const w=who==='all'||(who==='mine'&&t.owner===meOwner(me))||(who==='logan'&&t.owner==='Logan')||(who==='both'&&t.owner==='Both');
+    const mine=mineName;
+    const w=who==='all'||(who==='mine'&&t.owner===mine)||(who==='both'&&t.owner==='Both')||(who!=='all'&&who!=='mine'&&who!=='both'&&t.owner===who);
     const s=show==='all'||(show==='open'&&!t.done)||(show==='done'&&t.done);
     return w&&s;
   });
@@ -1445,18 +3574,23 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
     <div className="card" style={{marginBottom:16}}>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
         <input value={title} onChange={e=>setTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add();}} placeholder="Add a task and hit Enter\u2026" style={{flex:'1 1 260px',padding:'11px 13px',border:'1px solid #E2E3EE',borderRadius:11,fontSize:14,background:'#fff',color:INK}}/>
-        <div className="seg">{TASK_OWNERS.map(o=><button key={o} className={'seg-b '+(addOwner===o?'on':'')} onClick={()=>setAddOwner(o)}>{o}</button>)}</div>
+        <div className="task-daypick">
+          <button type="button" className={'day-chip'+(addDue===todayISO()?' on':'')} onClick={()=>setAddDue(todayISO())}>Today</button>
+          <button type="button" className={'day-chip'+(addDue===addDays(todayISO(),1)?' on':'')} onClick={()=>setAddDue(addDays(todayISO(),1))}>Tomorrow</button>
+          <label className="day-date"><CalendarClock size={14}/><input type="date" value={addDue} onChange={e=>setAddDue(e.target.value||todayISO())}/></label>
+        </div>
+        {!rep&&<div className="seg">{TASK_OWNERS.map(o=><button key={o} className={'seg-b '+(addOwner===o?'on':'')} onClick={()=>setAddOwner(o)}>{o}</button>)}</div>}
         <button className="btn btn-p" onClick={add}><Plus size={16}/>Add</button>
       </div>
     </div>
 
     <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginBottom:14}}>
-      <div className="seg">
+      {!rep&&<div className="seg">
         <button className={'seg-b '+(who==='all'?'on':'')} onClick={()=>setWho('all')}>All</button>
         <button className={'seg-b '+(who==='mine'?'on':'')} onClick={()=>setWho('mine')}>Mine</button>
-        <button className={'seg-b '+(who==='logan'?'on':'')} onClick={()=>setWho('logan')}>Logan</button>
+        {BRAND.team.filter(o=>o!==meOwner(me)).map(o=><button key={o} className={'seg-b '+(who===o?'on':'')} onClick={()=>setWho(o)}>{o}</button>)}
         <button className={'seg-b '+(who==='both'?'on':'')} onClick={()=>setWho('both')}>Shared</button>
-      </div>
+      </div>}
       <div className="seg">
         <button className={'seg-b '+(show==='open'?'on':'')} onClick={()=>setShow('open')}>Open</button>
         <button className={'seg-b '+(show==='done'?'on':'')} onClick={()=>setShow('done')}>Done</button>
@@ -1476,7 +3610,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
         const dueColor=du==null?'#8b88a0':du<0?RED:du===0?GOLD:'#5A5680';
         const dueLabel=t.due?(du<0?`${-du}d overdue`:du===0?'Due today':du===1?'Due tomorrow':`Due in ${du}d`):'No date';
         return (<div key={t.id} className="card" style={{padding:'13px 15px',display:'flex',gap:12,alignItems:'flex-start',opacity:t.done?.6:1}}>
-          <button onClick={()=>upsertTask({...t,done:!t.done,aiRank:t.done?t.aiRank:null,aiReason:t.done?t.aiReason:''})} style={{background:'none',border:'none',cursor:'pointer',padding:0,marginTop:1,color:t.done?GREEN:'#c3c2d4',flex:'none'}} title={t.done?'Mark open':'Mark done'}>{t.done?<CheckCircle2 size={22}/>:<Circle size={22}/>}</button>
+          <button onClick={()=>upsertTask({...t,done:!t.done,doneAt:t.done?'':new Date().toISOString(),doneBy:t.done?'':(t.owner&&t.owner!=='Both'?t.owner:me),aiRank:t.done?t.aiRank:null,aiReason:t.done?t.aiReason:''})} style={{background:'none',border:'none',cursor:'pointer',padding:0,marginTop:1,color:t.done?GREEN:'#c3c2d4',flex:'none'}} title={t.done?'Mark open':'Mark done'}>{t.done?<CheckCircle2 size={22}/>:<Circle size={22}/>}</button>
           <div style={{flex:1,minWidth:0}}>
             <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
               {t.aiRank!=null&&!t.done&&<span className="pill" style={{background:INK,color:'#fff',fontWeight:700}}>#{t.aiRank}</span>}
@@ -1485,8 +3619,8 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
             {t.aiReason&&!t.done&&<div style={{fontSize:12.5,color:COBALT,marginTop:4,display:'flex',alignItems:'center',gap:5}}><Sparkles size={12}/>{t.aiReason}</div>}
             <div style={{display:'flex',gap:7,flexWrap:'wrap',marginTop:8,alignItems:'center'}}>
               <span className="pill" style={{background:ownerColor(t.owner)+'1A',color:ownerColor(t.owner)}}><span className="dot" style={{background:ownerColor(t.owner)}}/>{t.owner}</span>
-              {t.leadId&&leadName(t.leadId)&&<span className="pill" style={{background:'#F0F1F7',color:'#5A5680'}}><Building2 size={11}/>{leadName(t.leadId)}</span>}
-              <span className="pill" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}}><CalendarClock size={11}/>{dueLabel}</span>
+              {t.leadId&&leadName(t.leadId)&&(()=>{const l=leads.find(x=>x.id===t.leadId);const isC=l&&l.isClient;return <span className="pill" style={{background:isC?'rgba(31,157,85,.12)':'#F0F1F7',color:isC?'#1a7d46':'#5A5680',cursor:open?'pointer':'default'}} onClick={e=>{if(open){e.stopPropagation();open(t.leadId);}}} title={open?'Open '+(isC?'client':'lead'):undefined}>{isC?<Building2 size={11}/>:<Contact2 size={11}/>}{leadName(t.leadId)}{isC?' · client':''}</span>;})()}
+              <label className="task-due-chip" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}} title="Tap to reschedule"><CalendarClock size={11}/>{dueLabel}<input type="date" value={t.due||''} onChange={e=>upsertTask({...t,due:e.target.value})}/></label>
               <span style={{fontSize:11,color:'#a6a2bc'}}>Impact {t.revenue} \u00b7 Urgency {t.urgency} \u00b7 Effort {t.effort}</span>
             </div>
           </div>
@@ -1499,11 +3633,11 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks}){
     </div>
     : <div className="empty">{show==='done'?'Nothing checked off yet.':'No tasks yet. Add your first one above \u2014 dump everything in your head here.'}</div>}
 
-    {edit&&<TaskModal task={edit} leads={leads} onSave={t=>{upsertTask(t);setEdit(null);}} onDelete={id=>{deleteTask(id);setEdit(null);}} onClose={()=>setEdit(null)}/>}
+    {edit&&<TaskModal task={edit} leads={leads} rep={rep} me={me} onSave={t=>{upsertTask(t);setEdit(null);}} onDelete={id=>{deleteTask(id);setEdit(null);}} onClose={()=>setEdit(null)}/>}
   </>);
 }
 
-function TaskModal({task,leads,onSave,onDelete,onClose}){
+function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
   const [d,setD]=useState({...task});
   const set=p=>setD(x=>({...x,...p}));
   const Knob=({label,field,hint})=>(<div className="field"><label>{label} \u2014 {d[field]} <span style={{color:'#a6a2bc',fontWeight:400}}>{hint}</span></label><input type="range" min="1" max="5" value={d[field]} onChange={e=>set({[field]:Number(e.target.value)})}/></div>);
@@ -1513,9 +3647,24 @@ function TaskModal({task,leads,onSave,onDelete,onClose}){
       <div style={{padding:'4px 22px 22px'}}>
         <div className="field"><label>Task</label><input value={d.title||''} onChange={e=>set({title:e.target.value})} placeholder="What needs doing?"/></div>
         <div className="fgrid">
-          <div className="field"><label>Owner</label><select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+          <div className="field"><label>Owner</label>{rep
+            ? <input value={me||d.owner||''} disabled/>
+            : <select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o}</option>)}</select>}</div>
           <div className="field"><label>Due date</label><input type="date" value={d.due||''} onChange={e=>set({due:e.target.value})}/></div>
-          <div className="field full"><label>Link a lead / deal</label><select value={d.leadId||''} onChange={e=>set({leadId:e.target.value})}><option value="">\u2014 none \u2014</option>{leads.map(l=><option key={l.id} value={l.id}>{l.company||l.name||'Lead'}</option>)}</select></div>
+          <div className="field full"><label>Link to a client or lead</label>
+            <select value={d.leadId||''} onChange={e=>set({leadId:e.target.value})}>
+              <option value="">— none —</option>
+              {(()=>{ const lbl=l=>(l.company?l.company+(l.name?` (${l.name})`:''):l.name)||'Untitled';
+                const by=f=>leads.filter(f).sort((a,b)=>lbl(a).localeCompare(lbl(b)));
+                const cli=by(l=>l.isClient), lds=by(l=>!l.isClient&&!l.isRelationship), rel=by(l=>l.isRelationship&&!l.isClient);
+                return (<>
+                  {cli.length>0&&<optgroup label="Clients">{cli.map(l=><option key={l.id} value={l.id}>{lbl(l)}</option>)}</optgroup>}
+                  {lds.length>0&&<optgroup label="Leads">{lds.map(l=><option key={l.id} value={l.id}>{lbl(l)}</option>)}</optgroup>}
+                  {rel.length>0&&<optgroup label="Relationships">{rel.map(l=><option key={l.id} value={l.id}>{lbl(l)}</option>)}</optgroup>}
+                </>);
+              })()}
+            </select>
+          </div>
         </div>
         <Knob label="Revenue impact" field="revenue" hint="how much cash it moves"/>
         <Knob label="Urgency" field="urgency" hint="how time-sensitive"/>
@@ -1545,8 +3694,8 @@ function Books({txns,upsertTxn,deleteTxn}){
   const moneyOut=sum(t=>TX_TYPES[t.type]?.dir==='out');
   const net=moneyIn-moneyOut;
   const expenses=sum(t=>t.type==='expense');
-  const drawG=sum(t=>t.type==='draw'&&t.who==='Garrett');
-  const drawL=sum(t=>t.type==='draw'&&t.who==='Logan');
+  const draws=BRAND.team.map(nm=>({nm,amt:sum(t=>t.type==='draw'&&t.who===nm)}));
+  const drawTotal=draws.reduce((a,d)=>a+d.amt,0);
   const openReceipt=async t=>{ if(!t.receipt?.path)return; try{ const url=await db.receiptUrl(t.receipt.path); if(url){window.open(url,'_blank');return;} }catch(e){} try{ const blob=await db.downloadReceipt(t.receipt.path); const u=URL.createObjectURL(blob); window.open(u,'_blank'); }catch(e){ window.alert('Could not open the receipt file.'); } };
   const onPickReceipt=e=>{ const f=e.target.files?.[0]; e.target.value=''; if(!f)return; setEdit({txn:null,file:f}); };
   const downloadYear=async()=>{
@@ -1586,7 +3735,7 @@ function Books({txns,upsertTxn,deleteTxn}){
       <Kpi variant="accent" label="Money in" value={usd(moneyIn)} icon={<ArrowDownLeft size={14}/>} d={year}/>
       <Kpi label="Money out" value={usd(moneyOut)} icon={<ArrowUpRight size={14}/>} d={`${usd(expenses)} expenses`}/>
       <Kpi label="Net" value={usd(net)} icon={<Wallet size={14}/>} d={net>=0?'positive':'negative'}/>
-      <Kpi label="Owner draws" value={usd(drawG+drawL)} icon={<Wallet size={14}/>} d={`G ${usd(drawG)} · L ${usd(drawL)}`}/>
+      <Kpi label="Owner draws" value={usd(drawTotal)} icon={<Wallet size={14}/>} d={draws.map(d=>`${d.nm[0]} ${usd(d.amt)}`).join(' · ')||'—'}/>
     </div>
     <div className="bk-filters">
       {[['all','All'],['in','Money in'],['out','Money out'],['draw','Draws']].map(([k,l])=>(
@@ -1662,9 +3811,10 @@ function TxnModal({txn,file,onSave,onDelete,onClose}){
   </div>);
 }
 
-const ACT_COLORS={Call:'#2B4DE0',Text:'#1F9D55',Meeting:'#7A5CC8',Note:'#C8A24A',Email:'#D14343'};
-const ACT_ORDER=['Call','Text','Meeting','Note','Email'];
-function Activity({leads,me,open}){
+const ACT_COLORS={Booked:'#E0662B',Call:'#2B4DE0',Text:'#1F9D55',Meeting:'#7A5CC8',Note:'#C8A24A',Email:'#D14343',Task:'#0E9AA7'};
+const ACT_ORDER=['Booked','Call','Text','Meeting','Note','Email','Task'];
+const ACT_ICON={Booked:CalendarCheck,Note:StickyNote,Call:PhoneCall,Text:MessageSquare,Meeting:CalendarClock,Email:Mailbox,Task:ListTodo,Payment:DollarSign};
+function Activity({leads,tasks,me,open,rep}){
   const [mode,setMode]=useState('day');
   const [anchor,setAnchor]=useState(todayISO());
   const [who,setWho]=useState('All');
@@ -1676,18 +3826,44 @@ function Activity({leads,me,open}){
     else { start=new Date(d.getFullYear(),d.getMonth(),1); end=new Date(d.getFullYear(),d.getMonth()+1,0); label=d.toLocaleDateString(undefined,{month:'long',year:'numeric'}); }
     start.setHours(0,0,0,0); end.setHours(23,59,59,999); return {start,end,label};
   },[mode,anchor]);
-  const all=useMemo(()=>leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company}))),[leads]);
+  const all=useMemo(()=>{
+    const acts=leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company,
+      cancelled:a.type==='Booked'?!bookingLive(l,a):!!a.cancelled})));
+    /* completed tasks count as work done — fold them into the same feed */
+    const done=(tasks||[]).filter(t=>t.done).map(t=>{
+      /* Tasks completed before we started stamping doneAt have no completion time.
+         Fall back to the best real date the task already carries (due, then created)
+         so they still show — flagged approximate rather than invented. */
+      const stamp=t.doneAt || t.createdAt || '';
+      if(!stamp) return null;
+      const l=leads.find(x=>x.id===t.leadId);
+      return {id:'task-'+t.id,ts:stamp,type:'Task',text:t.title||'(untitled task)',
+        who:t.doneBy||(t.owner&&t.owner!=='Both'?t.owner:'—'),
+        leadId:t.leadId||'',leadName:l?l.name:'',company:l?l.company:'',isTask:true,approx:!t.doneAt};
+    }).filter(Boolean);
+    return [...acts,...done];
+  },[leads,tasks]);
   const inRange=useMemo(()=>all.filter(a=>{const t=new Date(a.ts);return t>=range.start&&t<=range.end;}),[all,range]);
-  const people=useMemo(()=>{const s=new Set(inRange.map(a=>a.who||'—'));['Garrett','Logan'].forEach(p=>s.add(p));return [...s].filter(Boolean).sort();},[inRange]);
-  const shown=inRange.filter(a=>(who==='All'||a.who===who)&&(typeF==='All'||a.type===typeF)).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
-  const matrix=useMemo(()=>{const m={};inRange.forEach(a=>{const p=a.who||'—';m[p]=m[p]||{Call:0,Text:0,Meeting:0,Note:0,Email:0,total:0};if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[inRange]);
+  /* owners get the whole team in the picker; a rep gets only the names that
+     actually appear in their own feed — never the owners'. */
+  const people=useMemo(()=>{const s=new Set(inRange.map(a=>a.who||'—'));
+    if(!rep) BRAND.team.forEach(p=>s.add(p));
+    return [...s].filter(Boolean).sort();},[inRange,rep]);
+  /* the person filter drives the WHOLE tab — KPIs, chart, matrix and log */
+  const scope=useMemo(()=>inRange.filter(a=>who==='All'||a.who===who),[inRange,who]);
+  /* the LOG shows cancelled bookings (struck through — they happened, and hiding
+     them would quietly rewrite the day). The NUMBERS don't count them. */
+  const live=useMemo(()=>scope.filter(a=>!a.cancelled),[scope]);
+  const shown=scope.filter(a=>typeF==='All'||a.type===typeF).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  const matrix=useMemo(()=>{const m={};const zero=()=>ACT_ORDER.reduce((o,k)=>(o[k]=0,o),{total:0});live.forEach(a=>{const p=a.who||'—';m[p]=m[p]||zero();if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[live]);
   const chartData=Object.entries(matrix).map(([person,c])=>({person,...c})).sort((a,b)=>b.total-a.total);
-  const totals=ACT_ORDER.reduce((o,t)=>{o[t]=inRange.filter(a=>a.type===t).length;return o;},{});
-  const grand=inRange.length;
+  const totals=ACT_ORDER.reduce((o,t)=>{o[t]=live.filter(a=>a.type===t).length;return o;},{});
+  const grand=live.length;
+  const cancelledCount=scope.length-live.length;
   const shift=dir=>{const d=new Date(anchor+'T00:00:00');if(mode==='day')d.setDate(d.getDate()+dir);else if(mode==='week')d.setDate(d.getDate()+7*dir);else d.setMonth(d.getMonth()+dir);setAnchor(d.toISOString().slice(0,10));};
   const fmtTime=ts=>{try{return new Date(ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}catch{return '';}};
   const dayHead=ts=>new Date(ts).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
-  const kIcon=t=>{const T=ACT_TYPES.find(x=>x.key===t);return T?React.createElement(T.icon,{size:14}):null;};
+  const kIcon=t=>{const I=ACT_ICON[t];return I?React.createElement(I,{size:14}):null;};
   let lastDay=null;
   return (<>
     <div className="card" style={{marginBottom:16}}>
@@ -1706,8 +3882,8 @@ function Activity({leads,me,open}){
       </div>
     </div>
     <div className="kpis">
-      <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={range.label}/>
-      {ACT_ORDER.map(t=><Kpi key={t} label={t+'s'} value={totals[t]} icon={kIcon(t)}/>)}
+      <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={(who==='All'?'Everyone':who)+' · '+range.label+(cancelledCount>0?` · ${cancelledCount} cancelled, not counted`:'')}/>
+      {ACT_ORDER.map(t=><Kpi key={t} variant={t==='Booked'?'accent':undefined} label={actPlural(t)} value={totals[t]} icon={kIcon(t)}/>)}
     </div>
     {chartData.length>0&&<div className="card" style={{marginBottom:16}}>
       <div className="ch-title">Activity by person</div>
@@ -1728,14 +3904,14 @@ function Activity({leads,me,open}){
     </div>}
     <div className="card">
       <div className="ch-title">Log · {shown.length} {shown.length===1?'entry':'entries'}</div>
-      {shown.length?<div className="act-feedlist">{shown.map(a=>{const T=ACT_TYPES.find(x=>x.key===a.type);const Ic=T?T.icon:StickyNote;const dk=(a.ts||'').slice(0,10);const head=mode!=='day'&&dk!==lastDay;lastDay=dk;return(
+      {shown.length?<div className="act-feedlist">{shown.map(a=>{const Ic=ACT_ICON[a.type]||StickyNote;const dk=(a.ts||'').slice(0,10);const head=mode!=='day'&&dk!==lastDay;lastDay=dk;return(
         <React.Fragment key={a.id}>
           {head&&<div className="act-daysep">{dayHead(a.ts)}</div>}
-          <div className="act-row" onClick={()=>open&&open(a.leadId)}>
-            <div className="act-ic" style={{background:ACT_COLORS[a.type]||'#8b88a0'}}><Ic size={15}/></div>
+          <div className={'act-row'+(a.cancelled?' cancelled':'')} onClick={()=>open&&open(a.leadId)}>
+            <div className="act-ic" style={{background:a.cancelled?'#B9B6C6':(ACT_COLORS[a.type]||'#8b88a0')}}><Ic size={15}/></div>
             <div className="act-body">
-              <div className="act-top"><span className="act-lead">{a.leadName||'—'}</span><span className="act-who">{a.who||'—'}</span><span className="act-time">{fmtTime(a.ts)}</span></div>
-              <div className="act-txt">{a.text}</div>
+              <div className="act-top"><span className="act-lead">{a.leadName||'—'}</span><span className="act-who">{a.who||'—'}</span><span className="act-time" title={a.approx?'Completed before we tracked exact times — showing its due date':undefined}>{a.approx?'~':''}{fmtTime(a.ts)}</span></div>
+              <div className="act-txt">{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}</div>
             </div>
           </div>
         </React.Fragment>);})}</div>
@@ -1744,13 +3920,236 @@ function Activity({leads,me,open}){
   </>);
 }
 
-function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices}){
+/* ===================== TEAM (owner-only) =====================
+   Everything about a person lives here: their login, their commission %,
+   which pools they can see, which tabs they get, and whether they're active.
+   The database enforces the lead-level part of this (see MIGRATION.sql);
+   the tab list is a UI convenience on top of it, not a security boundary. */
+function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,reassign,me,myUid,noUsers}){
+  const [openId,setOpenId]=useState(null);
+  const [adding,setAdding]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [msg,setMsg]=useState(null);
+  const blank={name:'',email:'',role:'rep',commission_pct:10,pools:[],tabs:REP_DEFAULT_TABS,password:'',goal_conversions:0};
+  const [f,setF]=useState(blank);
+  const pools=poolList(settings);
+  const setPools=next=>saveSettings({...settings,pools:next});
+  const addPool=()=>{ const v=(window.prompt('Name this lead pool (e.g. "Inbound", "Wichita")')||'').trim(); if(!v||pools.includes(v))return; setPools([...pools,v]); };
+  const genPw=()=>Math.random().toString(36).slice(2,8)+Math.random().toString(36).slice(2,6).toUpperCase()+'!1';
+  const toggleIn=(arr,v)=>arr.includes(v)?arr.filter(x=>x!==v):[...arr,v];
+  const create=async()=>{
+    const name=f.name.trim(), email=f.email.trim().toLowerCase();
+    if(!name){ setMsg({bad:true,t:'Give them a name.'}); return; }
+    if(!/.+@.+\..+/.test(email)){ setMsg({bad:true,t:'A real email address is required — that is their login.'}); return; }
+    const pw=f.password.trim()||genPw();
+    setBusy(true); setMsg(null);
+    try{
+      const {id,needsConfirm}=await auth.createLogin(email,pw);
+      if(!id||needsConfirm) throw new Error('Supabase created the login but did not return a user id — switch "Confirm email" OFF in Authentication → Providers → Email, then add them again.');
+      await saveUser({id,name,email,role:f.role,pools:f.pools,commission_pct:num(f.commission_pct),active:true,
+        tabs:f.role==='rep'?f.tabs:[],goal_conversions:num(f.goal_conversions)});
+      setMsg({t:`${name} can sign in with ${email} and the temporary password ${pw} — give it to them, or send a reset email below.`,pw,email});
+      setF(blank); setAdding(false);
+    }catch(e){ setMsg({bad:true,t:e.message||String(e)}); }
+    setBusy(false);
+  };
+  const reset=async email=>{ try{ await auth.sendReset(email); setMsg({t:`Password email sent to ${email}.`}); }
+    catch(e){ setMsg({bad:true,t:e.message||String(e)}); } };
+  return (<div className="card" style={{marginBottom:18}}>
+    <div className="sec-title"><Users size={15}/>Team</div>
+    <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Owners see everything. Sales reps see only their own leads plus the pools you give them — enforced in the database, not just hidden in the app.</div>
+
+    {noUsers&&<div className="note" style={{marginBottom:14}}>
+      <b>Nobody is set up yet.</b> This install still behaves exactly as it always has. Claim ownership to start adding people — nothing changes for you.
+      <div style={{marginTop:10}}><button className="btn btn-p btn-sm" onClick={claimOwner}><BadgeCheck size={14}/>Make me the owner</button></div>
+    </div>}
+
+    <div className="tm-list">
+      {users.map(u=>{ const open=openId===u.id; const isR=u.role==='rep'; const tabs=tabsOf(u);
+        const set=patch=>saveUser({...u,...patch});
+        return (<div className={'tm-row'+(u.active===false?' off':'')} key={u.id}>
+          <div className="tm-head" onClick={()=>setOpenId(open?null:u.id)}>
+            <span className="team-av">{(u.name||'?')[0]}</span>
+            <span className="tm-name">{u.name}{u.id===myUid&&<i>you</i>}<span className="subcell">{u.email||'—'}</span></span>
+            <span className={'tm-role '+u.role}>{u.role==='owner'?'Owner':'Sales Rep'}</span>
+            {isR&&<span className="tm-pct">{num(u.commission_pct)}%</span>}
+            {u.active===false&&<span className="tm-off">inactive</span>}
+            <ChevronDown size={15} className={'msec-ch'+(open?' on':'')}/>
+          </div>
+          {open&&<div className="tm-body">
+            <div className="fgrid">
+              <div className="field"><label>Name</label><input value={u.name||''} onChange={e=>set({name:e.target.value})}/></div>
+              <div className="field"><label>Role</label><select value={u.role} onChange={e=>set({role:e.target.value})}><option value="owner">Owner</option><option value="rep">Sales Rep</option></select></div>
+              {isR&&<div className="field"><label>Commission %</label><input type="number" min="0" step="0.5" value={u.commission_pct??0} onChange={e=>set({commission_pct:num(e.target.value)})}/></div>}
+              {isR&&<div className="field"><label>Monthly conversion goal</label><input type="number" min="0" value={u.goal_conversions??0} onChange={e=>set({goal_conversions:num(e.target.value)})}/></div>}
+            </div>
+            {isR&&<>
+              <div className="tm-sub">Lead pools they can see</div>
+              <div className="chips">{pools.map(p=><button key={p} className={'chip'+((u.pools||[]).includes(p)?' on':'')} onClick={()=>set({pools:toggleIn(u.pools||[],p)})}>{p}</button>)}
+                <button className="chip add" onClick={addPool}><Plus size={12}/>New pool</button></div>
+              <div className="tm-sub">Tabs they see</div>
+              <div className="chips">{ALL_MODULES.filter(([k])=>REP_TABS.includes(k)).map(([k,label])=>{ const on=tabs.includes(k); const money=MONEY_TABS.includes(k);
+                return (<button key={k} className={'chip'+(on?' on':'')+(money?' warn':'')} title={money?'Shows company money — off by default':undefined}
+                  onClick={()=>set({tabs:toggleIn(tabs,k)})}>{label}{money&&on?' ⚠':''}</button>); })}</div>
+              <div className="subcell" style={{marginTop:8}}>Dashboard is always on. Tabs marked ⚠ expose company revenue — leave them off unless you mean it. A rep can never see a tab this install has globally switched off in <b>Sections</b>.</div>
+            </>}
+            {isR&&<div className="tm-reassign">
+              <span>Move every lead of theirs to</span>
+              <select defaultValue="" onChange={async e=>{ const v=e.target.value; e.target.value='';
+                if(!v) return; const to=v==='__pool'?null:users.find(x=>x.id===v);
+                if(!window.confirm(`Move every lead owned by ${u.name} to ${to?to.name:'the unclaimed pool'}? Their commission history stays with them.`)) return;
+                const n=await reassign(u,to); window.alert(n?`${n} lead${n===1?'':'s'} moved.`:'They had no leads to move.'); }}>
+                <option value="">— pick someone —</option>
+                {users.filter(x=>x.id!==u.id&&x.active!==false).map(x=><option key={x.id} value={x.id}>{x.name}</option>)}
+                <option value="__pool">The unclaimed pool</option>
+              </select>
+            </div>}
+            <div className="tm-acts">
+              <button className="btn btn-g btn-sm" onClick={()=>set({active:u.active===false})}>{u.active===false?<><BadgeCheck size={14}/>Reactivate</>:<><Ban size={14}/>Deactivate</>}</button>
+              {u.email&&<button className="btn btn-g btn-sm" onClick={()=>reset(u.email)}><KeyRound size={14}/>Send password email</button>}
+              {u.id!==myUid&&<button className="btn btn-d btn-sm" onClick={()=>{ if(window.confirm(`Remove ${u.name} from the CRM? Their leads and history stay — their access ends.`)) removeUser(u.id); }}><Trash2 size={14}/>Remove</button>}
+            </div>
+            <div className="subcell" style={{marginTop:8}}>Deactivating keeps every lead, note and commission — it only ends their access and takes them off the leaderboard.</div>
+          </div>}
+        </div>); })}
+      {!users.length&&!noUsers&&<div className="empty">No people yet.</div>}
+    </div>
+
+    {adding?(<div className="tm-add">
+      <div className="tm-sub">New hire</div>
+      <div className="fgrid">
+        <div className="field"><label>Name</label><input autoFocus value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></div>
+        <div className="field"><label>Email (this is their login)</label><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></div>
+        <div className="field"><label>Role</label><select value={f.role} onChange={e=>setF({...f,role:e.target.value})}><option value="rep">Sales Rep</option><option value="owner">Owner</option></select></div>
+        {f.role==='rep'&&<div className="field"><label>Commission %</label><input type="number" min="0" step="0.5" value={f.commission_pct} onChange={e=>setF({...f,commission_pct:e.target.value})}/></div>}
+        <div className="field full"><label>Temporary password (blank = generate one)</label><input value={f.password} onChange={e=>setF({...f,password:e.target.value})} placeholder="leave blank and we'll make one"/></div>
+      </div>
+      {f.role==='rep'&&<>
+        <div className="tm-sub">Lead pools they can see</div>
+        <div className="chips">{pools.map(p=><button key={p} className={'chip'+(f.pools.includes(p)?' on':'')} onClick={()=>setF({...f,pools:toggleIn(f.pools,p)})}>{p}</button>)}
+          <button className="chip add" onClick={addPool}><Plus size={12}/>New pool</button></div>
+        <div className="tm-sub">Tabs they see</div>
+        <div className="chips">{ALL_MODULES.filter(([k])=>REP_TABS.includes(k)).map(([k,label])=>{ const on=f.tabs.includes(k); const money=MONEY_TABS.includes(k);
+          return <button key={k} className={'chip'+(on?' on':'')+(money?' warn':'')} onClick={()=>setF({...f,tabs:toggleIn(f.tabs,k)})}>{label}</button>; })}</div>
+      </>}
+      <div className="tm-acts">
+        <button className="btn btn-p btn-sm" disabled={busy} onClick={create}><UserPlus size={14}/>{busy?'Creating…':'Create login'}</button>
+        <button className="btn btn-g btn-sm" onClick={()=>{setAdding(false);setF(blank);}}>Cancel</button>
+      </div>
+    </div>):<button className="btn btn-p btn-sm" style={{marginTop:12}} onClick={()=>{setAdding(true);setMsg(null);}}><UserPlus size={14}/>Add a person</button>}
+
+    {msg&&<div className={'note '+(msg.bad?'bad':'')} style={{marginTop:14}}>
+      {msg.t}
+      {msg.pw&&<div style={{marginTop:8,display:'flex',gap:8,flexWrap:'wrap'}}>
+        <button className="btn btn-g btn-sm" onClick={()=>reset(msg.email)}><KeyRound size={14}/>Email them a set-password link instead</button></div>}
+    </div>}
+    <div className="subcell" style={{marginTop:12}}>Creating a login needs <b>Email</b> sign-ups enabled in Supabase → Authentication → Providers, with <b>Confirm email</b> off (otherwise Supabase won't hand back the user id we need).</div>
+
+    <div className="rep-pay-toggle" onClick={()=>saveSettings({...settings,repPayments:!settings.repPayments})}>
+      <span className={'sw '+(settings.repPayments?'on':'')}><b/></span>
+      <div><b>Let sales reps log payments</b><div className="subcell" style={{marginTop:2}}>Off by default. When on, reps get the Payment button in a lead's activity log. They still never see company revenue totals.</div></div>
+    </div>
+  </div>);
+}
+
+function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,modulesV:num(d.settings.modulesV),pools:Array.isArray(d.settings.pools)?d.settings.pools:[],notifyEmails:d.settings.notifyEmails||'',leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
+    {/* team & roles — owner-only */}
+    {isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassign={reassignLeads} me={me} myUid={myUid} noUsers={noUsers}/>}
+
+    {/* conversion alerts */}
+    {isOwner&&<div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><Bell size={15}/>Conversion alerts</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Every rep conversion always lands in <b>Awaiting onboarding</b> on your dashboard. Add addresses here and it gets emailed too.</div>
+      <div className="field full"><label>Email these people on every conversion</label>
+        <input placeholder="garrett@getproytech.com, logan@getproytech.com" value={settings.notifyEmails||''}
+          onChange={e=>saveSettings({...settings,notifyEmails:e.target.value})}/></div>
+      <div className="subcell" style={{marginTop:10}}>Email needs <b>RESEND_API_KEY</b> and <b>NOTIFY_FROM</b> set in Vercel → Settings → Environment Variables, with the sending domain verified at resend.com. Until then this quietly does nothing and the dashboard queue carries on regardless.</div>
+    </div>}
+
+    {/* legacy name-based lead visibility (still drives Mine / Pool / All) */}
+    {(()=>{ const people=(settings.options?.owner||OWNERS).filter(o=>o!==POOL_OWNER);
+      const setAccess=(name,access)=>{ const t=(settings.team||[]).filter(x=>x.name!==name); saveSettings({...settings,team:[...t,{name,access}]}); };
+      return (<div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><Users size={15}/>Team &amp; lead visibility</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Everyone lands on <b>their own</b> leads by default. This controls whether they can switch to <b>All</b> and see the whole company's list. Leads owned by <b>{POOL_OWNER}</b> sit in the shared <b>Pool</b> — anyone can see and claim those.</div>
+      <div className="team-list">
+        {people.map(p=>{const a=teamAccess(settings,p);return (<div className="team-row" key={p}>
+          <span className="team-av">{p[0]}</span>
+          <span className="team-name">{p}</span>
+          <div className="seg team-seg">
+            <button className={a==='own'?'on':''} onClick={()=>setAccess(p,'own')}>Own + Pool</button>
+            <button className={a==='all'?'on':''} onClick={()=>setAccess(p,'all')}>Everything</button>
+          </div>
+        </div>);})}
+      </div>
+      <div className="ch-sub" style={{marginTop:12,marginBottom:0}}>Add a new salesperson under <b>Dropdown options → Owner</b> and they'll appear here. Give them <b>Own + Pool</b> and they'll only ever see their own leads plus the shared pool.</div>
+    </div>); })()}
+
+    {/* monthly goals */}
+    {(()=>{ const G=goalsOf(settings);
+      const setGoal=(k,v)=>saveSettings({...settings,goals:{...G,[k]:Math.max(0,num(v))}});
+      const anySet=Object.values(G).some(v=>num(v)>0);
+      return (<div className="card" style={{marginBottom:18}}>
+        <div className="sec-title"><Target size={15}/>Monthly goals</div>
+        <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Set a target and the matching dashboard tile grows a progress bar that tells you if you’re on pace for the month. Leave one at 0 to hide it.</div>
+        <div className="goal-grid">{GOAL_FIELDS.map(([k,label,note,kind])=>(
+          <div className="goal-row" key={k}>
+            <div className="goal-l"><b>{label}</b><span>{note}</span></div>
+            <div className="goal-in">{kind==='$'&&<i>$</i>}<input type="number" min="0" value={G[k]||''} placeholder="0" onChange={e=>setGoal(k,e.target.value)}/></div>
+          </div>))}</div>
+        {!anySet&&<div className="subcell" style={{marginTop:10}}>No goals set yet — tiles show plain numbers until you add one.</div>}
+      </div>); })()}
+
+    {/* modules */}
+    {(()=>{ const on=modList(settings);
+      const toggle=k=>{ const next=on.includes(k)?on.filter(x=>x!==k):[...on,k]; saveSettings({...settings,modules:next}); };
+      return (<div className="card" style={{marginBottom:18}}>
+        <div className="sec-title"><LayoutDashboard size={15}/>Sections</div>
+        <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Switch off anything this install doesn’t need — it disappears from the sidebar. Dashboard and Settings always stay. Handy when a client buys the CRM but not invoicing.</div>
+        <div className="mod-grid">{ALL_MODULES.map(([k,label])=>(
+          <label key={k} className={'mod-row'+(on.includes(k)?' on':'')}>
+            <input type="checkbox" checked={on.includes(k)} onChange={()=>toggle(k)}/>
+            <span>{label}</span>
+            {on.includes(k)?<CheckCircle2 size={15} color={GREEN}/>:<Circle size={15} color="#C9C5D9"/>}
+          </label>))}</div>
+        <div className="subcell" style={{marginTop:10}}>{on.length} of {ALL_MODULES.length} sections on. Data is never deleted — switching a section back on brings everything with it.</div>
+      </div>); })()}
+
+    {/* google calendar */}
+    <div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><CalendarClock size={15}/>Google Calendar</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Connect a Google account so meetings you book on a lead post automatically to that calendar. Use <b>admin@getproytech.com</b> when the Google sign-in appears.</div>
+      {gcal&&gcal.connected
+        ? <div className="gcal-on"><div className="gcal-dot"/><div><b>Connected{gcal.email?` — ${gcal.email}`:''}</b><div className="subcell">Meetings booked on a lead land here automatically.</div></div><button className="btn btn-g btn-sm" style={{marginLeft:'auto'}} onClick={onDisconnectGcal}>Disconnect</button></div>
+        : <div className="gcal-off"><button className="btn btn-p" onClick={()=>{window.location.href='/api/google-auth';}}><CalendarClock size={15}/>Connect Google Calendar</button><span className="subcell">You’ll approve once, then you’re set.</span></div>}
+    </div>
+
+    {/* client phases */}
+    {(()=>{ const phases=stdPhases(settings);
+      const savePhases=next=>saveSettings({...settings,clientPhases:next});
+      const patch=(i,p)=>{const n=phases.map((x,j)=>j===i?{...x,...p}:x);savePhases(n);};
+      const move=(i,dir)=>{const j=i+dir;if(j<0||j>=phases.length)return;const n=phases.slice();[n[i],n[j]]=[n[j],n[i]];savePhases(n);};
+      return (<div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><KanbanSquare size={15}/>Client phases</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>These are the columns on the Client Pipeline board. Rename, recolor, or reorder them. The 6 keys stay fixed because the onboarding checklist maps to them — for one-off steps, add a <b>custom phase</b> on an individual client from the Clients tab.</div>
+      <div className="phase-editor">{phases.map((p,i)=>(<div className="phase-row" key={p.key}>
+        <input type="color" value={p.color} onChange={e=>patch(i,{color:e.target.value})}/>
+        <input className="phase-label" value={p.label} onChange={e=>patch(i,{label:e.target.value})}/>
+        <span className="phase-key">{p.flow?'flow':'terminal'}</span>
+        <div className="phase-moves">
+          <button className="m-x" style={{width:26,height:26}} disabled={i===0} onClick={()=>move(i,-1)}><ChevronUp size={13}/></button>
+          <button className="m-x" style={{width:26,height:26}} disabled={i===phases.length-1} onClick={()=>move(i,1)}><ChevronDown size={13}/></button>
+        </div>
+      </div>))}</div>
+      <button className="linkbtn" onClick={()=>savePhases(DEFAULT_CLIENT_PHASES)}>Reset to defaults</button>
+    </div>); })()}
+
     {/* logo */}
     <div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><ImageIcon size={15}/>Brand / Logo</div>
@@ -1804,7 +4203,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <OptionEditor label="Lead Source" items={settings.options.source} onChange={a=>setOptions('source',a)}/>
       <OptionEditor label="Business Type" items={settings.options.businessType} onChange={a=>setOptions('businessType',a)}/>
       <OptionEditor label="Next Action" items={settings.options.nextAction} onChange={a=>setOptions('nextAction',a)}/>
-      <OptionEditor label="Owner" items={settings.options.owner||['Garrett','Logan','ProyTech']} onChange={a=>setOptions('owner',a)}/>
+      <OptionEditor label="Owner" items={settings.options.owner||OWNERS} onChange={a=>setOptions('owner',a)}/>
     </div>
 
     {/* stages */}
@@ -1835,7 +4234,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
         <button className="btn btn-p" onClick={exportAll}><Download size={15}/>Export full backup (JSON)</button>
         <label className="btn btn-g" style={{cursor:'pointer'}}><Upload size={15}/>Restore from backup<input type="file" accept="application/json,.json" onChange={importAll} style={{display:'none'}}/></label>
-        <button className="btn btn-d" onClick={()=>{if(window.confirm('Reset to your 10 real seed leads? Export a backup first if you want to keep current data.'))saveLeads(seed());}}><Trash2 size={15}/>Reset to seed leads</button>
+        <button className="btn btn-d" onClick={()=>{if(window.confirm('Reset to the sample demo leads? Export a backup first if you want to keep current data.'))saveLeads(seed());}}><Trash2 size={15}/>Reset to seed leads</button>
       </div>
     </div>
 
@@ -1932,35 +4331,291 @@ function DeliveryEditor({tracks,services,onChange}){
 }
 
 /* ===================== MODAL ===================== */
-function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew}){
+/* meeting list + scheduler used inside the lead modal. Top-level so form state
+   survives modal re-renders. */
+/* the one control a dateless meeting needs: when is it. Defaults to the next
+   round hour so the common case is two taps, and it is deliberately the only
+   thing offered on the row — no Held/No-show, because that question does not
+   apply until somebody says when. */
+function DateFix({onSet,compact}){
+  const pad=n=>String(n).padStart(2,'0');
+  const soon=(()=>{ const d=new Date(); d.setMinutes(0,0,0); d.setHours(d.getHours()+1);
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:00`; })();
+  const [v,setV]=useState(soon);
+  const [mins,setMins]=useState(30);
+  return (<div className={'mtg-fix'+(compact?' sm':'')} onClick={e=>e.stopPropagation()}>
+    <input type="datetime-local" step={900} value={v} onChange={e=>setV(e.target.value)} aria-label="Meeting date and time"/>
+    <select value={mins} onChange={e=>setMins(+e.target.value)} aria-label="Length">
+      {[15,30,45,60,90,120].map(m=><option key={m} value={m}>{m<60?m+'m':(m/60)+'h'+(m%60?'30':'')}</option>)}
+    </select>
+    <button className="btn btn-p btn-sm" disabled={!v} onClick={()=>onSet&&onSet(v,mins)}><CalendarClock size={13}/>Set date</button>
+  </div>);
+}
+function fmtMeetingTime(iso){ try{ const d=new Date(iso); return d.toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch{ return iso; } }
+/* The ONE place a meeting gets booked. The Meetings section and the activity
+   log's "Meeting Booked" button both render this, so there is a single path to
+   the calendar and a single path into the numbers. Two things that used to be
+   silently wrong here:
+   - the connected account was hardcoded in the warning text, so when events
+     landed on a different Google account than the one you were looking at there
+     was nothing on screen to tell you. It now names the real account.
+   - "Invite client" was disabled with no visible reason whenever the lead had
+     no email, which reads exactly like a broken checkbox. It now shows the
+     field and writes the address back to the lead. */
+function MeetingScheduler({lead,gcalConnected,gcalEmail,onSchedule,onLogUndated}){
+  const [date,setDate]=useState(todayISO());
+  const [time,setTime]=useState('10:00');
+  const [dur,setDur]=useState(30);
+  const [mtype,setMtype]=useState('Coffee');
+  const [title,setTitle]=useState('');
+  const [invite,setInvite]=useState(false);
+  const [meet,setMeet]=useState(false);
+  const [notes,setNotes]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [err,setErr]=useState('');
+  const [addEmail,setAddEmail]=useState('');
+  /* both the Meetings section and the activity composer can be on screen at
+     once, so the quarter-hour datalist needs an id of its own per instance */
+  const [listId]=useState(()=>'mtgq-'+Math.random().toString(36).slice(2,8));
+  const leadEmail=(lead.email||'').trim();
+  const typed=addEmail.trim();
+  const inviteEmail=leadEmail||typed;
+  const emailOk=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail);
+  const pad=n=>String(n).padStart(2,'0');
+  const localISO=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+  const go=async()=>{
+    setErr('');
+    const startDt=new Date(`${date}T${time}:00`);
+    if(isNaN(startDt)){ setErr('Pick a valid date and time.'); return; }
+    if(invite&&!emailOk){ setErr('That email doesn’t look right — fix it or switch off Invite client.'); return; }
+    const endDt=new Date(startDt.getTime()+dur*60000);
+    const t=title.trim()||`${mtype} with ${lead.name||lead.company||'client'}`;
+    setBusy(true);
+    try{
+      /* a typed address rides along IN THE SAME PATCH as the meeting. Saving it
+         separately looks fine and silently loses it: both writes read the same
+         stale draft inside one tick and the second overwrites the first. */
+      await onSchedule({title:t,mtype,start:localISO(startDt),end:localISO(endDt),
+        invited:invite&&emailOk,attendees:(invite&&emailOk)?[inviteEmail]:[],meet,notes:notes.trim(),
+        saveEmail:(invite&&emailOk&&!leadEmail)?inviteEmail:''});
+      setTitle('');setNotes('');setInvite(false);setMeet(false);setAddEmail('');
+    }catch(e){ setErr(e.message||'Could not schedule'); }
+    setBusy(false);
+  };
+  const logUndated=()=>{ if(!onLogUndated)return;
+    onLogUndated({mtype,title:title.trim(),notes:notes.trim()});
+    setTitle('');setNotes(''); };
+  return (<div className="mtg-form">
+    {gcalConnected
+      ? <div className="mtg-acct"><CalendarClock size={12}/>Goes on <b>{gcalEmail||'the connected Google account'}</b>{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>
+      : <div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected, so this won’t reach a calendar. Open <b>Settings → Google Calendar</b> and hit Connect.</span></div>}
+    <div className="mtype-row">{MEETING_TYPES.map(t=><button key={t} type="button" className={'mtype'+(mtype===t?' on':'')} onClick={()=>setMtype(t)}>{t}</button>)}</div>
+    <div className="fgrid">
+      <div className="field full"><label>Title</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder={`${mtype} with ${lead.name||lead.company||'client'}`}/></div>
+      <div className="field"><label>Date</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
+      <div className="field"><label>Time</label><input type="time" step={900} value={time} onChange={e=>setTime(e.target.value)} list={listId}/></div>
+      <div className="field"><label>Length</label><select value={dur} onChange={e=>setDur(+e.target.value)}>{[15,30,45,60,90,120].map(m=><option key={m} value={m}>{m<60?m+' min':(m/60)+' hr'+(m%60?' 30m':'')}</option>)}</select></div>
+      <div className="field"><label>&nbsp;</label><div className="mtg-toggles">
+        <label className={'mtg-chk'+(invite?' on':'')}><input type="checkbox" checked={invite} onChange={e=>setInvite(e.target.checked)}/><UserPlus size={13}/>Invite client</label>
+        <label className={'mtg-chk'+(meet?' on':'')}><input type="checkbox" checked={meet} onChange={e=>setMeet(e.target.checked)}/><Video size={13}/>Meet link</label>
+      </div></div>
+      {invite&&!leadEmail&&<div className="field full"><label>Client email (saved to the lead)</label>
+        <input type="email" inputMode="email" placeholder="name@company.com" value={addEmail} onChange={e=>setAddEmail(e.target.value)}/></div>}
+      <div className="field full"><label>Notes (optional)</label><textarea rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Agenda, what to prep…"/></div>
+    </div>
+    {err&&<div className="mtg-err">{err}</div>}
+    <div className="mtg-actions">
+      <button className="btn btn-p" disabled={busy} onClick={go}>{busy?<Loader2 size={15} className="spin"/>:<CalendarClock size={15}/>}{busy?'Scheduling…':gcalConnected?'Schedule + add to Calendar':'Schedule (no calendar)'}</button>
+      {onLogUndated&&<button className="linkbtn" type="button" onClick={logUndated}>No date yet — just log it</button>}
+    </div>
+    <datalist id={listId}>{Array.from({length:96},(_,i)=>`${pad(Math.floor(i/4))}:${pad((i%4)*15)}`).map(v=><option key={v} value={v}/>)}</datalist>
+  </div>);
+}
+function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
+  const now=Date.now();
+  const all=[...(meetings||[])].map(m=>({...m,dateUnknown:datelessOf(m)}));
+  const sorted=all.sort((a,b)=>(a.start||'').localeCompare(b.start||''));
+  const undated=sorted.filter(m=>needsDate(m));
+  const dated=sorted.filter(m=>!needsDate(m));
+  const upcoming=dated.filter(m=>new Date(m.end||m.start).getTime()>=now);
+  const past=dated.filter(m=>new Date(m.end||m.start).getTime()<now).reverse();
+  if(!sorted.length) return <div className="mtg-empty">No meetings yet. Schedule one below.</div>;
+  const Row=m=>(<div className={'mtg-row'+(m.status==='held'?' held':'')+(m.status==='noshow'?' noshow':'')+(needsDate(m)?' undated':'')} key={m.id}>
+    <div className="mtg-when"><CalendarClock size={13}/>{needsDate(m)?<span className="mtg-undated">no date set</span>:fmtMeetingTime(m.start)}</div>
+    <div className="mtg-mid"><div className="mtg-title">{m.title}</div><div className="mtg-badges">
+      <select className={'mtg-type'+(m.mtype?'':' unset')} value={m.mtype||''} onClick={e=>e.stopPropagation()} onChange={e=>onType&&onType(m,e.target.value)}>
+        <option value="">+ type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+      </select>
+      {m.invited&&<span className="mtg-b"><UserPlus size={10}/>invited</span>}
+      {m.meet&&(m.meetLink?<a className="mtg-b link" href={m.meetLink} target="_blank" rel="noreferrer"><Video size={10}/>Join</a>:<span className="mtg-b"><Video size={10}/>Meet</span>)}
+      {m.htmlLink&&<a className="mtg-b link" href={m.htmlLink} target="_blank" rel="noreferrer"><Expand size={10}/>Calendar</a>}
+    </div></div>
+    {needsDate(m)
+      ? <DateFix compact onSet={(v,mins)=>onTime&&onTime(m,v,mins)}/>
+      : <div className="mtg-status">
+          <button className={'ms-b held'+(m.status==='held'?' on':'')} title="It happened" onClick={()=>onStatus&&onStatus(m,'held')}><CheckCircle2 size={12}/>Held</button>
+          <button className={'ms-b no'+(m.status==='noshow'?' on':'')} title="They didn't show" onClick={()=>onStatus&&onStatus(m,'noshow')}><X size={12}/>No-show</button>
+        </div>}
+    <button className="m-x" style={{width:28,height:28,flex:'none'}} title="Cancel + remove from calendar" onClick={()=>{if(window.confirm('Cancel this meeting and remove it from Google Calendar?'))onRemove(m);}}><X size={14}/></button>
+  </div>);
+  return (<div className="mtg-list">
+    {undated.length>0&&<><div className="mtg-band undated">Needs a date · {undated.length}</div>{undated.map(Row)}</>}
+    {upcoming.length>0&&<><div className="mtg-band">Upcoming · {upcoming.length}</div>{upcoming.map(Row)}</>}
+    {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
+  </div>);
+}
+function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
-  const blank={id:uid(),name:'',company:'',businessType:opt.businessType[0],phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:opt.nextAction[0],nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:'Garrett',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',custom:{},createdAt:new Date().toISOString(),activities:[]};
+  const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',relTier:'',meetings:[],custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
-  const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [who,setWho]=useState(me||'Garrett');const [feedFilter,setFeedFilter]=useState('All');
+  const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');
+  const [openSec,setOpenSec]=useState({});
+  const [showMore,setShowMore]=useState(false);
+  const [firstNote,setFirstNote]=useState('');
+  const [logMtype,setLogMtype]=useState('Coffee');
+  const [payAmt,setPayAmt]=useState('');const [payNote,setPayNote]=useState('');
+  /* who can log a payment from the composer: owners always; reps only if the
+     owner has switched it on for the install. */
+  const canLogPayment=!rep||(settings&&settings.repPayments);
+  const [firstType,setFirstType]=useState('Call');
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
   const set=patch=>{if(isNew)setDraft({...draft,...patch});else{setDraft({...draft,...patch});updateLead(draft.id,patch);}};
+  /* One booking path, used by the Meetings section AND the activity log's
+     Meeting Booked button. Always writes the meeting + the Booked activity, so
+     it always reaches the dashboard numbers; the Google Calendar event is the
+     part that can be absent. When the calendar isn't connected we skip the call
+     entirely rather than throwing — the meeting is still real, it just isn't on
+     a calendar, and the row says so instead of the booking failing outright. */
+  const doSchedule=async(m)=>{ let ev={eventId:'',htmlLink:'',meetLink:''};
+    if(gcalConnected) ev=await createCalendarEvent(m);
+    const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',createdAt:new Date().toISOString(),dateUnknown:false};
+    const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',mtype:m.mtype||'Other',meetingId:meeting.id,text:`${m.mtype||'Meeting'} booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
+    set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])],
+      ...(m.saveEmail?{email:m.saveEmail}:{})}); return meeting; };
+  /* the escape hatch: a meeting you know about but haven't pinned a time to.
+     Lands in Needs a date, exactly where the dated-meeting fix puts them. */
+  const doLogUndated=({mtype,title,notes})=>{ const now=new Date().toISOString(); const mid=uid();
+    const meeting={id:mid,title:title||`${mtype} with ${draft.name||draft.company||'lead'}`,mtype:mtype||'Other',
+      start:now,end:now,status:'',who:me,createdAt:now,logged:true,dateUnknown:true,notes:notes||''};
+    const activity={id:uid(),ts:now,type:'Booked',mtype:mtype||'Other',meetingId:mid,
+      text:`${mtype||'Meeting'} booked${notes?': '+notes:''} — no date set yet`,who:me};
+    set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])]}); };
+  /* cancelling is not deleting: the meeting leaves the count and the calendar,
+     the history of having booked it stays and is marked cancelled. */
+  const doRemove=async(mt)=>{ await deleteCalendarEvent(mt.eventId);
+    const acts=(draft.activities||[]).map(a=>(a.meetingId===mt.id&&a.type==='Booked')?{...a,cancelled:true}:a);
+    const note={id:uid(),ts:new Date().toISOString(),type:'Meeting',
+      text:`Cancelled: ${mt.title||mt.mtype||'meeting'}${mt.start&&!datelessOf(mt)?` — ${fmtMeetingTime(mt.start)}`:''}`,who:me};
+    set({meetings:(draft.meetings||[]).filter(x=>x.id!==mt.id),activities:[note,...acts]}); };
+  /* did it actually happen? booked is a promise, held is the result. */
+  const doStatus=(mt,status)=>{ const next=(draft.meetings||[]).map(x=>x.id===mt.id?{...x,status:x.status===status?'':status}:x);
+    const was=(draft.meetings||[]).find(x=>x.id===mt.id); const flip=was&&was.status===status;
+    const act=flip?null:{id:uid(),ts:new Date().toISOString(),type:'Meeting',text:`${status==='held'?'Met':'No-show'}: ${mt.title}`,who:me};
+    set(act?{meetings:next,activities:[act,...(draft.activities||[])]}:{meetings:next}); };
+  /* same job as setMeetingTime on the dashboard, against the modal's draft */
+  const doTime=(mt,startLocal,mins)=>{ const d0=new Date(startLocal); if(!startLocal||isNaN(d0))return;
+    const pad=n=>String(n).padStart(2,'0');
+    const loc=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+    const start=loc(d0), end=loc(new Date(d0.getTime()+(num(mins)||30)*60000));
+    const next=(draft.meetings||[]).map(x=>x.id===mt.id?{...x,start,end,dateUnknown:false}:x);
+    const act={id:uid(),ts:new Date().toISOString(),type:'Note',meetingId:mt.id,text:`Dated: ${mt.title||mt.mtype||'meeting'} — ${fmtMeetingTime(start)}`,who:me};
+    set({meetings:next,activities:[act,...(draft.activities||[])]}); };
   const setCustom=(id,v)=>set({custom:{...(draft.custom||{}),[id]:v}});
   const toggleSvc=s=>{const cur=draft.serviceInterest||[];set({serviceInterest:cur.includes(s)?cur.filter(x=>x!==s):[...cur,s]});};
   const addCustomAction=()=>{const v=window.prompt('New Next Action:');if(v&&v.trim()){addOption('nextAction',v.trim());set({nextAction:v.trim()});}};
   const addCustomSvc=()=>{const v=window.prompt('New Service Interest:');if(v&&v.trim()){addOption('service',v.trim());toggleSvc(v.trim());}};
   const F=({label,k,type,full})=>(<div className={'field'+(full?' full':'')}><label>{label}</label><input type={type||'text'} value={draft[k]??''} onChange={e=>set({[k]:e.target.value})}/></div>);
-  const dealBreak=(draft.deal&&typeof draft.deal==='object')
-    ? {setup:draft.deal.setup??'',website:draft.deal.website??'',integration:draft.deal.integration??'',extras:Array.isArray(draft.deal.extras)?draft.deal.extras:[]}
-    : {setup:(draft.dealValue||''),website:'',integration:'',extras:[]};
   const dealSum=d=>num(d.setup)+num(d.website)+num(d.integration)+(d.extras||[]).reduce((a,e)=>a+num(e.amount),0);
-  const setDeal=next=>set({deal:next,dealValue:dealSum(next)});
+  /* MULTI-DEAL MODEL. A client can have several deals running at once.
+     draft.deals is the array of OPEN deals; dealValue stays as their sum so
+     every existing metric (commission, forecast, funnel) keeps working.
+     Legacy single-deal records (draft.deal) are migrated on read. */
+  const openDeals=(()=>{
+    if(Array.isArray(draft.deals)) return draft.deals;
+    if(draft.deal&&typeof draft.deal==='object'&&dealSum(draft.deal)>0)
+      return [{id:'d_legacy',label:'Deal',setup:draft.deal.setup??'',website:draft.deal.website??'',integration:draft.deal.integration??'',extras:Array.isArray(draft.deal.extras)?draft.deal.extras:[]}];
+    if(num(draft.dealValue)>0) return [{id:'d_legacy',label:'Deal',setup:draft.dealValue,website:'',integration:'',extras:[]}];
+    return [];
+  })();
+  const openDealsTotal=openDeals.reduce((a,d)=>a+dealSum(d),0);
+  /* write the whole deals array + keep dealValue = sum of open deals */
+  const writeDeals=next=>set({deals:next,dealValue:next.reduce((a,d)=>a+dealSum(d),0)});
+  const updateDeal=(id,patch)=>writeDeals(openDeals.map(d=>d.id===id?{...d,...patch}:d));
+  const addDeal=()=>{ const label=window.prompt('Name this deal (e.g. "Website build", "Q3 advisory"):','Deal '+(openDeals.length+1)); if(label===null) return;
+    writeDeals([...openDeals,{id:uid(),label:label.trim()||('Deal '+(openDeals.length+1)),setup:'',website:'',integration:'',extras:[]}]); };
+  const removeDeal=id=>{ if(!window.confirm('Remove this open deal? Nothing is archived.')) return; writeDeals(openDeals.filter(d=>d.id!==id)); };
+  const closeDeal=d=>{ const amount=dealSum(d); if(amount<=0){ window.alert('Add a dollar amount before closing this deal.'); return; }
+    const closed={id:uid(),label:d.label||'Deal',amount,deal:{...d},closedAt:todayISO(),by:me};
+    writeDeals(openDeals.filter(x=>x.id!==d.id));           // remove from open, keep the rest
+    set({closedDeals:[...(draft.closedDeals||[]),closed]});
+    if(addActivity) addActivity(draft.id,'Note',`Deal closed: ${closed.label} — ${usd(amount)}`,me); };
   const Sel=({label,k,opts})=>(<div className="field"><label>{label}</label><select value={draft[k]} onChange={e=>set({[k]:e.target.value})}>{opts.map(o=>typeof o==='string'?<option key={o} value={o}>{o||'—'}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}</select></div>);
-  const logIt=()=>{if(!atext.trim())return;addActivity(draft.id,atype,atext,who);setAtext('');};
-  const create=()=>{if(!draft.name.trim()){window.alert('Add a name first.');return;}createNew({...draft,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Lead created.',who}]});};
+  /* collapsible section. called as a function (not <Sec/>) so inputs inside
+     never remount and lose focus while typing. */
+  /* one-tap access: open a section and bring it into view. Clicking a header
+     fact or a jump chip lands you on the right block with no scrolling. */
+  const jumpTo=k=>{ setOpenSec(o=>({...o,[k]:true}));
+    setTimeout(()=>{ const el=document.getElementById('msec-'+k); if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'start'}); },70); };
+  const Sec=(k,icon,title,summary,body,defOpen)=>{
+    const isOpen=openSec[k]??!!defOpen;
+    return (<div className={'msec'+(isOpen?' open':'')} id={'msec-'+k} key={k}>
+      <div className="msec-h" onClick={()=>setOpenSec(o=>({...o,[k]:!isOpen}))}>
+        <span className="msec-t">{icon}{title}</span>
+        {!isOpen&&summary?<span className="msec-s">{summary}</span>:null}
+        <ChevronDown size={15} className="msec-ch"/>
+      </div>
+      {isOpen&&<div className="msec-b">{body}</div>}
+    </div>);
+  };
+  const logIt=()=>{
+    const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:''); if(!t)return;
+    if(atype==='Booked'){
+      /* a logged meeting IS a meeting — create the record so it shows up with a
+         Held/No-show control, not just a line in the activity feed. It has no
+         real date though: start is only the moment this was typed. dateUnknown
+         says so out loud, which keeps it out of Upcoming (where it would sit
+         for all of zero seconds) and out of Needs status (where it would turn
+         up overdue a minute later). It lands in Needs a date instead. */
+      const mid=uid(); const now=new Date().toISOString();
+      const meeting={id:mid,title:`${logMtype} with ${draft.name||'lead'}`,mtype:logMtype,start:now,end:now,status:'',who,createdAt:now,logged:true,dateUnknown:true};
+      const act={id:uid(),ts:now,type:'Booked',mtype:logMtype,meetingId:mid,text:t,who};
+      const patch={meetings:[...(draft.meetings||[]),meeting],activities:[act,...(draft.activities||[])]};
+      setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
+    } else {
+      addActivity(draft.id,atype,t,who);
+    }
+    setAtext('');
+  };
+  /* log a payment straight from the composer — same payments[] the deal panel
+     reads, so paid / remaining update everywhere at once. ONE write: the payment
+     and its activity go together, or the second write clobbers the first from a
+     stale `leads` closure. */
+  const logPaymentFromComposer=()=>{
+    const amount=num(payAmt); if(amount<=0){ window.alert('Enter a payment amount.'); return; }
+    const note=payNote.trim();
+    const pay={id:uid(),amount,date:todayISO(),note};
+    const pays=Array.isArray(draft.payments)?draft.payments:[];
+    const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who};
+    const patch={payments:[...pays,pay],activities:[act,...(draft.activities||[])]};
+    setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
+    setPayAmt(''); setPayNote('');
+  };
+  const create=()=>{
+    if(!draft.name.trim()){window.alert('Add a name first.');return;}
+    const ts=new Date().toISOString();
+    const acts=[{id:uid(),ts,type:'Note',text:'Lead created.',who}];
+    if(firstNote.trim()) acts.unshift({id:uid(),ts,type:firstType,text:firstNote.trim(),who});
+    createNew({...draft,activities:acts});
+  };
   const feed=(isNew?[]:(lead?.activities||[])).filter(a=>feedFilter==='All'||a.type===feedFilter);
   const noteCount=(lead?.activities||[]).filter(a=>a.type==='Note').length;
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head">
         <div style={{minWidth:0}}>
-          <h2>{draft.name||'New Lead'}</h2>{!isNew&&<div className="co">{draft.company} · {draft.businessType}</div>}
+          <h2>{draft.name||draft.company||'New Lead'}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
           {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · Last contact {fmtDate(lastContact(draft))}</div>}
           {!isNew&&<div className="qa">
             <StageBadge k={draft.stage} stages={stages}/><PriBadge p={draft.priority}/>
@@ -1970,21 +4625,100 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {draft.website&&<a className="qbtn" href={draft.website.startsWith('http')?draft.website:'https://'+draft.website} target="_blank" rel="noreferrer"><Globe size={12}/>Site</a>}
           </div>}
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:8,flex:'none'}}>
-          {!isNew&&_list.length>1&&<>
-            <button className="m-x" disabled={!prevId} onClick={()=>prevId&&onNav(prevId)} title="Previous lead"><ChevronLeft size={18}/></button>
-            <span style={{fontSize:12,fontWeight:600,color:'#928DAD',minWidth:46,textAlign:'center'}}>{_idx+1} / {_list.length}</span>
-            <button className="m-x" disabled={!nextId} onClick={()=>nextId&&onNav(nextId)} title="Next lead"><ChevronRight size={18}/></button>
-          </>}
-          <button className="m-x" onClick={onClose}><X size={18}/></button>
+        <div className="m-headright">
+          <div style={{display:'flex',alignItems:'center',gap:8}}>
+            {!isNew&&_list.length>1&&<>
+              <button className="m-x" disabled={!prevId} onClick={()=>prevId&&onNav(prevId)} title="Previous lead"><ChevronLeft size={18}/></button>
+              <span style={{fontSize:12,fontWeight:600,color:'#928DAD',minWidth:46,textAlign:'center'}}>{_idx+1} / {_list.length}</span>
+              <button className="m-x" disabled={!nextId} onClick={()=>nextId&&onNav(nextId)} title="Next lead"><ChevronRight size={18}/></button>
+            </>}
+            <button className="m-x" onClick={onClose}><X size={18}/></button>
+          </div>
+          {!isNew&&(()=>{ const bc=bookedCount(draft);
+            const next=[...(draft.meetings||[])].filter(mt=>new Date(mt.end||mt.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0];
+            const facts=[
+              {k:'qual',  l:'Source',   v:draft.source||'—'},
+              {k:'qual',  l:'Owner',    v:draft.owner||'—'},
+              {k:'qual',  l:'Type',     v:draft.businessType&&draft.businessType!=='—'?draft.businessType:'—'},
+              {k:'qual',  l:'Close',    v:draft.expectedClose?fmtDate(draft.expectedClose):'—'},
+              {k:'deal',l:'Deal',v:num(draft.dealValue)>0?usd(draft.dealValue):'—'},
+              (rep&&cmsnOf(draft))?{k:'mycmsn',l:'Your cut',v:usd(cmsnOf(draft).amount)}:null,
+              {k:'meetings',l:'Meetings',v:next?fmtDate(next.start):(bc?bc+' booked':'—'),hot:!!next},
+            ].filter(Boolean);
+            return (<div className="m-facts">{facts.map((f,i)=>(
+              <button key={i} className={'mf'+(f.hot?' hot':'')} onClick={()=>jumpTo(f.k)} title={`Open ${f.k==='qual'?'Qualifying':f.k==='deal'?'Deal':'Meetings'}`}>
+                <i>{f.l}</i><b>{f.v}</b>
+              </button>))}</div>);
+          })()}
         </div>
       </div>
+      {!isNew&&<div className="m-jump">
+        <span className="mj-l">Jump to</span>
+        {[['meetings','Meetings',CalendarCheck,bookedCount(draft)||''],
+          ['qual','Qualifying',SlidersHorizontal,''],
+          ['svc','Service',Target,(draft.serviceInterest||[]).length||''],
+          ['type','Intro',Users,''],
+          ['deal','Deal',DollarSign,'']].map(([k,label,Ic,badge])=>(
+          <button key={k} className={'mj'+(openSec[k]?' on':'')} onClick={()=>jumpTo(k)}><Ic size={13}/>{label}{badge!==''&&<i>{badge}</i>}</button>
+        ))}
+      </div>}
       <div className="m-grid">
         <div className="m-left">
-          {!isNew&&!draft.isClient&&<div className="convert-banner">
-            <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'#56527a',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
-            <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
-          </div>}
+          {/* ---------- 1. CONTACT — always first, always open ---------- */}
+          <div className="dh"><Contact2 size={13}/>{isNew?'New lead':'Contact'}</div>
+          <div className="fgrid">
+            {F({label:'Name',k:'name'})}{F({label:'Company',k:'company'})}
+            {F({label:'Phone',k:'phone',type:'tel'})}{F({label:'Email',k:'email',type:'email'})}
+            {F({label:'Website',k:'website',full:true})}
+          </div>
+          {isNew&&(draft.phone||draft.email)&&(()=>{
+            const dupes=(allLeads||[]).filter(x=>{
+              const ph=(v)=>(v||'').replace(/\D/g,'');
+              return (draft.phone&&ph(x.phone)&&ph(x.phone)===ph(draft.phone))||(draft.email&&x.email&&x.email.toLowerCase()===draft.email.toLowerCase());
+            });
+            return dupes.length?(<div className="dupe-warn"><AlertTriangle size={14}/><span>Already in the CRM: <b onClick={()=>onNav&&onNav(dupes[0].id)}>{dupes[0].name}</b>{dupes[0].company?` · ${dupes[0].company}`:''}{dupes[0].owner?` · owned by ${dupes[0].owner}`:''}</span></div>):null;
+          })()}
+
+          {/* ---------- 2. FOLLOW-UP — the note lives with the date ---------- */}
+          {!isNew&&<>
+            <div className="dh mt"><Bell size={13}/>Follow-up</div>
+            <div className="fu-block">
+              <div className="fgrid">
+                {F({label:'Follow-up date',k:'followUp',type:'date'})}
+                <div className="field"><label>Next action</label><select value={draft.nextAction} onChange={e=>set({nextAction:e.target.value})}>{opt.nextAction.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+              </div>
+              <div className="field full" style={{marginTop:10}}>
+                <label>What to do on this follow-up</label>
+                <textarea className="fu-note" rows={2} placeholder="e.g. Ask about their listing site — he said call back after the 15th" value={draft.nextSteps||''} onChange={e=>set({nextSteps:e.target.value})}/>
+              </div>
+              {draft.followUp&&<div className={'fu-when'+(daysUntil(draft.followUp)<0?' od':'')}>{daysUntil(draft.followUp)<0?`${Math.abs(daysUntil(draft.followUp))} days overdue`:daysUntil(draft.followUp)===0?'Due today':`Due in ${daysUntil(draft.followUp)} days`} · {fmtDate(draft.followUp)}</div>}
+            </div>
+          </>}
+
+          {/* ---------- 3. QUICK ADD: everything else behind one tap ---------- */}
+          {isNew&&<>
+            <div className="dh mt"><MessageSquare size={13}/>First note</div>
+            <div className="fn-block">
+              <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(firstType===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setFirstType(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
+              <textarea className="fu-note" style={{marginTop:9}} rows={3} placeholder={`How'd the ${firstType.toLowerCase()} go? What did they say?`} value={firstNote} onChange={e=>setFirstNote(e.target.value)}/>
+              <div className="fn-hint">{firstNote.trim()?<><CheckCircle2 size={12} color={GREEN}/>Logs as a {firstType} from {who} the moment you save</>:'Optional — but log it now while it\u2019s fresh'}</div>
+            </div>
+
+            <button className="morebtn" onClick={()=>setShowMore(!showMore)}>
+              <ChevronDown size={14} className={'mb-ch'+(showMore?' on':'')}/>{showMore?'Hide extra details':'Add more details'}
+              {!showMore&&<i>optional — {draft.owner} · {draft.nextAction}</i>}
+            </button>
+            {showMore&&<div className="fgrid" style={{marginTop:12}}>
+              {Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
+              {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
+              {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}
+              {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
+              {F({label:'Follow-up Date',k:'followUp',type:'date'})}{F({label:'Expected Close',k:'expectedClose',type:'date'})}
+              {F({label:'Notes for the follow-up',k:'nextSteps',full:true})}
+            </div>}
+          </>}
+
+          {/* ---------- 4. DELIVERY (clients only) ---------- */}
           {!isNew&&draft.isClient&&(()=>{ const tracks=activeTracks(draft,settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const ov=clientOverall(draft,settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS);
             return (<div className="dr-sec deliv">
               <div className="dh" style={{justifyContent:'space-between',display:'flex'}}><span style={{display:'flex',alignItems:'center',gap:8}}><Rocket size={13}/>Delivery</span><span style={{fontSize:11,color:'#928DAD',fontWeight:600}}>Client since {fmtDate(draft.convertedAt)}</span></div>
@@ -2002,111 +4736,452 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               <button className="linkbtn" onClick={()=>{ if(window.confirm('Revert this client back to a lead? Delivery progress is kept.')) revertClient(draft.id); }}>Revert to lead</button>
             </div>);
           })()}
-          {(()=>{ const intro=(allLeads||[]).find(x=>x.id===draft.introducedBy);
-            const candidates=(allLeads||[]).filter(x=>x.id!==draft.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-            const intros=(allLeads||[]).filter(x=>x.introducedBy===draft.id);
-            return (<>
-            <div className="dh"><Users size={13}/>Type</div>
-            <div className="spon-row">
-              <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?'Relationship — not a ProyTech lead':'ProyTech lead'}</label>
-            </div>
-            {draft.isRelationship&&<>
-              <div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>
-              <div className="fgrid" style={{marginTop:10}}>
-                <div className="field"><label>Introduced by</label>
-                  <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
-                    <option value="">— nobody / direct —</option>
-                    {candidates.map(x=><option key={x.id} value={x.id}>{x.name}{x.company?' · '+x.company:''}</option>)}
-                  </select>
+
+          {/* ---------- 5. EVERYTHING ELSE — collapsed ---------- */}
+          {!isNew&&<div className="msecs">
+            {Sec('meetings',<CalendarClock size={13}/>,'Meetings',
+              (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
+              <>
+                <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus} onTime={doTime} onType={(mt,v)=>{tagMeeting&&tagMeeting(draft.id,mt.id,v);setDraft(d=>({...d,meetings:(d.meetings||[]).map(x=>x.id===mt.id?{...x,mtype:v}:x)}));}}/>
+                <MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} onSchedule={doSchedule} onLogUndated={doLogUndated}/>
+              </>, (draft.meetings||[]).some(m=>new Date(m.end||m.start).getTime()>=Date.now()))}
+            {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
+              [draft.source,draft.businessType!=='—'?draft.businessType:null,sOf(draft.stage,stages)?.label,PRIORITIES[draft.priority]?.label].filter(Boolean).join(' · ')||'not set',
+              <div className="fgrid">
+                {Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}{Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}
+                {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
+                {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
+                {F({label:'Expected Close',k:'expectedClose',type:'date'})}
+                {!rep&&<div className="field"><label>Lead pool</label><select value={draft.pool||''} onChange={e=>set({pool:e.target.value||null})}>
+                  <option value="">— none —</option>{poolList(settings).map(p=><option key={p} value={p}>{p}</option>)}</select></div>}
+                <div className="field full"><button className="chip add" onClick={addCustomAction}><Plus size={12}/>Add custom Next Action</button></div>
+              </div>)}
+
+            {Sec('svc',<Target size={13}/>,'Service Interest',
+              (draft.serviceInterest||[]).length?`${(draft.serviceInterest||[]).length} selected`:'none',
+              <div className="chips">{opt.service.map(s=><span key={s} className={'chip '+((draft.serviceInterest||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(s)}>{s}</span>)}<span className="chip add" onClick={addCustomSvc}><Plus size={12}/>Custom</span></div>)}
+
+            {(()=>{ const candidates=(allLeads||[]).filter(x=>x.id!==draft.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+              const intros=(allLeads||[]).filter(x=>x.introducedBy===draft.id);
+              const chain=introChain(draft,allLeads||[]);
+              const root=chain.length?chain[0]:null;
+              const summary=[draft.isRelationship?'Relationship':'Lead',chain.length?`via ${chain[chain.length-1].name}`:null].filter(Boolean).join(' · ');
+              return Sec('type',<Users size={13}/>,'Type & Introduction',summary,<>
+                <div className="spon-row">
+                  <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?'Relationship — not a ProyTech lead':'ProyTech lead'}</label>
                 </div>
-                {F({label:'How you know them',k:'relNote'})}
-              </div>
-              {intro&&<div className="rel-from" onClick={()=>onNav&&onNav(intro.id)}><Link2 size={13}/>Introduced by <b>{intro.name}</b>{intro.company?' · '+intro.company:''}<ChevronRight size={13}/></div>}
-            </>}
-            {intros.length>0&&<div className="rel-gave"><UserPlus size={13}/><span><b>{intros.length}</b> {intros.length===1?'person':'people'} in your CRM came from {draft.name||'this contact'}</span></div>}
-            </>); })()}
-          <div className="dh mt"><Contact2 size={13}/>Details</div>
-          <div className="fgrid">
-            {F({label:'Name',k:'name'})}{F({label:'Company',k:'company'})}
-            {Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
-            {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
-            {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}{Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
-            {F({label:'Follow-up Date',k:'followUp',type:'date'})}{F({label:'Expected Close',k:'expectedClose',type:'date'})}
-            {F({label:'Next Steps',k:'nextSteps',full:true})}
-          </div>
-          <div style={{marginTop:6}}><button className="chip add" onClick={addCustomAction}><Plus size={12}/>Add custom Next Action</button></div>
+                {draft.isRelationship&&<div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>}
+                {draft.isRelationship&&<div className="tier-btns">{REL_TIERS.map(([k,l,c])=><button key={k} type="button" className={'tier-btn'+((draft.relTier||'new')===k?' on':'')} style={{'--tc':c}} onClick={()=>set({relTier:k})}><span className="tier-dot"/>{l}</button>)}</div>}
+                <div className="fgrid" style={{marginTop:10}}>
+                  <div className="field"><label>Introduced by</label>
+                    <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
+                      <option value="">— nobody / direct —</option>
+                      {candidates.map(x=><option key={x.id} value={x.id}>{x.name}{x.company?' · '+x.company:''}</option>)}
+                    </select>
+                  </div>
+                  {F({label:'How you know them',k:'relNote'})}
+                </div>
+                {chain.length>0&&<div className="rel-chain">
+                  <div className="rc-lbl">Intro chain</div>
+                  <div className="rc-path">
+                    {chain.map((pp,i)=>(<React.Fragment key={pp.id}>
+                      <span className={'rc-node'+(i===0?' root':'')} onClick={()=>onNav&&onNav(pp.id)}>{pp.name}</span>
+                      <ChevronRight size={12} className="rc-arrow"/>
+                    </React.Fragment>))}
+                    <span className="rc-node self">{draft.name||'this contact'}</span>
+                  </div>
+                  {chain.length>1&&root&&<div className="rc-root">It all traces back to <b onClick={()=>onNav&&onNav(root.id)}>{root.name}</b></div>}
+                </div>}
+                {intros.length>0&&<div className="rel-gave"><UserPlus size={13}/><span><b>{intros.length}</b> {intros.length===1?'person':'people'} in your CRM came from {draft.name||'this contact'}</span></div>}
+              </>);
+            })()}
 
-          <div className="dh mt"><Target size={13}/>Service Interest</div>
-          <div className="chips">{opt.service.map(s=><span key={s} className={'chip '+((draft.serviceInterest||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(s)}>{s}</span>)}<span className="chip add" onClick={addCustomSvc}><Plus size={12}/>Custom</span></div>
+            {Sec('spon',<Award size={13}/>,'Sponsorship',
+              draft.pastSponsor?'Past sponsor':draft.potentialSponsor?'Potential sponsor':'no',
+              <>
+                <div className="spon-row">
+                  <label className={'spon-tog'+(draft.potentialSponsor?' on':'')}><input type="checkbox" checked={!!draft.potentialSponsor} onChange={e=>set({potentialSponsor:e.target.checked})}/>Potential sponsor</label>
+                  <label className={'spon-tog past'+(draft.pastSponsor?' on':'')}><input type="checkbox" checked={!!draft.pastSponsor} onChange={e=>set({pastSponsor:e.target.checked})}/>Past sponsor</label>
+                </div>
+                {(draft.potentialSponsor||draft.pastSponsor)&&<div className="fgrid" style={{marginTop:10}}>
+                  {F({label:'Sponsor tier',k:'sponsorTier'})}
+                  {F({label:draft.pastSponsor?'Amount given ($)':'Amount possible ($)',k:'sponsorAmount',type:'number'})}
+                </div>}
+              </>)}
 
-          <div className="dh mt"><Award size={13}/>Sponsorship</div>
-          <div className="spon-row">
-            <label className={'spon-tog'+(draft.potentialSponsor?' on':'')}><input type="checkbox" checked={!!draft.potentialSponsor} onChange={e=>set({potentialSponsor:e.target.checked})}/>Potential sponsor</label>
-            <label className={'spon-tog past'+(draft.pastSponsor?' on':'')}><input type="checkbox" checked={!!draft.pastSponsor} onChange={e=>set({pastSponsor:e.target.checked})}/>Past sponsor</label>
-          </div>
-          {(draft.potentialSponsor||draft.pastSponsor)&&<div className="fgrid" style={{marginTop:10}}>
-            {F({label:'Sponsor tier',k:'sponsorTier'})}
-            {F({label:draft.pastSponsor?'Amount given ($)':'Amount possible ($)',k:'sponsorAmount',type:'number'})}
+            {customFields.length>0&&Sec('custom',<Tag size={13}/>,'Custom Fields',
+              `${customFields.length} field${customFields.length>1?'s':''}`,
+              <div className="fgrid">
+                {customFields.map(f=>(<div className="field" key={f.id} style={f.type==='checkbox'?{gridColumn:'1/-1'}:undefined}>
+                  <label>{f.label}</label>
+                  {f.type==='select'?<select value={draft.custom?.[f.id]||''} onChange={e=>setCustom(f.id,e.target.value)}><option value="">—</option>{(f.options||[]).map(o=><option key={o} value={o}>{o}</option>)}</select>
+                  :f.type==='checkbox'?<label className="toggle" style={{marginTop:2}}><span className={'sw sm '+(draft.custom?.[f.id]?'on':'')} onClick={()=>setCustom(f.id,!draft.custom?.[f.id])}><b/></span>{draft.custom?.[f.id]?'Yes':'No'}</label>
+                  :<input type={f.type==='number'?'number':f.type==='date'?'date':'text'} value={draft.custom?.[f.id]??''} onChange={e=>setCustom(f.id,e.target.value)}/>}
+                </div>))}
+              </div>)}
+
+            {/* A rep never sees the deal value, the base, or anyone's numbers
+                but their own — they get their commission and its state. */}
+            {rep&&cmsnOf(draft)&&Sec('mycmsn',<DollarSign size={13}/>,'Your commission',
+              (CMSN_STATE[cmsnOf(draft).status]||CMSN_STATE.pending).label,
+              (()=>{ const c=cmsnOf(draft); const st=CMSN_STATE[c.status]||CMSN_STATE.pending;
+                return (<div className="cmsn-box">
+                  <div className="cmsn-row"><span>Your commission</span><b style={{color:st.color}}>{usd(c.amount)}</b></div>
+                  <div className="cmsn-row"><span>Status</span><b style={{color:st.color}}>{st.label}</b></div>
+                  <div className="subcell" style={{marginTop:6}}>{c.status==='pending'?'Counts toward your running total. An owner approves it to make it real.':c.status==='earned'?`Approved ${c.approvedAt?fmtDate(String(c.approvedAt).slice(0,10)):''} — this one is yours.`:'This commission was voided.'}</div>
+                </div>); })(),true)}
+            {isOwner&&!isNew&&draft.isClient&&cmsnOf(draft)&&Sec('cmsn',<Percent size={13}/>,'Commission',
+              (()=>{ const c=cmsnOf(draft); return `${c.repName||'rep'} · ${usd(c.amount)} · ${(CMSN_STATE[c.status]||CMSN_STATE.pending).label}`; })(),
+              (()=>{ const c=cmsnOf(draft); const st=CMSN_STATE[c.status]||CMSN_STATE.pending; const locked=c.status!=='pending';
+                const patch=p=>{ setCommission&&setCommission(draft.id,p); setDraft(d=>({...d,commission:{...cmsnOf(d),...p,amount:cmsnAmount(p.base??cmsnOf(d).base,p.pct??cmsnOf(d).pct)}})); };
+                return (<div className="cmsn-box">
+                  <div className="cmsn-row"><span>Rep</span><b>{c.repName||'—'}</b></div>
+                  {draft.dealValueBy&&<div className="cmsn-row"><span>Deal value entered by</span><b>{draft.dealValueBy}{draft.dealValueAt?` · ${fmtDate(String(draft.dealValueAt).slice(0,10))}`:''}</b></div>}
+                  <div className="fgrid" style={{marginTop:8}}>
+                    <div className="field"><label>Rate at conversion (%)</label><input type="number" min="0" step="0.5" disabled={locked} value={c.pct??0} onChange={e=>patch({pct:num(e.target.value)})}/></div>
+                    <div className="field"><label>Deal value used ($)</label><input type="number" min="0" disabled={locked} value={c.base??0} onChange={e=>patch({base:num(e.target.value)})}/></div>
+                  </div>
+                  <div className="cmsn-row big"><span>Commission</span><b style={{color:st.color}}>{usd(c.amount)}</b></div>
+                  <div className="cmsn-row"><span>State</span><b style={{color:st.color}}>{st.label}{c.approvedAt?` · ${fmtDate(String(c.approvedAt).slice(0,10))} by ${c.approvedBy||'—'}`:''}</b></div>
+                  <div className="tm-acts">
+                    {c.status!=='earned'&&<button className="btn btn-p btn-sm" onClick={()=>patch({status:'earned'})}><BadgeCheck size={14}/>Approve commission</button>}
+                    {c.status!=='void'&&<button className="btn btn-d btn-sm" onClick={()=>{ if(window.confirm('Void this commission? It leaves the rep’s pending and earned counts entirely.')) patch({status:'void'}); }}><Ban size={14}/>Void</button>}
+                    {c.status==='void'&&<button className="btn btn-g btn-sm" onClick={()=>patch({status:'pending'})}>Put back to pending</button>}
+                  </div>
+                  <div className="subcell" style={{marginTop:8}}>{locked?'Approved and voided commissions are frozen — put it back to pending to edit the numbers.':'Edit the base if the deal value changed before approval. Changing this rep’s % in Settings later will NOT touch this record.'}</div>
+                </div>); })(),true)}
+
+            {Sec('deal',<DollarSign size={13}/>,'Deal',
+              (openDealsTotal>0||num(draft.retainer)>0)?[openDealsTotal>0?usd(openDealsTotal):null,openDeals.length>1?`${openDeals.length} deals`:null,num(draft.retainer)>0?usd(draft.retainer)+'/mo':null].filter(Boolean).join(' · '):'not set',
+              <>
+                {(draft.closedDeals||[]).length>0&&(()=>{ const hist=draft.closedDeals||[];
+                  const histTotal=hist.reduce((a,d)=>a+num(d.amount),0);
+                  return (<div className="deal-hist">
+                    <div className="dh-head"><span>Closed deals</span><b>{usd(histTotal)} · {hist.length} deal{hist.length===1?'':'s'}</b></div>
+                    {hist.map(d=>(<div className="dh-row" key={d.id}>
+                      <div className="dh-m"><b>{d.label||'Deal'}</b><span>closed {fmtDate(d.closedAt)}{d.by?` · ${d.by}`:''}</span></div>
+                      <span className="dh-v">{usd(d.amount)}</span>
+                      <button className="ex-del" title="Remove from history" onClick={()=>{ if(window.confirm('Remove this closed deal from history? It will no longer count toward total revenue.')){ set({closedDeals:hist.filter(x=>x.id!==d.id)}); } }}><X size={13}/></button>
+                    </div>))}
+                    <div className="dh-note">Lifetime with this client: <b>{usd(histTotal+openDealsTotal)}</b></div>
+                  </div>); })()}
+
+                {openDeals.map((d,di)=>(<div className="deal-card" key={d.id}>
+                  <div className="deal-card-h">
+                    <input className="deal-name" value={d.label||''} placeholder={`Deal ${di+1}`} onChange={e=>updateDeal(d.id,{label:e.target.value})}/>
+                    <span className="deal-card-v">{usd(dealSum(d))}</span>
+                    {openDeals.length>1&&<button className="ex-del" title="Remove this deal" onClick={()=>removeDeal(d.id)}><X size={14}/></button>}
+                  </div>
+                  <div className="fgrid">
+                    <div className="field"><label>Setup $</label><input type="number" value={d.setup??''} onChange={e=>updateDeal(d.id,{setup:e.target.value})}/></div>
+                    <div className="field"><label>Website $</label><input type="number" value={d.website??''} onChange={e=>updateDeal(d.id,{website:e.target.value})}/></div>
+                    <div className="field"><label>Integration $</label><input type="number" value={d.integration??''} onChange={e=>updateDeal(d.id,{integration:e.target.value})}/></div>
+                  </div>
+                  {(d.extras||[]).length>0&&<div className="extras">{d.extras.map((ex,i)=>(
+                    <div className="extra-row" key={ex.id||i}>
+                      <input className="ex-label" placeholder="Line item (e.g. Extra web page)" value={ex.label||''} onChange={e=>{const x=d.extras.slice();x[i]={...x[i],label:e.target.value};updateDeal(d.id,{extras:x});}}/>
+                      <div className="ex-amt-w"><span>$</span><input className="ex-amt" type="number" placeholder="0" value={ex.amount||''} onChange={e=>{const x=d.extras.slice();x[i]={...x[i],amount:e.target.value};updateDeal(d.id,{extras:x});}}/></div>
+                      <button className="ex-del" title="Remove" onClick={()=>{const x=d.extras.filter((_,j)=>j!==i);updateDeal(d.id,{extras:x});}}><X size={14}/></button>
+                    </div>))}</div>}
+                  <button className="addline" onClick={()=>updateDeal(d.id,{extras:[...(d.extras||[]),{id:uid(),label:'',amount:''}]})}><Plus size={13}/>Add line item</button>
+                  {dealSum(d)>0&&<button className="deal-close-btn sm" onClick={()=>closeDeal(d)}><CheckCircle2 size={14}/>Close this deal</button>}
+                </div>))}
+
+                <button className="deal-add-btn" onClick={addDeal}><Plus size={15}/>{openDeals.length?'Add another deal':'Add a deal'}</button>
+
+                {openDeals.length>0&&<div className="deal-total"><span>{openDeals.length>1?'All open deals':'One-time total'}</span><b>{usd(openDealsTotal)}</b></div>}
+                <div className="field" style={{marginTop:12}}><label>Monthly Retainer $</label><input type="number" value={draft.retainer??''} onChange={e=>set({retainer:e.target.value})}/></div>
+                <div className="toggle" onClick={()=>set({retainerActive:!draft.retainerActive})}><span className={'sw '+(draft.retainerActive?'on':'')}><b/></span>{draft.retainerActive?'On monthly retainer':'Not on retainer'}</div>
+
+                {/* ---- Payments: what's been collected against what's owed ---- */}
+                {(()=>{
+                  const pays=Array.isArray(draft.payments)?draft.payments:[];
+                  const paid=pays.reduce((a,p)=>a+num(p.amount),0);
+                  /* owed = one-time deal work + the first month of retainer (option 3:
+                     the client's deal total IS the amount owed) */
+                  const firstMonth=draft.retainerActive?num(draft.retainer):0;
+                  const owed=openDealsTotal+firstMonth;
+                  const remaining=Math.max(0,owed-paid);
+                  const over=paid-owed;
+                  const logPayment=()=>{
+                    const raw=window.prompt('Payment amount received ($):', remaining>0?String(remaining):'');
+                    if(raw===null) return; const amount=num(raw); if(amount<=0){ window.alert('Enter a dollar amount.'); return; }
+                    const note=(window.prompt('Note (e.g. "Square deposit", "balance on delivery") — optional:','')||'').trim();
+                    const pay={id:uid(),amount,date:todayISO(),note};
+                    const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who:me};
+                    set({payments:[...pays,pay],activities:[act,...(draft.activities||[])]});
+                  };
+                  return (<div className="pay-panel">
+                    <div className="pay-head"><span>Payments</span>{owed>0&&<b className={remaining>0?'due':'clear'}>{remaining>0?`${usdc(remaining)} remaining`:'paid in full'}</b>}</div>
+                    {owed>0&&<div className="pay-bars">
+                      <div className="pay-bar"><div style={{width:Math.min(100,Math.round(paid/owed*100))+'%'}}/></div>
+                      <div className="pay-nums"><span>{usdc(paid)} paid</span><span>of {usdc(owed)}</span></div>
+                    </div>}
+                    {pays.length>0&&<div className="pay-list">{pays.map(p=>(
+                      <div className="pay-row" key={p.id}>
+                        <div className="pay-m"><b>{usdc(p.amount)}</b><span>{fmtDate(p.date)}{p.note?` · ${p.note}`:''}</span></div>
+                        <button className="ex-del" title="Remove payment" onClick={()=>{ if(window.confirm('Remove this payment?')) set({payments:pays.filter(x=>x.id!==p.id)}); }}><X size={13}/></button>
+                      </div>))}</div>}
+                    {over>0&&<div className="pay-over">{usdc(over)} paid over the deal total (extra / tip / adjust the deal)</div>}
+                    <button className="pay-add" onClick={logPayment}><Plus size={14}/>Log a payment</button>
+                  </div>);
+                })()}
+              </>)}
           </div>}
 
-          <div className="dh mt"><Phone size={13}/>Contact</div>
-          <div className="fgrid">{F({label:'Phone',k:'phone'})}{F({label:'Email',k:'email'})}{F({label:'Website',k:'website',full:true})}</div>
+          {/* ---------- 6. CONVERT — the last thing, not the first ---------- */}
+          {!isNew&&!draft.isClient&&<div className="convert-banner">
+            <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'#56527a',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
+            <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
+          </div>}
 
-          <div className="dh mt"><DollarSign size={13}/>Deal</div>
-          <div className="fgrid">
-            <div className="field"><label>Setup $</label><input type="number" value={dealBreak.setup} onChange={e=>setDeal({...dealBreak,setup:e.target.value})}/></div>
-            <div className="field"><label>Website $</label><input type="number" value={dealBreak.website} onChange={e=>setDeal({...dealBreak,website:e.target.value})}/></div>
-            <div className="field"><label>Integration $</label><input type="number" value={dealBreak.integration} onChange={e=>setDeal({...dealBreak,integration:e.target.value})}/></div>
-            {F({label:'Monthly Retainer $',k:'retainer',type:'number'})}
-          </div>
-          {dealBreak.extras.length>0&&<div className="extras">{dealBreak.extras.map((ex,i)=>(
-            <div className="extra-row" key={ex.id||i}>
-              <input className="ex-label" placeholder="Line item (e.g. Extra web page)" value={ex.label||''} onChange={e=>{const x=dealBreak.extras.slice();x[i]={...x[i],label:e.target.value};setDeal({...dealBreak,extras:x});}}/>
-              <div className="ex-amt-w"><span>$</span><input className="ex-amt" type="number" placeholder="0" value={ex.amount||''} onChange={e=>{const x=dealBreak.extras.slice();x[i]={...x[i],amount:e.target.value};setDeal({...dealBreak,extras:x});}}/></div>
-              <button className="ex-del" title="Remove" onClick={()=>{const x=dealBreak.extras.filter((_,j)=>j!==i);setDeal({...dealBreak,extras:x});}}><X size={14}/></button>
-            </div>))}</div>}
-          <button className="addline" onClick={()=>setDeal({...dealBreak,extras:[...dealBreak.extras,{id:uid(),label:'',amount:''}]})}><Plus size={13}/>Add line item</button>
-          <div className="deal-total"><span>One-time total</span><b>{usd(dealSum(dealBreak))}</b></div>
-          <div className="toggle" onClick={()=>set({retainerActive:!draft.retainerActive})}><span className={'sw '+(draft.retainerActive?'on':'')}><b/></span>{draft.retainerActive?'On monthly retainer':'Not on retainer'}</div>
-
-          {customFields.length>0&&<><div className="dh mt"><Tag size={13}/>Custom Fields</div><div className="fgrid">
-            {customFields.map(f=>(<div className={'field'+(f.type==='select'||f.type==='checkbox'?'':' ')} key={f.id} style={f.type==='checkbox'?{gridColumn:'1/-1'}:undefined}>
-              <label>{f.label}</label>
-              {f.type==='select'?<select value={draft.custom?.[f.id]||''} onChange={e=>setCustom(f.id,e.target.value)}><option value="">—</option>{(f.options||[]).map(o=><option key={o} value={o}>{o}</option>)}</select>
-              :f.type==='checkbox'?<label className="toggle" style={{marginTop:2}}><span className={'sw sm '+(draft.custom?.[f.id]?'on':'')} onClick={()=>setCustom(f.id,!draft.custom?.[f.id])}><b/></span>{draft.custom?.[f.id]?'Yes':'No'}</label>
-              :<input type={f.type==='number'?'number':f.type==='date'?'date':'text'} value={draft.custom?.[f.id]??''} onChange={e=>setCustom(f.id,f.type==='number'?e.target.value:e.target.value)}/>}
-            </div>))}
-          </div></>}
-
-          {isNew&&<div style={{display:'flex',gap:10,marginTop:20}}><button className="btn btn-p" onClick={create}><Plus size={16}/>Create Lead</button><button className="btn btn-g" onClick={onClose}>Cancel</button></div>}
+          {/* legacy clients created before close-tracking: offer a one-click backfill */}
+          {!isNew&&draft.isClient&&(()=>{
+            const wonStage=stages.find(s=>s.won); const inWon=wonStage&&draft.stage===wonStage.key;
+            const counted=inWon&&draft.closedAt;
+            if(counted) return null;
+            return (<div className="convert-banner fix">
+              <div><b>Not counted in your numbers</b><div style={{fontSize:12.5,color:'#56527a',marginTop:2}}>This client has no close date{!inWon?' and isn’t in your won stage':''}, so deals-closed and revenue skip them. Set the date the deal actually closed.</div></div>
+              <button className="btn btn-p" onClick={()=>{
+                const d=window.prompt('What date did this deal close? (YYYY-MM-DD)', draft.convertedAt||draft.closedAt||todayISO());
+                if(d===null) return; const clean=String(d).trim().slice(0,10);
+                if(!/^\d{4}-\d{2}-\d{2}$/.test(clean)){ window.alert('Please use YYYY-MM-DD, e.g. 2026-07-25.'); return; }
+                fixCloseTracking&&fixCloseTracking(draft.id,clean);
+              }}><CheckCircle2 size={15}/>Fix close tracking</button>
+            </div>);
+          })()}
         </div>
 
         <div className="m-right">
           {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
             <div className="dh"><MessageSquare size={13}/>Activity Log</div>
-            <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{key}</button>)}</div>
-            <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
-              <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>
-              <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {atype}</button>
+            <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
+              {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
             </div>
+            {atype==='Booked'
+              ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail}
+                  onSchedule={doSchedule} onLogUndated={doLogUndated}/></div>
+              : null}
+            {atype==='Payment'
+              ? <div className="pay-compose">
+                  <div className="pay-compose-row">
+                    <div className="pc-amt"><span>$</span><input type="number" inputMode="decimal" placeholder="0.00" value={payAmt} onChange={e=>setPayAmt(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/></div>
+                    <input className="pc-note" placeholder="Note (e.g. Square deposit)" value={payNote} onChange={e=>setPayNote(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/>
+                  </div>
+                </div>
+              : atype==='Booked' ? null
+              : <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
+            {atype!=='Booked'&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
+              {rep
+                ? <span className="subcell" style={{fontWeight:600}}>logging as {me}</span>
+                : <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>}
+              {atype==='Payment'
+                ? <button className="btn btn-g" style={{padding:'8px 16px'}} onClick={logPaymentFromComposer}><DollarSign size={14}/>Log Payment</button>
+                : <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>}
+            </div>}
             <div className="afilter" style={{marginTop:16}}>
               <button className={feedFilter==='All'?'on':''} onClick={()=>setFeedFilter('All')}>All</button>
               <button className={feedFilter==='Note'?'on':''} onClick={()=>setFeedFilter('Note')}>Notes{noteCount?` (${noteCount})`:''}</button>
               {ACT_TYPES.filter(t=>t.key!=='Note').map(t=><button key={t.key} className={feedFilter===t.key?'on':''} onClick={()=>setFeedFilter(t.key)}>{t.key}</button>)}
             </div>
             <div className="feed">{feed.map(a=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;return (<div className={'fitem'+(a.type==='Note'?' note':'')} key={a.id}>
-              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className="ftxt">{a.text}</div><div className="fmeta">{a.who?a.who+' · ':''}{a.type} · {fmtStamp(a.ts)}</div></div>
+              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className={'ftxt'+(a.cancelled?' cancelled':'')}>{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
               <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div>);})}
               {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
-            <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid #F0F0F6'}}><button className="btn btn-d" onClick={()=>{if(window.confirm('Delete this lead permanently?'))delLead(draft.id);}}><Trash2 size={15}/>Delete lead</button></div>
+            <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid #F0F0F6'}}>{rep
+              ? (()=>{ const lost=(stages||[]).find(x=>x.lost);
+                  return lost&&draft.stage!==lost.key
+                    ? <><button className="btn btn-g" onClick={()=>{ if(window.confirm(`Mark ${draft.name||'this lead'} as ${lost.label}? Nothing is deleted — an owner can bring it back.`)) set({stage:lost.key}); }}><Ban size={15}/>Mark {lost.label}</button>
+                        <div className="subcell" style={{marginTop:8}}>Leads are never deleted — mark it {lost.label.toLowerCase()} and it stays on the record.</div></>
+                    : <div className="subcell">Only an owner can delete a lead. Nothing here is ever lost.</div>; })()
+              : <button className="btn btn-d" onClick={()=>{if(window.confirm('Delete this lead permanently?'))delLead(draft.id);}}><Trash2 size={15}/>Delete lead</button>}</div>
           </>}
         </div>
       </div>
+      {isNew&&<div className="m-foot">
+        <button className="btn btn-p" onClick={create}><Plus size={16}/>Create Lead</button>
+        <button className="btn btn-g" onClick={onClose}>Cancel</button>
+        <span className="m-foot-n">{draft.name.trim()
+          ? <><CheckCircle2 size={13} color={GREEN}/>{draft.name}{draft.company?' · '+draft.company:''} &rarr; {draft.owner}</>
+          : 'Name is the only thing required'}</span>
+      </div>}
     </div>
   </div>);
 }
 
 /* ===================== shared ===================== */
-function Kpi({label,value,d,variant,icon}){return (<div className={'kpi '+(variant||'')}><div className="kl">{icon}{label}</div><div className="kv">{value}</div>{d&&<div className="kd">{d}</div>}</div>);}
+function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
+  const H=useMemo(()=>buildHuddle(leads,tasks,settings,stages,rels),[leads,tasks,settings,stages,rels]);
+  const saved=(settings&&settings.huddle)||null;
+  const fresh=saved&&saved.weekKey===H.period.from?saved:null;
+  const [brief,setBrief]=useState(fresh?fresh.brief:null);
+  const [busy,setBusy]=useState(false); const [err,setErr]=useState('');
+  useEffect(()=>{ setBrief(fresh?fresh.brief:null); },[H.period.from,saved&&saved.weekKey]);
+  const cur=H.lastWeek, prev=H.weekBefore;
+  const write=async()=>{ setErr(''); setBusy(true);
+    try{
+      const r=await fetch('/api/huddle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({digest:H,brand:BRAND.name})});
+      const j=await r.json();
+      if(!j.ok) throw new Error(j.error||'could not write the huddle');
+      setBrief(j.brief);
+      saveSettings({...settings,huddle:{weekKey:H.period.from,brief:j.brief,generatedAt:new Date().toISOString(),by:me}});
+    }catch(e){ setErr(e.message||'something went wrong'); }
+    setBusy(false); };
+  const Delta=({a,b,money})=>{ const c=pctChange(a,b);
+    if(c===null) return <span className="dl up">new</span>;
+    if(c===0) return <span className="dl flat">flat</span>;
+    return <span className={'dl '+(c>0?'up':'down')}>{c>0?'▲':'▼'} {Math.abs(c)}%</span>; };
+  const Stat=({label,value,a,b,money})=>(<div className="hstat">
+    <div className="hs-l">{label}</div>
+    <div className="hs-v">{value}<Delta a={a} b={b}/></div>
+    <div className="hs-p">was {money?usd(b):b}</div>
+  </div>);
+  const copyText=()=>{
+    const L=[];
+    L.push(`MONDAY MORNING HUDDLE — ${H.period.label}`);
+    if(brief){ L.push(''); L.push(brief.headline); L.push(''); L.push(brief.readout);
+      if(brief.wins.length){L.push('');L.push('WINS');brief.wins.forEach(w=>L.push('• '+w));}
+      if(brief.concerns.length){L.push('');L.push('WATCH');brief.concerns.forEach(w=>L.push('• '+w));}
+      if(brief.focus.length){L.push('');L.push('FOCUS THIS WEEK');brief.focus.forEach((f,i)=>L.push(`${i+1}. ${f.title} — ${f.why}`));}
+      if(brief.projection){L.push('');L.push('PROJECTION');L.push(brief.projection);} }
+    L.push(''); L.push('LAST WEEK');
+    L.push(`• ${cur.booked} meetings booked (was ${prev.booked})`);
+    L.push(`• ${cur.held} held, ${cur.noshow} no-show`);
+    L.push(`• ${cur.touches} touches (was ${prev.touches})`);
+    L.push(`• ${cur.newLeads} new leads (was ${prev.newLeads})`);
+    L.push(`• ${cur.closed} closed, ${usd(cur.closedValue)} (was ${prev.closed})`);
+    L.push(`• ${cur.tasksDone} tasks done (was ${prev.tasksDone})`);
+    if(H.slipping.overdueTotal) L.push(`• ${H.slipping.overdueTotal} follow-ups overdue`);
+    try{ navigator.clipboard.writeText(L.join('\n')); }catch{}
+  };
+  return (<>
+    <div className="hud-top">
+      <div>
+        <div className="hud-t">Monday Morning Huddle</div>
+        <div className="hud-d">{H.period.label} · last full week</div>
+      </div>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+        <button className="btn btn-g btn-sm" onClick={copyText}><Clipboard size={14}/>Copy</button>
+        <button className="btn btn-p" disabled={busy} onClick={write}>{busy?<Loader2 size={15} className="spin"/>:<Sparkles size={15}/>}{busy?'Reading the week…':brief?'Rewrite':'Write the huddle'}</button>
+      </div>
+    </div>
+    {err&&<div className="mtg-warn"><AlertTriangle size={13}/><span>{err}</span></div>}
+
+    {brief?(<div className="hud-brief">
+      <div className="hb-head">{brief.headline}</div>
+      <p className="hb-read">{brief.readout}</p>
+      <div className="hb-cols">
+        {brief.wins.length>0&&<div className="hb-col win"><div className="hb-ct"><CheckCircle2 size={13}/>Wins</div>{brief.wins.map((w,i)=><div className="hb-li" key={i}>{w}</div>)}</div>}
+        {brief.concerns.length>0&&<div className="hb-col warn"><div className="hb-ct"><AlertTriangle size={13}/>Watch</div>{brief.concerns.map((w,i)=><div className="hb-li" key={i}>{w}</div>)}</div>}
+      </div>
+      {brief.focus.length>0&&<div className="hb-focus">
+        <div className="hb-ct"><Target size={13}/>Focus this week</div>
+        {brief.focus.map((f,i)=><div className="hb-f" key={i}><b>{i+1}. {f.title}</b><span>{f.why}</span></div>)}
+      </div>}
+      {brief.projection&&<div className="hb-proj"><Zap size={13}/><span>{brief.projection}</span></div>}
+      {fresh&&<div className="hb-when">Written {fmtStamp(fresh.generatedAt)}{fresh.by?` · ${fresh.by}`:''}</div>}
+    </div>):(<div className="hud-empty">
+      <Sparkles size={22}/><b>Nothing written for this week yet</b>
+      <span>The numbers below are live. Hit <b>Write the huddle</b> and Claude reads the whole week and tells you what it means.</span>
+    </div>)}
+
+    <div className="kgroup">Last week by the numbers</div>
+    <div className="hstats">
+      <Stat label="Meetings booked" value={cur.booked} a={cur.booked} b={prev.booked}/>
+      <Stat label="Meetings held" value={cur.held} a={cur.held} b={prev.held}/>
+      <Stat label="Touches" value={cur.touches} a={cur.touches} b={prev.touches}/>
+      <Stat label="New leads" value={cur.newLeads} a={cur.newLeads} b={prev.newLeads}/>
+      <Stat label="Deals closed" value={cur.closed} a={cur.closed} b={prev.closed}/>
+      <Stat label="Revenue closed" value={usd(cur.closedValue)} a={cur.closedValue} b={prev.closedValue} money/>
+      <Stat label="Tasks done" value={cur.tasksDone} a={cur.tasksDone} b={prev.tasksDone}/>
+      <Stat label="Clients onboarded" value={cur.onboarded} a={cur.onboarded} b={prev.onboarded}/>
+    </div>
+
+    <div className="r2">
+      <div className="card">
+        <h3>What moved</h3>
+        <div className="ch-sub">Deals, clients and work that changed last week</div>
+        {(cur.stageMoves.length||cur.wonNames.length||cur.newClientNames.length||cur.taskTitles.length)?(<div className="hlist">
+          {cur.wonNames.map((w,i)=><div className="hli win" key={'w'+i}><CheckCircle2 size={13}/>Closed — {w}</div>)}
+          {cur.newClientNames.map((w,i)=><div className="hli win" key={'c'+i}><Rocket size={13}/>New client — {w}</div>)}
+          {cur.stageMoves.slice(0,8).map((w,i)=><div className="hli" key={'s'+i}><ArrowUpRight size={13}/>{w}</div>)}
+          {cur.taskTitles.slice(0,8).map((w,i)=><div className="hli done" key={'t'+i}><ListTodo size={13}/>{w}</div>)}
+        </div>):<div className="empty">Quiet week — nothing changed stage.</div>}
+      </div>
+      <div className="card">
+        <h3>What's slipping</h3>
+        <div className="ch-sub">Right now, not last week — this is the to-do list</div>
+        <div className="hlist">
+          {H.slipping.overdueFollowUps.map((o,i)=><div className="hli bad" key={'o'+i}><Bell size={13}/><span onClick={()=>open&&open()}>{o.who}</span> — {o.daysLate}d overdue</div>)}
+          {H.slipping.coldRelationships.map((o,i)=><div className="hli warn" key={'k'+i}><Users size={13}/>{o.who} — {o.daysSinceTouch==null?'never touched':o.daysSinceTouch+'d since contact'} ({o.tier})</div>)}
+          {H.slipping.stalledDeals.map((o,i)=><div className="hli warn" key={'d'+i}><KanbanSquare size={13}/>{o.who} — {o.daysSinceTouch}d cold in {o.stage}{o.value?` · ${usd(o.value)}`:''}</div>)}
+          {H.slipping.neverContacted>0&&<div className="hli bad"><Zap size={13}/>{H.slipping.neverContacted} lead{H.slipping.neverContacted===1?'':'s'} never contacted</div>}
+          {!H.slipping.overdueFollowUps.length&&!H.slipping.coldRelationships.length&&!H.slipping.stalledDeals.length&&!H.slipping.neverContacted&&<div className="empty">Nothing slipping. Clean board.</div>}
+        </div>
+      </div>
+    </div>
+  </>);
+}
+
+function Kpi({label,value,d,variant,icon,onClick,active,goal,current}){
+  return (<div className={'kpi '+(variant||'')+(onClick?' clickable':'')+(active?' active':'')} onClick={onClick} role={onClick?'button':undefined}>
+    <div className="kl">{icon}{label}{onClick&&<ChevronDown size={13} className={'kpi-ch'+(active?' on':'')}/>}</div>
+    <div className="kv">{value}</div>{d&&<div className="kd">{d}</div>}
+    {goal>0&&current!=null&&(()=>{ const pct=Math.min(100,Math.round(current/goal*100));
+      const hit=current>=goal; const behind=!hit&&current<goal*monthPace();
+      return (<div className="kgoal">
+        <div className="kgbar"><div style={{width:Math.max(2,pct)+'%',background:hit?GREEN:behind?'#E0662B':COBALT}}/></div>
+        <div className="kgt"><span>{pct}% of goal</span><b className={hit?'hit':behind?'behind':''}>{hit?'hit':behind?'behind pace':'on pace'}</b></div>
+      </div>); })()}
+  </div>);
+}
+/* ===================== LEADERBOARD =====================
+   Ranked by CLIENTS CLOSED, never by revenue — reps compete on a number
+   they're proud of, not on the dollars the company took in. Owners never
+   appear on it, and no money appears on it for anybody. */
+function Leaderboard({rows,meId,rep,users}){
+  const [period,setPeriod]=useState('month');
+  if(!rows) return (<div className="empty">The leaderboard needs the database function from <b>MIGRATION.sql</b>. Run it on this install and refresh.</div>);
+  const list=[...rows].sort((a,b)=>(num(b[period])-num(a[period]))||String(a.name||'').localeCompare(String(b.name||'')));
+  if(!list.length) return (<div className="empty">No sales reps yet. Add one in <b>Settings → Team</b> and the board fills itself.</div>);
+  const top=num(list[0][period]);
+  let rank=0,prev=null;
+  const ranked=list.map((r,i)=>{ const v=num(r[period]); if(v!==prev){ rank=i+1; prev=v; } return {...r,rank,v}; });
+  return (<>
+    <div className="lb-top">
+      <div className="seg"><button className={period==='month'?'on':''} onClick={()=>setPeriod('month')}>This month</button>
+        <button className={period==='all'?'on':''} onClick={()=>setPeriod('all')}>All time</button></div>
+      <span className="subcell">Clients closed{rep?' — everyone competes on the same number':''}</span>
+    </div>
+    <div className="lb">
+      {ranked.map(r=>(<div key={r.id} className={'lb-row lift'+(r.id===meId?' me':'')}>
+        <span className="lb-rank">{r.rank===1&&r.v>0?<Crown size={15}/>:r.rank}</span>
+        <div className="lb-mid">
+          <div className="lb-name">{r.name}{r.id===meId&&<i>you</i>}</div>
+          <div className="lb-bar"><div style={{width:(top>0?Math.max(2,Math.round(r.v/top*100)):2)+'%'}}/></div>
+        </div>
+        <span className="lb-n"><b><CountUp value={r.v}/></b>{r.v===1?'client':'clients'}</span>
+      </div>))}
+    </div>
+    <div className="note" style={{marginTop:16}}>Ranked by clients closed. Owners don't appear here, and commission dollars never show on the board.</div>
+  </>);
+}
+
+/* The one celebration. Under a second of motion, never blocks anything. */
+function Celebration({data,onDone}){
+  const reduced=useReducedMotion();
+  useEffect(()=>{ const t=setTimeout(()=>onDone&&onDone(),reduced?1800:2200); return ()=>clearTimeout(t); },[reduced,onDone]);
+  return (<div className={'cel'+(reduced?' still':'')} role="status" onClick={onDone}>
+    <div className="cel-ic"><Sparkles size={18}/></div>
+    <div><b>{usd(data.amount)} pending</b><span>{data.name} converted — nice work.</span></div>
+  </div>);
+}
+
+/* the panel that opens under the tiles when you tap one */
+function Drill({title,sub,onClose,children}){
+  return (<div className="drill">
+    <div className="drill-h"><span className="drill-t">{title}</span>{sub&&<span className="drill-s">{sub}</span>}<button className="m-x" style={{width:28,height:28,marginLeft:'auto'}} onClick={onClose}><X size={15}/></button></div>
+    <div className="drill-b">{children}</div>
+  </div>);
+}
 function ChartCard({title,sub,children,empty}){return (<div className="card"><h3>{title}</h3>{sub&&<div className="ch-sub">{sub}</div>}{empty?<div className="empty">{empty}</div>:children}</div>);}
