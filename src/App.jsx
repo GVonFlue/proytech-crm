@@ -260,7 +260,14 @@ const MSTATUS={'':'Upcoming',held:'Held',noshow:'No-show'};
    everywhere a meeting is COUNTED: booked, held, show rate, the type breakdown.
    They are only kept out of the ratio. Editable per install in Settings, because
    a client's meeting names won't be ours. */
-const RATIO_EXCLUDE_DEFAULT=['Coffee'];
+const RATIO_EXCLUDE_DEFAULT=['Coffee','Onboarding','Check-in'];
+/* When a lead became a client. A meeting only proves it converted if it happened
+   BEFORE this. Onboarding and check-ins happen after, so counting them makes the
+   ratio improve every time you onboard somebody — the number would measure
+   delivery, not selling. */
+const closeStampOf=l=>String((l&&(l.convertedAt||l.closedAt))||'').slice(0,10)||null;
+const heldBeforeClose=(m,l)=>{ const c=closeStampOf(l); if(!c) return true;
+  const d=String(m.start||'').slice(0,10); return !d||d<=c; };
 const ratioExcludeOf=settings=>Array.isArray(settings&&settings.ratioExcludeTypes)
   ? settings.ratioExcludeTypes : RATIO_EXCLUDE_DEFAULT;
 const countsToRatio=(m,ex)=>!(ex||[]).includes(m.mtype||'Other');
@@ -2289,10 +2296,16 @@ function useMetrics(leads,stages,settings){
        converted. Qualifying excludes the relationship types (Coffee by default) —
        see countsToRatio. A lead whose only held meeting was coffee is not counted
        on either side of the ratio, so it neither helps nor hurts. */
-    let metLeads=0,metAndClosed=0,metCoffeeOnly=0;
+    let metLeads=0,metAndClosed=0,metNoSalesMtg=0,metAfterCloseOnly=0;
     leads.forEach(l=>{ const held=meetingsOf(l).filter(m=>m.status==='held');
       if(!held.length) return;
-      if(!held.some(m=>countsToRatio(m,ratioEx))){ metCoffeeOnly++; return; }
+      const rightType=held.filter(m=>countsToRatio(m,ratioEx));
+      /* held meetings, but none of a counted type: coffee-only leads still at the
+         relationship stage, and clients whose only logged meeting was an
+         onboarding. Neither belongs on either side of a conversion ratio. */
+      if(!rightType.length){ metNoSalesMtg++; return; }
+      const qualifying=rightType.filter(m=>heldBeforeClose(m,l));
+      if(!qualifying.length){ metAfterCloseOnly++; return; }      // every one came after they signed
       metLeads++;
       if(l.isClient||sOf(l.stage,stages).won) metAndClosed++; });
     const meetCloseRate=metLeads>0?metAndClosed/metLeads:0;
@@ -2322,7 +2335,7 @@ function useMetrics(leads,stages,settings){
     return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
       firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,
-      meetCloseRate,metLeads,metAndClosed,metCoffeeOnly,ratioEx,avgDaysToClose,movingPct,rotting,sourceROI};
+      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages,settings]);
 }
 
@@ -2591,7 +2604,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     <div className="kgroup">Activity &amp; health</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming${m.needsDateCount>0?` · ${m.needsDateCount} need a date`:''} · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
-      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
+      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show${m.needsStatusCount>0?` · ${m.needsStatusCount} unmarked`:''}`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
       <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
       <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
       <Kpi label="Follow-Up Health" value={m.fuRate==null?'—':Math.round(m.fuRate*100)+'%'} icon={<Bell size={14}/>} d={m.overdue.length>0?`${m.overdue.length} overdue right now`:(m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time`:'clear a follow-up to start')} onClick={()=>tog('fu')} active={drill==='fu'}/>
@@ -2702,8 +2715,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     {/* higher-order sales analytics — the numbers a sales leader actually runs on */}
     <div className="kgroup">Sales analytics</div>
     <div className="an-grid">
-      <div className="an-card"><div className="an-l">Meeting &#8594; Close</div><div className="an-v">{m.metLeads?Math.round(m.meetCloseRate*100)+'%':'\u2014'}</div><div className="an-d">{m.metAndClosed} of {m.metLeads} you had a real sales meeting with closed{(m.ratioEx||[]).length?` \u00b7 ${(m.ratioEx||[]).join(' and ')} not counted`:''}{m.metCoffeeOnly>0?` \u00b7 ${m.metCoffeeOnly} ${m.metCoffeeOnly===1?'lead is':'leads are'} still only at that stage`:''}</div></div>
-      <div className="an-card"><div className="an-l">Show Rate</div><div className="an-v">{(m.heldAll+m.noShowAll)?Math.round(m.showRate*100)+'%':'—'}</div><div className="an-d">{m.noShowAll} no-show{m.noShowAll===1?'':'s'} all time</div></div>
+      <div className="an-card"><div className="an-l">Meeting &#8594; Close</div><div className="an-v">{m.metLeads?Math.round(m.meetCloseRate*100)+'%':'\u2014'}</div><div className="an-d">{m.metAndClosed} of {m.metLeads} closed after a sales meeting{(m.ratioEx||[]).length?` \u00b7 ${(m.ratioEx||[]).join(', ')} not counted`:''}{m.metNoSalesMtg>0?` \u00b7 ${m.metNoSalesMtg} met with no sales meeting logged`:''}{m.metAfterCloseOnly>0?` \u00b7 ${m.metAfterCloseOnly} only met after signing`:''}</div></div>
+      <div className="an-card"><div className="an-l">Show Rate</div><div className="an-v">{(m.heldAll+m.noShowAll)?Math.round(m.showRate*100)+'%':'\u2014'}</div><div className="an-d">{m.noShowAll} no-show{m.noShowAll===1?'':'s'} all time{m.needsStatusCount>0?` \u00b7 ${m.needsStatusCount} unmarked, not counted yet`:''}</div></div>
       <div className="an-card"><div className="an-l">Avg Days to Close</div><div className="an-v">{m.avgDaysToClose==null?'—':m.avgDaysToClose+'d'}</div><div className="an-d">lead created → converted</div></div>
       <div className="an-card"><div className="an-l">Win Rate</div><div className="an-v">{(m.wonCount+m.lostCount)?Math.round(m.winRate*100)+'%':'—'}</div><div className="an-d">of decided deals ({m.wonCount}W · {m.lostCount}L)</div></div>
       <div className={'an-card'+(m.rotting>0?' warn':'')}><div className="an-l">Pipeline Moving</div><div className="an-v">{m.openCount?Math.round(m.movingPct*100)+'%':'—'}</div><div className="an-d">{m.rotting} deal{m.rotting===1?'':'s'} cold 14+ days</div></div>
@@ -4131,7 +4144,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       const counted=MEETING_TYPES.filter(t=>!ex.includes(t));
       return (<div className="card" style={{marginBottom:18}}>
         <div className="sec-title"><Target size={15}/>What counts as a sales meeting</div>
-        <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>The <b>Meeting &#8594; Close</b> ratio only counts leads you had one of these with. Switch off the relationship types — coffee is the top of the cycle, not a sales conversation, and counting it makes the ratio look worse than the work actually is. Every type still counts toward meetings booked, meetings held and show rate either way.</div>
+        <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>The <b>Meeting &#8594; Close</b> ratio only counts a lead if it had one of these <b>before</b> it closed. Coffee is the top of the cycle rather than a sales conversation, and onboarding and check-ins only happen after somebody signs, so counting those would make the ratio improve every time you deliver instead of every time you sell. Every type still counts toward meetings booked, meetings held and show rate either way.</div>
         <div className="mod-grid">{MEETING_TYPES.map(t=>(
           <label key={t} className={'mod-row'+(!ex.includes(t)?' on':'')}>
             <input type="checkbox" checked={!ex.includes(t)} onChange={()=>toggle(t)}/>
