@@ -253,6 +253,17 @@ const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboarding','
    after the fact. status: '' = upcoming, 'held', 'noshow'. Every count in the
    app reads meetingsOf(), so the numbers can never disagree with each other. */
 const MSTATUS={'':'Upcoming',held:'Held',noshow:'No-show'};
+/* Which meeting types count toward a CONVERSION ratio. Coffee is relationship
+   work at the top of the cycle — you have a lot of them, most are not a sales
+   conversation yet, and counting them drags Meeting → Close down and hides what
+   your real sales meetings actually convert at. Excluded types still count
+   everywhere a meeting is COUNTED: booked, held, show rate, the type breakdown.
+   They are only kept out of the ratio. Editable per install in Settings, because
+   a client's meeting names won't be ours. */
+const RATIO_EXCLUDE_DEFAULT=['Coffee'];
+const ratioExcludeOf=settings=>Array.isArray(settings&&settings.ratioExcludeTypes)
+  ? settings.ratioExcludeTypes : RATIO_EXCLUDE_DEFAULT;
+const countsToRatio=(m,ex)=>!(ex||[]).includes(m.mtype||'Other');
 /* migrate any legacy 'Booked' activity that never became a meeting into one,
    so old history shows up in the new unified views. Idempotent: an activity
    already linked to a meeting (meetingId) is skipped. */
@@ -321,8 +332,8 @@ function weekSlice(leads,tasks,stages,r){
     const dep=normEntry((l.onboarding||{}).deposit_paid).done; if(inRange(dep,r)) deposits++;
     (l.activities||[]).forEach(a=>{ if(!inRange(a.ts,r))return;
       const sys=a.text==='Lead created.'||(typeof a.text==='string'&&a.text.startsWith('Stage moved:'));
-      if(!sys) acts[a.type]=(acts[a.type]||0)+1;   // system notes aren't work done
-      if(a.type==='Booked'){ booked++; const t=a.mtype||'untyped'; bookedByType[t]=(bookedByType[t]||0)+1; }
+      if(!sys&&bookingLive(l,a)) acts[a.type]=(acts[a.type]||0)+1;   // system notes and cancelled bookings aren't work done
+      if(a.type==='Booked'&&bookingLive(l,a)){ booked++; const t=a.mtype||'untyped'; bookedByType[t]=(bookedByType[t]||0)+1; }
       if(a.fuOnTime!==undefined){ fuCleared++; if(a.fuOnTime) fuOnTime++; }
       if(typeof a.text==='string'&&a.text.startsWith('Stage moved:')) moves.push(nm+': '+a.text.replace('Stage moved: ',''));
     });
@@ -341,7 +352,7 @@ function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
   const G=goalsOf(settings); const mKey=isoOf(now).slice(0,7);
   let mtdBooked=0,mtdClosed=0,mtdRevenue=0,mtdOnboarded=0;
   (leads||[]).forEach(l=>{
-    (l.activities||[]).forEach(a=>{ if(a.type==='Booked'&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey) mtdBooked++; });
+    (l.activities||[]).forEach(a=>{ if(a.type==='Booked'&&bookingLive(l,a)&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey) mtdBooked++; });
     if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){ mtdClosed++; mtdRevenue+=num(l.dealValue); }
     if(l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey) mtdOnboarded++;
   });
@@ -436,6 +447,19 @@ const actPlural=t=>t==='Booked'?'Booked':t+'s';
    activity that announced it wasn't. The activity feed is history and should
    keep the cancelled booking; the count is state and must not. */
 const bookedCount=l=>meetingsOf(l).length;
+/* A 'Booked' activity is only a booking while its meeting still exists.
+   Cancelling now flags the activity, but meetings cancelled BEFORE that flag
+   existed left no mark at all — so an activity pointing at a meetingId the lead
+   no longer holds is treated as cancelled too. That backfill is what makes
+   already-deleted test meetings drop off without anyone editing history.
+   No meetingId at all = a legacy booking that never had a meeting record;
+   meetingsOf() migrates those into real meetings, so they stay live. */
+const bookingLive=(l,a)=>{
+  if(!a||a.type!=='Booked') return true;
+  if(a.cancelled) return false;
+  if(!a.meetingId) return true;
+  return (l.meetings||[]).some(m=>m.id===a.meetingId);
+};
 const fmtCustom=(v,type)=>{if(v===undefined||v==='')return '—';if(type==='checkbox')return v?'✓':'—';return String(v);};
 const DEFAULT_LEAD_COLS=[
   {key:'businessType',visible:true},{key:'stage',visible:true},{key:'source',visible:true},
@@ -1150,6 +1174,8 @@ const CSS=`
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
 .ftxt.cancelled{color:#8E89A8;text-decoration:line-through;text-decoration-color:#C9C6D8}
+.act-row.cancelled .act-txt,.act-row.cancelled .act-lead{color:#9A96AC;text-decoration:line-through;text-decoration-color:#D5D2E0}
+.act-row.cancelled .fcancel{text-decoration:none}
 .fcancel{display:inline-block;margin-left:7px;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:${RED};background:rgba(209,67,67,.09);border-radius:6px;padding:1px 6px;text-decoration:none;vertical-align:1px}
 .mtg-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .bookc{margin-top:10px}
@@ -2195,7 +2221,7 @@ export default function App(){
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
-          view==='money'?<Money leads={bizLeads} stages={stages}/>:
+          view==='money'?<Money leads={bizLeads} stages={stages} settings={settings}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
             isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers}/>}
       </div>
@@ -2208,8 +2234,9 @@ export default function App(){
 }
 
 /* ===================== metrics ===================== */
-function useMetrics(leads,stages){
+function useMetrics(leads,stages,settings){
   return useMemo(()=>{
+    const ratioEx=ratioExcludeOf(settings);
     const byStage={}; stages.forEach(s=>byStage[s.key]={count:0,value:0});
     let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,lostCount=0,mrr=0,retainers=0;
     leads.forEach(l=>{const s=sOf(l.stage,stages);byStage[l.stage]=byStage[l.stage]||{count:0,value:0};byStage[l.stage].count++;byStage[l.stage].value+=num(l.dealValue);
@@ -2258,9 +2285,15 @@ function useMetrics(leads,stages){
     const decidedAll=heldAll+noShowAll;
     const showRate=decidedAll>0?heldAll/decidedAll:0;              // held / (held+noshow), all time
     const noShowRate=decidedAll>0?noShowAll/decidedAll:0;
-    // meeting -> close: of leads we ever HELD a meeting with, how many converted
-    let metLeads=0,metAndClosed=0;
-    leads.forEach(l=>{ const held=meetingsOf(l).some(m=>m.status==='held'); if(!held)return; metLeads++;
+    /* meeting -> close: of leads we ever held a QUALIFYING meeting with, how many
+       converted. Qualifying excludes the relationship types (Coffee by default) —
+       see countsToRatio. A lead whose only held meeting was coffee is not counted
+       on either side of the ratio, so it neither helps nor hurts. */
+    let metLeads=0,metAndClosed=0,metCoffeeOnly=0;
+    leads.forEach(l=>{ const held=meetingsOf(l).filter(m=>m.status==='held');
+      if(!held.length) return;
+      if(!held.some(m=>countsToRatio(m,ratioEx))){ metCoffeeOnly++; return; }
+      metLeads++;
       if(l.isClient||sOf(l.stage,stages).won) metAndClosed++; });
     const meetCloseRate=metLeads>0?metAndClosed/metLeads:0;
     // average days from lead created -> converted (sales-cycle length)
@@ -2289,8 +2322,8 @@ function useMetrics(leads,stages){
     return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
       firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,
-      meetCloseRate,metLeads,metAndClosed,avgDaysToClose,movingPct,rotting,sourceROI};
-  },[leads,stages]);
+      meetCloseRate,metLeads,metAndClosed,metCoffeeOnly,ratioEx,avgDaysToClose,movingPct,rotting,sourceROI};
+  },[leads,stages,settings]);
 }
 
 /* ===================== DASHBOARD ===================== */
@@ -2387,7 +2420,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
    hook is declared before the role branch so the hook order never changes. */
 function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
   const G=goalsOf(settings);
-  const m=useMetrics(leads,stages);
+  const m=useMetrics(leads,stages,settings);
   const [drill,setDrill]=useState(null);
   const [scope,setScope]=useState('month');   // time filter across meeting tabs
   const [mtab,setMtab]=useState('upcoming'); // upcoming | completed | noshow | needs
@@ -2463,7 +2496,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
   const scorecard=(team||[]).filter(u=>u.role==='rep'&&u.active!==false).map(u=>{
     const mine=leads.filter(l=>l.owner_id===u.id||l.owner===u.name);
     const touches=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>REAL_TOUCH(x)&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
-    const booked=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>x.type==='Booked'&&x.ts&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
+    const booked=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>x.type==='Booked'&&bookingLive(l,x)&&x.ts&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
     const conv=mine.filter(l=>l.isClient&&String(l.convertedAt||'').slice(0,7)===mKey).length;
     const openL=mine.filter(l=>sOf(l.stage,stages).open);
     const pipe=openL.reduce((a,l)=>a+num(l.dealValue),0);
@@ -2669,7 +2702,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     {/* higher-order sales analytics — the numbers a sales leader actually runs on */}
     <div className="kgroup">Sales analytics</div>
     <div className="an-grid">
-      <div className="an-card"><div className="an-l">Meeting → Close</div><div className="an-v">{m.metLeads?Math.round(m.meetCloseRate*100)+'%':'—'}</div><div className="an-d">{m.metAndClosed} of {m.metLeads} you met with closed</div></div>
+      <div className="an-card"><div className="an-l">Meeting &#8594; Close</div><div className="an-v">{m.metLeads?Math.round(m.meetCloseRate*100)+'%':'\u2014'}</div><div className="an-d">{m.metAndClosed} of {m.metLeads} you had a real sales meeting with closed{(m.ratioEx||[]).length?` \u00b7 ${(m.ratioEx||[]).join(' and ')} not counted`:''}{m.metCoffeeOnly>0?` \u00b7 ${m.metCoffeeOnly} ${m.metCoffeeOnly===1?'lead is':'leads are'} still only at that stage`:''}</div></div>
       <div className="an-card"><div className="an-l">Show Rate</div><div className="an-v">{(m.heldAll+m.noShowAll)?Math.round(m.showRate*100)+'%':'—'}</div><div className="an-d">{m.noShowAll} no-show{m.noShowAll===1?'':'s'} all time</div></div>
       <div className="an-card"><div className="an-l">Avg Days to Close</div><div className="an-v">{m.avgDaysToClose==null?'—':m.avgDaysToClose+'d'}</div><div className="an-d">lead created → converted</div></div>
       <div className="an-card"><div className="an-l">Win Rate</div><div className="an-v">{(m.wonCount+m.lostCount)?Math.round(m.winRate*100)+'%':'—'}</div><div className="an-d">of decided deals ({m.wonCount}W · {m.lostCount}L)</div></div>
@@ -3271,8 +3304,8 @@ function CustomPhaseAdd({settings,onAdd}){
 }
 
 /* ===================== MONEY ===================== */
-function Money({leads,stages}){
-  const m=useMetrics(leads,stages);const won=leads.filter(l=>sOf(l.stage,stages).won);
+function Money({leads,stages,settings}){
+  const m=useMetrics(leads,stages,settings);const won=leads.filter(l=>sOf(l.stage,stages).won);
   const opt=DEFAULT_OPTIONS; const months=lastNMonths(6);
   const setupByMonth=months.map(k=>({name:monthLabel(k),Setup:won.filter(l=>l.closedAt&&monthKey(l.closedAt)===k).reduce((a,l)=>a+num(l.dealValue),0)}));
   const mrrByMonth=months.map(k=>{const end=k+'-31';const v=leads.filter(l=>l.retainerActive&&l.retainerStart&&l.retainerStart<=end).reduce((a,l)=>a+num(l.retainer),0);return {name:monthLabel(k),MRR:v};});
@@ -3812,7 +3845,8 @@ function Activity({leads,tasks,me,open,rep}){
     start.setHours(0,0,0,0); end.setHours(23,59,59,999); return {start,end,label};
   },[mode,anchor]);
   const all=useMemo(()=>{
-    const acts=leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company})));
+    const acts=leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company,
+      cancelled:a.type==='Booked'?!bookingLive(l,a):!!a.cancelled})));
     /* completed tasks count as work done — fold them into the same feed */
     const done=(tasks||[]).filter(t=>t.done).map(t=>{
       /* Tasks completed before we started stamping doneAt have no completion time.
@@ -3835,11 +3869,15 @@ function Activity({leads,tasks,me,open,rep}){
     return [...s].filter(Boolean).sort();},[inRange,rep]);
   /* the person filter drives the WHOLE tab — KPIs, chart, matrix and log */
   const scope=useMemo(()=>inRange.filter(a=>who==='All'||a.who===who),[inRange,who]);
+  /* the LOG shows cancelled bookings (struck through — they happened, and hiding
+     them would quietly rewrite the day). The NUMBERS don't count them. */
+  const live=useMemo(()=>scope.filter(a=>!a.cancelled),[scope]);
   const shown=scope.filter(a=>typeF==='All'||a.type===typeF).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
-  const matrix=useMemo(()=>{const m={};const zero=()=>ACT_ORDER.reduce((o,k)=>(o[k]=0,o),{total:0});scope.forEach(a=>{const p=a.who||'—';m[p]=m[p]||zero();if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[scope]);
+  const matrix=useMemo(()=>{const m={};const zero=()=>ACT_ORDER.reduce((o,k)=>(o[k]=0,o),{total:0});live.forEach(a=>{const p=a.who||'—';m[p]=m[p]||zero();if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[live]);
   const chartData=Object.entries(matrix).map(([person,c])=>({person,...c})).sort((a,b)=>b.total-a.total);
-  const totals=ACT_ORDER.reduce((o,t)=>{o[t]=scope.filter(a=>a.type===t).length;return o;},{});
-  const grand=scope.length;
+  const totals=ACT_ORDER.reduce((o,t)=>{o[t]=live.filter(a=>a.type===t).length;return o;},{});
+  const grand=live.length;
+  const cancelledCount=scope.length-live.length;
   const shift=dir=>{const d=new Date(anchor+'T00:00:00');if(mode==='day')d.setDate(d.getDate()+dir);else if(mode==='week')d.setDate(d.getDate()+7*dir);else d.setMonth(d.getMonth()+dir);setAnchor(d.toISOString().slice(0,10));};
   const fmtTime=ts=>{try{return new Date(ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}catch{return '';}};
   const dayHead=ts=>new Date(ts).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
@@ -3862,7 +3900,7 @@ function Activity({leads,tasks,me,open,rep}){
       </div>
     </div>
     <div className="kpis">
-      <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={(who==='All'?'Everyone':who)+' · '+range.label}/>
+      <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={(who==='All'?'Everyone':who)+' · '+range.label+(cancelledCount>0?` · ${cancelledCount} cancelled, not counted`:'')}/>
       {ACT_ORDER.map(t=><Kpi key={t} variant={t==='Booked'?'accent':undefined} label={actPlural(t)} value={totals[t]} icon={kIcon(t)}/>)}
     </div>
     {chartData.length>0&&<div className="card" style={{marginBottom:16}}>
@@ -3887,11 +3925,11 @@ function Activity({leads,tasks,me,open,rep}){
       {shown.length?<div className="act-feedlist">{shown.map(a=>{const Ic=ACT_ICON[a.type]||StickyNote;const dk=(a.ts||'').slice(0,10);const head=mode!=='day'&&dk!==lastDay;lastDay=dk;return(
         <React.Fragment key={a.id}>
           {head&&<div className="act-daysep">{dayHead(a.ts)}</div>}
-          <div className="act-row" onClick={()=>open&&open(a.leadId)}>
-            <div className="act-ic" style={{background:ACT_COLORS[a.type]||'#8b88a0'}}><Ic size={15}/></div>
+          <div className={'act-row'+(a.cancelled?' cancelled':'')} onClick={()=>open&&open(a.leadId)}>
+            <div className="act-ic" style={{background:a.cancelled?'#B9B6C6':(ACT_COLORS[a.type]||'#8b88a0')}}><Ic size={15}/></div>
             <div className="act-body">
               <div className="act-top"><span className="act-lead">{a.leadName||'—'}</span><span className="act-who">{a.who||'—'}</span><span className="act-time" title={a.approx?'Completed before we tracked exact times — showing its due date':undefined}>{a.approx?'~':''}{fmtTime(a.ts)}</span></div>
-              <div className="act-txt">{a.text}</div>
+              <div className="act-txt">{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}</div>
             </div>
           </div>
         </React.Fragment>);})}</div>
@@ -4084,6 +4122,25 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
             <div className="goal-in">{kind==='$'&&<i>$</i>}<input type="number" min="0" value={G[k]||''} placeholder="0" onChange={e=>setGoal(k,e.target.value)}/></div>
           </div>))}</div>
         {!anySet&&<div className="subcell" style={{marginTop:10}}>No goals set yet — tiles show plain numbers until you add one.</div>}
+      </div>); })()}
+
+    {/* which meeting types count toward conversion ratios */}
+    {(()=>{ const ex=ratioExcludeOf(settings);
+      const toggle=k=>{ const next=ex.includes(k)?ex.filter(x=>x!==k):[...ex,k];
+        saveSettings({...settings,ratioExcludeTypes:next}); };
+      const counted=MEETING_TYPES.filter(t=>!ex.includes(t));
+      return (<div className="card" style={{marginBottom:18}}>
+        <div className="sec-title"><Target size={15}/>What counts as a sales meeting</div>
+        <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>The <b>Meeting &#8594; Close</b> ratio only counts leads you had one of these with. Switch off the relationship types — coffee is the top of the cycle, not a sales conversation, and counting it makes the ratio look worse than the work actually is. Every type still counts toward meetings booked, meetings held and show rate either way.</div>
+        <div className="mod-grid">{MEETING_TYPES.map(t=>(
+          <label key={t} className={'mod-row'+(!ex.includes(t)?' on':'')}>
+            <input type="checkbox" checked={!ex.includes(t)} onChange={()=>toggle(t)}/>
+            <span>{t}</span>
+            {!ex.includes(t)?<CheckCircle2 size={15} color={GREEN}/>:<Circle size={15} color="#C9C5D9"/>}
+          </label>))}</div>
+        <div className="subcell" style={{marginTop:10}}>
+          {counted.length?`Counting: ${counted.join(', ')}.`:'Nothing is counted, so the ratio will read as a dash.'}
+        </div>
       </div>); })()}
 
     {/* modules */}
