@@ -430,7 +430,12 @@ const funnelOf=(leads,stages)=>{ const flow=(stages||[]).filter(s=>!s.lost); if(
 const ACT_LABEL={Booked:'Meeting Booked'};
 const actLabel=t=>ACT_LABEL[t]||t;
 const actPlural=t=>t==='Booked'?'Booked':t+'s';
-const bookedCount=l=>(l.activities||[]).filter(a=>a.type==='Booked').length;
+/* Counts come from meetingsOf() and nowhere else. This used to count 'Booked'
+   ACTIVITIES instead, which is why cancelling a meeting left the header saying
+   "2 booked" over a list that said "No meetings yet" — the meeting was gone, the
+   activity that announced it wasn't. The activity feed is history and should
+   keep the cancelled booking; the count is state and must not. */
+const bookedCount=l=>meetingsOf(l).length;
 const fmtCustom=(v,type)=>{if(v===undefined||v==='')return '—';if(type==='checkbox')return v?'✓':'—';return String(v);};
 const DEFAULT_LEAD_COLS=[
   {key:'businessType',visible:true},{key:'stage',visible:true},{key:'source',visible:true},
@@ -1144,6 +1149,8 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.ftxt.cancelled{color:#8E89A8;text-decoration:line-through;text-decoration-color:#C9C6D8}
+.fcancel{display:inline-block;margin-left:7px;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:${RED};background:rgba(209,67,67,.09);border-radius:6px;padding:1px 6px;text-decoration:none;vertical-align:1px}
 .mtg-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .bookc{margin-top:10px}
 .bookc .mtg-form{padding:0;border:0;background:none}
@@ -4475,7 +4482,13 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
     const activity={id:uid(),ts:now,type:'Booked',mtype:mtype||'Other',meetingId:mid,
       text:`${mtype||'Meeting'} booked${notes?': '+notes:''} — no date set yet`,who:me};
     set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])]}); };
-  const doRemove=async(mt)=>{ await deleteCalendarEvent(mt.eventId); set({meetings:(draft.meetings||[]).filter(x=>x.id!==mt.id)}); };
+  /* cancelling is not deleting: the meeting leaves the count and the calendar,
+     the history of having booked it stays and is marked cancelled. */
+  const doRemove=async(mt)=>{ await deleteCalendarEvent(mt.eventId);
+    const acts=(draft.activities||[]).map(a=>(a.meetingId===mt.id&&a.type==='Booked')?{...a,cancelled:true}:a);
+    const note={id:uid(),ts:new Date().toISOString(),type:'Meeting',
+      text:`Cancelled: ${mt.title||mt.mtype||'meeting'}${mt.start&&!datelessOf(mt)?` — ${fmtMeetingTime(mt.start)}`:''}`,who:me};
+    set({meetings:(draft.meetings||[]).filter(x=>x.id!==mt.id),activities:[note,...acts]}); };
   /* did it actually happen? booked is a promise, held is the result. */
   const doStatus=(mt,status)=>{ const next=(draft.meetings||[]).map(x=>x.id===mt.id?{...x,status:x.status===status?'':status}:x);
     const was=(draft.meetings||[]).find(x=>x.id===mt.id); const flip=was&&was.status===status;
@@ -4952,7 +4965,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               {ACT_TYPES.filter(t=>t.key!=='Note').map(t=><button key={t.key} className={feedFilter===t.key?'on':''} onClick={()=>setFeedFilter(t.key)}>{t.key}</button>)}
             </div>
             <div className="feed">{feed.map(a=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;return (<div className={'fitem'+(a.type==='Note'?' note':'')} key={a.id}>
-              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className="ftxt">{a.text}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
+              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className={'ftxt'+(a.cancelled?' cancelled':'')}>{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
               <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div>);})}
               {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
             <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid #F0F0F6'}}>{rep
