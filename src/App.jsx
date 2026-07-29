@@ -428,6 +428,14 @@ const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.
    Mirrors the modal's openDeals so the card and the modal always agree. */
 const dealBits=d=>num(d.setup)+num(d.website)+num(d.integration)+((d.extras||[]).reduce((a,e)=>a+num(e.amount),0));
 const paymentsPaid=l=>((l&&l.payments)||[]).reduce((a,p)=>a+(+((''+p.amount).replace(/[^0-9.-]/g,''))||0),0);
+/* A deal opened on somebody who is ALREADY a client is new business in progress,
+   not revenue already earned. It gets stamped at creation, because guessing after
+   the fact from dates is fragile. Deals with no stamp are every deal that existed
+   before this build plus every original sale, and they keep counting exactly as
+   they did — no historical number moves. */
+const isUpsellDeal=d=>!!(d&&d.upsell);
+const openSaleValue=l=>dealsOf(l).filter(d=>!isUpsellDeal(d)).reduce((a,d)=>a+dealBits(d),0);
+const upsellValueOf=l=>dealsOf(l).filter(isUpsellDeal).reduce((a,d)=>a+dealBits(d),0);
 const dealsOf=l=>{
   if(Array.isArray(l&&l.deals)) return l.deals;
   if(l&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return [{id:'d_legacy',label:'Deal',...l.deal}];
@@ -1180,6 +1188,7 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.pill-upsell{display:inline-block;margin-right:7px;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:${COBALT};background:color-mix(in srgb,${COBALT} 12%,#fff);border-radius:6px;padding:1px 6px}
 .seg-n{margin-left:6px;font-size:10.5px;font-weight:800;opacity:.62}
 .seg-b.on .seg-n{opacity:.9}
 .task-overdue{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:${RED};background:rgba(209,67,67,.08);border:1px solid rgba(209,67,67,.2);border-radius:12px;padding:10px 13px}
@@ -2266,11 +2275,22 @@ function useMetrics(leads,stages,settings){
   return useMemo(()=>{
     const ratioEx=ratioExcludeOf(settings);
     const byStage={}; stages.forEach(s=>byStage[s.key]={count:0,value:0});
-    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,lostCount=0,mrr=0,retainers=0;
+    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,lostCount=0,mrr=0,retainers=0,upsellCount=0,upsellValue=0;
+    /* An upsell to somebody you've already delivered for is at least as likely to
+       land as a proposal sitting with a new lead, so it's weighted at the best
+       probability on the open stages rather than at an invented number. */
+    const upsellProb=Math.max(0,...(stages||[]).filter(x=>x.open).map(x=>num(x.prob)));
     leads.forEach(l=>{const s=sOf(l.stage,stages);byStage[l.stage]=byStage[l.stage]||{count:0,value:0};byStage[l.stage].count++;byStage[l.stage].value+=num(l.dealValue);
       if(s.open){openCount++;openValue+=num(l.dealValue);weighted+=num(l.dealValue)*num(s.prob);}
-      if(s.won){wonCount++;wonValue+=num(l.dealValue);} if(s.lost) lostCount++; wonValue+=closedDealsTotal(l);
+      /* A won lead's UNSTAMPED deals are the sale that won it — still won revenue.
+         Its upsell deals are money on the table and belong in pipeline, which is
+         the whole bug: typing an amount on a client used to book it as revenue. */
+      if(s.won){ wonCount++; wonValue+=openSaleValue(l);
+        const uv=upsellValueOf(l);
+        if(uv>0){ upsellCount++; upsellValue+=uv; weighted+=uv*upsellProb; } }
+      if(s.lost) lostCount++; wonValue+=closedDealsTotal(l);
       if(l.retainerActive){mrr+=num(l.retainer);retainers++;}});
+    const pipelineValue=openValue+upsellValue;
     const overdue=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<0&&sOf(l.stage,stages).open);
     const dueWeek=leads.filter(l=>{const d=l.followUp?daysUntil(l.followUp):null;return d!==null&&d>=0&&d<=7&&sOf(l.stage,stages).open;});
     const hot=leads.filter(l=>l.priority==='high'&&sOf(l.stage,stages).open);
@@ -2353,7 +2373,7 @@ function useMetrics(leads,stages,settings){
       return {id:l.id,name:l.name||l.company||'—',company:l.company,lifetime,closed,current,
         mrr:l.retainerActive?num(l.retainer):0,deals:((l.closedDeals||[]).length)+((sOf(l.stage,stages).won||l.isClient)&&num(l.dealValue)>0?1:0)};
     }).filter(c=>c.lifetime>0||c.mrr>0).sort((a,b)=>b.lifetime-a.lifetime);
-    return {byStage,openCount,openValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
+    return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
       firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,
       meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,avgDaysToClose,movingPct,rotting,sourceROI};
@@ -2617,7 +2637,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     </div>}
     <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
-      <Kpi variant="accent" label="Open Pipeline" value={usd(m.openValue)} icon={<KanbanSquare size={14}/>} d={G.revenue>0?`${m.openCount} leads · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:`${m.openCount} active leads`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
+      <Kpi variant="accent" label="Open Pipeline" value={usd(m.pipelineValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} lead${m.openCount===1?'':'s'}${m.upsellCount>0?` · ${m.upsellCount} client upsell${m.upsellCount===1?'':'s'}`:''}${G.revenue>0?` · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:''}`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
       <Kpi label="Revenue Closed" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={G.revenue>0?"setup closed this month":"weighted forecast"} onClick={()=>tog('won')} active={drill==='won'} goal={G.revenue} current={m.revenueMonth}/>
       <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.revenueMonth)} setup`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
@@ -2632,12 +2652,19 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       <Kpi label="Going Cold" value={cold.length} icon={<Users size={14}/>} d={cold.length>0?`${cold.filter(x=>x.tier==='champion').length} champion${cold.filter(x=>x.tier==='champion').length===1?'':'s'} need a touch`:'everyone is warm'} onClick={()=>tog('cold')} active={drill==='cold'}/>
     </div>
 
-    {drill==='pipeline'&&<Drill title="Open pipeline" sub={`${openLeads.length} active`} onClose={()=>setDrill(null)}>
-      {openLeads.length?openLeads.map(l=>(<div className="drow" key={l.id}>
+    {drill==='pipeline'&&(()=>{ const ups=leads.filter(l=>upsellValueOf(l)>0).sort((a,b)=>upsellValueOf(b)-upsellValueOf(a));
+      const rows=openLeads.length+ups.length;
+      return (<Drill title="Open pipeline" sub={`${rows} open${ups.length?` · ${ups.length} with a client`:''}`} onClose={()=>setDrill(null)}>
+      {openLeads.map(l=>(<div className="drow" key={l.id}>
         <div className="drow-m"><Name l={l}/><div className="subcell">{sOf(l.stage,stages).label}{l.followUp?` · follow-up ${fmtDate(l.followUp)}`:''}</div></div>
         <span className="drow-v">{num(l.dealValue)>0?usd(l.dealValue):'—'}</span>
-      </div>)):<Empty t="No open leads."/>}
-    </Drill>}
+      </div>))}
+      {ups.map(l=>(<div className="drow" key={'u_'+l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell"><span className="pill-upsell">Client upsell</span>{dealsOf(l).filter(isUpsellDeal).map(d=>d.label).filter(Boolean).join(', ')}</div></div>
+        <span className="drow-v">{usd(upsellValueOf(l))}</span>
+      </div>))}
+      {!rows&&<Empty t="Nothing open."/>}
+    </Drill>); })()}
 
     {drill==='won'&&<Drill title="Deals closed" sub={usd(m.wonValue)+' total'} onClose={()=>setDrill(null)}>
       {wonLeads.length?wonLeads.map(l=>(<div className="drow" key={l.id}>
@@ -2805,8 +2832,13 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
   const drop=stage=>{if(dragId)updateLead(dragId,{stage});setDragId(null);setOver(null);};
   const move=(l,dir)=>{const i=sIdx(l.stage,stages);const j=i+dir;if(j<0||j>=stages.length)return;updateLead(l.id,{stage:stages[j].key});};
   const openLeads=leads.filter(l=>sOf(l.stage,stages).open);
-  const totalOpen=openLeads.reduce((a,l)=>a+num(l.dealValue),0);
-  const weighted=openLeads.reduce((a,l)=>a+num(l.dealValue)*(sOf(l.stage,stages).prob||0),0);
+  /* clients with money still on the table — their stage says won, but the deal
+     hasn't been closed out yet, so it's live pipeline like anything else */
+  const upsellLeads=leads.filter(l=>upsellValueOf(l)>0);
+  const upsellTotal=upsellLeads.reduce((a,l)=>a+upsellValueOf(l),0);
+  const totalOpen=openLeads.reduce((a,l)=>a+num(l.dealValue),0)+upsellTotal;
+  const weighted=openLeads.reduce((a,l)=>a+num(l.dealValue)*(sOf(l.stage,stages).prob||0),0)
+    +upsellTotal*Math.max(0,...(stages||[]).filter(x=>x.open).map(x=>num(x.prob)));
   const wonC=leads.filter(l=>sOf(l.stage,stages).won).length;
   const lostC=leads.filter(l=>sOf(l.stage,stages).lost).length;
   const winRate=(wonC+lostC)?Math.round(wonC/(wonC+lostC)*100):0;
@@ -4640,7 +4672,8 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const writeDeals=next=>set({deals:next,dealValue:next.reduce((a,d)=>a+dealSum(d),0)});
   const updateDeal=(id,patch)=>writeDeals(openDeals.map(d=>d.id===id?{...d,...patch}:d));
   const addDeal=()=>{ const label=window.prompt('Name this deal (e.g. "Website build", "Q3 advisory"):','Deal '+(openDeals.length+1)); if(label===null) return;
-    writeDeals([...openDeals,{id:uid(),label:label.trim()||('Deal '+(openDeals.length+1)),setup:'',website:'',integration:'',extras:[]}]); };
+    writeDeals([...openDeals,{id:uid(),label:label.trim()||('Deal '+(openDeals.length+1)),setup:'',website:'',integration:'',extras:[],
+      addedAt:new Date().toISOString(), upsell:!!draft.isClient}]); };
   const removeDeal=id=>{ if(!window.confirm('Remove this open deal? Nothing is archived.')) return; writeDeals(openDeals.filter(d=>d.id!==id)); };
   /* One patch, not three. Removing the deal, archiving it and logging the note
      are a single event and have to land together — done separately, whichever
@@ -4649,15 +4682,39 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const closeDeal=d=>{ const amount=dealSum(d); if(amount<=0){ window.alert('Add a dollar amount before closing this deal.'); return; }
     const closed={id:uid(),label:d.label||'Deal',amount,deal:{...d},closedAt:todayISO(),by:me};
     const nextOpen=openDeals.filter(x=>x.id!==d.id);
+    /* Winning work from somebody who is already a client means a NEW build. The
+       checklist is one object on the lead, so the finished build's record is
+       archived onto the deal that paid for it before a fresh one is seeded —
+       the ticks and dates from the last project are kept, not overwritten. It
+       is asked, never assumed: not every deal is a build. */
+    let rebuild={};
+    if(draft.isClient){
+      const prev=draft.onboarding||{};
+      const doneCount=Object.values(prev).filter(x=>x&&x.done).length;
+      const start=window.confirm(
+        `Start a new build for ${draft.company||draft.name||'this client'}?\n\n`+
+        (doneCount?`Their current checklist (${doneCount} item${doneCount===1?'':'s'} done) will be archived on this deal, and a fresh one starts at Intake.`
+                  :'A fresh checklist starts at Intake.')+
+        `\n\nCancel closes the deal without touching the checklist.`);
+      if(start){
+        closed.onboarding=prev; closed.clientPhase=draft.clientPhase||'';
+        /* client phases are objects with .key — CLIENT_PHASES is the array-shaped
+           legacy constant and indexing this one the same way wrote undefined */
+        rebuild={onboarding:seedOnboarding(),clientPhase:(stdPhases(settings)[0]||{}).key||'intake'};
+      }
+    }
     /* stamped here because updateLead's generic dealValue audit is skipped for a
        deal close — the trail still needs a name and a time against it */
     const note={id:uid(),ts:new Date().toISOString(),type:'Note',
-      text:`Deal closed: ${closed.label} — ${usd(amount)}`,who:me};
+      text:`Deal closed: ${closed.label} — ${usd(amount)}${isUpsellDeal(d)?' (client upsell)':''}`,who:me};
     set({ deals:nextOpen,
           dealValue:nextOpen.reduce((a,x)=>a+dealSum(x),0),
           dealValueBy:me, dealValueAt:new Date().toISOString(),
           closedDeals:[...(draft.closedDeals||[]),closed],
-          activities:[note,...(draft.activities||[])] }); };
+          ...rebuild,
+          activities:[...(rebuild.onboarding?[{id:uid(),ts:new Date().toISOString(),type:'Note',
+            text:`New build started: ${closed.label}. Previous checklist archived.`,who:me}]:[]),
+            note,...(draft.activities||[])] }); };
   const Sel=({label,k,opts})=>(<div className="field"><label>{label}</label><select value={draft[k]} onChange={e=>set({[k]:e.target.value})}>{opts.map(o=>typeof o==='string'?<option key={o} value={o}>{o||'—'}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}</select></div>);
   /* collapsible section. called as a function (not <Sec/>) so inputs inside
      never remount and lose focus while typing. */
@@ -4991,7 +5048,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                       <button className="ex-del" title="Remove" onClick={()=>{const x=d.extras.filter((_,j)=>j!==i);updateDeal(d.id,{extras:x});}}><X size={14}/></button>
                     </div>))}</div>}
                   <button className="addline" onClick={()=>updateDeal(d.id,{extras:[...(d.extras||[]),{id:uid(),label:'',amount:''}]})}><Plus size={13}/>Add line item</button>
-                  {dealSum(d)>0&&<button className="deal-close-btn sm" onClick={()=>closeDeal(d)}><CheckCircle2 size={14}/>Close this deal</button>}
+                  {dealSum(d)>0&&<button className="deal-close-btn sm" onClick={()=>closeDeal(d)}><CheckCircle2 size={14}/>{isUpsellDeal(d)?'Won it — close this deal':'Close this deal'}</button>}
                 </div>))}
 
                 <button className="deal-add-btn" onClick={addDeal}><Plus size={15}/>{openDeals.length?'Add another deal':'Add a deal'}</button>
