@@ -1872,6 +1872,17 @@ export default function App(){
     else { const u=users.find(x=>x.name===l.owner); oid=u?u.id:null; } // someone else
     return {...l,owner_id:oid,pool:l.pool||null};
   };
+  /* setLeads is async, so every mutator below used to read the array captured at
+     render time. Two writes in one tick therefore both started from the SAME
+     snapshot and the second silently threw the first away — and because these
+     mutators push a whole rebuilt lead to Supabase, the stale one won there too.
+     That is why closing a deal logged the activity and left the deal sitting
+     open: writeDeals, then set(closedDeals), then addActivity, each starting
+     over from the same stale lead. leadsRef is the current array, readable
+     synchronously, so consecutive writes compose instead of racing. */
+  const leadsRef=React.useRef(leads);
+  leadsRef.current=leads;
+  const commitLeads=next=>{ leadsRef.current=next; setLeads(next); return next; };
   const putLead=l=>db.upsertLead(stampOwner(l)).catch(console.error);
   const putMany=arr=>db.upsertMany((arr||[]).map(stampOwner));
   const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await putMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
@@ -1927,16 +1938,22 @@ export default function App(){
     }catch{}
     return patch;
   };
-  const updateLead=(id,patch)=>{ let updated=null; setLeads(leads.map(l=>{
+  const updateLead=(id,patch)=>{ let updated=null; commitLeads(leadsRef.current.map(l=>{
     if(l.id!==id) return l; const ts=new Date().toISOString(); const m={...l,...patch};
     /* The deal value drives the commission, and reps set it themselves — so
        every change is on the record with a name and a time against it.
        Number fields fire on every keystroke, so consecutive edits by the same
        person inside 15 minutes are folded into ONE entry that keeps the
        original "was" figure. Otherwise the feed fills with noise. */
-    if(patch.dealValue!==undefined&&num(patch.dealValue)!==num(l.dealValue)){
+    /* Closing a deal already writes its own, more specific note and moves the
+       value as a side effect, so the generic "deal value set to" audit would be
+       duplicate noise on top of it. Every other dealValue change still gets one. */
+    if(patch.dealValue!==undefined&&num(patch.dealValue)!==num(l.dealValue)&&patch.closedDeals===undefined){
       m.dealValueBy=me; m.dealValueAt=ts;
-      const acts=[...(l.activities||[])];
+      /* build on m.activities: a caller may have passed its own activities in the
+         same patch, and rebuilding from l.activities threw them away. That is why
+         closing a deal logged "deal value set to" INSTEAD of "Deal closed". */
+      const acts=[...(m.activities||l.activities||[])];
       const prev=acts[0];
       const fresh=prev&&prev.dealEdit&&prev.who===me&&(Date.now()-new Date(prev.ts).getTime()<15*60*1000);
       const was=fresh?prev.dealWas:num(l.dealValue);
@@ -1945,7 +1962,7 @@ export default function App(){
       m.activities=fresh?[entry,...acts.slice(1)]:[entry,...acts];
     }
     if(patch.stage&&patch.stage!==l.stage){
-      m.activities=[{id:uid(),ts,type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${sOf(patch.stage,stages).label}`,who:me},...l.activities];
+      m.activities=[{id:uid(),ts,type:'Note',text:`Stage moved: ${sOf(l.stage,stages).label} → ${sOf(patch.stage,stages).label}`,who:me},...(m.activities||l.activities||[])];
       if(sOf(patch.stage,stages).won){
         if(!l.closedAt) m.closedAt=todayISO();
         /* Signed = auto-onboard: flip to client, seed the universal checklist, start Intake */
@@ -2015,8 +2032,8 @@ export default function App(){
     const mts=(l.meetings||[]).map(m=>m.id===meetingId?{...m,mtype}:m);
     const acts=(l.activities||[]).map(a=>a.meetingId===meetingId?{...a,mtype}:a);
     updated={...l,meetings:mts,activities:acts}; return updated; })); if(updated) putLead(updated); };
-  const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) putLead(updated); };
-  const delActivity=(id,aid)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) putLead(updated); };
+  const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) putLead(updated); };
+  const delActivity=(id,aid)=>{ let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) putLead(updated); };
   /* deleting is an owner action — the database enforces it too (leads_delete
      in MIGRATION.sql). This guard just keeps the UI honest. */
   const delLead=id=>{ if(rep){ window.alert('Only an owner can delete a lead.'); return; }
@@ -4558,7 +4575,9 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const canLogPayment=!rep||(settings&&settings.repPayments);
   const [firstType,setFirstType]=useState('Call');
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
-  const set=patch=>{if(isNew)setDraft({...draft,...patch});else{setDraft({...draft,...patch});updateLead(draft.id,patch);}};
+  /* functional form so two set() calls in one tick compose instead of the second
+     spreading a stale draft over the first */
+  const set=patch=>{ setDraft(d=>({...d,...patch})); if(!isNew) updateLead(draft.id,patch); };
   /* One booking path, used by the Meetings section AND the activity log's
      Meeting Booked button. Always writes the meeting + the Booked activity, so
      it always reaches the dashboard numbers; the Google Calendar event is the
@@ -4623,11 +4642,22 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const addDeal=()=>{ const label=window.prompt('Name this deal (e.g. "Website build", "Q3 advisory"):','Deal '+(openDeals.length+1)); if(label===null) return;
     writeDeals([...openDeals,{id:uid(),label:label.trim()||('Deal '+(openDeals.length+1)),setup:'',website:'',integration:'',extras:[]}]); };
   const removeDeal=id=>{ if(!window.confirm('Remove this open deal? Nothing is archived.')) return; writeDeals(openDeals.filter(d=>d.id!==id)); };
+  /* One patch, not three. Removing the deal, archiving it and logging the note
+     are a single event and have to land together — done separately, whichever
+     write went last rebuilt the lead from the same stale draft and undid the
+     others, so the note appeared and the deal never moved. */
   const closeDeal=d=>{ const amount=dealSum(d); if(amount<=0){ window.alert('Add a dollar amount before closing this deal.'); return; }
     const closed={id:uid(),label:d.label||'Deal',amount,deal:{...d},closedAt:todayISO(),by:me};
-    writeDeals(openDeals.filter(x=>x.id!==d.id));           // remove from open, keep the rest
-    set({closedDeals:[...(draft.closedDeals||[]),closed]});
-    if(addActivity) addActivity(draft.id,'Note',`Deal closed: ${closed.label} — ${usd(amount)}`,me); };
+    const nextOpen=openDeals.filter(x=>x.id!==d.id);
+    /* stamped here because updateLead's generic dealValue audit is skipped for a
+       deal close — the trail still needs a name and a time against it */
+    const note={id:uid(),ts:new Date().toISOString(),type:'Note',
+      text:`Deal closed: ${closed.label} — ${usd(amount)}`,who:me};
+    set({ deals:nextOpen,
+          dealValue:nextOpen.reduce((a,x)=>a+dealSum(x),0),
+          dealValueBy:me, dealValueAt:new Date().toISOString(),
+          closedDeals:[...(draft.closedDeals||[]),closed],
+          activities:[note,...(draft.activities||[])] }); };
   const Sel=({label,k,opts})=>(<div className="field"><label>{label}</label><select value={draft[k]} onChange={e=>set({[k]:e.target.value})}>{opts.map(o=>typeof o==='string'?<option key={o} value={o}>{o||'—'}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}</select></div>);
   /* collapsible section. called as a function (not <Sec/>) so inputs inside
      never remount and lose focus while typing. */
