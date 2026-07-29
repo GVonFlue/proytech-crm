@@ -1188,6 +1188,24 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.dash-arrange{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.dash-arrange .btn.on{background:${COBALT};color:#fff;border-color:${COBALT}}
+.dsec{border:1.5px dashed #D6D8E8;border-radius:16px;padding:0 0 4px;margin-bottom:14px;background:#FCFCFE}
+.dsec.dragging{opacity:.45;border-color:${COBALT}}
+.dsec.off{opacity:.5}
+.dsec-h{display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:grab;border-bottom:1px dashed #E6E7F1}
+.dsec-h:active{cursor:grabbing}
+.dsec-grip{color:#A5A2BC;flex:none}
+.dsec-t{font-size:12.5px;font-weight:700;color:${INK}}
+.dsec.off .dsec-t{text-decoration:line-through;color:#9A96AC}
+.dsec-btns{margin-left:auto;display:flex;gap:6px}
+.dsec-b{display:inline-flex;align-items:center;justify-content:center;min-width:28px;height:26px;border:1px solid #E4E5EF;background:#fff;border-radius:8px;color:${INK};cursor:pointer;font-size:11.5px;font-weight:700}
+.dsec-b.wide{padding:0 10px}
+.dsec-b:disabled{opacity:.35;cursor:not-allowed}
+/* in arrange mode the content is a preview, not a control surface — otherwise
+   grabbing a section fires whatever KPI tile happens to be under the cursor */
+.dsec-body{pointer-events:none;padding:10px 12px 0;max-height:270px;overflow:hidden;position:relative}
+.dsec-body:after{content:'';position:absolute;left:0;right:0;bottom:0;height:44px;background:linear-gradient(to bottom,rgba(252,252,254,0),#FCFCFE)}
 .pill-upsell{display:inline-block;margin-right:7px;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:${COBALT};background:color-mix(in srgb,${COBALT} 12%,#fff);border-radius:6px;padding:1px 6px}
 .seg-n{margin-left:6px;font-size:10.5px;font-weight:800;opacity:.62}
 .seg-b.on .seg-n{opacity:.9}
@@ -2247,7 +2265,7 @@ export default function App(){
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
-          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
+          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -2472,12 +2490,14 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings);
   const [drill,setDrill]=useState(null);
   const [scope,setScope]=useState('month');   // time filter across meeting tabs
   const [mtab,setMtab]=useState('upcoming'); // upcoming | completed | noshow | needs
+  const [arrange,setArrange]=useState(false);   // dashboard layout edit mode
+  const [dragSec,setDragSec]=useState(null);
   const tog=k=>{ setDrill(d=>d===k?null:k); };
   const mKey=todayISO().slice(0,7);
 
@@ -2592,32 +2612,19 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
   const stageData=stages.filter(s=>s.open).map(s=>({name:s.label,Leads:m.byStage[s.key]?.count||0,color:s.color}));
   const revMix=[{name:'Closed Setup',value:m.wonValue},{name:'Annual MRR',value:m.mrr*12}].filter(d=>d.value>0);
   const followUps=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
-  return (<>
-    {awaiting.length>0&&<div className="onb-q">
-      <div className="onb-h"><Rocket size={15}/><b>Awaiting onboarding</b><span>{awaiting.length} newly converted client{awaiting.length===1?'':'s'}</span></div>
-      {awaiting.map(l=>(<div className="onb-row" key={l.id}>
-        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
-          <div className="subcell">{l.onboardingAlert.repName||'A rep'} converted {fmtDate(String(l.onboardingAlert.at||'').slice(0,10))} — start onboarding.</div></div>
-        <button className="btn btn-g btn-sm" onClick={()=>ack&&ack(l.id)}><CheckCircle2 size={14}/>Got it</button>
-      </div>))}
-    </div>}
-    {handled.length>0&&<div className="onb-q done">
-      <div className="onb-h" onClick={()=>tog('handled')} style={{cursor:'pointer'}}><CheckCircle2 size={15}/><b>Handled conversions</b>
-        <span>{handled.length} acknowledged · tap to {drill==='handled'?'hide':'see'}</span></div>
-      {drill==='handled'&&handled.map(l=>(<div className="onb-row" key={l.id}>
-        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
-          <div className="subcell">{l.onboardingAlert.repName||'A rep'} · converted {fmtDate(String(l.onboardingAlert.at||'').slice(0,10))}{l.onboardingAlert.ackBy?` · cleared by ${l.onboardingAlert.ackBy}`:''}</div></div>
-      </div>))}
-    </div>}
-    {pendingCmsn.length>0&&<div className="onb-q cmsn">
-      <div className="onb-h"><Percent size={15}/><b>Commissions waiting on you</b><span>{pendingCmsn.length} · {usd(pendingTotal)} total</span></div>
-      {pendingCmsn.map(({l,c})=>(<div className="onb-row" key={l.id}>
-        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
-          <div className="subcell">{c.repName||'Rep'} · {num(c.pct)}% of {usd(c.base)}{l.dealValueBy?` · value entered by ${l.dealValueBy}`:''}</div></div>
-        <span className="drow-v" style={{color:GOLD}}>{usd(c.amount)}</span>
-        {approve&&<button className="btn btn-p btn-sm" onClick={()=>approve(l.id,{status:'earned'})}><BadgeCheck size={14}/>Approve</button>}
-      </div>))}
-    </div>}
+  const dashOrder=dashOrderOf(settings);
+  const dashHidden=dashHiddenOf(settings);
+  const saveDash=(order,hidden)=>saveSettings&&saveSettings({...settings,
+    dashOrder:order||dashOrder, dashHidden:hidden||dashHidden});
+  const moveSec=(from,to)=>{ if(to<0||to>=dashOrder.length)return;
+    const n=[...dashOrder]; const [x]=n.splice(from,1); n.splice(to,0,x); saveDash(n,null); };
+  const dropSec=key=>{ if(!dragSec||dragSec===key)return;
+    moveSec(dashOrder.indexOf(dragSec),dashOrder.indexOf(key)); setDragSec(null); };
+  const toggleSec=key=>saveDash(null,dashHidden.includes(key)
+    ? dashHidden.filter(k=>k!==key) : [...dashHidden,key]);
+
+  const BLOCKS={
+    scorecard:(<>
     {scorecard.length>0&&<div className="card" style={{marginBottom:20}}>
       <div className="sec-title" style={{margin:'0 0 4px'}}><Users size={15}/>The team this month</div>
       <div className="ch-sub" style={{marginBottom:12}}>Every rep, what they've done since the 1st. Tap a name to see their activity.</div>
@@ -2635,6 +2642,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
           </tr>); })}
       </tbody></table></div>
     </div>}
+    </>),
+    revenue:(<>
     <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Open Pipeline" value={usd(m.pipelineValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} lead${m.openCount===1?'':'s'}${m.upsellCount>0?` · ${m.upsellCount} client upsell${m.upsellCount===1?'':'s'}`:''}${G.revenue>0?` · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:''}`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
@@ -2642,16 +2651,6 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.revenueMonth)} setup`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
-    <div className="kgroup">Activity &amp; health</div>
-    <div className="kgrid">
-      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming${m.needsDateCount>0?` · ${m.needsDateCount} need a date`:''} · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
-      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show${m.needsStatusCount>0?` · ${m.needsStatusCount} unmarked`:''}`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
-      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
-      <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
-      <Kpi label="Follow-Up Health" value={m.fuRate==null?'—':Math.round(m.fuRate*100)+'%'} icon={<Bell size={14}/>} d={m.overdue.length>0?`${m.overdue.length} overdue right now`:(m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time`:'clear a follow-up to start')} onClick={()=>tog('fu')} active={drill==='fu'}/>
-      <Kpi label="Going Cold" value={cold.length} icon={<Users size={14}/>} d={cold.length>0?`${cold.filter(x=>x.tier==='champion').length} champion${cold.filter(x=>x.tier==='champion').length===1?'':'s'} need a touch`:'everyone is warm'} onClick={()=>tog('cold')} active={drill==='cold'}/>
-    </div>
-
     {drill==='pipeline'&&(()=>{ const ups=leads.filter(l=>upsellValueOf(l)>0).sort((a,b)=>upsellValueOf(b)-upsellValueOf(a));
       const rows=openLeads.length+ups.length;
       return (<Drill title="Open pipeline" sub={`${rows} open${ups.length?` · ${ups.length} with a client`:''}`} onClose={()=>setDrill(null)}>
@@ -2679,7 +2678,17 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         <span className="drow-v">{usd(l.retainer)}/mo</span>
       </div>)):<Empty t="No active retainers."/>}
     </Drill>}
-
+    </>),
+    activity:(<>
+    <div className="kgroup">Activity &amp; health</div>
+    <div className="kgrid">
+      <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming${m.needsDateCount>0?` · ${m.needsDateCount} need a date`:''} · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
+      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show${m.needsStatusCount>0?` · ${m.needsStatusCount} unmarked`:''}`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
+      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
+      <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
+      <Kpi label="Follow-Up Health" value={m.fuRate==null?'—':Math.round(m.fuRate*100)+'%'} icon={<Bell size={14}/>} d={m.overdue.length>0?`${m.overdue.length} overdue right now`:(m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time`:'clear a follow-up to start')} onClick={()=>tog('fu')} active={drill==='fu'}/>
+      <Kpi label="Going Cold" value={cold.length} icon={<Users size={14}/>} d={cold.length>0?`${cold.filter(x=>x.tier==='champion').length} champion${cold.filter(x=>x.tier==='champion').length===1?'':'s'} need a touch`:'everyone is warm'} onClick={()=>tog('cold')} active={drill==='cold'}/>
+    </div>
     {(drill==='booked'||drill==='held')&&<Drill title="Meetings" sub={`${mtabCounts.upcoming} upcoming · ${mtabCounts.completed} held · ${mtabCounts.noshow} no-show`} onClose={()=>setDrill(null)}>
       <div className="mtabs">
         {[['upcoming','Upcoming'],['completed','Completed'],['noshow','No-shows'],['needs','Needs status'],['undated','Needs a date']].map(([k,label])=>(
@@ -2745,6 +2754,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       <span className="mtb-l">Booked this month</span>
       {Object.entries(m.bookedByType).sort((a,b)=>b[1]-a[1]).map(([t,c])=><span key={t} className="mtb"><b>{c}</b>{t}</span>)}
     </div>}
+    </>),
+    funnel:(<>
     {m.funnel.length>1&&<div className="card" style={{marginBottom:18}}>
       <h3>Conversion funnel</h3>
       <div className="ch-sub">How far leads get, and the share of each stage that ultimately closes</div>
@@ -2759,7 +2770,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
           <span className={'fn-r close'+(i>0&&f.closeRate<0.5?' warn':'')}>{i===m.funnel.length-1?'—':Math.round(f.closeRate*100)+'%'}</span>
         </div>); })}</div>
     </div>}
-
+    </>),
+    analytics:(<>
     {/* higher-order sales analytics — the numbers a sales leader actually runs on */}
     <div className="kgroup">Sales analytics</div>
     <div className="an-grid">
@@ -2770,6 +2782,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       <div className={'an-card'+(m.rotting>0?' warn':'')}><div className="an-l">Pipeline Moving</div><div className="an-v">{m.openCount?Math.round(m.movingPct*100)+'%':'—'}</div><div className="an-d">{m.rotting} deal{m.rotting===1?'':'s'} cold 14+ days</div></div>
       <div className="an-card"><div className="an-l">Avg Deal Size</div><div className="an-v">{m.avgDeal?usd(m.avgDeal):'—'}</div><div className="an-d">across {m.wonCount} closed</div></div>
     </div>
+    </>),
+    sources:(<>
     {m.sourceROI.length>0&&<div className="card" style={{marginBottom:18}}>
       <h3>Lead source ROI</h3>
       <div className="ch-sub">Which sources actually close — spend your time where the money is</div>
@@ -2782,7 +2796,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         </div>))}
       </div>
     </div>}
-
+    </>),
+    clients:(<>
     {m.byClient&&m.byClient.length>0&&<div className="card" style={{marginBottom:18}}>
       <h3>Revenue by client</h3>
       <div className="ch-sub">Lifetime booked value per client — your biggest relationships first</div>
@@ -2800,7 +2815,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       </div>
       {m.byClient.length>12&&<div className="rbc-more">+ {m.byClient.length-12} more clients</div>}
     </div>}
-
+    </>),
+    charts:(<>
     <div className="row r3">
       <ChartCard title="Pipeline by Stage" sub="Open leads only" empty={stageData.some(d=>d.Leads>0)?null:'No open leads yet.'}>
         <div className="chart-h"><ResponsiveContainer width="100%" height="100%"><BarChart data={stageData} margin={{top:6,right:10,left:-12,bottom:0}}>
@@ -2812,6 +2828,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         <div className="chart-h"><ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={revMix} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={46} outerRadius={80} paddingAngle={2}>{revMix.map((e,i)=><Cell key={i} fill={PIE[i]}/>)}</Pie><Tooltip contentStyle={tipStyle} formatter={v=>usd(v)}/><Legend wrapperStyle={{fontSize:12}}/></PieChart></ResponsiveContainer></div>
       </ChartCard>
     </div>
+    </>),
+    lists:(<>
     <div className="row r2">
       <div className="card">
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}><div className="sec-title" style={{margin:0}}>Follow-ups Due</div>{m.overdue.length>0&&<span className="pill" style={{background:'rgba(209,67,67,.1)',color:RED}}><AlertTriangle size={11}/>{m.overdue.length} overdue</span>}</div>
@@ -2822,8 +2840,96 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         {m.hot.length?m.hot.map(l=>(<div key={l.id} onClick={()=>open(l.id)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 0',borderBottom:'1px solid #F0F0F6',cursor:'pointer'}}><div><div style={{fontWeight:600,color:INK,fontSize:14}}>{l.name}</div><div className="subcell">{l.company}</div></div><StageBadge k={l.stage} stages={stages}/></div>)):<div className="empty">No high-priority open leads.</div>}
       </div>
     </div>
+    </>),
+  };
+
+  return (<>
+    {awaiting.length>0&&<div className="onb-q">
+      <div className="onb-h"><Rocket size={15}/><b>Awaiting onboarding</b><span>{awaiting.length} newly converted client{awaiting.length===1?'':'s'}</span></div>
+      {awaiting.map(l=>(<div className="onb-row" key={l.id}>
+        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
+          <div className="subcell">{l.onboardingAlert.repName||'A rep'} converted {fmtDate(String(l.onboardingAlert.at||'').slice(0,10))} — start onboarding.</div></div>
+        <button className="btn btn-g btn-sm" onClick={()=>ack&&ack(l.id)}><CheckCircle2 size={14}/>Got it</button>
+      </div>))}
+    </div>}
+    {handled.length>0&&<div className="onb-q done">
+      <div className="onb-h" onClick={()=>tog('handled')} style={{cursor:'pointer'}}><CheckCircle2 size={15}/><b>Handled conversions</b>
+        <span>{handled.length} acknowledged · tap to {drill==='handled'?'hide':'see'}</span></div>
+      {drill==='handled'&&handled.map(l=>(<div className="onb-row" key={l.id}>
+        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
+          <div className="subcell">{l.onboardingAlert.repName||'A rep'} · converted {fmtDate(String(l.onboardingAlert.at||'').slice(0,10))}{l.onboardingAlert.ackBy?` · cleared by ${l.onboardingAlert.ackBy}`:''}</div></div>
+      </div>))}
+    </div>}
+    {pendingCmsn.length>0&&<div className="onb-q cmsn">
+      <div className="onb-h"><Percent size={15}/><b>Commissions waiting on you</b><span>{pendingCmsn.length} · {usd(pendingTotal)} total</span></div>
+      {pendingCmsn.map(({l,c})=>(<div className="onb-row" key={l.id}>
+        <div className="onb-m"><span className="drow-t" onClick={()=>open(l.id)}>{l.company||l.name}</span>
+          <div className="subcell">{c.repName||'Rep'} · {num(c.pct)}% of {usd(c.base)}{l.dealValueBy?` · value entered by ${l.dealValueBy}`:''}</div></div>
+        <span className="drow-v" style={{color:GOLD}}>{usd(c.amount)}</span>
+        {approve&&<button className="btn btn-p btn-sm" onClick={()=>approve(l.id,{status:'earned'})}><BadgeCheck size={14}/>Approve</button>}
+      </div>))}
+    </div>}
+
+    <div className="dash-arrange">
+      <button className={'btn btn-g btn-sm'+(arrange?' on':'')} onClick={()=>setArrange(a=>!a)}>
+        <GripVertical size={14}/>{arrange?'Done':'Rearrange'}
+      </button>
+      {arrange&&<>
+        <button className="linkbtn" onClick={()=>saveDash(DASH_DEFAULT,[])}>Reset to default</button>
+        <span className="subcell">Drag a section, or use the arrows. This layout is saved for everyone on the account.</span>
+      </>}
+    </div>
+
+    {dashOrder.map((k,i)=>{
+      const hidden=dashHidden.includes(k);
+      if(hidden&&!arrange) return null;
+      if(!arrange) return <React.Fragment key={k}>{BLOCKS[k]}</React.Fragment>;
+      return (<div key={k} className={'dsec'+(dragSec===k?' dragging':'')+(hidden?' off':'')}
+        draggable onDragStart={()=>setDragSec(k)} onDragEnd={()=>setDragSec(null)}
+        onDragOver={e=>e.preventDefault()} onDrop={()=>dropSec(k)}>
+        <div className="dsec-h">
+          <GripVertical size={14} className="dsec-grip"/>
+          <span className="dsec-t">{dashLabel(k)}</span>
+          <span className="dsec-btns">
+            <button className="dsec-b" disabled={i===0} onClick={()=>moveSec(i,i-1)} title="Move up"><ChevronLeft size={14} style={{transform:'rotate(90deg)'}}/></button>
+            <button className="dsec-b" disabled={i===dashOrder.length-1} onClick={()=>moveSec(i,i+1)} title="Move down"><ChevronRight size={14} style={{transform:'rotate(90deg)'}}/></button>
+            <button className="dsec-b wide" onClick={()=>toggleSec(k)}>{hidden?'Show':'Hide'}</button>
+          </span>
+        </div>
+        <div className="dsec-body">{BLOCKS[k]}</div>
+      </div>);
+    })}
   </>);
 }
+
+/* The dashboard is a list of named blocks rendered in a saved order, so the
+   layout is data rather than markup. That's what makes a realtor build a
+   settings change instead of a fork: reorder, hide what doesn't apply, ship.
+   Alerts are deliberately NOT in here — an onboarding queue or an unacknowledged
+   commission is not decoration and shouldn't be reorderable or hideable. */
+const DASH_SECTIONS=[
+  ['scorecard','Team scorecard'],
+  ['revenue',  'Pipeline & revenue'],
+  ['activity', 'Activity & health'],
+  ['funnel',   'Conversion funnel'],
+  ['analytics','Sales analytics'],
+  ['sources',  'Lead source ROI'],
+  ['clients',  'Revenue by client'],
+  ['charts',   'Pipeline & revenue charts'],
+  ['lists',    'Follow-ups & hot leads'],
+];
+const DASH_DEFAULT=DASH_SECTIONS.map(x=>x[0]);
+const dashLabel=k=>(DASH_SECTIONS.find(x=>x[0]===k)||[k,k])[1];
+/* saved order, repaired on read: unknown keys dropped, new ones appended in
+   default position, so shipping a new section never leaves it invisible for
+   anyone who already saved a layout. */
+const dashOrderOf=settings=>{
+  const saved=Array.isArray(settings&&settings.dashOrder)?settings.dashOrder.filter(k=>DASH_DEFAULT.includes(k)):[];
+  const missing=DASH_DEFAULT.filter(k=>!saved.includes(k));
+  return [...saved,...missing];
+};
+const dashHiddenOf=settings=>Array.isArray(settings&&settings.dashHidden)
+  ? settings.dashHidden.filter(k=>DASH_DEFAULT.includes(k)) : [];
 
 /* ===================== PIPELINE (cleaner kanban) ===================== */
 function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,rep}){
