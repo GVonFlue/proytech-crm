@@ -1180,6 +1180,10 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.seg-n{margin-left:6px;font-size:10.5px;font-weight:800;opacity:.62}
+.seg-b.on .seg-n{opacity:.9}
+.task-overdue{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:${RED};background:rgba(209,67,67,.08);border:1px solid rgba(209,67,67,.2);border-radius:12px;padding:10px 13px}
+.task-hint{display:flex;align-items:center;gap:8px;font-size:13px;color:#5A5680;background:#F4F5FA;border:1px solid #E4E5EF;border-radius:12px;padding:10px 13px}
 .ftxt.cancelled{color:#8E89A8;text-decoration:line-through;text-decoration-color:#C9C6D8}
 .act-row.cancelled .act-txt,.act-row.cancelled .act-lead{color:#9A96AC;text-decoration:line-through;text-decoration-color:#D5D2E0}
 .act-row.cancelled .fcancel{text-decoration:none}
@@ -3556,6 +3560,7 @@ const taskScore=t=>num(t.revenue)*num(t.urgency);
 function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
   const [who,setWho]=useState('all');
   const [show,setShow]=useState('open');
+  const [when,setWhen]=useState('all');
   const [title,setTitle]=useState('');
   /* meOwner() falls back to the first name in VITE_TEAM for anyone who isn't
      in it — which for a rep means "Mine" would mean an owner's tasks and new
@@ -3569,14 +3574,26 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
 
   const add=()=>{ const t=title.trim(); if(!t)return; upsertTask({...newTask(addOwner),title:t,due:addDue||todayISO()}); setTitle(''); };
 
-  const filtered=tasks.filter(t=>{
-    const mine=mineName;
-    const w=who==='all'||(who==='mine'&&t.owner===mine)||(who==='both'&&t.owner==='Both')||(who!=='all'&&who!=='mine'&&who!=='both'&&t.owner===who);
-    const s=show==='all'||(show==='open'&&!t.done)||(show==='done'&&t.done);
-    return w&&s;
-  });
+  /* "Today" means what you owe today, which includes anything you already owed
+     and didn't do — an overdue task is not a future problem. Future-dated work
+     sits in Upcoming, undated work in No date, and All is still everything. */
+  const TODAY=todayISO();
+  const whenOf=t=>!t.due?'none':(t.due<=TODAY?'today':'later');
+  const passWho=t=>who==='all'||(who==='mine'&&t.owner===mineName)||(who==='both'&&t.owner==='Both')
+    ||(who!=='all'&&who!=='mine'&&who!=='both'&&t.owner===who);
+  const passShow=t=>show==='all'||(show==='open'&&!t.done)||(show==='done'&&t.done);
+  const base=tasks.filter(t=>passWho(t)&&passShow(t));
+  const whenCounts={ today:base.filter(t=>whenOf(t)==='today').length,
+                     later:base.filter(t=>whenOf(t)==='later').length,
+                     none:base.filter(t=>whenOf(t)==='none').length,
+                     all:base.length };
+  const overdueCount=base.filter(t=>!t.done&&t.due&&t.due<TODAY).length;
+  const filtered=base.filter(t=>when==='all'||whenOf(t)===when);
   const ordered=[...filtered].sort((a,b)=>{
     if(a.done!==b.done)return a.done?1:-1;
+    /* in a date view, date leads — an AI rank is about what's worth doing, not
+       about what's already late */
+    if(when!=='all'&&!a.done&&!b.done&&(a.due||'')!==(b.due||'')) return (a.due||'9999').localeCompare(b.due||'9999');
     if(a.aiRank!=null&&b.aiRank!=null)return a.aiRank-b.aiRank;
     if(a.aiRank!=null)return -1; if(b.aiRank!=null)return 1;
     if(taskScore(b)!==taskScore(a))return taskScore(b)-taskScore(a);
@@ -3604,7 +3621,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
   return (<>
     <div className="card" style={{marginBottom:16}}>
       <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-        <input value={title} onChange={e=>setTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add();}} placeholder="Add a task and hit Enter\u2026" style={{flex:'1 1 260px',padding:'11px 13px',border:'1px solid #E2E3EE',borderRadius:11,fontSize:14,background:'#fff',color:INK}}/>
+        <input value={title} onChange={e=>setTitle(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')add();}} placeholder={'Add a task and hit Enter\u2026'} style={{flex:'1 1 260px',padding:'11px 13px',border:'1px solid #E2E3EE',borderRadius:11,fontSize:14,background:'#fff',color:INK}}/>
         <div className="task-daypick">
           <button type="button" className={'day-chip'+(addDue===todayISO()?' on':'')} onClick={()=>setAddDue(todayISO())}>Today</button>
           <button type="button" className={'day-chip'+(addDue===addDays(todayISO(),1)?' on':'')} onClick={()=>setAddDue(addDays(todayISO(),1))}>Tomorrow</button>
@@ -3627,13 +3644,23 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
         <button className={'seg-b '+(show==='done'?'on':'')} onClick={()=>setShow('done')}>Done</button>
         <button className={'seg-b '+(show==='all'?'on':'')} onClick={()=>setShow('all')}>All</button>
       </div>
+      <div className="seg">
+        {[['today','Today'],['later','Upcoming'],['none','No date'],['all','All']].map(([k,label])=>(
+          <button key={k} className={'seg-b '+(when===k?'on':'')} onClick={()=>setWhen(k)}>
+            {label}<span className="seg-n">{whenCounts[k]}</span>
+          </button>))}
+      </div>
       <div style={{marginLeft:'auto',display:'flex',gap:8,alignItems:'center'}}>
         {ranked&&<button className="btn btn-g btn-sm" onClick={clearAI}>Clear ranking</button>}
         <button className="btn btn-p" disabled={busy} onClick={runAI}>{busy?<Loader2 size={15} className="spin"/>:<Sparkles size={15}/>}{busy?'Ranking\u2026':'AI rank'}</button>
       </div>
     </div>
 
-    {ranked&&<div className="ai-banner ai-done" style={{marginBottom:14}}><Sparkles size={15}/>Ranked for the $10K sprint \u2014 top of the list moves cash first.</div>}
+    {ranked&&<div className="ai-banner ai-done" style={{marginBottom:14}}><Sparkles size={15}/>{'Ranked for the $10K sprint \u2014 top of the list moves cash first.'}</div>}
+    {when==='today'&&overdueCount>0&&<div className="task-overdue" style={{marginBottom:14}}><AlertTriangle size={15}/>
+      {overdueCount===1?'1 of these was due before today.':`${overdueCount} of these were due before today.`} Oldest first.</div>}
+    {when==='today'&&whenCounts.today===0&&whenCounts.none>0&&<div className="task-hint" style={{marginBottom:14}}><CalendarClock size={15}/>
+      {`Nothing is dated for today. ${whenCounts.none} ${whenCounts.none===1?'task has':'tasks have'} no date on ${whenCounts.none===1?'it':'them'} \u2014 tap the date chip on any task to schedule it.`}</div>}
 
     {ordered.length? <div style={{display:'flex',flexDirection:'column',gap:10}}>
       {ordered.map(t=>{
@@ -3652,7 +3679,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
               <span className="pill" style={{background:ownerColor(t.owner)+'1A',color:ownerColor(t.owner)}}><span className="dot" style={{background:ownerColor(t.owner)}}/>{t.owner}</span>
               {t.leadId&&leadName(t.leadId)&&(()=>{const l=leads.find(x=>x.id===t.leadId);const isC=l&&l.isClient;return <span className="pill" style={{background:isC?'rgba(31,157,85,.12)':'#F0F1F7',color:isC?'#1a7d46':'#5A5680',cursor:open?'pointer':'default'}} onClick={e=>{if(open){e.stopPropagation();open(t.leadId);}}} title={open?'Open '+(isC?'client':'lead'):undefined}>{isC?<Building2 size={11}/>:<Contact2 size={11}/>}{leadName(t.leadId)}{isC?' · client':''}</span>;})()}
               <label className="task-due-chip" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}} title="Tap to reschedule"><CalendarClock size={11}/>{dueLabel}<input type="date" value={t.due||''} onChange={e=>upsertTask({...t,due:e.target.value})}/></label>
-              <span style={{fontSize:11,color:'#a6a2bc'}}>Impact {t.revenue} \u00b7 Urgency {t.urgency} \u00b7 Effort {t.effort}</span>
+              <span style={{fontSize:11,color:'#a6a2bc'}}>{`Impact ${t.revenue} \u00b7 Urgency ${t.urgency} \u00b7 Effort ${t.effort}`}</span>
             </div>
           </div>
           <div style={{display:'flex',gap:4,flex:'none'}}>
@@ -3671,7 +3698,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
 function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
   const [d,setD]=useState({...task});
   const set=p=>setD(x=>({...x,...p}));
-  const Knob=({label,field,hint})=>(<div className="field"><label>{label} \u2014 {d[field]} <span style={{color:'#a6a2bc',fontWeight:400}}>{hint}</span></label><input type="range" min="1" max="5" value={d[field]} onChange={e=>set({[field]:Number(e.target.value)})}/></div>);
+  const Knob=({label,field,hint})=>(<div className="field"><label>{label}{'\u2014'} {d[field]} <span style={{color:'#a6a2bc',fontWeight:400}}>{hint}</span></label><input type="range" min="1" max="5" value={d[field]} onChange={e=>set({[field]:Number(e.target.value)})}/></div>);
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:520}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>Edit task</h2><div className="meta">Tune the knobs so the AI ranks it right</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
