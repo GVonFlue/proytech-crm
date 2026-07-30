@@ -162,9 +162,14 @@ export const db = {
      Missing table (install hasn't run MIGRATION.sql) returns [] so the
      existing two-owner install keeps working untouched. */
   async getUsers() {
-    const { data, error } = await supabase.from('crm_users').select('id,name,email,role,pools,commission_pct,active,tabs,goal_conversions');
+    const cols = 'id,name,email,role,pools,commission_pct,active,tabs,goal_conversions,nav_order';
+    let { data, error } = await supabase.from('crm_users').select(cols);
+    /* 42703 = column doesn't exist: an install that hasn't re-run MIGRATION.sql
+       since nav_order was added. Fall back rather than break sign-in. */
+    if (error && error.code === '42703')
+      ({ data, error } = await supabase.from('crm_users').select(cols.replace(',nav_order', '')));
     if (error) { if (error.code === '42P01') return []; throw error; }
-    return (data || []).map(u => ({ ...u, pools: u.pools || [], tabs: u.tabs || [] }));
+    return (data || []).map(u => ({ ...u, pools: u.pools || [], tabs: u.tabs || [], nav_order: u.nav_order || [] }));
   },
   /* The definitive answer to "who am I". A rep can only SEE their own
      crm_users row, so the browser cannot tell "no owners exist" apart from
@@ -177,13 +182,19 @@ export const db = {
     if (!r) return null;
     return { role: r.role, active: r.active !== false, setup: !!r.setup, name: r.name || '',
       pools: r.pools || [], commission_pct: Number(r.commission_pct) || 0,
-      tabs: r.tabs || [], goal_conversions: Number(r.goal_conversions) || 0 };
+      tabs: r.tabs || [], nav_order: r.nav_order || [], goal_conversions: Number(r.goal_conversions) || 0 };
   },
   async upsertUser(u) {
     const row = { id: u.id, name: u.name, email: u.email || null, role: u.role || 'rep', pools: u.pools || [],
       commission_pct: Number(u.commission_pct) || 0, active: u.active !== false, tabs: u.tabs || [],
-      goal_conversions: Number(u.goal_conversions) || 0 };
-    const { error } = await supabase.from('crm_users').upsert(row);
+      goal_conversions: Number(u.goal_conversions) || 0, nav_order: u.nav_order || [] };
+    let { error } = await supabase.from('crm_users').upsert(row);
+    /* Same fallback as getUsers. Without this, an install that hasn't re-run
+       MIGRATION.sql would fail EVERY user save, not just the sidebar order. */
+    if (error && error.code === '42703') {
+      const { nav_order, ...rest } = row;
+      ({ error } = await supabase.from('crm_users').upsert(rest));
+    }
     if (error) throw error;
   },
   async deleteUser(id) {
