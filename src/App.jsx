@@ -12,7 +12,9 @@ import {
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
   BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
-  Trophy, Crown, Ban, BadgeCheck, KeyRound
+  Trophy, Crown, Ban, BadgeCheck, KeyRound,
+  Ticket,
+  Handshake
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -163,7 +165,7 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['invoices','Invoices'],['books','The Books'],['money','Money']];
+const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['events','Events'],['invoices','Invoices'],['books','The Books'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -1210,6 +1212,49 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.ev-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
+.ev-card{text-align:left;background:#fff;border:1px solid #E4E5EF;border-radius:16px;padding:15px 16px;cursor:pointer;display:flex;flex-direction:column;gap:3px}
+.ev-card:hover{border-color:${COBALT}}
+.ev-card.done{opacity:.6}
+.ev-when{font-size:11px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:${COBALT}}
+.ev-name{font-size:16px;font-weight:700;color:${INK};font-family:'Space Grotesk',sans-serif}
+.ev-venue{font-size:12.5px;color:#8E89A8}
+.ev-stats{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:12px;font-weight:600;color:#5B6478}
+.ev-stats .good{color:${GREEN}}.ev-stats .bad{color:${RED}}
+.ev-late{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11.5px;font-weight:700;color:${RED}}
+.ev-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid #F0F1F7}
+.ev-row:last-of-type{border-bottom:0}
+.ev-row.ms.done .ev-lab{text-decoration:line-through;color:#9A96AC}
+.ev-row.ms.late .ev-date{border-color:${RED};color:${RED}}
+.ev-lab{flex:1 1 170px;min-width:0;border:1px solid #E4E5EF;border-radius:9px;padding:7px 10px;font-size:13px;font-family:inherit;color:${INK}}
+.ev-amt{width:96px;border:1px solid #E4E5EF;border-radius:9px;padding:7px 10px;font-size:13px;font-family:inherit}
+.ev-date{border:1px solid #E4E5EF;border-radius:9px;padding:6px 9px;font-size:12.5px;font-family:inherit}
+.ev-st{border:1px solid #E4E5EF;border-radius:9px;padding:6px 8px;font-size:12.5px;font-family:inherit}
+.ev-who{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:700;color:${COBALT};cursor:pointer}
+.ev-plus{display:inline-flex;align-items:center;gap:3px;font-size:12px;color:#8E89A8}
+.ev-plus input{width:46px;border:1px solid #E4E5EF;border-radius:8px;padding:5px 6px;font-size:12.5px;font-family:inherit}
+.ev-paid{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;color:#8E89A8;cursor:pointer}
+.ev-paid.on{color:${GREEN}}
+.ev-x{background:none;border:0;color:#B9B6C6;cursor:pointer;display:inline-flex;padding:3px}
+.ev-x:hover{color:${RED}}
+.ev-tick{background:none;border:0;cursor:pointer;color:#C9C5D9;display:inline-flex;padding:0}
+.ev-row.ms.done .ev-tick{color:${GREEN}}
+.ev-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1 1 260px}
+.ev-pick select,.ev-pick input{border:1px solid #E4E5EF;border-radius:9px;padding:7px 9px;font-size:12.5px;font-family:inherit;min-width:0;flex:1 1 130px}
+.ev-or{font-size:11.5px;color:#A5A2BC}
+.ev-seed{display:flex;align-items:center;gap:12px;padding:6px 0 14px;font-size:13px;color:#8E89A8}
+.ev-sum{margin-top:14px;border-top:1px solid #E4E5EF;padding-top:12px}
+.ev-sum div{display:flex;justify-content:space-between;padding:5px 0;font-size:13px;color:#5B6478}
+.ev-sum div.tot{font-size:14.5px;color:${INK};font-weight:700;border-top:1px solid #F0F1F7;margin-top:6px;padding-top:10px}
+.ev-sum .good{color:${GREEN}}.ev-sum .bad{color:${RED}}
+.ev-next{display:block;width:100%;text-align:left;cursor:pointer;margin-bottom:18px}
+.ev-next:hover{border-color:${COBALT}}
+.ev-next-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.ev-count{font-size:22px;font-weight:800;font-family:'Space Grotesk',sans-serif;color:${COBALT};flex:none}
+.ev-count.soon{color:${RED}}
+.ev-next-s{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:#5B6478}
+.ev-next-s b{color:${INK};font-weight:700}
+.ev-next-s .good b{color:${GREEN}}.ev-next-s .bad b{color:${RED}}
 .dash-arrange{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .dash-arrange .btn.on{background:${COBALT};color:#fff;border-color:${COBALT}}
 .dsec{border:1.5px dashed #D6D8E8;border-radius:16px;padding:0 0 4px;margin-bottom:14px;background:#FCFCFE}
@@ -1839,7 +1884,11 @@ export default function App(){
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
   const [navIds,setNavIds]=useState(null);
+  const [events,setEvents]=useState([]);
   const [navEdit,setNavEdit]=useState(false);   // sidebar reorder mode
+  useEffect(()=>{ if(!session) return; let dead=false;
+    db.getEvents().then(r=>{ if(!dead) setEvents(r||[]); }).catch(console.error);
+    return ()=>{dead=true;}; },[session]);
   const [navDrag,setNavDrag]=useState(null);
   const [navLocal,setNavLocal]=useState(null);  // keeps the order on screen if the save fails
   const openLead=(id,order)=>{ setActiveId(id); setNavIds(order&&order.length?order:null); };
@@ -1874,6 +1923,13 @@ export default function App(){
          has never seen it, so switch it on once (and remember we did). */
       if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<2){
         st={...st,modules:st.modules.includes('board')?st.modules:[...st.modules,'board'],modulesV:2};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
+      /* Events, same story: a saved module list predates the tab, so switch it
+         on once. Without this the tab ships and stays invisible for every
+         install that has ever opened the modules screen. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<3){
+        st={...st,modules:st.modules.includes('events')?st.modules:[...st.modules,'events'],modulesV:3};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
       /* migrate the sales pipeline (idempotent) */
@@ -1935,6 +1991,21 @@ export default function App(){
   const leadsRef=React.useRef(leads);
   leadsRef.current=leads;
   const commitLeads=next=>{ leadsRef.current=next; setLeads(next); return next; };
+  /* events live in their own table, one row each. Same synchronous-ref trick as
+     leads so two writes in one tick can't race — see the v7 notes. */
+  const eventsRef=React.useRef(events);
+  eventsRef.current=events;
+  const saveEvent=ev=>{ const cur=eventsRef.current;
+    const next=cur.some(x=>x.id===ev.id)?cur.map(x=>x.id===ev.id?ev:x):[ev,...cur];
+    eventsRef.current=next; setEvents(next); db.upsertEvent(ev).catch(console.error); };
+  const removeEvent=id=>{ const next=eventsRef.current.filter(x=>x.id!==id);
+    eventsRef.current=next; setEvents(next); db.deleteEvent(id).catch(console.error); };
+  /* a guest or sponsor typed in by hand becomes a real lead, sourced to the
+     event. That is the whole point — otherwise the night is untracked spend. */
+  const quickLead=(name,source)=>{ const lead={id:uid(),name:name.trim(),company:'',stage:stages[0]&&stages[0].key||'new',
+      source:source||'Event',owner:me,createdAt:new Date().toISOString(),activities:[],meetings:[],deals:[],dealValue:0};
+    const next=[stampOwner(lead),...leadsRef.current];
+    leadsRef.current=next; setLeads(next); putLead(lead); return lead; };
   const putLead=l=>db.upsertLead(stampOwner(l)).catch(console.error);
   const putMany=arr=>db.upsertMany((arr||[]).map(stampOwner));
   const saveLeads=async n=>{ setLeads(n); try{ await db.deleteAll(); await putMany(n); }catch(e){ console.error(e); window.alert('Save failed: '+(e.message||e)); } };
@@ -2247,7 +2318,7 @@ export default function App(){
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['events','Events',<Ticket size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -2331,7 +2402,7 @@ export default function App(){
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
-          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
+          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -2342,6 +2413,7 @@ export default function App(){
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
+          view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
           view==='money'?<Money leads={bizLeads} stages={stages} settings={settings}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
             isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers}/>}
@@ -2556,7 +2628,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings);
   const [drill,setDrill]=useState(null);
@@ -2895,6 +2967,26 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       </ChartCard>
     </div>
     </>),
+    events:(()=>{ const next=evUpcomingEvents(events||[])[0];
+      if(!next) return null;
+      const out=evDaysOut(next), left=evSeatsLeft(next), late=evOverdue(next);
+      return (<>
+        <div className="kgroup" style={{marginTop:4}}>Next event</div>
+        <button className="card ev-next" onClick={()=>goEvents&&goEvents()}>
+          <div className="ev-next-h">
+            <div><div className="ev-name">{next.name||'Untitled event'}</div>
+              <div className="ev-venue">{next.venue||'No venue'}{next.date?` · ${fmtDate(next.date)}`:''}</div></div>
+            <div className={'ev-count'+(out!==null&&out<=7?' soon':'')}>{out===null?'—':out===0?'Today':out>0?`${out}d`:`${-out}d ago`}</div>
+          </div>
+          <div className="ev-next-s">
+            <span><b>{left}</b> seats left</span>
+            <span><b>{evFilled(next).length}/{(next.slots||[]).length||0}</b> sponsors</span>
+            <span className={evNetProjected(next)>=0?'good':'bad'}><b>{usd(evNetProjected(next))}</b> projected</span>
+          </div>
+          {late.length>0&&<div className="ev-late" style={{marginTop:10}}><AlertTriangle size={13}/>
+            {late.length} milestone{late.length===1?'':'s'} overdue{late[0]?` · ${late[0].label}`:''}</div>}
+        </button>
+      </>); })(),
     lists:(<>
     <div className="row r2">
       <div className="card">
@@ -2983,6 +3075,7 @@ const DASH_SECTIONS=[
   ['clients',  'Revenue by client'],
   ['charts',   'Pipeline & revenue charts'],
   ['lists',    'Follow-ups & hot leads'],
+  ['events',   'Next event'],
 ];
 const DASH_DEFAULT=DASH_SECTIONS.map(x=>x[0]);
 const dashLabel=k=>(DASH_SECTIONS.find(x=>x[0]===k)||[k,k])[1];
@@ -2996,6 +3089,227 @@ const dashOrderOf=settings=>{
 };
 const dashHiddenOf=settings=>Array.isArray(settings&&settings.dashHidden)
   ? settings.dashHidden.filter(k=>DASH_DEFAULT.includes(k)) : [];
+
+/* ========================= EVENTS =========================
+   A Suite Night is a series, not a one-off, so the timeline is expressed as
+   days BEFORE the event date and generated when the event is created. Same
+   cascade idea as contract deadlines, different anchor: move the date and every
+   unmet milestone moves with it.
+   The point of the module is not logistics. It's proving the event was worth
+   doing — every guest added here becomes a lead sourced to the event, so Lead
+   Source ROI answers "did this pay for itself" without anyone tallying it. */
+const EVENT_MILESTONES=[
+  [-28,'Landing page live'],
+  [-21,'Sponsor slots filled'],
+  [-16,'Print materials ordered'],
+  [-12,'Invites sent'],
+  [-7 ,'All seats filled'],
+  [-3 ,'Final headcount to venue'],
+  [-1 ,'Day-before confirmations'],
+  [ 0 ,'Event day'],
+  [ 2 ,'Follow up with everyone who came'],
+];
+const GUEST_STATUS=[['invited','Invited'],['confirmed','Confirmed'],['attended','Attended'],['noshow','No-show']];
+const shiftDay=(iso,days)=>{ if(!iso) return ''; const d=new Date(iso+'T12:00:00');
+  if(isNaN(d)) return ''; d.setDate(d.getDate()+days); return isoOf(d); };
+const seedMilestones=date=>EVENT_MILESTONES.map(([off,label])=>
+  ({id:uid(),label,due:shiftDay(date,off),offset:off,done:false,doneAt:''}));
+const blankEvent=()=>({ id:uid(), name:'', venue:'', date:'', seatsTotal:19, houseSeats:2,
+  sponsorSeatEach:0, coverPrice:60, status:'planning', notes:'',
+  costs:[{id:uid(),label:'Suite',amount:''},{id:uid(),label:'Catering',amount:''}],
+  slots:[], guests:[], milestones:[], createdAt:new Date().toISOString() });
+
+const evNum=v=>{const n=Number(v);return isNaN(n)?0:n;};
+const evFilled=e=>(e.slots||[]).filter(s=>s.contactName||s.contactId);
+const evSponsorSeats=e=>evFilled(e).length*evNum(e.sponsorSeatEach);
+const evHeads=g=>1+evNum(g.plusOnes);
+/* a seat is spoken for once someone confirms — invited is not a commitment,
+   and a no-show frees the seat back up only after the night is over */
+const evTakenGuests=e=>(e.guests||[]).filter(g=>g.status==='confirmed'||g.status==='attended');
+const evSeatsTaken=e=>evNum(e.houseSeats)+evSponsorSeats(e)+evTakenGuests(e).reduce((a,g)=>a+evHeads(g),0);
+const evSeatsLeft=e=>evNum(e.seatsTotal)-evSeatsTaken(e);
+const evSponsorPromised=e=>evFilled(e).reduce((a,s)=>a+evNum(s.price),0);
+const evSponsorPaid=e=>evFilled(e).filter(s=>s.paid).reduce((a,s)=>a+evNum(s.price),0);
+const evCoverDue=e=>evTakenGuests(e).reduce((a,g)=>a+evHeads(g),0)*evNum(e.coverPrice);
+const evCoverPaid=e=>(e.guests||[]).filter(g=>g.paid).reduce((a,g)=>a+evHeads(g),0)*evNum(e.coverPrice);
+const evCost=e=>(e.costs||[]).reduce((a,c)=>a+evNum(c.amount),0);
+/* projected uses what's promised, banked uses what's actually in the account.
+   Showing only one of them is how an event "breaks even" on paper and doesn't. */
+const evNetProjected=e=>evSponsorPromised(e)+evCoverDue(e)-evCost(e);
+const evNetBanked=e=>evSponsorPaid(e)+evCoverPaid(e)-evCost(e);
+const evDaysOut=e=>{ if(!e.date) return null;
+  const d=new Date(e.date+'T12:00:00'); if(isNaN(d)) return null;
+  return Math.round((d-new Date(isoOf(new Date())+'T12:00:00'))/864e5); };
+const evOverdue=e=>(e.milestones||[]).filter(m=>!m.done&&m.due&&m.due<isoOf(new Date()));
+const evUpcomingEvents=list=>(list||[]).filter(e=>e.status!=='done')
+  .sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+
+function EventsPage({events,saveEvent,removeEvent,leads,quickLead,open,me}){
+  /* Dashboard's Empty is a local const inside that component, not a shared one.
+     Kpi below IS module-level and a function declaration, so it hoists fine. */
+  const Blank=({t})=><div className="empty" style={{padding:'18px 4px'}}>{t}</div>;
+  const [sel,setSel]=useState(null);
+  const [tab,setTab]=useState('slots');
+  const [pick,setPick]=useState('');
+  const ev=events.find(e=>e.id===sel)||null;
+  const set=patch=>{ if(!ev) return; saveEvent({...ev,...patch}); };
+  const put=(key,id,patch)=>set({[key]:(ev[key]||[]).map(x=>x.id===id?{...x,...patch}:x)});
+  const del=(key,id)=>set({[key]:(ev[key]||[]).filter(x=>x.id!==id)});
+  const add=(key,row)=>set({[key]:[...(ev[key]||[]),row]});
+
+  const create=()=>{ const e=blankEvent(); saveEvent(e); setSel(e.id); setTab('slots'); };
+  /* moving the date drags every unmet milestone with it, using the offset it was
+     created with. Done ones stay put — they happened when they happened. */
+  const setDate=d=>set({date:d, milestones:(ev.milestones||[]).length
+    ? ev.milestones.map(m=>m.done||m.offset===undefined?m:{...m,due:shiftDay(d,m.offset)})
+    : seedMilestones(d)});
+
+  const pool=useMemo(()=>[...(leads||[])].sort((a,b)=>(a.name||a.company||'').localeCompare(b.name||b.company||'')),[leads]);
+  const nameOf=l=>l.name||l.company||'Unnamed';
+  const attach=(kind,slotId)=>{
+    if(!pick) return;
+    if(pick.startsWith('new:')){
+      const nm=pick.slice(4).trim(); if(!nm) return;
+      const lead=quickLead(nm,ev.name||'Event');
+      if(kind==='slot') put('slots',slotId,{contactId:lead.id,contactName:nm});
+      else add('guests',{id:uid(),contactId:lead.id,name:nm,status:'invited',paid:false,plusOnes:0,notes:''});
+    } else {
+      const l=pool.find(x=>x.id===pick); if(!l) return;
+      if(kind==='slot') put('slots',slotId,{contactId:l.id,contactName:nameOf(l)});
+      else add('guests',{id:uid(),contactId:l.id,name:nameOf(l),status:'invited',paid:false,plusOnes:0,notes:''});
+    }
+    setPick('');
+  };
+  const Picker=({onPick})=>(<div className="ev-pick">
+    <select value={pick.startsWith('new:')?'':pick} onChange={e=>setPick(e.target.value)}>
+      <option value="">Pick from your CRM…</option>
+      {pool.map(l=><option key={l.id} value={l.id}>{nameOf(l)}{l.isClient?' · client':l.isRelationship?' · relationship':''}</option>)}
+    </select>
+    <span className="ev-or">or</span>
+    <input placeholder="Type a new name" value={pick.startsWith('new:')?pick.slice(4):''}
+      onChange={e=>setPick('new:'+e.target.value)}/>
+    <button className="btn btn-p btn-sm" disabled={!pick} onClick={onPick}>Add</button>
+  </div>);
+
+  if(!ev) return (<>
+    <div className="sec-h"><div><h2>Events</h2><div className="meta">Suite nights and anything else you put on</div></div>
+      <button className="btn btn-p" onClick={create}><Plus size={15}/>New event</button></div>
+    {events.length?<div className="ev-grid">{evUpcomingEvents(events).concat(events.filter(e=>e.status==='done')).map(e=>{
+      const out=evDaysOut(e), left=evSeatsLeft(e), od=evOverdue(e).length;
+      return (<button key={e.id} className={'ev-card'+(e.status==='done'?' done':'')} onClick={()=>{setSel(e.id);setTab('slots');}}>
+        <div className="ev-when">{e.date?fmtDate(e.date):'No date'}{out!==null&&e.status!=='done'?` · ${out===0?'today':out>0?`in ${out}d`:`${-out}d ago`}`:''}</div>
+        <div className="ev-name">{e.name||'Untitled event'}</div>
+        <div className="ev-venue">{e.venue||'No venue'}</div>
+        <div className="ev-stats">
+          <span>{left>0?`${left} seats left`:left===0?'Full':`${-left} over`}</span>
+          <span>{evFilled(e).length}/{(e.slots||[]).length||0} sponsors</span>
+          <span className={evNetProjected(e)>=0?'good':'bad'}>{usd(evNetProjected(e))}</span>
+        </div>
+        {od>0&&<div className="ev-late"><AlertTriangle size={12}/>{od} milestone{od===1?'':'s'} overdue</div>}
+      </button>);})}</div>
+      :<Blank t="No events yet. Create one and the timeline builds itself."/>}
+  </>);
+
+  const left=evSeatsLeft(ev), out=evDaysOut(ev);
+  return (<>
+    <div className="sec-h">
+      <div><button className="linkbtn" onClick={()=>setSel(null)}>&#8592; All events</button>
+        <h2 style={{marginTop:4}}>{ev.name||'Untitled event'}</h2>
+        <div className="meta">{ev.venue||'No venue'}{ev.date?` · ${fmtDate(ev.date)}`:''}{out!==null?` · ${out===0?'today':out>0?`${out} days out`:`${-out} days ago`}`:''}</div></div>
+      <button className="btn btn-g" onClick={()=>{ if(window.confirm('Delete this event and everything on it?')) {removeEvent(ev.id); setSel(null);} }}><Trash2 size={15}/>Delete</button>
+    </div>
+
+    <div className="kgrid" style={{marginBottom:18}}>
+      <Kpi variant="accent" label="Seats left" value={left} icon={<Users size={14}/>}
+        d={`${evSeatsTaken(ev)} of ${evNum(ev.seatsTotal)} spoken for`}/>
+      <Kpi label="Sponsors" value={`${evFilled(ev).length}/${(ev.slots||[]).length||0}`} icon={<Handshake size={14}/>}
+        d={`${usd(evSponsorPromised(ev))} promised · ${usd(evSponsorPaid(ev))} in`}/>
+      <Kpi variant={evNetProjected(ev)>=0?'green':'gold'} label="Projected net" value={usd(evNetProjected(ev))} icon={<DollarSign size={14}/>}
+        d={`${usd(evCost(ev))} out · ${usd(evNetBanked(ev))} banked so far`}/>
+      <Kpi label="Confirmed" value={evTakenGuests(ev).reduce((a,g)=>a+evHeads(g),0)} icon={<CheckCircle2 size={14}/>}
+        d={`${(ev.guests||[]).length} on the list`}/>
+    </div>
+
+    <div className="card" style={{marginBottom:18}}>
+      <div className="fgrid">
+        <div className="field"><label>Event name</label><input value={ev.name} onChange={e=>set({name:e.target.value})} placeholder="Suite Night · August"/></div>
+        <div className="field"><label>Venue</label><input value={ev.venue} onChange={e=>set({venue:e.target.value})} placeholder="Equity Bank Park"/></div>
+        <div className="field"><label>Date</label><input type="date" value={ev.date} onChange={e=>setDate(e.target.value)}/></div>
+        <div className="field"><label>Seats in total</label><input type="number" value={ev.seatsTotal} onChange={e=>set({seatsTotal:e.target.value})}/></div>
+        <div className="field"><label>House seats</label><input type="number" value={ev.houseSeats} onChange={e=>set({houseSeats:e.target.value})}/></div>
+        <div className="field"><label>Seats per sponsor</label><input type="number" value={ev.sponsorSeatEach} onChange={e=>set({sponsorSeatEach:e.target.value})}/></div>
+        <div className="field"><label>Cover per head</label><input type="number" value={ev.coverPrice} onChange={e=>set({coverPrice:e.target.value})}/></div>
+        <div className="field"><label>Status</label><select value={ev.status} onChange={e=>set({status:e.target.value})}>
+          <option value="planning">Planning</option><option value="done">Done</option></select></div>
+      </div>
+    </div>
+
+    <div className="seg" style={{marginBottom:14}}>
+      {[['slots','Sponsors'],['guests','Guest list'],['plan','Timeline'],['money','Money']].map(([k,l])=>
+        <button key={k} className={'seg-b '+(tab===k?'on':'')} onClick={()=>setTab(k)}>{l}</button>)}
+    </div>
+
+    {tab==='slots'&&<div className="card">
+      {(ev.slots||[]).map(sl=>(<div className="ev-row" key={sl.id}>
+        <input className="ev-lab" value={sl.label} placeholder="What they're sponsoring" onChange={e=>put('slots',sl.id,{label:e.target.value})}/>
+        <input className="ev-amt" type="number" value={sl.price} placeholder="0" onChange={e=>put('slots',sl.id,{price:e.target.value})}/>
+        {sl.contactName
+          ? <span className="ev-who" onClick={()=>sl.contactId&&open&&open(sl.contactId)}>{sl.contactName}
+              <button className="ev-x" onClick={e=>{e.stopPropagation();put('slots',sl.id,{contactId:'',contactName:''});}}><X size={12}/></button></span>
+          : <Picker onPick={()=>attach('slot',sl.id)}/>}
+        <label className={'ev-paid'+(sl.paid?' on':'')}><input type="checkbox" checked={!!sl.paid} onChange={e=>put('slots',sl.id,{paid:e.target.checked})}/>Paid</label>
+        <button className="ev-x" onClick={()=>del('slots',sl.id)}><Trash2 size={13}/></button>
+      </div>))}
+      <button className="deal-add-btn" onClick={()=>add('slots',{id:uid(),label:'',price:'',contactId:'',contactName:'',paid:false})}><Plus size={15}/>Add a sponsor slot</button>
+    </div>}
+
+    {tab==='guests'&&<div className="card">
+      <Picker onPick={()=>attach('guest')}/>
+      {(ev.guests||[]).length?(ev.guests||[]).map(g=>(<div className="ev-row" key={g.id}>
+        <span className="ev-who" onClick={()=>g.contactId&&open&&open(g.contactId)}>{g.name}</span>
+        <select className="ev-st" value={g.status} onChange={e=>put('guests',g.id,{status:e.target.value})}>
+          {GUEST_STATUS.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+        </select>
+        <label className="ev-plus">+<input type="number" min="0" value={g.plusOnes} onChange={e=>put('guests',g.id,{plusOnes:e.target.value})}/></label>
+        <label className={'ev-paid'+(g.paid?' on':'')}><input type="checkbox" checked={!!g.paid} onChange={e=>put('guests',g.id,{paid:e.target.checked})}/>Paid</label>
+        <button className="ev-x" onClick={()=>del('guests',g.id)}><Trash2 size={13}/></button>
+      </div>)):<Blank t="Nobody on the list yet."/>}
+    </div>}
+
+    {tab==='plan'&&<div className="card">
+      {!(ev.milestones||[]).length&&<div className="ev-seed">
+        <span>No timeline yet.</span>
+        <button className="btn btn-p btn-sm" disabled={!ev.date} onClick={()=>set({milestones:seedMilestones(ev.date)})}>
+          {ev.date?'Build it from the event date':'Set a date first'}</button></div>}
+      {(ev.milestones||[]).slice().sort((a,b)=>(a.due||'').localeCompare(b.due||'')).map(m=>{
+        const late=!m.done&&m.due&&m.due<isoOf(new Date());
+        return (<div className={'ev-row ms'+(m.done?' done':'')+(late?' late':'')} key={m.id}>
+          <button className="ev-tick" onClick={()=>put('milestones',m.id,{done:!m.done,doneAt:!m.done?new Date().toISOString():''})}>
+            {m.done?<CheckCircle2 size={16}/>:<Circle size={16}/>}</button>
+          <input className="ev-lab" value={m.label} onChange={e=>put('milestones',m.id,{label:e.target.value})}/>
+          <input className="ev-date" type="date" value={m.due||''} onChange={e=>put('milestones',m.id,{due:e.target.value,offset:undefined})}/>
+          <button className="ev-x" onClick={()=>del('milestones',m.id)}><Trash2 size={13}/></button>
+        </div>);})}
+      <button className="deal-add-btn" onClick={()=>add('milestones',{id:uid(),label:'',due:ev.date||'',done:false,doneAt:''})}><Plus size={15}/>Add your own</button>
+    </div>}
+
+    {tab==='money'&&<div className="card">
+      {(ev.costs||[]).map(c=>(<div className="ev-row" key={c.id}>
+        <input className="ev-lab" value={c.label} placeholder="What it's for" onChange={e=>put('costs',c.id,{label:e.target.value})}/>
+        <input className="ev-amt" type="number" value={c.amount} placeholder="0" onChange={e=>put('costs',c.id,{amount:e.target.value})}/>
+        <button className="ev-x" onClick={()=>del('costs',c.id)}><Trash2 size={13}/></button>
+      </div>))}
+      <button className="deal-add-btn" onClick={()=>add('costs',{id:uid(),label:'',amount:''})}><Plus size={15}/>Add a cost</button>
+      <div className="ev-sum">
+        <div><span>Costs</span><b>{usd(evCost(ev))}</b></div>
+        <div><span>Sponsors promised</span><b>{usd(evSponsorPromised(ev))}</b></div>
+        <div><span>Cover due</span><b>{usd(evCoverDue(ev))}</b></div>
+        <div className="tot"><span>Projected net</span><b className={evNetProjected(ev)>=0?'good':'bad'}>{usd(evNetProjected(ev))}</b></div>
+        <div className="tot"><span>Actually banked</span><b className={evNetBanked(ev)>=0?'good':'bad'}>{usd(evNetBanked(ev))}</b></div>
+      </div>
+    </div>}
+  </>);
+}
 
 /* ===================== PIPELINE (cleaner kanban) ===================== */
 function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,rep}){
