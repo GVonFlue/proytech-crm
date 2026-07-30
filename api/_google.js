@@ -11,6 +11,10 @@ import { createClient } from '@supabase/supabase-js';
 
 export const OAUTH_SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
+  // read-only, and only sheets the connected account can already open. Adding a
+  // scope invalidates the existing grant: reconnect under Settings > Google
+  // Calendar or every Sheets read comes back 403 with a valid-looking token.
+  'https://www.googleapis.com/auth/spreadsheets.readonly',
   'https://www.googleapis.com/auth/userinfo.email',
   'openid',
 ].join(' ');
