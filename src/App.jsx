@@ -14,7 +14,7 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket,
-  Handshake
+  Handshake, Sheet, RefreshCw
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -1255,6 +1255,23 @@ const CSS=`
 .ev-next-s{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:#5B6478}
 .ev-next-s b{color:${INK};font-weight:700}
 .ev-next-s .good b{color:${GREEN}}.ev-next-s .bad b{color:${RED}}
+.sheet-box{border:1px solid #E4E5EF;border-radius:14px;padding:13px 14px;margin-bottom:16px;background:#FAFBFE}
+.sheet-h{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:${INK};margin-bottom:10px}
+.sheet-when{margin-left:auto;font-size:11px;font-weight:500;color:#9A96AC}
+.sheet-row{display:flex;gap:8px;flex-wrap:wrap}
+.sheet-row input{flex:1 1 220px;min-width:0;border:1px solid #E4E5EF;border-radius:9px;padding:8px 10px;font-size:12.5px;font-family:inherit}
+.sheet-row .sheet-tab{flex:0 1 140px}
+.sheet-plan{margin-top:12px;border-top:1px solid #E9EAF3;padding-top:12px}
+.sheet-map{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+.sheet-map label{display:flex;flex-direction:column;gap:3px;font-size:11px;color:#8E89A8}
+.sheet-map select{border:1px solid #E4E5EF;border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;max-width:150px}
+.sheet-tally{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:#5B6478;margin-bottom:10px}
+.sheet-tally b{font-weight:800}
+.sheet-tally .fresh b{color:${COBALT}}.sheet-tally .match b{color:${GREEN}}
+.sheet-tally .unsure b{color:#D97706}.sheet-tally .dupe b,.sheet-tally .skip b{color:#9A96AC}
+.sheet-unsure{background:rgba(217,119,6,.07);border:1px solid rgba(217,119,6,.2);border-radius:10px;padding:9px 11px;font-size:12px;color:#7A5A10;margin-bottom:10px}
+.sheet-unsure div{padding:2px 0}
+.sheet-acts{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .dash-arrange{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .dash-arrange .btn.on{background:${COBALT};color:#fff;border-color:${COBALT}}
 .dsec{border:1.5px dashed #D6D8E8;border-radius:16px;padding:0 0 4px;margin-bottom:14px;background:#FCFCFE}
@@ -2002,8 +2019,9 @@ export default function App(){
     eventsRef.current=next; setEvents(next); db.deleteEvent(id).catch(console.error); };
   /* a guest or sponsor typed in by hand becomes a real lead, sourced to the
      event. That is the whole point — otherwise the night is untracked spend. */
-  const quickLead=(name,source)=>{ const lead={id:uid(),name:name.trim(),company:'',stage:stages[0]&&stages[0].key||'new',
-      source:source||'Event',owner:me,createdAt:new Date().toISOString(),activities:[],meetings:[],deals:[],dealValue:0};
+  const quickLead=(name,source,extra)=>{ const lead={id:uid(),name:String(name||'').trim(),company:'',stage:stages[0]&&stages[0].key||'new',
+      source:source||'Event',owner:me,createdAt:new Date().toISOString(),activities:[],meetings:[],deals:[],dealValue:0,
+      email:(extra&&extra.email)||'',phone:(extra&&extra.phone)||''};
     const next=[stampOwner(lead),...leadsRef.current];
     leadsRef.current=next; setLeads(next); putLead(lead); return lead; };
   const putLead=l=>db.upsertLead(stampOwner(l)).catch(console.error);
@@ -3109,6 +3127,63 @@ const EVENT_MILESTONES=[
   [ 0 ,'Event day'],
   [ 2 ,'Follow up with everyone who came'],
 ];
+/* ---- sheet import ----------------------------------------------------------
+   Matching order is deliberate: email, then phone, then an exact name. Email is
+   the only one that's genuinely unique. Name-only is a SUGGESTION, never an
+   automatic merge — "Mike Smith" and "Michael Smith" are one person about half
+   the time and two people the other half, and silently merging the wrong pair
+   is far worse than asking.
+   Every imported guest keeps the key it came in on, so syncing the same sheet
+   twice updates rather than duplicates. That is the whole reason a sync button
+   is safe to press. */
+const normEmail=v=>String(v||'').trim().toLowerCase();
+const normPhone=v=>{ const d=String(v||'').replace(/\D/g,''); return d.length===11&&d[0]==='1'?d.slice(1):d; };
+const normName=v=>String(v||'').trim().toLowerCase().replace(/\s+/g,' ');
+const rowKey=r=>normEmail(r.email)||normPhone(r.phone)||normName(r.name);
+const GUESS={ name:[/^(full ?)?name$/i,/first.*last/i,/attendee/i,/guest/i],
+  email:[/e-?mail/i], phone:[/phone|mobile|cell/i],
+  plus:[/plus|guests?\b|\+1|additional/i], notes:[/note|comment|message/i] };
+const guessMap=headers=>{ const m={name:'',email:'',phone:'',plus:'',notes:''};
+  Object.keys(GUESS).forEach(k=>{ const hit=headers.find(h=>GUESS[k].some(re=>re.test(h))); if(hit) m[k]=hit; });
+  if(!m.name){ const h=headers.find(x=>/name/i.test(x)); if(h) m.name=h; }
+  return m; };
+/* Returns what WOULD happen, so it can be shown before anything is written. */
+const planImport=(rows,map,guests,leads)=>{
+  /* Someone added by hand from the picker has no srcKey, so keying only on that
+     would import them a second time the first time a sheet is synced. Match on
+     who they ARE as well: their linked contact, and their own name. */
+  const byKey=new Map();
+  (guests||[]).forEach(g=>{
+    if(g.srcKey) byKey.set(g.srcKey,g);
+    if(g.contactId) byKey.set('lead:'+g.contactId,g);
+    const n=normName(g.name); if(n) byKey.set('name:'+n,g);
+  });
+  const seen=(key,g,leadId)=>byKey.has(key)||(leadId&&byKey.has('lead:'+leadId))||byKey.has('name:'+normName(g.name));
+  const leadByEmail=new Map((leads||[]).filter(l=>l.email).map(l=>[normEmail(l.email),l]));
+  const leadByPhone=new Map((leads||[]).filter(l=>l.phone).map(l=>[normPhone(l.phone),l]));
+  const leadByName=new Map();
+  (leads||[]).forEach(l=>{ const n=normName(l.name||l.company); if(!n) return;
+    leadByName.set(n,leadByName.has(n)?'AMBIGUOUS':l); });   // two people, same name
+  const out={already:[],matched:[],fresh:[],unsure:[],skipped:0};
+  (rows||[]).forEach(r=>{
+    const g={ name:String(r[map.name]||'').trim(), email:String(r[map.email]||'').trim(),
+      phone:String(r[map.phone]||'').trim(), plusOnes:num(r[map.plus]),
+      notes:String(r[map.notes]||'').trim() };
+    if(!g.name&&!g.email){ out.skipped++; return; }
+    if(!g.name) g.name=g.email;
+    const key=rowKey(g); if(!key){ out.skipped++; return; }
+    g.srcKey=key;
+    const hit=leadByEmail.get(normEmail(g.email))||leadByPhone.get(normPhone(g.phone));
+    if(seen(key,g,hit&&hit.id)){ out.already.push(g); return; }
+    if(hit){ out.matched.push({...g,leadId:hit.id,how:'email/phone'}); return; }
+    const byName=g.name?leadByName.get(normName(g.name)):null;
+    if(byName==='AMBIGUOUS'){ out.unsure.push({...g,why:'more than one contact has that name'}); return; }
+    if(byName){ out.unsure.push({...g,leadId:byName.id,why:'name matched, no email or phone to confirm it'}); return; }
+    out.fresh.push(g);
+  });
+  return out;
+};
+
 const GUEST_STATUS=[['invited','Invited'],['confirmed','Confirmed'],['attended','Attended'],['noshow','No-show']];
 const shiftDay=(iso,days)=>{ if(!iso) return ''; const d=new Date(iso+'T12:00:00');
   if(isNaN(d)) return ''; d.setDate(d.getDate()+days); return isoOf(d); };
@@ -3145,6 +3220,10 @@ const evUpcomingEvents=list=>(list||[]).filter(e=>e.status!=='done')
   .sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
 
 function EventsPage({events,saveEvent,removeEvent,leads,quickLead,open,me}){
+  const [sheetBusy,setSheetBusy]=useState(false);
+  const [sheetErr,setSheetErr]=useState('');
+  const [plan,setPlan]=useState(null);      // preview, before anything is written
+  const [heads,setHeads]=useState([]);
   /* Dashboard's Empty is a local const inside that component, not a shared one.
      Kpi below IS module-level and a function declaration, so it hoists fine. */
   const Blank=({t})=><div className="empty" style={{padding:'18px 4px'}}>{t}</div>;
@@ -3158,6 +3237,43 @@ function EventsPage({events,saveEvent,removeEvent,leads,quickLead,open,me}){
   const add=(key,row)=>set({[key]:[...(ev[key]||[]),row]});
 
   const create=()=>{ const e=blankEvent(); saveEvent(e); setSel(e.id); setTab('slots'); };
+
+  /* Read the sheet and show what would happen. Nothing is written here — the
+     import is a second, explicit step, because a mis-mapped column would
+     otherwise dump a hundred junk leads into the CRM with no undo. */
+  const readSheet=async()=>{
+    if(!ev) return; setSheetErr(''); setPlan(null); setSheetBusy(true);
+    try{
+      const r=await fetch('/api/sheet-read',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({sheet:ev.sheetUrl,tab:ev.sheetTab||''})});
+      const j=await r.json();
+      if(!r.ok) throw new Error(j.error||'Could not read that sheet.');
+      const hs=j.headers||[];
+      setHeads(hs);
+      const map=(ev.sheetMap&&ev.sheetMap.name)?ev.sheetMap:guessMap(hs);
+      const rows=(j.rows||[]).map(row=>{ const o={}; hs.forEach((h,i)=>{o[h]=row[i];}); return o; });
+      if(!ev.sheetMap||!ev.sheetMap.name||ev.sheetTab!==j.tab) set({sheetMap:map,sheetTab:j.tab});
+      setPlan({...planImport(rows,map,ev.guests,leads),rows,map,tab:j.tab});
+    }catch(e){ setSheetErr(e.message||'Could not read that sheet.'); }
+    setSheetBusy(false);
+  };
+  /* Re-plan locally when the mapping changes — no second network call. */
+  const remap=(k,v)=>{ if(!plan) return; const map={...plan.map,[k]:v};
+    set({sheetMap:map}); setPlan({...planImport(plan.rows,map,ev.guests,leads),rows:plan.rows,map,tab:plan.tab}); };
+
+  const runImport=(includeUnsure)=>{
+    if(!plan||!ev) return;
+    const take=[...plan.matched,...plan.fresh,...(includeUnsure?plan.unsure:[])];
+    if(!take.length) return;
+    const added=take.map(g=>{
+      let leadId=g.leadId||'';
+      if(!leadId){ const lead=quickLead(g.name,ev.name||'Event',{email:g.email,phone:g.phone}); leadId=lead.id; }
+      return {id:uid(),contactId:leadId,name:g.name,status:'invited',paid:false,
+        plusOnes:g.plusOnes||0,notes:g.notes||'',srcKey:g.srcKey};
+    });
+    set({guests:[...(ev.guests||[]),...added],sheetSyncedAt:new Date().toISOString()});
+    setPlan(null);
+  };
   /* moving the date drags every unmet milestone with it, using the offset it was
      created with. Done ones stay put — they happened when they happened. */
   const setDate=d=>set({date:d, milestones:(ev.milestones||[]).length
@@ -3264,6 +3380,45 @@ function EventsPage({events,saveEvent,removeEvent,leads,quickLead,open,me}){
     </div>}
 
     {tab==='guests'&&<div className="card">
+      <div className="sheet-box">
+        <div className="sheet-h"><Sheet size={14}/>Pull the guest list from a Google Sheet
+          {ev.sheetSyncedAt&&<span className="sheet-when">last synced {fmtDate(ev.sheetSyncedAt.slice(0,10))}</span>}</div>
+        <div className="sheet-row">
+          <input placeholder="Paste the Google Sheet link" value={ev.sheetUrl||''} onChange={e=>set({sheetUrl:e.target.value})}/>
+          <input className="sheet-tab" placeholder="Tab (optional)" value={ev.sheetTab||''} onChange={e=>set({sheetTab:e.target.value})}/>
+          <button className="btn btn-p btn-sm" disabled={!ev.sheetUrl||sheetBusy} onClick={readSheet}>
+            {sheetBusy?<Loader2 size={14} className="spin"/>:<RefreshCw size={14}/>}{sheetBusy?'Reading…':'Check the sheet'}</button>
+        </div>
+        {sheetErr&&<div className="mtg-err" style={{marginTop:8}}>{sheetErr}</div>}
+        {plan&&<div className="sheet-plan">
+          <div className="sheet-map">
+            {[['name','Name'],['email','Email'],['phone','Phone'],['plus','Plus-ones'],['notes','Notes']].map(([k,l])=>(
+              <label key={k}><span>{l}</span>
+                <select value={plan.map[k]||''} onChange={e=>remap(k,e.target.value)}>
+                  <option value="">—</option>
+                  {heads.map(h=><option key={h} value={h}>{h}</option>)}
+                </select></label>))}
+          </div>
+          <div className="sheet-tally">
+            <span className="fresh"><b>{plan.fresh.length}</b> new, will be added as leads</span>
+            <span className="match"><b>{plan.matched.length}</b> already in the CRM</span>
+            <span className="dupe"><b>{plan.already.length}</b> already on this list</span>
+            {plan.unsure.length>0&&<span className="unsure"><b>{plan.unsure.length}</b> need a look</span>}
+            {plan.skipped>0&&<span className="skip"><b>{plan.skipped}</b> rows with no name or email</span>}
+          </div>
+          {plan.unsure.length>0&&<div className="sheet-unsure">
+            {plan.unsure.slice(0,6).map((u,i)=><div key={i}><b>{u.name}</b> — {u.why}</div>)}
+            {plan.unsure.length>6&&<div>…and {plan.unsure.length-6} more</div>}
+          </div>}
+          <div className="sheet-acts">
+            <button className="btn btn-p btn-sm" disabled={!plan.fresh.length&&!plan.matched.length}
+              onClick={()=>runImport(false)}>Add {plan.fresh.length+plan.matched.length} to the guest list</button>
+            {plan.unsure.length>0&&<button className="btn btn-g btn-sm" onClick={()=>runImport(true)}>
+              Add those {plan.unsure.length} too</button>}
+            <button className="linkbtn" onClick={()=>setPlan(null)}>Cancel</button>
+          </div>
+        </div>}
+      </div>
       <Picker onPick={()=>attach('guest')}/>
       {(ev.guests||[]).length?(ev.guests||[]).map(g=>(<div className="ev-row" key={g.id}>
         <span className="ev-who" onClick={()=>g.contactId&&open&&open(g.contactId)}>{g.name}</span>
