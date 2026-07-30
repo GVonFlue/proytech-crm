@@ -122,6 +122,22 @@ export const db = {
     const { error } = await supabase.from('leads').delete().neq('id', SENTINEL);
     if (error) throw error;
   },
+  /* events: one row each, mirroring leads rather than the app_settings blob */
+  async getEvents() {
+    const { data, error } = await supabase.from('events').select('id,data').order('created_at', { ascending: false });
+    if (error) { if (error.code === '42P01') return []; throw error; }
+    return (data || []).map(r => ({ ...(r.data || {}), id: r.id }));
+  },
+  async upsertEvent(ev) {
+    if (!ev || !ev.id) return;
+    const { id, ...rest } = ev;
+    const { error } = await supabase.from('events').upsert({ id, data: rest, updated_at: new Date().toISOString() });
+    if (error) throw error;
+  },
+  async deleteEvent(id) {
+    const { error } = await supabase.from('events').delete().eq('id', id);
+    if (error) throw error;
+  },
   async getSettings() {
     const { data, error } = await supabase.from('app_settings').select('data').eq('id', 'main').maybeSingle();
     if (error) throw error;
