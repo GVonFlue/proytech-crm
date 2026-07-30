@@ -36,6 +36,23 @@ alter table crm_users add column if not exists nav_order text[] not null default
 alter table crm_users drop constraint if exists crm_users_role_chk;
 alter table crm_users add constraint crm_users_role_chk check (role in ('owner','rep'));
 
+-- ---------------------------------------------------------------- 1b. events
+-- One ROW per event, not one blob for all of them. Deliberately not the
+-- app_settings key/value shape used by tasks and invoices: that shape stores an
+-- entire list inside a single jsonb row, which makes every write a full rewrite
+-- (a whole class of lost-update bugs) and makes per-row RLS impossible. Nested
+-- structures that only ever move with their event -- sponsor slots, guests,
+-- milestones -- stay inside data, exactly like leads.
+create table if not exists events (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+alter table events enable row level security;
+drop policy if exists events_all on events;
+create policy events_all on events for all to authenticated using (true) with check (true);
+
 -- ----------------------------------------------------------------- 2. leads
 alter table leads add column if not exists owner_id uuid references auth.users(id);
 alter table leads add column if not exists pool text;
