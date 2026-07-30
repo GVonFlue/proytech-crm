@@ -30,6 +30,9 @@ create table if not exists crm_users (
 alter table crm_users add column if not exists email text;
 alter table crm_users add column if not exists tabs text[] not null default '{}';
 alter table crm_users add column if not exists goal_conversions numeric not null default 0;
+-- sidebar tab order, per person. Safe to re-run. The app degrades to the
+-- default order if this hasn't been applied, so it is not a blocking migration.
+alter table crm_users add column if not exists nav_order text[] not null default '{}';
 alter table crm_users drop constraint if exists crm_users_role_chk;
 alter table crm_users add constraint crm_users_role_chk check (role in ('owner','rep'));
 
