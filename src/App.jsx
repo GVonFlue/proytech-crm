@@ -186,6 +186,17 @@ const MONEY_TABS=['invoices','books','money','huddle'];
    Settings configures the whole install, Clients is the money-side client book. */
 const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients').concat(['dash']);
 const tabsOf=u=>{ if(!u) return REP_DEFAULT_TABS; const t=Array.isArray(u.tabs)?u.tabs:[]; return t.length?t:REP_DEFAULT_TABS; };
+/* Sidebar order is a PERSONAL preference, not an account one — two people on the
+   same install work differently and neither should be able to rearrange the
+   other's screen. It lives on the crm_users row next to `tabs`, so it follows
+   the person between devices instead of being stuck in one browser.
+   Repaired on read: unknown keys dropped, anything new appended in its default
+   position, so shipping a new tab never leaves it invisible for someone who
+   already saved an order. */
+const navOrderOf=(user,navKeys)=>{
+  const saved=Array.isArray(user&&user.nav_order)?user.nav_order.filter(k=>navKeys.includes(k)):[];
+  return [...saved,...navKeys.filter(k=>!saved.includes(k))];
+};
 /* named buckets of unclaimed leads. A rep sees the pools they're given. */
 const DEFAULT_POOLS=['General'];
 const poolList=settings=>{ const p=(settings&&settings.pools)||[]; return p.length?p:DEFAULT_POOLS; };
@@ -660,6 +671,17 @@ const CSS=`
 .nav-i:hover{background:rgba(255,255,255,.06);color:#fff}.nav-i.on{background:${COBALT};color:#fff;box-shadow:0 6px 18px -8px rgba(43,77,224,.9);position:relative}
 .nav-i.on::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:#FFA500}
 .nav-i svg{flex:none}
+.nav-i.nav-edit{cursor:grab;background:rgba(255,255,255,.05);color:#E8E6F7}
+.nav-i.nav-edit:active{cursor:grabbing}
+.nav-i.nav-edit.dragging{opacity:.4}
+.nav-grip{color:#8C88B8}
+.nav-l{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nav-mv{display:flex;gap:3px;flex:none}
+.nav-mv button{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);border-radius:6px;color:#E8E6F7;cursor:pointer;padding:0}
+.nav-mv button:disabled{opacity:.3;cursor:not-allowed}
+.nav-i.nav-reorder{margin-top:8px;font-size:12.5px;color:#9C98C4}
+.nav-i.nav-reorder.on{background:${COBALT};color:#fff}
+.nav-i.nav-reset{font-size:12px;color:#9C98C4;padding-top:6px;padding-bottom:6px}
 .sb-foot{margin-top:auto;font-size:11px;color:#888;padding:12px 8px 2px;border-top:1px solid rgba(255,255,255,.08);line-height:1.5}.sb-foot b{color:#B9B5D8;font-weight:600}
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
 .top{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 30px;background:#fff;border-bottom:1px solid #E8E9F2;position:sticky;top:0;z-index:20}
@@ -1817,6 +1839,9 @@ export default function App(){
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
   const [navIds,setNavIds]=useState(null);
+  const [navEdit,setNavEdit]=useState(false);   // sidebar reorder mode
+  const [navDrag,setNavDrag]=useState(null);
+  const [navLocal,setNavLocal]=useState(null);  // keeps the order on screen if the save fails
   const openLead=(id,order)=>{ setActiveId(id); setNavIds(order&&order.length?order:null); };
 
   useEffect(()=>{ const ok=s=>{sessionResolved.current=true;setSession(s||null);};
@@ -2098,6 +2123,20 @@ export default function App(){
   /* ---- team management (owner-only; the DB enforces it too) ---- */
   const saveUser=async u=>{ if(!isOwner) return; const next=users.some(x=>x.id===u.id)?users.map(x=>x.id===u.id?{...x,...u}:x):[...users,u];
     setUsers(next); try{ await db.upsertUser(next.find(x=>x.id===u.id)); }catch(e){ console.error(e); window.alert('Could not save that person: '+(e.message||e)); setUsers(users); } };
+  /* A person's own sidebar order, saved by that person. saveUser is deliberately
+     owner-only and alerts on failure — neither is right here. An agent has to be
+     able to order their own sidebar, and a cosmetic preference that fails to
+     persist must never interrupt anyone or revert the screen. Worst case it is
+     session-only, which is a perfectly acceptable failure for this. */
+  const saveNavOrder=async order=>{
+    setNavLocal(order);
+    if(!myUid) return;
+    setUsers(us=>us.map(x=>x.id===myUid?{...x,nav_order:order}:x));
+    const row=users.find(x=>x.id===myUid)||myUser;
+    if(!row) return;
+    try{ await db.upsertUser({...row,nav_order:order}); }
+    catch(e){ console.error('Sidebar order not saved (session only):',e); }
+  };
   const removeUser=async id=>{ if(!isOwner) return; const prev=users; setUsers(users.filter(u=>u.id!==id));
     try{ await db.deleteUser(id); }catch(e){ console.error(e); window.alert('Could not remove that person: '+(e.message||e)); setUsers(prev); } };
   /* When someone leaves, their leads shouldn't leave with them. Moves every
@@ -2243,12 +2282,39 @@ export default function App(){
   const localBoard=()=>reps.filter(u=>u.active!==false).map(u=>{ const mine=leads.filter(l=>l.isClient&&l.convertedAt&&l.owner_id===u.id);
     return {id:u.id,name:u.name,month:mine.filter(l=>String(l.convertedAt).slice(0,7)===todayISO().slice(0,7)).length,all:mine.length}; });
   const boardRows=board||(isOwner?localBoard():null);
+  /* sidebar reordering — same shape as the dashboard's arrange mode: drag by the
+     row, or use the chevrons, which are the only thing that works on a phone.
+     The three useState calls live at the top of App with every other hook,
+     because there are four early returns between there and here and a hook
+     declared after one of them changes the hook count between renders. */
+  const NAV_KEYS=NAV.map(([k])=>k);
+  const navOrder=navLocal||navOrderOf(myUser,NAV_KEYS);
+  const saveNav=next=>saveNavOrder(next);
+  const moveNav=(from,to)=>{ if(to<0||to>=navOrder.length)return;
+    const n=[...navOrder]; const [x]=n.splice(from,1); n.splice(to,0,x); saveNav(n); };
+  const dropNav=key=>{ if(!navDrag||navDrag===key)return;
+    moveNav(navOrder.indexOf(navDrag),navOrder.indexOf(key)); setNavDrag(null); };
+  const navItems=navOrder.map(k=>NAV.find(([kk])=>kk===k)).filter(Boolean).filter(([k])=>canSee(k));
 
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <Brand logo={settings.logo} size={settings.logoSize||34} sub={rep?'Sales':'Client CRM'}/>
-      {NAV.filter(([k])=>canSee(k)).map(([k,l,ic])=><button key={k} className={'nav-i '+(view===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>)}
+      {navItems.map(([k,l,ic],i)=>navEdit
+        ? (<div key={k} className={'nav-i nav-edit'+(navDrag===k?' dragging':'')}
+             draggable onDragStart={()=>setNavDrag(k)} onDragEnd={()=>setNavDrag(null)}
+             onDragOver={e=>e.preventDefault()} onDrop={()=>dropNav(k)}>
+            <GripVertical size={15} className="nav-grip"/>{ic}<span className="nav-l">{l}</span>
+            <span className="nav-mv">
+              <button disabled={i===0} onClick={()=>moveNav(i,i-1)} title="Move up"><ChevronLeft size={13} style={{transform:'rotate(90deg)'}}/></button>
+              <button disabled={i===navItems.length-1} onClick={()=>moveNav(i,i+1)} title="Move down"><ChevronRight size={13} style={{transform:'rotate(90deg)'}}/></button>
+            </span>
+          </div>)
+        : (<button key={k} className={'nav-i '+(view===k?'on':'')} onClick={()=>{setPage(k);setSbOpen(false);}}>{ic}{l}</button>))}
+      <button className={'nav-i nav-reorder'+(navEdit?' on':'')} onClick={()=>setNavEdit(v=>!v)}>
+        <GripVertical size={16}/>{navEdit?'Done':'Reorder tabs'}
+      </button>
+      {navEdit&&<button className="nav-i nav-reset" onClick={()=>saveNav(NAV_KEYS)}>Reset to default</button>}
       <button className="nav-i" style={{marginTop:8,background:'rgba(43,77,224,.16)',color:'#fff'}} onClick={()=>setActiveId('new')}><Plus size={18}/>New Lead</button>
       <button className="nav-i" onClick={()=>{setAcct(true);setSbOpen(false);}}><KeyRound size={18}/>My account</button>
       <button className="nav-i" onClick={()=>auth.logout()}><LogOut size={18}/>Sign out ({me})</button>
