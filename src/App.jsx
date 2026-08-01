@@ -14,7 +14,7 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket,
-  Handshake, Sheet, RefreshCw
+  Handshake, Sheet, RefreshCw, Clock
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -606,6 +606,24 @@ function buildNetwork(contacts){
   return {byId,kids,roots,nodes,links,inNet,rows:leaf,maxDepth:depth};
 }
 const normEntry=v=>{ if(!v) return {done:null,due:null,assignee:null,taskId:null}; if(typeof v==='string') return {done:v,due:null,assignee:null,taskId:null}; return {done:v.done||null,due:v.due||null,assignee:v.assignee||null,taskId:v.taskId||null}; };
+/* ---- when money counts -----------------------------------------------------
+   Converting somebody to a client means they SAID YES. It is not the same event
+   as money arriving, and treating it as one books revenue that hasn't landed —
+   which is exactly backwards for a business that converts on the yes and
+   collects at the discovery meeting a week later.
+   The onboarding checklist already has "Deposit / first payment collected".
+   That tick is now the thing revenue waits on. Nothing else about converting
+   changes: the stage moves, onboarding starts, the client appears on the board.
+   A closed DEAL (closedDeals) is unaffected — closing one is already an
+   explicit act, so it counts the moment you do it. */
+const depositPaidAt=l=>normEntry((l&&l.onboarding||{}).deposit_paid).done||'';
+/* legacy: clients converted before this rule existed have no deposit tick, and
+   silently zeroing their revenue would rewrite history. They keep counting. */
+const CASH_RULE_FROM='2026-08-01';
+const cashConfirmed=l=>{ if(!l) return false;
+  if(depositPaidAt(l)) return true;
+  const conv=String(l.convertedAt||l.closedAt||'').slice(0,10);
+  return !!conv && conv < CASH_RULE_FROM; };
 const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[track.key])||{}; const ms=track.milestones||[]; const entries={}; let completed=0,overdue=0,nextDue=null;
   ms.forEach(m=>{ const e=normEntry(raw[m]); entries[m]=e; if(e.done) completed++; else if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } });
   const current=ms.find(m=>!entries[m].done)||null;
@@ -1280,6 +1298,16 @@ const CSS=`
 .sheet-unsure div{padding:2px 0}
 .sheet-acts{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .hb-stale{color:#D97706;font-weight:600}
+.client-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:rgba(217,119,6,.07);border:1px solid rgba(217,119,6,.22);border-radius:12px;padding:10px 13px;margin-bottom:14px}
+.client-bar.paid{background:rgba(43,150,94,.07);border-color:rgba(43,150,94,.22)}
+.cb-l{display:flex;align-items:center;gap:8px;font-size:12.5px;color:#56527a;min-width:0}
+.cb-l b{color:${INK}}
+.cb-l i{font-style:normal;font-weight:600;color:${INK}}
+.cb-undo{flex:none;font-size:12px}
+.cb-pay{margin-left:auto;flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(217,119,6,.4);background:#fff;color:#B45309;border-radius:9px;padding:6px 11px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer}
+.cb-pay:hover{background:rgba(217,119,6,.08)}
+.cb-pay.on{border-color:rgba(43,150,94,.4);color:${GREEN}}
+.cb-pay.on:hover{background:rgba(43,150,94,.08)}
 .dash-arrange{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .dash-arrange .btn.on{background:${COBALT};color:#fff;border-color:${COBALT}}
 .dsec{border:1.5px dashed #D6D8E8;border-radius:16px;padding:0 0 4px;margin-bottom:14px;background:#FCFCFE}
@@ -2258,7 +2286,21 @@ export default function App(){
   const ackOnboarding=id=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id) return l;
     updated={...l,onboardingAlert:{...(l.onboardingAlert||{}),ack:true,ackAt:new Date().toISOString(),ackBy:me}}; return updated; }));
     if(updated) putLead(updated); };
-  const revertClient=id=>{ const l=leads.find(x=>x.id===id); if(!l)return; const updated={...l,isClient:false}; setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
+  /* Undo a conversion properly. The old version only flipped isClient, which
+     left the lead sitting at the WON stage with a closedAt on it — so a misclick
+     kept counting in win rate, the funnel and closed-deal counts forever, and
+     the record looked reverted while the numbers disagreed. Everything convert
+     touched is undone: stage, close date, converted date, commission and the
+     onboarding alert. Delivery progress and onboarding ticks are KEPT, because
+     a revert is usually a misclick and re-converting shouldn't lose work. */
+  const revertClient=(id,toStage)=>{ const l=leads.find(x=>x.id===id); if(!l)return;
+    const back=toStage||(stages.find(s=>!s.won&&!s.lost)||stages[0]||{}).key||l.stage;
+    const ts=new Date().toISOString();
+    const acts=[{id:uid(),ts,type:'Note',text:`Reverted to lead — back to ${sOf(back,stages).label}. Delivery progress kept.`,who:me}];
+    const updated={...l,isClient:false,stage:back,clientPhase:'',
+      closedAt:null,convertedAt:null,onboardingAlert:null,commission:null,
+      activities:[...acts,...(l.activities||[])]};
+    setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
   /* Backfill close tracking for a client created before closedAt was stamped.
      Sets the real close date + moves them into the won stage so every "deals
      closed" and revenue metric counts them, WITHOUT resetting onboarding. */
@@ -2467,7 +2509,7 @@ function useMetrics(leads,stages,settings){
       /* A won lead's UNSTAMPED deals are the sale that won it — still won revenue.
          Its upsell deals are money on the table and belong in pipeline, which is
          the whole bug: typing an amount on a client used to book it as revenue. */
-      if(s.won){ wonCount++; wonValue+=openSaleValue(l);
+      if(s.won){ wonCount++; if(cashConfirmed(l)) wonValue+=openSaleValue(l);
         const uv=upsellValueOf(l);
         if(uv>0){ upsellCount++; upsellValue+=uv; weighted+=uv*upsellProb; } }
       if(s.lost) lostCount++; wonValue+=closedDealsTotal(l);
@@ -2505,7 +2547,12 @@ function useMetrics(leads,stages,settings){
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
     let closedMonth=0,revenueMonth=0;
-    leads.forEach(l=>{ if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){ closedMonth++; revenueMonth+=num(l.dealValue); } const cm=closedDealsInMonth(l,mKey); if(cm>0){ revenueMonth+=cm; closedMonth+=closedDealsCountInMonth(l,mKey); } });
+    /* a won lead only counts once the money is confirmed — see cashConfirmed */
+    let awaitingCash=0,awaitingValue=0;
+    leads.forEach(l=>{ if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){
+        if(cashConfirmed(l)){ closedMonth++; revenueMonth+=num(l.dealValue); }
+        else { awaitingCash++; awaitingValue+=num(l.dealValue); } }
+      const cm=closedDealsInMonth(l,mKey); if(cm>0){ revenueMonth+=cm; closedMonth+=closedDealsCountInMonth(l,mKey); } });
     const firstTouch=median(touchHrs);
     const fuRate=fuCleared>0?fuOnTime/fuCleared:null;
     const funnel=funnelOf(leads,stages);
@@ -2557,7 +2604,7 @@ function useMetrics(leads,stages,settings){
     }).filter(c=>c.lifetime>0||c.mrr>0).sort((a,b)=>b.lifetime-a.lifetime);
     return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
-      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,
+      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,awaitingCash,awaitingValue,
       meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages,settings]);
 }
@@ -2811,7 +2858,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Open Pipeline" value={usd(m.pipelineValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} lead${m.openCount===1?'':'s'}${m.upsellCount>0?` · ${m.upsellCount} client upsell${m.upsellCount===1?'':'s'}`:''}${G.revenue>0?` · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:''}`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
-      <Kpi label="Revenue Closed" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={G.revenue>0?"setup closed this month":"weighted forecast"} onClick={()=>tog('won')} active={drill==='won'} goal={G.revenue} current={m.revenueMonth}/>
+      <Kpi label="Revenue Closed" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?'setup closed this month':'weighted forecast')+(m.awaitingCash>0?` · ${usd(m.awaitingValue)} awaiting payment`:'')} onClick={()=>tog('won')} active={drill==='won'} goal={G.revenue} current={m.revenueMonth}/>
       <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.revenueMonth)} setup`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
@@ -5546,7 +5593,12 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 </div>); })}</div>
               </div>); })}
               {ov.delivered&&<div className="deliv-done"><CheckCircle2 size={15} color={GREEN}/>All delivery steps complete{ov.doneDate?` · ${fmtDate(ov.doneDate)}`:''} — client marked completed.</div>}
-              <button className="linkbtn" onClick={()=>{ if(window.confirm('Revert this client back to a lead? Delivery progress is kept.')) revertClient(draft.id); }}>Revert to lead</button>
+              <button className="linkbtn" onClick={()=>{ if(window.confirm(
+                'Revert this client back to a lead?\n\n'+
+                '· They come off the client board and out of closed-deal counts\n'+
+                '· Their delivery checklist and any ticks are kept\n'+
+                '· Any closed deals stay closed — those are separate\n\n'+
+                'You can convert them again at any time.')) revertClient(draft.id); }}>Revert to lead</button>
             </div>);
           })()}
 
@@ -5749,6 +5801,42 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
           </div>}
 
           {/* legacy clients created before close-tracking: offer a one-click backfill */}
+          {/* A client banner that's always there: says whether the money has
+              landed yet, and puts the undo where you'd look for it rather than
+              at the bottom of the delivery checklist. */}
+          {!isNew&&draft.isClient&&(()=>{
+            const paid=depositPaidAt(draft);
+            const doRevert=()=>{ if(window.confirm(
+              'Revert this client back to a lead?\n\n'+
+              '· They come off the client board and out of closed-deal counts\n'+
+              '· Their delivery checklist and any ticks are kept\n'+
+              '· Any closed deals stay closed — those are separate\n\n'+
+              'You can convert them again at any time.')) revertClient(draft.id); };
+            return (<div className={'client-bar'+(paid?' paid':'')}>
+              <div className="cb-l">
+                {paid?<><CheckCircle2 size={14} color={GREEN}/><span><b>Payment confirmed {fmtDate(paid)}</b> · counting in your numbers</span></>
+                     :<><Clock size={14} color="#D97706"/><span><b>Client, payment not collected yet</b> · {usd(num(draft.dealValue))} counts once you tick <i>Deposit / first payment collected</i></span></>}
+              </div>
+              {/* The tick lives here, not just on the Clients page. Gating
+                  revenue on a checkbox you can only reach from another screen
+                  would mean money silently not counting with no way to fix it
+                  from the record you're looking at. */}
+              <button className={'cb-pay'+(paid?' on':'')} onClick={()=>{
+                const ob={...(draft.onboarding||{})};
+                const cur=normEntry(ob.deposit_paid);
+                if(cur.done){ if(!window.confirm('Mark the payment as NOT collected? It stops counting in your numbers.')) return;
+                  ob.deposit_paid={done:null,due:cur.due||null}; }
+                else { const d=window.prompt('What date did the payment land? (YYYY-MM-DD)',todayISO());
+                  if(d===null) return; const clean=String(d).trim().slice(0,10);
+                  if(!/^\d{4}-\d{2}-\d{2}$/.test(clean)){ window.alert('Please use YYYY-MM-DD, e.g. 2026-08-01.'); return; }
+                  ob.deposit_paid={done:clean,due:cur.due||null}; }
+                const act={id:uid(),ts:new Date().toISOString(),type:'Note',
+                  text:ob.deposit_paid.done?`Payment collected — ${usd(num(draft.dealValue))} now counting.`:'Payment marked as not collected.',who:me};
+                set({onboarding:ob,activities:[act,...(draft.activities||[])]});
+              }}>{paid?<><CheckCircle2 size={13}/>Payment collected</>:<><DollarSign size={13}/>Mark payment collected</>}</button>
+              <button className="linkbtn cb-undo" onClick={doRevert}>Revert to lead</button>
+            </div>);
+          })()}
           {!isNew&&draft.isClient&&(()=>{
             const wonStage=stages.find(s=>s.won); const inWon=wonStage&&draft.stage===wonStage.key;
             const counted=inWon&&draft.closedAt;
