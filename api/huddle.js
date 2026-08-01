@@ -1,4 +1,4 @@
-// Monday Morning Huddle — reads a pre-computed digest of last week and writes
+// Monday Huddle — reads a pre-computed digest of the last 7 days and writes
 // the interpretation: what happened, what it means, what to do about it.
 //
 // The CRM does all the arithmetic before calling this. We send counts and names,
@@ -20,7 +20,7 @@ export default async function handler(req, res) {
 
   const system = `You write the Monday morning huddle for ${brand}, a small team that sells and delivers websites and AI automation to realtors and lenders.
 
-You are given a JSON digest of LAST WEEK's activity, the week before it for comparison, the current pipeline, month-to-date progress against goals, and a list of things that are slipping.
+You are given a JSON digest of THE LAST 7 DAYS of activity — a rolling window ending today, not a calendar week — plus the 7 days before that for comparison, the current pipeline, month-to-date progress against goals, and a list of things that are slipping. Say "the last 7 days" or "this stretch", never "last week": this may be read on any day of the week.
 
 Your job is interpretation, not recitation. The team can already see the numbers. Tell them what the numbers MEAN.
 
@@ -28,14 +28,14 @@ Rules:
 - Be specific. Name real leads, clients and people from the digest. "Chris Waipa has gone 95 days without contact" beats "some relationships need attention".
 - Draw conclusions the numbers imply but don't state. Connect cause and effect across sections where it's justified.
 - If something got worse, say so plainly. Do not cheerlead. An honest brief is worth more than a nice one.
-- If the week was quiet, say that — don't inflate it.
-- Projections: use month-to-date pace against the goals given. If no goals are set, project from the weekly run rate. Be explicit that it's a projection.
+- If the stretch was quiet, say that — don't inflate it.
+- Projections: use month-to-date pace against the goals given. If no goals are set, project from the 7-day run rate. Be explicit that it's a projection.
 - Focus items must be concrete enough to act on today, and ordered by what would move revenue most.
 - Never invent a number, name or event that is not in the digest.
 
 Return ONLY valid JSON, no markdown fences, no preamble:
 {
-  "headline": "one sentence, max 15 words, the week in a nutshell",
+  "headline": "one sentence, max 15 words, the last 7 days in a nutshell",
   "readout": "2-4 sentences interpreting what actually happened and why it matters",
   "wins": ["specific things that went well, max 4, empty array if none"],
   "concerns": ["specific things that are slipping and why they matter, max 4"],
@@ -52,7 +52,7 @@ Return ONLY valid JSON, no markdown fences, no preamble:
         model: 'claude-sonnet-4-6',
         max_tokens: 1600,
         system,
-        messages: [{ role: 'user', content: 'Here is last week:\n\n' + JSON.stringify(digest, null, 1) }],
+        messages: [{ role: 'user', content: 'Here is the last 7 days (a rolling window ending today, not a calendar week):\n\n' + JSON.stringify(digest, null, 1) }],
       }),
     });
     const j = await r.json();
