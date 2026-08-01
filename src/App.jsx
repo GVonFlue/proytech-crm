@@ -327,12 +327,18 @@ const allMeetings=leads=>(leads||[]).flatMap(l=>meetingsOf(l).map(m=>({lead:l,m}
 /* ---- Monday Morning Huddle -------------------------------------------------
    Everything here is plain arithmetic on data already captured. The AI only
    ever sees the finished digest, never the database. */
-const startOfWeek=d=>{ const x=new Date(d); const dow=(x.getDay()+6)%7; x.setDate(x.getDate()-dow); x.setHours(0,0,0,0); return x; };
-/* the last COMPLETE Mon-Sun, which is what you actually review on a Monday */
-const lastWeekRange=(now=new Date())=>{ const thisMon=startOfWeek(now);
-  const start=new Date(thisMon); start.setDate(thisMon.getDate()-7);
-  const end=new Date(thisMon); end.setMilliseconds(-1);
+/* A ROLLING seven days ending today, not the last complete Mon-Sun.
+   The old window only made sense if you ran this on a Monday: open it on a
+   Thursday and it reviewed a week that ended three days ago, so anything you
+   did Monday to Wednesday was invisible. Rolling means the huddle is honest on
+   any day and always covers the seven days you actually just worked.
+   End is the end of TODAY so today's work counts. Start is 00:00 six days back,
+   which is seven calendar days inclusive — not six, and not eight. */
+const lastWeekRange=(now=new Date())=>{
+  const end=new Date(now); end.setHours(23,59,59,999);
+  const start=new Date(end); start.setDate(end.getDate()-6); start.setHours(0,0,0,0);
   return {start,end,key:isoOf(start)}; };
+/* the comparison period: the seven days before those, same length, no overlap */
 const shiftWeek=(r,weeks)=>{ const start=new Date(r.start); start.setDate(start.getDate()-7*weeks);
   const end=new Date(r.end); end.setDate(end.getDate()-7*weeks); return {start,end,key:isoOf(start)}; };
 const inRange=(ts,r)=>{ if(!ts) return false; const t=new Date(String(ts).length<=10?ts+'T12:00:00':ts).getTime();
@@ -384,7 +390,8 @@ function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
     .filter(x=>x.d>=14).sort((a,b)=>b.d-a.d).slice(0,8);
   const untouched=(leads||[]).filter(l=>!(l.activities||[]).some(REAL_TOUCH));
   return {
-    period:{from:isoOf(r.start),to:isoOf(r.end),label:fmtDate(isoOf(r.start))+' – '+fmtDate(isoOf(r.end))},
+    period:{from:isoOf(r.start),to:isoOf(r.end),days:7,rolling:true,
+      label:fmtDate(isoOf(r.start))+' – '+fmtDate(isoOf(r.end))},
     lastWeek:cur, weekBefore:prev,
     pipeline:{openDeals:openLeads.length,openValue:Math.round(openLeads.reduce((a,l)=>a+num(l.dealValue),0)),
       weighted:Math.round(openLeads.reduce((a,l)=>a+num(l.dealValue)*num(sOf(l.stage,stages).prob),0)),
@@ -1272,6 +1279,7 @@ const CSS=`
 .sheet-unsure{background:rgba(217,119,6,.07);border:1px solid rgba(217,119,6,.2);border-radius:10px;padding:9px 11px;font-size:12px;color:#7A5A10;margin-bottom:10px}
 .sheet-unsure div{padding:2px 0}
 .sheet-acts{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.hb-stale{color:#D97706;font-weight:600}
 .dash-arrange{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .dash-arrange .btn.on{background:${COBALT};color:#fff;border-color:${COBALT}}
 .dsec{border:1.5px dashed #D6D8E8;border-radius:16px;padding:0 0 4px;margin-bottom:14px;background:#FCFCFE}
@@ -2364,7 +2372,7 @@ export default function App(){
     const others=tasks.filter(t=>t.owner!==me);
     saveTasks([...(next||[]).filter(t=>t.owner===me),...others]);
   };
-  const titles={dash:['Dashboard','The whole board at a glance'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Morning Huddle','Last week, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const titles={dash:['Dashboard','The whole board at a glance'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
   if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; }
   /* the leaderboard the DB gave us; pre-migration an owner can still see one
      computed locally (an owner can read every lead, a rep never could). */
@@ -5818,10 +5826,18 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
 function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
   const H=useMemo(()=>buildHuddle(leads,tasks,settings,stages,rels),[leads,tasks,settings,stages,rels]);
   const saved=(settings&&settings.huddle)||null;
-  const fresh=saved&&saved.weekKey===H.period.from?saved:null;
+  /* With a rolling window the period start moves every day, so keying on it
+     exactly would throw away yesterday's huddle the moment the clock ticked
+     over — you'd open it Tuesday and find Monday's gone. A written huddle stays
+     the current one for 7 days, then goes stale, which matches how long the
+     stretch it describes stays relevant. */
+  const savedAge=saved&&saved.generatedAt
+    ? Math.floor((Date.now()-new Date(saved.generatedAt).getTime())/864e5) : null;
+  const fresh=saved&&savedAge!==null&&savedAge<7?saved:null;
+  const stale=saved&&savedAge!==null&&savedAge>=1?savedAge:0;
   const [brief,setBrief]=useState(fresh?fresh.brief:null);
   const [busy,setBusy]=useState(false); const [err,setErr]=useState('');
-  useEffect(()=>{ setBrief(fresh?fresh.brief:null); },[H.period.from,saved&&saved.weekKey]);
+  useEffect(()=>{ setBrief(fresh?fresh.brief:null); },[saved&&saved.generatedAt]);
   const cur=H.lastWeek, prev=H.weekBefore;
   const write=async()=>{ setErr(''); setBusy(true);
     try{
@@ -5829,7 +5845,7 @@ function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
       const j=await r.json();
       if(!j.ok) throw new Error(j.error||'could not write the huddle');
       setBrief(j.brief);
-      saveSettings({...settings,huddle:{weekKey:H.period.from,brief:j.brief,generatedAt:new Date().toISOString(),by:me}});
+      saveSettings({...settings,huddle:{weekKey:H.period.from,periodTo:H.period.to,brief:j.brief,generatedAt:new Date().toISOString(),by:me}});
     }catch(e){ setErr(e.message||'something went wrong'); }
     setBusy(false); };
   const Delta=({a,b,money})=>{ const c=pctChange(a,b);
@@ -5843,7 +5859,7 @@ function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
   </div>);
   const copyText=()=>{
     const L=[];
-    L.push(`MONDAY MORNING HUDDLE — ${H.period.label}`);
+    L.push(`MONDAY HUDDLE — last 7 days · ${H.period.label}`);
     if(brief){ L.push(''); L.push(brief.headline); L.push(''); L.push(brief.readout);
       if(brief.wins.length){L.push('');L.push('WINS');brief.wins.forEach(w=>L.push('• '+w));}
       if(brief.concerns.length){L.push('');L.push('WATCH');brief.concerns.forEach(w=>L.push('• '+w));}
@@ -5863,7 +5879,7 @@ function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
     <div className="hud-top">
       <div>
         <div className="hud-t">Monday Morning Huddle</div>
-        <div className="hud-d">{H.period.label} · last full week</div>
+        <div className="hud-d">{H.period.label} · the last 7 days</div>
       </div>
       <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
         <button className="btn btn-g btn-sm" onClick={copyText}><Clipboard size={14}/>Copy</button>
@@ -5880,17 +5896,18 @@ function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
         {brief.concerns.length>0&&<div className="hb-col warn"><div className="hb-ct"><AlertTriangle size={13}/>Watch</div>{brief.concerns.map((w,i)=><div className="hb-li" key={i}>{w}</div>)}</div>}
       </div>
       {brief.focus.length>0&&<div className="hb-focus">
-        <div className="hb-ct"><Target size={13}/>Focus this week</div>
+        <div className="hb-ct"><Target size={13}/>Focus now</div>
         {brief.focus.map((f,i)=><div className="hb-f" key={i}><b>{i+1}. {f.title}</b><span>{f.why}</span></div>)}
       </div>}
       {brief.projection&&<div className="hb-proj"><Zap size={13}/><span>{brief.projection}</span></div>}
-      {fresh&&<div className="hb-when">Written {fmtStamp(fresh.generatedAt)}{fresh.by?` · ${fresh.by}`:''}</div>}
+      {fresh&&<div className="hb-when">Written {fmtStamp(fresh.generatedAt)}{fresh.by?` · ${fresh.by}`:''}
+        {stale>0&&<span className="hb-stale"> · covers the 7 days to {fmtDate(fresh.weekKey&&fresh.periodTo?fresh.periodTo:isoOf(new Date()))}, {stale} day{stale===1?'':'s'} ago — rewrite for today</span>}</div>}
     </div>):(<div className="hud-empty">
-      <Sparkles size={22}/><b>Nothing written for this week yet</b>
-      <span>The numbers below are live. Hit <b>Write the huddle</b> and Claude reads the whole week and tells you what it means.</span>
+      <Sparkles size={22}/><b>Nothing written for this stretch yet</b>
+      <span>The numbers below are live. Hit <b>Write the huddle</b> and Claude reads the last 7 days and tells you what it means.</span>
     </div>)}
 
-    <div className="kgroup">Last week by the numbers</div>
+    <div className="kgroup">The last 7 days by the numbers</div>
     <div className="hstats">
       <Stat label="Meetings booked" value={cur.booked} a={cur.booked} b={prev.booked}/>
       <Stat label="Meetings held" value={cur.held} a={cur.held} b={prev.held}/>
@@ -5905,7 +5922,7 @@ function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
     <div className="r2">
       <div className="card">
         <h3>What moved</h3>
-        <div className="ch-sub">Deals, clients and work that changed last week</div>
+        <div className="ch-sub">Deals, clients and work that changed in the last 7 days</div>
         {(cur.stageMoves.length||cur.wonNames.length||cur.newClientNames.length||cur.taskTitles.length)?(<div className="hlist">
           {cur.wonNames.map((w,i)=><div className="hli win" key={'w'+i}><CheckCircle2 size={13}/>Closed — {w}</div>)}
           {cur.newClientNames.map((w,i)=><div className="hli win" key={'c'+i}><Rocket size={13}/>New client — {w}</div>)}
@@ -5915,7 +5932,7 @@ function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
       </div>
       <div className="card">
         <h3>What's slipping</h3>
-        <div className="ch-sub">Right now, not last week — this is the to-do list</div>
+        <div className="ch-sub">Right now, not the last 7 days — this is the to-do list</div>
         <div className="hlist">
           {H.slipping.overdueFollowUps.map((o,i)=><div className="hli bad" key={'o'+i}><Bell size={13}/><span onClick={()=>open&&open()}>{o.who}</span> — {o.daysLate}d overdue</div>)}
           {H.slipping.coldRelationships.map((o,i)=><div className="hli warn" key={'k'+i}><Users size={13}/>{o.who} — {o.daysSinceTouch==null?'never touched':o.daysSinceTouch+'d since contact'} ({o.tier})</div>)}
