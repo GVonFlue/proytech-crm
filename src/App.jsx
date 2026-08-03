@@ -5821,18 +5821,50 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   revenue on a checkbox you can only reach from another screen
                   would mean money silently not counting with no way to fix it
                   from the record you're looking at. */}
+              {/* Confirming payment and logging it are the same event, so this
+                  does both in one write. Previously it only ticked the flag and
+                  you had to log the money again in the Payments panel below —
+                  two places for one thing, and the payments total would sit at
+                  $0 while the record claimed payment was confirmed.
+                  It reads the payments already logged so pressing this after
+                  using the panel confirms without double-counting. */}
               <button className={'cb-pay'+(paid?' on':'')} onClick={()=>{
                 const ob={...(draft.onboarding||{})};
                 const cur=normEntry(ob.deposit_paid);
-                if(cur.done){ if(!window.confirm('Mark the payment as NOT collected? It stops counting in your numbers.')) return;
-                  ob.deposit_paid={done:null,due:cur.due||null}; }
-                else { const d=window.prompt('What date did the payment land? (YYYY-MM-DD)',todayISO());
-                  if(d===null) return; const clean=String(d).trim().slice(0,10);
-                  if(!/^\d{4}-\d{2}-\d{2}$/.test(clean)){ window.alert('Please use YYYY-MM-DD, e.g. 2026-08-01.'); return; }
-                  ob.deposit_paid={done:clean,due:cur.due||null}; }
-                const act={id:uid(),ts:new Date().toISOString(),type:'Note',
-                  text:ob.deposit_paid.done?`Payment collected — ${usd(num(draft.dealValue))} now counting.`:'Payment marked as not collected.',who:me};
-                set({onboarding:ob,activities:[act,...(draft.activities||[])]});
+                if(cur.done){
+                  if(!window.confirm('Mark the payment as NOT collected?\n\nIt stops counting in your numbers. Any payments you logged stay on the record.')) return;
+                  ob.deposit_paid={done:null,due:cur.due||null};
+                  const act={id:uid(),ts:new Date().toISOString(),type:'Note',text:'Payment marked as not collected.',who:me};
+                  set({onboarding:ob,activities:[act,...(draft.activities||[])]});
+                  return;
+                }
+                const d=window.prompt('What date did the payment land? (YYYY-MM-DD)',todayISO());
+                if(d===null) return; const clean=String(d).trim().slice(0,10);
+                if(!/^\d{4}-\d{2}-\d{2}$/.test(clean)){ window.alert('Please use YYYY-MM-DD, e.g. 2026-08-01.'); return; }
+                ob.deposit_paid={done:clean,due:cur.due||null};
+
+                const pays=Array.isArray(draft.payments)?draft.payments:[];
+                const already=pays.reduce((a,x)=>a+num(x.amount),0);
+                const owed=dealsOf(draft).reduce((a,x)=>a+dealSum(x),0)+(draft.retainerActive?num(draft.retainer):0);
+                const suggest=Math.max(0,owed-already);
+                const raw=window.prompt(
+                  already>0?`How much came in? (${usdc(already)} already logged)`:'How much came in? ($)',
+                  suggest>0?String(suggest):'');
+                /* Cancel here still confirms the date — you said the money
+                   landed, and refusing to record that because the amount prompt
+                   was dismissed would be the more surprising outcome. */
+                const amount=raw===null?0:num(raw);
+                const patch={onboarding:ob};
+                const acts=[];
+                if(amount>0){
+                  const note=(window.prompt('Note (e.g. "Square deposit", "cash at discovery") — optional:','')||'').trim();
+                  patch.payments=[...pays,{id:uid(),amount,date:clean,note}];
+                  acts.push({id:uid(),ts:new Date().toISOString(),type:'Payment',
+                    text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who:me});
+                }
+                acts.push({id:uid(),ts:new Date().toISOString(),type:'Note',
+                  text:`Payment confirmed ${fmtDate(clean)} — ${usd(num(draft.dealValue))} now counting.`,who:me});
+                set({...patch,activities:[...acts,...(draft.activities||[])]});
               }}>{paid?<><CheckCircle2 size={13}/>Payment collected</>:<><DollarSign size={13}/>Mark payment collected</>}</button>
               <button className="linkbtn cb-undo" onClick={doRevert}>Revert to lead</button>
             </div>);
