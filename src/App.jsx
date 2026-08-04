@@ -14,7 +14,7 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket,
-  Handshake, Sheet, RefreshCw, Clock
+  Handshake, Sheet, RefreshCw, Clock, MapPin
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -457,7 +457,12 @@ const isUpsellDeal=d=>!!(d&&d.upsell);
 const openSaleValue=l=>dealsOf(l).filter(d=>!isUpsellDeal(d)).reduce((a,d)=>a+dealBits(d),0);
 const upsellValueOf=l=>dealsOf(l).filter(isUpsellDeal).reduce((a,d)=>a+dealBits(d),0);
 const dealsOf=l=>{
-  if(Array.isArray(l&&l.deals)) return l.deals;
+  /* An EMPTY deals array is not the same as "no deals" — a lead can carry a
+     dealValue with no itemised deal rows (imported, or typed straight into the
+     header). Returning [] for that made openSaleValue read $0 while
+     revenueMonth read the dealValue, so Revenue Closed and Avg Deal Size
+     disagreed about the same lead. Fall through to the legacy shapes instead. */
+  if(Array.isArray(l&&l.deals)&&l.deals.length) return l.deals;
   if(l&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return [{id:'d_legacy',label:'Deal',...l.deal}];
   if(l&&num(l.dealValue)>0) return [{id:'d_legacy',label:'Deal',setup:l.dealValue}];
   return [];
@@ -683,7 +688,7 @@ const CSS=`
 .pt{font-family:'Inter',system-ui,sans-serif;color:#221f3d;display:flex;min-height:100vh;background:#F4F6FB}
 .pt h1,.pt h2,.pt h3,.pt h4,.disp{font-family:'Space Grotesk',sans-serif;letter-spacing:-.01em}
 .gate{min-height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(160deg,#211d44,${INK})}
-.gate-card{background:#fff;border-radius:20px;padding:38px 34px;width:340px;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);text-align:center}
+.gate-card{background:#fff;border-radius:20px;padding:38px 34px;width:340px;max-width:calc(100vw - 32px);box-shadow:0 30px 80px -30px rgba(0,0,0,.6);text-align:center}
 .gate-card h2{font-size:20px;color:${INK};margin:14px 0 4px}.gate-card p{font-size:13px;color:#8E89A8;margin-bottom:20px}
 .gate-card input{width:100%;padding:12px 14px;border:1px solid #DEDFEA;border-radius:10px;font-size:15px;text-align:center;letter-spacing:.04em;margin-bottom:12px}
 .gate-card input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
@@ -709,7 +714,18 @@ const CSS=`
 .nav-i.nav-reorder{margin-top:8px;font-size:12.5px;color:#9C98C4}
 .nav-i.nav-reorder.on{background:${COBALT};color:#fff}
 .nav-i.nav-reset{font-size:12px;color:#9C98C4;padding-top:6px;padding-bottom:6px}
-.sb-foot{margin-top:auto;font-size:11px;color:#888;padding:12px 8px 2px;border-top:1px solid rgba(255,255,255,.08);line-height:1.5}.sb-foot b{color:#B9B5D8;font-weight:600}
+/* min-height:0 is what actually makes this scroll: a flex child defaults to
+   min-height:auto and refuses to shrink below its content, so without it the
+   list just overflows the sidebar and the pinned block gets pushed off. */
+.sb-scroll{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;display:flex;flex-direction:column;margin:0 -4px;padding:0 4px}
+.sb-scroll::-webkit-scrollbar{width:6px}
+.sb-scroll::-webkit-scrollbar-thumb{background:rgba(255,255,255,.16);border-radius:3px}
+.sb-scroll::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.28)}
+.sb-scroll{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent}
+/* a hairline that only shows when there's more above/below, so a short list
+   doesn't get a divider it doesn't need */
+.sb-fixed{flex:none;padding-top:8px;margin-top:4px;border-top:1px solid rgba(255,255,255,.08)}
+.sb-foot{font-size:11px;color:#888;padding:12px 8px 2px;line-height:1.5}.sb-foot b{color:#B9B5D8;font-weight:600}
 .main{flex:1;min-width:0;display:flex;flex-direction:column}
 .top{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:18px 30px;background:#fff;border-bottom:1px solid #E8E9F2;position:sticky;top:0;z-index:20}
 .top h1{font-size:21px;font-weight:600}.top .sub{font-size:13px;color:#777296;margin-top:2px}
@@ -743,7 +759,7 @@ const CSS=`
 .tbl{width:100%;border-collapse:collapse;font-size:13.5px}
 .colmenu-wrap{position:relative}
 .cm-back{position:fixed;inset:0;z-index:39}
-.colmenu{position:absolute;top:46px;right:0;z-index:40;background:#fff;border:1px solid #E8E9F2;border-radius:14px;box-shadow:0 20px 50px -20px rgba(24,21,48,.5);padding:8px;width:252px;max-height:380px;overflow-y:auto}
+.colmenu{position:absolute;top:46px;right:0;z-index:40;background:#fff;border:1px solid #E8E9F2;border-radius:14px;box-shadow:0 20px 50px -20px rgba(24,21,48,.5);padding:8px;width:252px;max-width:calc(100vw - 32px);max-height:380px;overflow-y:auto}
 .colmenu .cm-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px}
 .colmenu .cm-row:hover{background:#FAFAFD}
 .colmenu .cm-name{flex:1;font-size:13px;color:#3a3658}
@@ -1237,6 +1253,13 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.mtg-loc{display:inline-flex;align-items:center;gap:3px;margin-left:7px;color:#8E89A8}
+.loc-recent{display:inline-flex;gap:5px;flex-wrap:wrap;margin-left:8px}
+.loc-recent button{border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:1px 8px;font-size:10.5px;font-family:inherit;color:${COBALT};cursor:pointer;font-weight:600;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.loc-recent button:hover{border-color:${COBALT}}
+.rbc-pend{font-size:10.5px;font-weight:700;color:#D97706;background:rgba(217,119,6,.1);border-radius:6px;padding:1px 6px}
+.tx-src{margin-left:7px;font-size:9.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:${COBALT};background:color-mix(in srgb,${COBALT} 11%,#fff);border-radius:5px;padding:1px 5px}
+tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .ev-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
 .ev-card{text-align:left;background:#fff;border:1px solid #E4E5EF;border-radius:16px;padding:15px 16px;cursor:pointer;display:flex;flex-direction:column;gap:3px}
 .ev-card:hover{border-color:${COBALT}}
@@ -1528,7 +1551,7 @@ const CSS=`
 .seg-b.on{background:#fff;color:${COBALT};box-shadow:0 1px 4px rgba(0,0,0,.08)}
 .badge.inv-draft{color:#56527a;background:#EAEBF3}.badge.inv-sent{color:${COBALT};background:rgba(43,77,224,.1)}
 .badge.inv-paid{color:${GREEN};background:rgba(31,157,85,.1)}.badge.inv-overdue{color:${RED};background:rgba(209,67,67,.1)}
-.inv-modal{width:1080px}
+.inv-modal{width:1080px;max-width:96vw}
 .inv-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .inv-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:0;overflow:auto;flex:1}
 .inv-edit{padding:20px 22px;overflow:auto;border-right:1px solid #E8E9F2}
@@ -1703,6 +1726,22 @@ const CSS=`
 .iconbtn{background:#F1F2F8;border:none;border-radius:7px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a;flex:none}.iconbtn:hover{background:#E6E7F1}.iconbtn:disabled{opacity:.35;cursor:default}
 @media(max-width:820px){
   .sb{position:fixed;left:0;top:0;transform:translateX(-100%);transition:transform .25s;box-shadow:0 0 60px rgba(0,0,0,.4)}.sb.open{transform:none}.hamb{display:block}
+  /* Forms were two columns at 390px, so every input sat at roughly 160px and
+     dates and dropdowns clipped their own content. */
+  .fgrid{grid-template-columns:1fr}
+  /* The fact strip capped at 430px, i.e. wider than the phone. */
+  .m-facts{max-width:100%}
+  /* Invoice preview and its toolbar are fixed at 660px — let them scroll
+     sideways rather than pushing the page wider than the screen. */
+  .inv-preview,.inv-page-tools{max-width:100%}
+  .inv-body{overflow-x:auto}
+  .rr-name{width:auto;flex:1 1 120px;min-width:0}
+  .ip-totals{width:auto;min-width:0}
+  .fu-done-ring{width:84px;height:84px}
+  .pc-amt,.ex-amt-w{width:96px}
+  .sheet-map select{max-width:100%}
+  /* Anything that lives in a horizontal strip needs to be allowed to wrap. */
+  .mtg-actions,.sheet-acts,.dash-arrange,.ev-stats{gap:8px}
   .m-grid{grid-template-columns:1fr;overflow-y:auto}
   .m-left,.m-right{overflow:visible}
   .m-right{border-left:none;border-top:1px solid #E8E9F2}
@@ -1932,7 +1971,7 @@ export default function App(){
   /* creates the event on Google Calendar; returns {eventId,htmlLink,meetLink}. Persistence
      of the meeting onto the lead happens in the Modal (single patch) to avoid clobbering. */
   const createCalendarEvent=async(m)=>{
-    const r=await fetch('/api/calendar-event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:m.title,start:m.start,end:m.end,notes:m.notes,attendees:m.attendees,meet:m.meet,timezone:'America/Chicago'})});
+    const r=await fetch('/api/calendar-event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:m.title,start:m.start,end:m.end,notes:m.notes,location:m.location||'',attendees:m.attendees,meet:m.meet,timezone:'America/Chicago'})});
     const j=await r.json().catch(()=>({ok:false,error:'bad response'}));
     if(!j.ok) throw new Error(j.error==='not_connected'?'Google Calendar isn’t connected — connect it in Settings.':(j.error||'Could not create the event'));
     return {eventId:j.eventId,htmlLink:j.htmlLink||'',meetLink:j.meetLink||''};
@@ -2091,6 +2130,46 @@ export default function App(){
   const saveSettings=n=>{ setSettings(n); if(settingsTimer.current)clearTimeout(settingsTimer.current); settingsTimer.current=setTimeout(()=>{ db.saveSettings(n).catch(console.error); },700); };
   const saveInvoices=n=>{ setInvoices(n); if(typeof db.saveInvoices==='function') db.saveInvoices(n).catch(console.error); };
   const saveTxns=n=>{ setTxns(n); if(typeof db.saveTxns==='function') db.saveTxns(n).catch(console.error); };
+  /* Marking an invoice paid used to be a dead end: it set a status and nothing
+     else. The money never reached the client's payments, never ticked
+     deposit_paid, so an invoice paid IN FULL still left the client reading
+     "payment not collected" with their revenue excluded. One rule now: an
+     invoice marked paid is money received, and it lands everywhere money lands.
+     Idempotent via invoiceId — marking, unmarking and re-marking can't stack. */
+  const applyInvoicePayment=(inv,paid)=>{
+    if(!inv||!inv.clientId) return;
+    const lead=leadsRef.current.find(l=>l.id===inv.clientId); if(!lead) return;
+    const pays=Array.isArray(lead.payments)?lead.payments:[];
+    const existing=pays.find(p=>p.invoiceId===inv.id);
+    const amount=invTotal(inv);
+    if(paid){
+      if(existing&&num(existing.amount)===amount) return;    // already recorded
+      const when=inv.paidDate||todayISO();
+      const row={id:existing?existing.id:uid(),invoiceId:inv.id,amount,date:when,
+        note:`Invoice ${inv.number||''}`.trim()};
+      const nextPays=existing?pays.map(p=>p.invoiceId===inv.id?row:p):[...pays,row];
+      const ob={...(lead.onboarding||{})};
+      const wasPaid=normEntry(ob.deposit_paid).done;
+      /* first money in also confirms the deposit — the cash landed, so the
+         revenue gate has no reason to keep holding it */
+      if(!wasPaid) ob.deposit_paid={done:when,due:normEntry(ob.deposit_paid).due||null};
+      const acts=[{id:uid(),ts:new Date().toISOString(),type:'Payment',
+        text:`Payment received: ${usdc(amount)} — invoice ${inv.number||''}`.trim(),who:me}];
+      if(!wasPaid) acts.push({id:uid(),ts:new Date().toISOString(),type:'Note',
+        text:`Payment confirmed ${fmtDate(when)} — ${usd(num(lead.dealValue))} now counting.`,who:me});
+      updateLead(lead.id,{payments:nextPays,onboarding:ob,
+        activities:[...acts,...(lead.activities||[])]});
+    } else {
+      if(!existing) return;
+      /* unmarking removes only the row this invoice created; anything logged by
+         hand stays, and deposit_paid is left alone because other money may have
+         landed for other reasons */
+      updateLead(lead.id,{payments:pays.filter(p=>p.invoiceId!==inv.id),
+        activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',
+          text:`Invoice ${inv.number||''} marked unpaid — ${usdc(amount)} removed.`.trim(),who:me},
+          ...(lead.activities||[])]});
+    }
+  };
   const upsertTxn=t=>{ const exists=txns.some(x=>x.id===t.id); saveTxns(exists?txns.map(x=>x.id===t.id?t:x):[t,...txns]); };
   const deleteTxn=t=>{ saveTxns(txns.filter(x=>x.id!==t.id)); if(t.receipt?.path&&typeof db.removeReceipt==='function') db.removeReceipt(t.receipt.path).catch(console.error); };
   const saveTasks=n=>{ setTasks(n); if(typeof db.saveTasks==='function') db.saveTasks(n).catch(console.error); };
@@ -2476,6 +2555,11 @@ export default function App(){
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <Brand logo={settings.logo} size={settings.logoSize||34} sub={rep?'Sales':'Client CRM'}/>
+      {/* Only the tab list scrolls. New Lead / My account / Sign out stay pinned
+          below it — signing out shouldn't require scrolling past fifteen tabs,
+          and on a short laptop screen they were falling off the bottom
+          entirely. */}
+      <nav className="sb-scroll">
       {navItems.map(([k,l,ic],i)=>navEdit
         ? (<div key={k} className={'nav-i nav-edit'+(navDrag===k?' dragging':'')}
              draggable onDragStart={()=>setNavDrag(k)} onDragEnd={()=>setNavDrag(null)}
@@ -2491,10 +2575,13 @@ export default function App(){
         <GripVertical size={16}/>{navEdit?'Done':'Reorder tabs'}
       </button>
       {navEdit&&<button className="nav-i nav-reset" onClick={()=>saveNav(NAV_KEYS)}>Reset to default</button>}
-      <button className="nav-i" style={{marginTop:8,background:'rgba(43,77,224,.16)',color:'#fff'}} onClick={()=>setActiveId('new')}><Plus size={18}/>New Lead</button>
-      <button className="nav-i" onClick={()=>{setAcct(true);setSbOpen(false);}}><KeyRound size={18}/>My account</button>
-      <button className="nav-i" onClick={()=>auth.logout()}><LogOut size={18}/>Sign out ({me})</button>
-      <div className="sb-foot"><b>{BRAND.tagline}</b><br/>{BRAND.taglineSub}</div>
+      </nav>
+      <div className="sb-fixed">
+        <button className="nav-i" style={{background:'rgba(43,77,224,.16)',color:'#fff'}} onClick={()=>setActiveId('new')}><Plus size={18}/>New Lead</button>
+        <button className="nav-i" onClick={()=>{setAcct(true);setSbOpen(false);}}><KeyRound size={18}/>My account</button>
+        <button className="nav-i" onClick={()=>auth.logout()}><LogOut size={18}/>Sign out ({me})</button>
+        <div className="sb-foot"><b>{BRAND.tagline}</b><br/>{BRAND.taglineSub}</div>
+      </div>
     </aside>
     <div className="main">
       <div className="top">
@@ -2517,7 +2604,7 @@ export default function App(){
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
-          view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
+          view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead}/>:
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
           view==='money'?<Money leads={bizLeads} stages={stages} settings={settings}/>:
@@ -2528,7 +2615,7 @@ export default function App(){
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
     {celebrate&&<Celebration data={celebrate} onDone={()=>setCelebrate(null)}/>}
     {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
-    {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onClose={()=>setInvId(null)}/>:null;})()}
+    {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
 
@@ -2537,7 +2624,7 @@ function useMetrics(leads,stages,settings){
   return useMemo(()=>{
     const ratioEx=ratioExcludeOf(settings);
     const byStage={}; stages.forEach(s=>byStage[s.key]={count:0,value:0});
-    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,lostCount=0,mrr=0,retainers=0,upsellCount=0,upsellValue=0;
+    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,wonPending=0,lostCount=0,mrr=0,retainers=0,upsellCount=0,upsellValue=0;
     /* An upsell to somebody you've already delivered for is at least as likely to
        land as a proposal sitting with a new lead, so it's weighted at the best
        probability on the open stages rather than at an invented number. */
@@ -2547,7 +2634,11 @@ function useMetrics(leads,stages,settings){
       /* A won lead's UNSTAMPED deals are the sale that won it — still won revenue.
          Its upsell deals are money on the table and belong in pipeline, which is
          the whole bug: typing an amount on a client used to book it as revenue. */
-      if(s.won){ wonCount++; if(cashConfirmed(l)) wonValue+=openSaleValue(l);
+      /* wonCount only counts deals whose money is confirmed, because wonValue
+         does too and avgDeal divides one by the other. Counting the deal but not
+         its value made average deal size DROP every time you converted somebody
+         who hadn't paid yet. wonPending tracks the rest so nothing is hidden. */
+      if(s.won){ if(cashConfirmed(l)){ wonCount++; wonValue+=openSaleValue(l); } else wonPending++;
         const uv=upsellValueOf(l);
         if(uv>0){ upsellCount++; upsellValue+=uv; weighted+=uv*upsellProb; } }
       if(s.lost) lostCount++; wonValue+=closedDealsTotal(l);
@@ -2556,7 +2647,12 @@ function useMetrics(leads,stages,settings){
     const overdue=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<0&&sOf(l.stage,stages).open);
     const dueWeek=leads.filter(l=>{const d=l.followUp?daysUntil(l.followUp):null;return d!==null&&d>=0&&d<=7&&sOf(l.stage,stages).open;});
     const hot=leads.filter(l=>l.priority==='high'&&sOf(l.stage,stages).open);
-    const winRate=(wonCount+lostCount)>0?wonCount/(wonCount+lostCount):0;
+    /* win rate is about SELLING, so a won deal counts the moment it's won
+       whether or not the money has landed. Revenue is the cash question.
+       Declared here, above its only use — `const` does not hoist, and putting
+       it below winRate crashed at render while still building cleanly. */
+    const wonForRate=wonCount+wonPending;
+    const winRate=(wonForRate+lostCount)>0?wonForRate/(wonForRate+lostCount):0;
     const avgDeal=wonCount>0?wonValue/wonCount:0; const avgRet=retainers>0?mrr/retainers:0;
     /* meetings — ONE unified source. Every meeting (scheduled or logged) counts
        once, and held/no-show is read from the same record everywhere. */
@@ -2633,17 +2729,21 @@ function useMetrics(leads,stages,settings){
 
     /* revenue by client — lifetime booked value per client, biggest first.
        Counts archived closed deals + any current won dealValue, plus flags MRR. */
+    /* Same cash rule as the dashboard. Without it this table showed a client's
+       full lifetime value while Revenue Closed excluded them — two screens, two
+       answers, and no way to tell which was right. */
     const byClient=leads.filter(l=>l.isClient||sOf(l.stage,stages).won||closedDealsTotal(l)>0).map(l=>{
       const closed=closedDealsTotal(l);
-      const current=(sOf(l.stage,stages).won||l.isClient)?num(l.dealValue):0;
+      const current=((sOf(l.stage,stages).won||l.isClient)&&cashConfirmed(l))?num(l.dealValue):0;
+      const pending=((sOf(l.stage,stages).won||l.isClient)&&!cashConfirmed(l))?num(l.dealValue):0;
       const lifetime=closed+current;
-      return {id:l.id,name:l.name||l.company||'—',company:l.company,lifetime,closed,current,
+      return {id:l.id,name:l.name||l.company||'—',company:l.company,lifetime,closed,current,pending,
         mrr:l.retainerActive?num(l.retainer):0,deals:((l.closedDeals||[]).length)+((sOf(l.stage,stages).won||l.isClient)&&num(l.dealValue)>0?1:0)};
-    }).filter(c=>c.lifetime>0||c.mrr>0).sort((a,b)=>b.lifetime-a.lifetime);
+    }).filter(c=>c.lifetime>0||c.mrr>0||c.pending>0).sort((a,b)=>b.lifetime-a.lifetime);
     return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
       firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,awaitingCash,awaitingValue,
-      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,avgDaysToClose,movingPct,rotting,sourceROI};
+      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages,settings]);
 }
 
@@ -3057,6 +3157,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
               <span className="rbc-name">{cl.name}</span>
               {cl.deals>1&&<span className="rbc-deals">{cl.deals} deals</span>}
               {cl.mrr>0&&<span className="rbc-mrr">{usd(cl.mrr)}/mo</span>}
+              {cl.pending>0&&<span className="rbc-pend">{usd(cl.pending)} unpaid</span>}
             </div>
             <div className="rbc-bar"><div style={{width:Math.max(3,Math.round(cl.lifetime/top*100))+'%'}}/></div>
             <span className="rbc-v">{usd(cl.lifetime)}</span>
@@ -3377,6 +3478,7 @@ function MeetingsPage({leads,setMeetingStatus,setMeetingTime,tagMeetingType,remo
                            :fmtMeetingTime(m.start)}
               {m.who?` · ${m.who}`:''}
               {m.title&&m.title!==m.mtype?` · ${m.title}`:''}
+              {m.location?<span className="mtg-loc"><MapPin size={11}/>{m.location}</span>:null}
               {needsStatus(m)&&<span className="mtg-flag"> · did this happen?</span>}
             </div>
           </div>
@@ -4342,7 +4444,7 @@ function InvoicePreview({inv,settings,saveSettings}){
         </div>);
 }
 
-function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClose}){
+function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClose,onPaid}){
   const [inv,setInv]=useState(invoice);
   useEffect(()=>setInv(invoice),[invoice.id]);
   const patch=p=>{const n={...inv,...p};setInv(n);onSave(n);};
@@ -4363,8 +4465,10 @@ function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClo
         <div className="inv-actions">
           {inv.status!=='paid'&&inv.status!=='sent'&&<button className="btn btn-s btn-sm" onClick={()=>patch({status:'sent'})}><Send size={14}/>Mark sent</button>}
           {inv.status!=='paid'
-            ? <button className="btn btn-p btn-sm" onClick={()=>patch({status:'paid',paidDate:todayISO()})}><CheckCircle2 size={14}/>Mark paid</button>
-            : <button className="btn btn-s btn-sm" onClick={()=>patch({status:'sent',paidDate:''})}>Unmark paid</button>}
+            ? <button className="btn btn-p btn-sm" onClick={()=>{ const d=todayISO();
+                patch({status:'paid',paidDate:d}); onPaid&&onPaid({...inv,status:'paid',paidDate:d},true); }}><CheckCircle2 size={14}/>Mark paid</button>
+            : <button className="btn btn-s btn-sm" onClick={()=>{
+                patch({status:'sent',paidDate:''}); onPaid&&onPaid(inv,false); }}>Unmark paid</button>}
           <button className="btn btn-s btn-sm" onClick={()=>window.print()}><Printer size={14}/>Print / PDF</button>
           <button className="m-x" onClick={onClose}><X size={18}/></button>
         </div>
@@ -4612,15 +4716,27 @@ function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
   </div>);
 }
 
-function Books({txns,upsertTxn,deleteTxn}){
+/* Every payment logged against a client, as a read-only income row. They are
+   DERIVED, not copied: a payment lives on the lead, and duplicating it into the
+   txns table would mean two records that drift the moment one is edited. So
+   The Books shows them, counts them, and sends you to the client to change one.
+   This is what turns an expense ledger into an actual P&L — before this, every
+   dollar you collected was invisible here. */
+const paymentTxns=leads=>(leads||[]).flatMap(l=>(l.payments||[]).map(p=>({
+  id:'pay_'+l.id+'_'+p.id, date:p.date||'', type:'income', amount:num(p.amount),
+  who:l.name||l.company||'Client', note:p.note||'', leadId:l.id, derived:true,
+})));
+function Books({txns,upsertTxn,deleteTxn,leads,openLead}){
   const thisYear=todayISO().slice(0,4);
   const [year,setYear]=useState(thisYear);
   const [filter,setFilter]=useState('all');
   const [edit,setEdit]=useState(null); // {txn, file}
   const [busy,setBusy]=useState(false);
   const fileRef=React.useRef(null);
-  const years=useMemo(()=>{const s=new Set(txns.map(t=>(t.date||'').slice(0,4)).filter(Boolean));s.add(thisYear);return [...s].sort().reverse();},[txns,thisYear]);
-  const yearTxns=useMemo(()=>txns.filter(t=>(t.date||'').slice(0,4)===year).sort((a,b)=>(b.date||'').localeCompare(a.date||'')),[txns,year]);
+  /* client payments are folded in alongside hand-entered transactions */
+  const all=useMemo(()=>[...txns,...paymentTxns(leads)],[txns,leads]);
+  const years=useMemo(()=>{const s=new Set(all.map(t=>(t.date||'').slice(0,4)).filter(Boolean));s.add(thisYear);return [...s].sort().reverse();},[all,thisYear]);
+  const yearTxns=useMemo(()=>all.filter(t=>(t.date||'').slice(0,4)===year).sort((a,b)=>(b.date||'').localeCompare(a.date||'')),[all,year]);
   const shown=yearTxns.filter(t=>{const d=TX_TYPES[t.type]?.dir;return filter==='all'||(filter==='in'&&d==='in')||(filter==='out'&&d==='out')||(filter==='draw'&&t.type==='draw');});
   const sum=pred=>yearTxns.filter(pred).reduce((a,t)=>a+num(t.amount),0);
   const moneyIn=sum(t=>TX_TYPES[t.type]?.dir==='in');
@@ -4677,11 +4793,16 @@ function Books({txns,upsertTxn,deleteTxn}){
     </div>
     <div className="card">
       {shown.length?<table className="tbl"><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Vendor / Source</th><th>Who</th><th>Receipt</th><th style={{textAlign:'right'}}>Amount</th></tr></thead>
-      <tbody>{shown.map(t=>{const m=TX_TYPES[t.type]||{};const out=m.dir==='out';return(<tr key={t.id} onClick={()=>setEdit({txn:t,file:null})}>
+      {/* A derived payment row opens its CLIENT, not the transaction editor —
+          the record lives on the lead and there is nothing here to edit. */}
+      <tbody>{shown.map(t=>{const m=TX_TYPES[t.type]||{};const out=m.dir==='out';return(<tr key={t.id}
+        className={t.derived?'tx-derived':''}
+        onClick={()=>t.derived?(openLead&&openLead(t.leadId)):setEdit({txn:t,file:null})}>
         <td className="subcell">{fmtDate(t.date)}</td>
-        <td><span className="tx-type">{out?<ArrowUpRight size={13} color="#b4322e"/>:<ArrowDownLeft size={13} color="#1f9d63"/>}{m.label||t.type}</span></td>
-        <td className="subcell">{t.category||'—'}</td>
-        <td><div className="namecell">{t.party||'—'}</div>{t.notes&&<div className="subcell">{t.notes}</div>}</td>
+        <td><span className="tx-type">{out?<ArrowUpRight size={13} color="#b4322e"/>:<ArrowDownLeft size={13} color="#1f9d63"/>}{m.label||t.type}
+          {t.derived&&<span className="tx-src">client payment</span>}</span></td>
+        <td className="subcell">{t.category||(t.derived?'Client revenue':'—')}</td>
+        <td><div className="namecell">{t.party||t.who||'—'}</div>{(t.notes||t.note)&&<div className="subcell">{t.notes||t.note}</div>}</td>
         <td className="subcell">{t.who||'—'}</td>
         <td onClick={e=>{e.stopPropagation();if(t.receipt)openReceipt(t);}}>{t.receipt?<span className="rc-btn"><Paperclip size={13}/>View</span>:<span className="rc-none">—</span>}</td>
         <td style={{textAlign:'right'}}><span className={'tx-amt '+(out?'tx-out':'tx-in')}>{out?'−':'+'}{usd(num(t.amount))}</span></td>
@@ -5314,7 +5435,7 @@ function fmtMeetingTime(iso){ try{ const d=new Date(iso); return d.toLocaleStrin
    - "Invite client" was disabled with no visible reason whenever the lead had
      no email, which reads exactly like a broken checkbox. It now shows the
      field and writes the address back to the lead. */
-function MeetingScheduler({lead,gcalConnected,gcalEmail,onSchedule,onLogUndated}){
+function MeetingScheduler({lead,gcalConnected,gcalEmail,onSchedule,onLogUndated,recentLocations}){
   const [date,setDate]=useState(todayISO());
   const [time,setTime]=useState('10:00');
   const [dur,setDur]=useState(30);
@@ -5323,12 +5444,19 @@ function MeetingScheduler({lead,gcalConnected,gcalEmail,onSchedule,onLogUndated}
   const [invite,setInvite]=useState(false);
   const [meet,setMeet]=useState(false);
   const [notes,setNotes]=useState('');
+  const [loc,setLoc]=useState('');
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState('');
   const [addEmail,setAddEmail]=useState('');
   /* both the Meetings section and the activity composer can be on screen at
      once, so the quarter-hour datalist needs an id of its own per instance */
   const [listId]=useState(()=>'mtgq-'+Math.random().toString(36).slice(2,8));
+  const [locListId]=useState(()=>'mtgl-'+Math.random().toString(36).slice(2,8));
+  /* places used before, newest first, deduped case-insensitively */
+  const recentLocs=useMemo(()=>{ const seen=new Set(); const out=[];
+    (recentLocations||[]).forEach(v=>{ const k=String(v||'').trim(); if(!k) return;
+      const lk=k.toLowerCase(); if(seen.has(lk)) return; seen.add(lk); out.push(k); });
+    return out.slice(0,8); },[recentLocations]);
   const leadEmail=(lead.email||'').trim();
   const typed=addEmail.trim();
   const inviteEmail=leadEmail||typed;
@@ -5349,8 +5477,9 @@ function MeetingScheduler({lead,gcalConnected,gcalEmail,onSchedule,onLogUndated}
          stale draft inside one tick and the second overwrites the first. */
       await onSchedule({title:t,mtype,start:localISO(startDt),end:localISO(endDt),
         invited:invite&&emailOk,attendees:(invite&&emailOk)?[inviteEmail]:[],meet,notes:notes.trim(),
+        location:meet?'':loc.trim(),
         saveEmail:(invite&&emailOk&&!leadEmail)?inviteEmail:''});
-      setTitle('');setNotes('');setInvite(false);setMeet(false);setAddEmail('');
+      setTitle('');setNotes('');setLoc('');setInvite(false);setMeet(false);setAddEmail('');
     }catch(e){ setErr(e.message||'Could not schedule'); }
     setBusy(false);
   };
@@ -5373,6 +5502,15 @@ function MeetingScheduler({lead,gcalConnected,gcalEmail,onSchedule,onLogUndated}
       </div></div>
       {invite&&!leadEmail&&<div className="field full"><label>Client email (saved to the lead)</label>
         <input type="email" inputMode="email" placeholder="name@company.com" value={addEmail} onChange={e=>setAddEmail(e.target.value)}/></div>}
+      {/* Hidden when Meet Link is on: a video call has no address, and an
+          invite carrying both is just confusing. Recent places are remembered
+          so the coffee shop you always use is one tap the second time. */}
+      {!meet&&<div className="field full"><label>Where {recentLocs.length>0&&<span className="loc-recent">
+          {recentLocs.slice(0,3).map(r=><button key={r} type="button" onClick={()=>setLoc(r)}>{r}</button>)}</span>}</label>
+        <input list={locListId} placeholder="Address or place — goes on the calendar invite"
+          value={loc} onChange={e=>setLoc(e.target.value)}/>
+        <datalist id={locListId}>{recentLocs.map(r=><option key={r} value={r}/>)}</datalist>
+      </div>}
       <div className="field full"><label>Notes (optional)</label><textarea rows={2} value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Agenda, what to prep…"/></div>
     </div>
     {err&&<div className="mtg-err">{err}</div>}
@@ -5393,7 +5531,8 @@ function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
   const past=dated.filter(m=>new Date(m.end||m.start).getTime()<now).reverse();
   if(!sorted.length) return <div className="mtg-empty">No meetings yet. Schedule one below.</div>;
   const Row=m=>(<div className={'mtg-row'+(m.status==='held'?' held':'')+(m.status==='noshow'?' noshow':'')+(needsDate(m)?' undated':'')} key={m.id}>
-    <div className="mtg-when"><CalendarClock size={13}/>{needsDate(m)?<span className="mtg-undated">no date set</span>:fmtMeetingTime(m.start)}</div>
+    <div className="mtg-when"><CalendarClock size={13}/>{needsDate(m)?<span className="mtg-undated">no date set</span>:fmtMeetingTime(m.start)}
+      {m.location&&<span className="mtg-loc"><MapPin size={11}/>{m.location}</span>}</div>
     <div className="mtg-mid"><div className="mtg-title">{m.title}</div><div className="mtg-badges">
       <select className={'mtg-type'+(m.mtype?'':' unset')} value={m.mtype||''} onClick={e=>e.stopPropagation()} onChange={e=>onType&&onType(m,e.target.value)}>
         <option value="">+ type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
@@ -5442,9 +5581,14 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
      part that can be absent. When the calendar isn't connected we skip the call
      entirely rather than throwing — the meeting is still real, it just isn't on
      a calendar, and the row says so instead of the booking failing outright. */
+  /* every place already used, newest first — the scheduler turns these into
+     one-tap chips so a regular coffee spot isn't retyped every week */
+  const recentLocations=useMemo(()=>allMeetings(allLeads||[])
+    .filter(r=>r.m.location).sort((a,b)=>(b.m.createdAt||'').localeCompare(a.m.createdAt||''))
+    .map(r=>r.m.location),[allLeads]);
   const doSchedule=async(m)=>{ let ev={eventId:'',htmlLink:'',meetLink:''};
     if(gcalConnected) ev=await createCalendarEvent(m);
-    const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',createdAt:new Date().toISOString(),dateUnknown:false};
+    const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',location:m.location||'',createdAt:new Date().toISOString(),dateUnknown:false};
     const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',mtype:m.mtype||'Other',meetingId:meeting.id,text:`${m.mtype||'Meeting'} booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
     set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])],
       ...(m.saveEmail?{email:m.saveEmail}:{})}); return meeting; };
@@ -5738,7 +5882,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
               <>
                 <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus} onTime={doTime} onType={(mt,v)=>{tagMeeting&&tagMeeting(draft.id,mt.id,v);setDraft(d=>({...d,meetings:(d.meetings||[]).map(x=>x.id===mt.id?{...x,mtype:v}:x)}));}}/>
-                <MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} onSchedule={doSchedule} onLogUndated={doLogUndated}/>
+                <MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/>
               </>, (draft.meetings||[]).some(m=>new Date(m.end||m.start).getTime()>=Date.now()))}
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
               [draft.source,draft.businessType!=='—'?draft.businessType:null,sOf(draft.stage,stages)?.label,PRIORITIES[draft.priority]?.label].filter(Boolean).join(' · ')||'not set',
@@ -6023,7 +6167,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             </div>
             {atype==='Booked'
               ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail}
-                  onSchedule={doSchedule} onLogUndated={doLogUndated}/></div>
+                  onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/></div>
               : null}
             {atype==='Payment'
               ? <div className="pay-compose">
