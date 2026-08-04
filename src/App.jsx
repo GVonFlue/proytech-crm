@@ -165,7 +165,7 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['events','Events'],['invoices','Invoices'],['books','The Books'],['money','Money']];
+const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['events','Events'],['invoices','Invoices'],['books','The Books'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -1308,6 +1308,24 @@ const CSS=`
 .cb-pay:hover{background:rgba(217,119,6,.08)}
 .cb-pay.on{border-color:rgba(43,150,94,.4);color:${GREEN}}
 .cb-pay.on:hover{background:rgba(43,150,94,.08)}
+.mtg-filters{display:flex;gap:9px;flex-wrap:wrap}
+.mtg-q{flex:1 1 240px;min-width:0;border:1px solid #E4E5EF;border-radius:10px;padding:9px 12px;font-size:13px;font-family:inherit;color:${INK}}
+.mtg-filters select{border:1px solid #E4E5EF;border-radius:10px;padding:9px 10px;font-size:13px;font-family:inherit}
+.mrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:11px 0;border-bottom:1px solid #F0F1F7}
+.mrow:last-child{border-bottom:0}
+.mrow.needs{background:rgba(217,119,6,.05)}
+.mrow.undated{background:color-mix(in srgb,${COBALT} 4%,#fff)}
+.mrow.held{opacity:.72}
+.mrow.noshow{opacity:.62}
+.mrow-l{flex:1 1 220px;min-width:0}
+.mrow-name{background:none;border:0;padding:0;font-family:'Space Grotesk',sans-serif;font-size:14.5px;font-weight:700;color:${INK};cursor:pointer;text-align:left}
+.mrow-name:hover{color:${COBALT}}
+.mrow-sub{font-size:12px;color:#8E89A8;margin-top:2px}
+.mrow-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-left:auto}
+.mrow-type{border:1px solid #E4E5EF;border-radius:9px;padding:6px 8px;font-size:12px;font-family:inherit;color:${COBALT};font-weight:600;background:#fff}
+.mrow-cal{display:inline-flex;align-items:center;color:#A5A2BC;padding:3px}
+.mrow-cal:hover{color:${COBALT}}
+@media(max-width:640px){.mrow-r{width:100%;margin-left:0}}
 .dash-arrange{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
 .dash-arrange .btn.on{background:${COBALT};color:#fff;border-color:${COBALT}}
 .dsec{border:1.5px dashed #D6D8E8;border-radius:16px;padding:0 0 4px;margin-bottom:14px;background:#FCFCFE}
@@ -1985,6 +2003,12 @@ export default function App(){
         st={...st,modules:st.modules.includes('events')?st.modules:[...st.modules,'events'],modulesV:3};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
+      /* Meetings, same reason: a saved module list predates the tab, so without
+         this it ships invisible and nothing looks broken. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<4){
+        st={...st,modules:st.modules.includes('meetings')?st.modules:[...st.modules,'meetings'],modulesV:4};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
@@ -2191,6 +2215,19 @@ export default function App(){
         text:`Dated: ${target.title||target.mtype||'meeting'} — ${fmtMeetingTime(start)}`,who:me};
       updated={...l,meetings,activities:[act,...(l.activities||[])]}; return updated;
     })); if(updated) db.upsertLead(updated).catch(console.error); };
+  /* Cancel a meeting from outside the lead modal. Same rules as the modal's
+     version: the meeting leaves the count and the calendar, the Booked activity
+     that announced it stays and is flagged cancelled, and a note records it. */
+  const removeMeeting=(leadId,meetingId)=>{ let updated=null;
+    const lead=leadsRef.current.find(l=>l.id===leadId);
+    const target=lead&&meetingsOf(lead).find(m=>m.id===meetingId);
+    if(target&&target.eventId) deleteCalendarEvent(target.eventId);
+    commitLeads(leadsRef.current.map(l=>{ if(l.id!==leadId)return l;
+      const acts=(l.activities||[]).map(a=>(a.meetingId===meetingId&&a.type==='Booked')?{...a,cancelled:true}:a);
+      const note={id:uid(),ts:new Date().toISOString(),type:'Meeting',
+        text:`Cancelled: ${(target&&(target.title||target.mtype))||'meeting'}${target&&target.start&&!datelessOf(target)?` — ${fmtMeetingTime(target.start)}`:''}`,who:me};
+      updated={...l,meetings:(l.meetings||[]).filter(m=>m.id!==meetingId),activities:[note,...acts]}; return updated;
+    })); if(updated) db.upsertLead(updated).catch(console.error); };
   const tagMeetingType=(leadId,meetingId,mtype)=>{ let updated=null;
     setLeads(leads.map(l=>{ if(l.id!==leadId)return l;
       const all=meetingsOf(l); const target=all.find(m=>m.id===meetingId); if(!target)return l;
@@ -2386,7 +2423,7 @@ export default function App(){
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['events','Events',<Ticket size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['events','Events',<Ticket size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -2481,6 +2518,7 @@ export default function App(){
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn}/>:
+          view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
           view==='money'?<Money leads={bizLeads} stages={stages} settings={settings}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
@@ -3273,6 +3311,98 @@ const evDaysOut=e=>{ if(!e.date) return null;
 const evOverdue=e=>(e.milestones||[]).filter(m=>!m.done&&m.due&&m.due<isoOf(new Date()));
 const evUpcomingEvents=list=>(list||[]).filter(e=>e.status!=='done')
   .sort((a,b)=>(a.date||'9999').localeCompare(b.date||'9999'));
+
+/* Every meeting in one place. The dashboard drilldown answers "what's the state
+   of this month"; this answers "where is everything and let me fix it". Same
+   derived model (meetingsOf) and the same mutators, so nothing here can drift
+   from what the dashboard reports. */
+function MeetingsPage({leads,setMeetingStatus,setMeetingTime,tagMeetingType,removeMeeting,open,settings}){
+  const [tab,setTab]=useState('upcoming');
+  const [q,setQ]=useState('');
+  const [who,setWho]=useState('all');
+  const Blank=({t})=><div className="empty" style={{padding:'26px 4px'}}>{t}</div>;
+
+  const rows=useMemo(()=>allMeetings(leads),[leads]);
+  const owners=useMemo(()=>[...new Set(rows.map(r=>r.m.who).filter(Boolean))].sort(),[rows]);
+  const buckets={
+    upcoming:r=>isUpcoming(r.m),
+    needs:r=>needsStatus(r.m),
+    undated:r=>needsDate(r.m),
+    held:r=>r.m.status==='held',
+    noshow:r=>r.m.status==='noshow',
+  };
+  const pass=r=>{
+    if(who!=='all'&&r.m.who!==who) return false;
+    const t=q.trim().toLowerCase(); if(!t) return true;
+    const l=r.lead;
+    return [l.name,l.company,r.m.title,r.m.mtype].some(v=>String(v||'').toLowerCase().includes(t));
+  };
+  const counts=Object.keys(buckets).reduce((o,k)=>{o[k]=rows.filter(r=>buckets[k](r)&&pass(r)).length;return o;},{});
+  const list=useMemo(()=>{
+    const f=rows.filter(r=>buckets[tab](r)&&pass(r));
+    /* upcoming reads soonest-first because it's a to-do list; history reads
+       newest-first because that's how you look back */
+    const dir=tab==='upcoming'?1:-1;
+    return f.sort((a,b)=>tab==='undated'
+      ? (b.m.createdAt||'').localeCompare(a.m.createdAt||'')
+      : dir*((a.m.start||'').localeCompare(b.m.start||'')));
+  },[rows,tab,q,who]);
+
+  const TABS=[['upcoming','Upcoming'],['needs','Needs status'],['undated','Needs a date'],['held','Held'],['noshow','No-shows']];
+  return (<>
+    <div className="sec-h"><div><h2>Meetings</h2>
+      <div className="meta">Everything booked, everywhere — fix a date, mark what happened, cancel</div></div></div>
+
+    <div className="card" style={{marginBottom:16}}>
+      <div className="mtg-filters">
+        <input className="mtg-q" placeholder="Search a name, company or title" value={q} onChange={e=>setQ(e.target.value)}/>
+        {owners.length>1&&<select value={who} onChange={e=>setWho(e.target.value)}>
+          <option value="all">Everyone</option>{owners.map(o=><option key={o} value={o}>{o}</option>)}
+        </select>}
+      </div>
+      <div className="mtabs" style={{marginTop:12}}>
+        {TABS.map(([k,label])=>(
+          <button key={k} className={'mtab'+(tab===k?' on':'')+(k==='needs'&&counts.needs>0?' alert':'')+(k==='undated'&&counts.undated>0?' undated':'')}
+            onClick={()=>setTab(k)}>{label}<span className="mtab-n">{counts[k]}</span></button>))}
+      </div>
+    </div>
+
+    <div className="card">
+      {list.length?list.map(({lead,m})=>(
+        <div className={'mrow'+(m.status==='held'?' held':'')+(m.status==='noshow'?' noshow':'')+(needsStatus(m)?' needs':'')+(needsDate(m)?' undated':'')} key={m.id}>
+          <div className="mrow-l">
+            <button className="mrow-name" onClick={()=>open&&open(lead.id)}>{lead.name||lead.company||'Unnamed'}</button>
+            <div className="mrow-sub">
+              {needsDate(m)?<><span className="mtg-undated">no date set</span> · logged {fmtDate(m.createdAt||m.start)}</>
+                           :fmtMeetingTime(m.start)}
+              {m.who?` · ${m.who}`:''}
+              {m.title&&m.title!==m.mtype?` · ${m.title}`:''}
+              {needsStatus(m)&&<span className="mtg-flag"> · did this happen?</span>}
+            </div>
+          </div>
+          <div className="mrow-r">
+            <select className="mrow-type" value={m.mtype||'Other'} onChange={e=>tagMeetingType(lead.id,m.id,e.target.value)}>
+              {MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+            </select>
+            {needsDate(m)
+              ? <DateFix compact onSet={(v,mins)=>setMeetingTime(lead.id,m.id,v,mins)}/>
+              : <div className="mtg-status">
+                  <button className={'ms-b held'+(m.status==='held'?' on':'')} onClick={()=>setMeetingStatus(lead.id,m.id,'held')}><CheckCircle2 size={12}/>Held</button>
+                  <button className={'ms-b no'+(m.status==='noshow'?' on':'')} onClick={()=>setMeetingStatus(lead.id,m.id,'noshow')}><X size={12}/>No-show</button>
+                </div>}
+            {m.htmlLink&&<a className="mrow-cal" href={m.htmlLink} target="_blank" rel="noreferrer" title="Open in Google Calendar"><CalendarClock size={14}/></a>}
+            <button className="ev-x" title="Cancel this meeting" onClick={()=>{
+              if(window.confirm(`Cancel ${m.title||m.mtype||'this meeting'} with ${lead.name||lead.company}?\n\nIt comes off your numbers and the calendar. The booking stays in their history, marked cancelled.`))
+                removeMeeting(lead.id,m.id); }}><Trash2 size={13}/></button>
+          </div>
+        </div>)):<Blank t={
+          tab==='upcoming'?'Nothing on the books.':
+          tab==='needs'?'Nothing waiting on a status. Clean.':
+          tab==='undated'?'Every meeting has a real date on it.':
+          tab==='noshow'?'No no-shows. Nice.':'Nothing here yet.'}/>}
+    </div>
+  </>);
+}
 
 function EventsPage({events,saveEvent,removeEvent,leads,quickLead,open,me}){
   const [sheetBusy,setSheetBusy]=useState(false);
