@@ -1,5 +1,5 @@
 // Creates (or deletes) an event on the connected Google Calendar's primary calendar.
-// POST body to create: { title, start, end, notes, attendees:[email], meet:bool, timezone }
+// POST body to create: { title, start, end, notes, location, attendees:[email], meet:bool, timezone }
 // POST body to delete: { action:'delete', eventId }
 // start/end are local wall-clock strings 'YYYY-MM-DDTHH:MM:SS'; timezone names the zone.
 import { getAccessToken } from './_google.js';
@@ -33,6 +33,9 @@ export default async function handler(req, res) {
       start: { dateTime: b.start, timeZone: tz },
       end: { dateTime: b.end, timeZone: tz },
     };
+    // Google turns a plain address into a map link on the invite, which is the
+    // whole point on a phone. Omitted entirely when blank rather than sent as ''.
+    if (b.location && String(b.location).trim()) event.location = String(b.location).trim();
     if (Array.isArray(b.attendees) && b.attendees.length) {
       event.attendees = b.attendees.filter(Boolean).map((email) => ({ email }));
     }
