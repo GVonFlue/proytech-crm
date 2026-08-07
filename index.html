@@ -1,21 +1,749 @@
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover" />
-    <meta name="robots" content="noindex, nofollow" />
-    <title>ProyTech CRM</title>
-    <meta name="theme-color" content="#181530" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
-    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-    <link rel="manifest" href="/manifest.json" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="ProyTech" />
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ProyTech — Your Business Operating System | Websites, Automation & an AI Business Suite for Any Local Business</title>
+<meta name="description" content="ProyTech builds your entire business operating system — website, automations, and an AI-powered Business Suite — installed for you. For realtors, lenders, and any local business.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml"><link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png"><link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#FBFAF8;--ink:#12142B;--muted:#63667A;--line:#ECE9E3;--card:#fff;--accent:#FF4D14;--accent-soft:rgba(255,77,20,.13);--indigo:#3A4AE0;--indigo-soft:rgba(58,74,224,.12);--sb:#181530;--shadow:0 34px 80px -36px rgba(20,22,55,.34);--r:22px}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:98px}
+body{background:var(--bg);color:var(--ink);font-family:Inter,system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:0 26px}
+.serif{font-family:Fraunces,Georgia,serif;font-weight:500;letter-spacing:-.01em}
+.accent{color:var(--accent)}a{color:inherit;text-decoration:none}
+.btn{border:none;cursor:pointer;font-family:inherit;font-weight:600;font-size:14px;border-radius:30px;padding:12px 22px;transition:transform .25s cubic-bezier(.2,.8,.2,1),box-shadow .25s}
+.btn-primary{background:var(--accent);color:#fff;box-shadow:0 12px 26px -10px rgba(255,77,20,.6)}
+.btn-primary:hover{box-shadow:0 18px 34px -10px rgba(255,77,20,.72)}
+.btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn-lg{padding:15px 26px;font-size:15.5px}.mag{display:inline-block}
+.tag-lead{font-size:12.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);text-align:center}
+h2{font-size:clamp(28px,3.6vw,44px);line-height:1.08;letter-spacing:-.02em;text-align:center;margin:12px auto 0;max-width:800px}
+.lead-sub{text-align:center;color:var(--muted);max-width:580px;margin:16px auto 0;font-size:17px}
+.reveal{opacity:1}
+.js .reveal{opacity:0;transform:translateY(30px);filter:blur(6px);transition:all .8s cubic-bezier(.16,1,.3,1)}
+.js .reveal.in{opacity:1;transform:none;filter:none}
+.js .reveal.d1{transition-delay:.08s}.js .reveal.d2{transition-delay:.16s}.js .reveal.d3{transition-delay:.24s}
+#prog{position:fixed;top:0;left:0;height:3px;width:0;background:linear-gradient(90deg,var(--accent),#ff8a5c);z-index:100}
+#glow{position:fixed;width:460px;height:460px;border-radius:50%;pointer-events:none;z-index:0;background:radial-gradient(circle,rgba(255,77,20,.09),transparent 60%);transform:translate(-50%,-50%);left:50%;top:30%}
+.aurora{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.blob{position:absolute;border-radius:50%;filter:blur(72px);opacity:.5}
+.b1{width:520px;height:520px;background:radial-gradient(circle,#FFB79E,transparent 62%);top:-140px;right:-80px;animation:d1 18s ease-in-out infinite}
+.b2{width:560px;height:560px;background:radial-gradient(circle,#AEB8FF,transparent 62%);top:640px;left:-160px;animation:d2 22s ease-in-out infinite}
+@keyframes d1{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(-40px,50px) scale(1.12)}}
+@keyframes d2{0%,100%{transform:translate(0,0) scale(1)}50%{transform:translate(60px,-40px) scale(1.08)}}
+/* nav */
+.nav{position:sticky;top:14px;z-index:60;margin:14px auto 0;max-width:1180px}
+.nav-inner{position:relative;display:flex;align-items:center;gap:22px;background:rgba(255,255,255,.9);backdrop-filter:blur(16px) saturate(1.4);border:1px solid var(--line);border-radius:40px;padding:11px 12px 11px 22px;box-shadow:0 16px 40px -20px rgba(20,22,55,.4)}
+.logo{font-weight:700;font-size:19px;letter-spacing:-.02em;color:var(--ink);text-decoration:none;cursor:pointer}
+.nav-links{display:flex;gap:22px;margin-left:8px;font-size:14px;color:var(--muted)}.nav-links a:hover{color:var(--ink)}
+.nav-cta{margin-left:auto;display:flex;gap:8px}
+.nav-burger{display:none;margin-left:auto;width:42px;height:42px;border:1px solid var(--line);border-radius:13px;background:#fff;cursor:pointer;place-items:center;flex:none}
+.nav-burger span,.nav-burger span::before,.nav-burger span::after{display:block;width:18px;height:2px;background:var(--ink);border-radius:2px;position:relative}
+.nav-burger span::before,.nav-burger span::after{content:"";position:absolute;left:0}.nav-burger span::before{top:-6px}.nav-burger span::after{top:6px}
+.nav-inner.open .nav-burger span{background:transparent}
+.nav-drop{display:none;position:absolute;top:calc(100% + 10px);left:0;right:0;background:#fff;border:1px solid var(--line);border-radius:22px;box-shadow:0 26px 54px -20px rgba(20,22,55,.44);padding:12px;flex-direction:column;gap:2px;z-index:70}
+.nav-inner.open .nav-drop{display:flex}
+.nav-drop a{padding:13px 14px;border-radius:13px;color:var(--ink);font-size:16px;font-weight:500}.nav-drop a:hover{background:var(--bg)}
+.nav-drop .dcta{display:flex;flex-direction:column;gap:9px;margin-top:8px;padding-top:11px;border-top:1px solid var(--line)}.nav-drop .dcta .btn{width:100%}
+/* hero */
+.hero{padding:60px 0 26px;display:grid;grid-template-columns:1.05fr .95fr;gap:40px;align-items:center;position:relative;z-index:1}
+.eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:12.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.eyebrow::before{content:"";width:26px;height:2px;background:var(--accent)}
+h1{font-size:clamp(38px,5vw,60px);line-height:1.03;letter-spacing:-.02em;margin:16px 0 0}
+h1 .line{display:block;overflow:hidden}h1 .line span{display:block;transform:translateY(105%);transition:transform .9s cubic-bezier(.16,1,.3,1)}
+.hero.in h1 .line span{transform:translateY(0)}.hero.in h1 .line:nth-child(2) span{transition-delay:.08s}
+.sub{font-size:18px;color:var(--muted);max-width:440px;margin:20px 0 26px}
+.js .hero .sub,.js .hero .cta-row,.js .hero .eyebrow{opacity:0;transform:translateY(16px);transition:all .8s cubic-bezier(.16,1,.3,1) .35s}
+.js .hero.in .sub,.js .hero.in .cta-row,.js .hero.in .eyebrow{opacity:1;transform:none}
+.cta-row{display:flex;gap:12px;flex-wrap:wrap}
+.stage{position:relative;height:420px;perspective:1200px}
+.card3d{position:absolute;background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow);will-change:transform}
+.js .card3d{opacity:0;transform:translateY(26px)}
+.js .hero.in .card3d{opacity:1;transform:none;transition:opacity .8s ease,transform .9s cubic-bezier(.16,1,.3,1)}
+.hero.in .c-chat{transition-delay:.2s}.hero.in .c-kpi{transition-delay:.34s}.hero.in .c-pipe{transition-delay:.46s}
+.c-chat{width:330px;top:6px;left:6px;padding:16px;z-index:3}
+.c-head{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);font-weight:500}
+.dot{width:8px;height:8px;border-radius:50%;background:#25c26e;box-shadow:0 0 0 4px rgba(37,194,110,.16)}
+.bubble{margin-top:12px;background:#F5F4F1;border-radius:12px;padding:11px 13px;font-size:13.5px}
+.bubble .tag{font-size:10.5px;letter-spacing:.1em;color:var(--accent);font-weight:700}
+.reply{margin-top:9px;background:var(--ink);color:#fff;border-radius:12px;padding:11px 13px;font-size:13.5px;width:88%;margin-left:auto;min-height:20px}
+.typed::after{content:"▋";animation:blink 1s step-end infinite}@keyframes blink{50%{opacity:0}}
+.c-kpi{width:210px;top:-4px;right:0;padding:16px;z-index:4}
+.c-kpi .lbl{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);font-weight:600}
+.c-kpi .val{font-family:Fraunces,serif;font-size:32px;margin-top:4px}
+.c-kpi .bar{height:7px;border-radius:6px;background:#EFEDE8;margin-top:12px;overflow:hidden}
+.c-kpi .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),#ff7a4d);border-radius:6px;transition:width 1.4s cubic-bezier(.16,1,.3,1) .6s}
+.hero.in .c-kpi .bar i{width:74%}
+.c-pipe{width:250px;bottom:0;right:18px;padding:15px 16px;z-index:2}
+.c-pipe .row{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--line)}
+.c-pipe .row:last-child{border-bottom:none}
+.pill{font-size:10.5px;font-weight:600;padding:3px 9px;border-radius:20px}
+.pill.a{background:var(--accent-soft);color:var(--accent)}.pill.b{background:var(--indigo-soft);color:var(--indigo)}.pill.c{background:rgba(37,194,110,.14);color:#1a8f52}
+.marquee{overflow:hidden;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:16px 0;margin-top:14px;-webkit-mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+.marquee .track{display:flex;gap:44px;width:max-content;animation:scrollx 22s linear infinite;font-family:Fraunces,serif;font-size:22px;color:var(--muted)}
+@keyframes scrollx{to{transform:translateX(-50%)}}
+/* SHOWCASE */
+.showcase{height:440vh;position:relative}
+.pin{position:sticky;top:0;height:100vh;display:flex;align-items:center;overflow:hidden}
+.show-grid{max-width:1180px;margin:0 auto;padding:0 26px;display:grid;grid-template-columns:.72fr 1.28fr;gap:38px;align-items:center;width:100%}
+.caps .kicker{font-size:12.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+.cap{margin:16px 0;opacity:.26;transition:opacity .5s,transform .5s;transform:translateX(-6px)}
+.cap.on{opacity:1;transform:none}
+.cap h3{font-family:Fraunces,serif;font-size:26px;letter-spacing:-.01em}
+.cap p{color:var(--muted);font-size:14.5px;margin-top:4px;max-width:330px}
+.dots{display:flex;gap:8px;margin-top:24px}
+.dots i{width:26px;height:4px;border-radius:4px;background:var(--line);transition:background .4s}.dots i.on{background:var(--accent)}
+.frame{background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;transform:rotateX(3deg);transform-style:preserve-3d}
+.chrome{display:flex;align-items:center;gap:7px;padding:11px 14px;border-bottom:1px solid var(--line);background:#FCFBF9}
+.chrome .cd{width:10px;height:10px;border-radius:50%;background:#E4E1DB}
+.chrome .url{margin-left:12px;font-size:11.5px;color:var(--muted);background:#F2F0EC;border-radius:20px;padding:4px 12px}
+.app{display:grid;grid-template-columns:158px 1fr;height:430px;background:#fff}
+.app-sb{background:var(--sb);color:#fff;padding:14px 12px}
+.app-brand{font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:#C8A24A;font-weight:700}
+.app-brand b{display:block;color:#fff;font-size:13px;letter-spacing:0;text-transform:none;margin-top:3px}
+.app-nav{margin-top:14px;display:flex;flex-direction:column;gap:2px}
+.app-nav a{font-size:11.5px;color:#b7b3d1;padding:6px 9px;border-radius:8px;display:flex;gap:7px;align-items:center}
+.app-nav a.on{background:rgba(255,77,20,.22);color:#fff}
+.app-main{position:relative;overflow:hidden}
+.screen{position:absolute;inset:0;padding:16px 18px;opacity:0;transform:scale(.99);transition:opacity .5s,transform .5s;pointer-events:none}
+.screen.on{opacity:1;transform:none}
+.stitle{font-size:15px;font-weight:700;color:var(--ink)}
+.ssub{font-size:11px;color:var(--muted);margin-bottom:10px}
+/* dashboard */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+.kpi{border-radius:12px;padding:11px;opacity:0;transform:translateY(12px);transition:all .5s}
+.screen.on .kpi{opacity:1;transform:none}
+.screen.on .kpi:nth-child(2){transition-delay:.08s}.screen.on .kpi:nth-child(3){transition-delay:.16s}.screen.on .kpi:nth-child(4){transition-delay:.24s}
+.kpi .k{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;opacity:.85}
+.kpi .v{font-family:Fraunces,serif;font-size:19px;margin-top:3px;font-weight:600}
+.kpi.blue{background:#2E4DE0;color:#fff}.kpi.green{background:#1F9D55;color:#fff}.kpi.gold{background:#C8A24A;color:#fff}.kpi.plain{background:#F6F5F2;color:var(--ink)}
+.ps{margin-top:12px}
+.psrow{display:grid;grid-template-columns:96px 1fr 54px;gap:8px;align-items:center;font-size:10.5px;padding:3px 0}
+.pb{height:8px;border-radius:5px;background:#EFEDE8;overflow:hidden}
+.pb i{display:block;height:100%;width:0;border-radius:5px;transition:width .9s cubic-bezier(.16,1,.3,1)}
+.screen.go .pb i{width:var(--w)}
+/* pipeline */
+.kanban{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px;height:330px}
+.kcol{background:#F7F6F3;border-radius:10px;padding:8px}
+.kcol .kh{font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;display:flex;justify-content:space-between}
+.kcard{background:#fff;border:1px solid var(--line);border-radius:8px;padding:7px 8px;margin-bottom:6px;font-size:10.5px;box-shadow:0 6px 16px -12px rgba(20,22,55,.4);opacity:0;transform:translateY(10px);transition:all .45s}
+.screen.on .kcard{opacity:1;transform:none}
+.screen.on .kcard:nth-child(3){transition-delay:.07s}.screen.on .kcard:nth-child(4){transition-delay:.14s}
+.kcard .nm{font-weight:600}.kcard .mt{color:var(--muted);font-size:9px;margin-top:1px}
+.flycard{position:absolute;left:22px;top:210px;width:120px;z-index:6;opacity:0}
+.screen.go .flycard{animation:fly 1.7s cubic-bezier(.16,1,.3,1) .5s forwards}
+@keyframes fly{0%{opacity:0;transform:translate(0,0)}18%{opacity:1}100%{opacity:1;transform:translate(250px,-150px)}}
+/* lead + ai */
+.lead-ai{display:grid;grid-template-columns:1fr 1.12fr;gap:11px;margin-top:10px}
+.panel{border:1px solid var(--line);border-radius:12px;padding:12px}
+.panel .name{font-family:Fraunces,serif;font-size:17px}
+.panel .meta{color:var(--muted);font-size:10.5px;margin-top:2px}
+.field{margin-top:8px;font-size:10.5px}.field b{display:block;color:var(--muted);font-weight:700;font-size:8.5px;letter-spacing:.05em;text-transform:uppercase}
+.ai{background:linear-gradient(#fff,#fff) padding-box,linear-gradient(120deg,var(--accent),var(--indigo)) border-box;border:1.5px solid transparent}
+.ai .aih{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;color:var(--accent)}
+.draft{margin-top:8px;font-size:11px;line-height:1.6;min-height:120px;color:#33364a}
+.draft.tp::after{content:"▋";color:var(--accent);animation:blink 1s step-end infinite}
+/* analytics */
+.funnel{margin-top:12px;display:grid;gap:9px}
+.frow{display:grid;grid-template-columns:110px 1fr 40px;align-items:center;gap:9px;font-size:11px}
+.fbar{height:20px;border-radius:6px;background:#F1EFEB;overflow:hidden}
+.fbar i{display:block;height:100%;width:0;border-radius:6px;transition:width .9s cubic-bezier(.16,1,.3,1)}
+.screen.go .fbar i{width:var(--w)}
+/* growth os */
+.section{padding:88px 0;position:relative;z-index:1}
+.gos-flow{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:44px;position:relative}
+.gnode{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px;position:relative;text-align:center}
+.gnode .gi{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;margin:0 auto 12px;font-size:20px;background:var(--accent-soft);color:var(--accent)}
+.gnode h4{font-size:17px;margin-bottom:5px}.gnode p{font-size:12.5px;color:var(--muted)}
+.gnode .step{position:absolute;top:12px;left:14px;font-family:Fraunces,serif;font-size:13px;color:var(--accent)}
+.grail{position:absolute;top:52px;left:6%;right:6%;height:3px;background:linear-gradient(90deg,var(--accent),var(--indigo));border-radius:3px;opacity:.25}
+.gtoken{position:absolute;top:44px;left:6%;width:20px;height:20px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 6px var(--accent-soft);z-index:3}
+.js .gtoken{animation:travel 6s cubic-bezier(.5,0,.5,1) infinite}
+@keyframes travel{0%{left:6%}25%{left:34%}50%{left:62%}75%{left:90%}100%{left:90%}}
+.gos-value{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:26px}
+.gv{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px}
+.gv b{display:block;font-size:15px;margin-bottom:5px}.gv span{color:var(--muted);font-size:13.5px}
+/* comparison */
+.cmp{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:44px;max-width:920px;margin-left:auto;margin-right:auto}
+.col{border-radius:var(--r);padding:24px;border:1px solid var(--line)}
+.col.crm{background:#F6F5F2}.col.os{background:var(--card);box-shadow:var(--shadow)}
+.col h4{font-size:14px;margin-bottom:14px}.col.crm h4{color:var(--muted)}.col.os h4 b{color:var(--accent)}
+.crow{display:flex;gap:10px;padding:9px 0;font-size:13.5px;border-top:1px solid var(--line)}.crow:first-of-type{border-top:none}
+.ic{flex:none;width:19px;height:19px;border-radius:6px;display:grid;place-items:center;font-size:12px;margin-top:1px}
+.col.crm .ic{background:#E7E5E0;color:#9a9a9a}.col.os .ic{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.js .cmp .col.crm{opacity:1}.js .cmp.in .col.crm{opacity:.6;filter:saturate(.35);transition:all .7s}
+.js .col.os .crow{opacity:0;transform:translateX(10px);transition:all .5s}.js .cmp.in .col.os .crow{opacity:1;transform:none}
+.js .cmp.in .col.os .crow:nth-child(3){transition-delay:.1s}.js .cmp.in .col.os .crow:nth-child(4){transition-delay:.2s}.js .cmp.in .col.os .crow:nth-child(5){transition-delay:.3s}
+/* pricing */
+.flag{background:linear-gradient(100deg,#211d44,#1E1B4B);border-radius:var(--r);padding:26px 30px;margin:44px 0 18px;position:relative;overflow:hidden;color:#fff}
+.flag::after{content:"";position:absolute;inset:0;background:radial-gradient(420px 200px at 88% 20%,rgba(255,77,20,.4),transparent 60%),radial-gradient(420px 220px at 10% 120%,rgba(58,74,224,.5),transparent 60%)}
+.flag>*{position:relative}
+.flag .fb{display:inline-block;background:var(--accent);color:#fff;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:4px 11px;border-radius:20px;margin-bottom:12px}
+.flag h3{font-size:26px;margin-bottom:6px}.flag h3 span{color:var(--accent)}
+.flag .fgrid{display:grid;grid-template-columns:1.5fr 1fr;gap:20px;align-items:center;margin-top:6px}
+.flag .flayers{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;font-size:12.5px;color:#C9C7DD}
+.flag .flayers b{color:#fff}
+.flag .fprice{text-align:right}.flag .fprice .st{font-size:13px;color:#C9C7DD}.flag .fprice .st b{color:#fff;font-size:17px}
+.flag .fprice .pm{font-size:14px;color:#C9C7DD;margin-top:3px}.flag .fprice .pm b{font-size:26px;color:var(--accent)}
+.tiers{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:stretch}
+.tier{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:24px 20px;display:flex;flex-direction:column;transition:transform .3s,box-shadow .3s;position:relative}
+.tier:hover{transform:translateY(-6px);box-shadow:var(--shadow)}
+.tier .badge{position:absolute;top:-11px;left:20px;background:var(--accent);color:#fff;font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:4px 11px;border-radius:20px}
+.tier .tn{font-size:19px;font-weight:700}
+.tier .why{font-size:12.5px;color:var(--accent);font-weight:600;margin-top:7px;min-height:58px;line-height:1.42}
+.tier .price-row{margin-top:2px;padding-top:14px;border-top:1px solid var(--line)}
+.tier .setup{font-size:12px;color:var(--muted)}.tier .setup b{color:var(--ink);font-size:16px}
+.tier .mo{margin-top:4px;font-size:12px;color:var(--muted)}.tier .mo b{font-size:24px;color:var(--accent);font-weight:800}
+.tier .base{font-size:10.5px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin:16px 0 9px}
+.tier ul{list-style:none;font-size:12.5px;display:grid;gap:7px}
+.tier li{padding-left:16px;position:relative;color:var(--ink);line-height:1.35}
+.tier li::before{content:"";position:absolute;left:0;top:7px;width:7px;height:7px;border-radius:2px;transform:rotate(45deg);background:var(--accent)}
+.tier.pop{border:1.5px solid var(--accent);box-shadow:0 24px 50px -30px rgba(255,77,20,.4)}
+.terms{text-align:center;color:var(--muted);font-size:13px;margin-top:20px}
+.cta-band{margin:20px auto 80px;max-width:1180px;border-radius:30px;padding:56px 40px;text-align:center;position:relative;overflow:hidden;background:var(--ink);color:#fff}
+.cta-band::before{content:"";position:absolute;inset:0;background:radial-gradient(600px 240px at 30% 0%,rgba(255,77,20,.35),transparent 60%),radial-gradient(600px 240px at 80% 120%,rgba(58,74,224,.4),transparent 60%)}
+.cta-band>*{position:relative}.cta-band h2{color:#fff}.cta-band p{color:#C9CAD8;margin:14px auto 26px;max-width:520px}
+.pillars{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-top:44px}
+.pillar{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:20px;transition:transform .3s,box-shadow .3s}
+.pillar:hover{transform:translateY(-5px);box-shadow:var(--shadow)}
+.pillar .pi{font-size:20px;color:var(--accent)}
+.pillar b{display:block;font-size:16px;margin:8px 0 5px}.pillar span{color:var(--muted);font-size:13px}
+.ind-strip{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:44px}
+.ind{display:block;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;transition:transform .3s,box-shadow .3s}
+.ind:hover{transform:translateY(-5px);box-shadow:var(--shadow)}
+.ind .ik{font-size:12px;color:var(--accent);font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.ind h4{font-size:19px;margin:6px 0 5px}.ind p{color:var(--muted);font-size:13.5px}
+.ind .gox{color:var(--accent);font-weight:600;font-size:13.5px;margin-top:10px;display:inline-block}
+.testi{max-width:820px;margin:44px auto 0;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:34px;text-align:center;box-shadow:var(--shadow)}
+.testi q{font-family:Fraunces,serif;font-size:22px;line-height:1.45;display:block}
+.testi .who{margin-top:16px;color:var(--muted);font-size:14px}.testi .who b{color:var(--ink)}
+.faq{max-width:800px;margin:40px auto 0}
+.faq details{border-bottom:1px solid var(--line);padding:16px 4px}
+.faq summary{font-weight:600;font-size:16px;cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:12px}
+.faq summary::-webkit-details-marker{display:none}.faq summary::after{content:"+";color:var(--accent);font-size:20px}
+.faq details[open] summary::after{content:"–"}.faq p{color:var(--muted);font-size:14.5px;margin-top:10px}
+.footer{background:var(--ink);color:#fff;padding:56px 0 28px}
+.footer .fg{display:grid;grid-template-columns:1.6fr 1fr 1fr 1fr;gap:30px}
+.footer h5{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8f8cb0;margin-bottom:12px}
+.footer a{display:block;color:#C9CAD8;font-size:14px;padding:4px 0}.footer a:hover{color:#fff}
+.footer .flogo{font-size:22px;font-weight:700}.footer .ftag{color:#9a97bd;font-size:14px;margin-top:10px;max-width:280px}
+.footer .fbot{border-top:1px solid rgba(255,255,255,.12);margin-top:34px;padding-top:20px;color:#8f8cb0;font-size:12.5px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.page-hero{padding:54px 0 26px;text-align:center;position:relative;z-index:1}
+.page-hero h1{font-size:clamp(34px,4.6vw,54px);line-height:1.04}.page-hero .sub{margin:18px auto 24px;max-width:560px;font-size:18px;color:var(--muted)}
+.problem{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:40px}
+.pcard{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;text-align:center;font-size:12.5px;color:var(--muted)}
+.pcard b{display:block;color:var(--ink);font-size:14px;margin-bottom:4px}
+@media(max-width:920px){.pillars,.ind-strip,.problem,.footer .fg{grid-template-columns:1fr}}
+.foot{text-align:center;color:var(--muted);font-size:13px;padding-bottom:46px}
+@media(max-width:920px){.hero,.show-grid{grid-template-columns:1fr}.nav-links,.nav-cta{display:none}.nav-burger{display:grid}.stage{height:340px}.tiers,.gos-flow,.gos-value,.cmp{grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){
+  .wrap{padding:0 18px}
+  .nav{padding:0 12px;top:10px}.nav-inner{gap:10px;padding:9px 10px 9px 18px}
+  .section{padding:54px 0}
+  h1{font-size:clamp(30px,8.4vw,42px)}.sub{font-size:16px}
+  h2.serif{font-size:clamp(26px,7vw,34px)}
+  /* showcase: unpin, auto-advance, fit to phone */
+  .showcase{height:auto}
+  .pin{position:relative;top:0;height:auto;display:block;overflow:visible;padding:32px 0 6px}
+  .show-grid{grid-template-columns:1fr;gap:16px;padding:0 18px}
+  .cap{margin:10px 0}.cap h3{font-size:21px}.cap p{font-size:13.5px;max-width:none}
+  .dots{display:none}
+  .frame{transform:none}
+  .app{grid-template-columns:1fr;height:auto}.app-sb{display:none}
+  .app-main{min-height:396px}
+  .screen{padding:15px 15px}
+  .kanban{grid-template-columns:repeat(2,1fr);height:auto;gap:7px}
+  .lead-ai{grid-template-columns:1fr}.draft{min-height:60px}
+  .flycard{display:none}
+  .flag{padding:22px 20px}.flag .fgrid{grid-template-columns:1fr;gap:12px}.flag .fprice{text-align:left}
+  .cta-band{padding:40px 22px;margin-bottom:56px;border-radius:24px}
+  .footer .fbot{flex-direction:column;text-align:center}
+  .marquee .track{font-size:18px;gap:30px}
+}
+
+/* ===== Ace chat widget ===== */
+#aceLauncher{position:fixed;right:20px;bottom:20px;z-index:9998;display:flex;align-items:center;gap:10px;
+  background:var(--sb);color:#fff;border:none;border-radius:100px;padding:13px 20px 13px 15px;cursor:pointer;
+  box-shadow:var(--shadow);font:600 15px/1 inherit;transition:transform .2s cubic-bezier(.2,.7,.2,1),box-shadow .2s}
+#aceLauncher:hover{transform:translateY(-3px)}
+#aceLauncher .ace-orb{width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#6d8bff,var(--indigo));
+  position:relative;flex-shrink:0;box-shadow:0 0 0 3px rgba(255,255,255,.12)}
+#aceLauncher .ace-orb::after{content:"";position:absolute;inset:0;border-radius:50%;background:inherit;animation:acePulse 2.4s ease-out infinite}
+@keyframes acePulse{0%{transform:scale(1);opacity:.6}100%{transform:scale(1.9);opacity:0}}
+#aceLauncher.hide{display:none}
+
+#acePanel{position:fixed;right:20px;bottom:20px;z-index:9999;width:380px;max-width:calc(100vw - 32px);
+  height:600px;max-height:calc(100vh - 40px);background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:var(--shadow);display:none;flex-direction:column;overflow:hidden}
+#acePanel.open{display:flex;animation:aceIn .28s cubic-bezier(.2,.7,.2,1)}
+@keyframes aceIn{from{opacity:0;transform:translateY(24px) scale(.98)}to{opacity:1;transform:none}}
+
+.ace-head{background:var(--sb);color:#fff;padding:16px 18px;display:flex;align-items:center;gap:12px}
+.ace-head .ace-orb{width:34px;height:34px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#6d8bff,var(--indigo));flex-shrink:0}
+.ace-head h4{font:700 16px/1.1 inherit;margin:0}
+.ace-head .ace-sub{font:400 12px/1.3 inherit;color:rgba(255,255,255,.6);margin-top:2px}
+.ace-head .ace-status{width:8px;height:8px;border-radius:50%;background:#3ad07a;box-shadow:0 0 0 3px rgba(58,208,122,.2);margin-left:auto}
+.ace-x{background:none;border:none;color:rgba(255,255,255,.7);font-size:20px;cursor:pointer;padding:2px 6px;line-height:1;border-radius:8px}
+.ace-x:hover{background:rgba(255,255,255,.1);color:#fff}
+
+.ace-feed{flex:1;overflow-y:auto;padding:18px;display:flex;flex-direction:column;gap:12px;background:var(--bg)}
+.ace-msg{max-width:82%;padding:11px 14px;border-radius:15px;font-size:14.5px;line-height:1.45;word-wrap:break-word}
+.ace-msg.bot{background:var(--card);border:1px solid var(--line);color:var(--ink);align-self:flex-start;border-bottom-left-radius:5px}
+.ace-msg.user{background:var(--indigo);color:#fff;align-self:flex-end;border-bottom-right-radius:5px}
+.ace-typing{align-self:flex-start;background:var(--card);border:1px solid var(--line);padding:13px 16px;border-radius:15px;border-bottom-left-radius:5px;display:flex;gap:4px}
+.ace-typing span{width:7px;height:7px;border-radius:50%;background:var(--muted);animation:aceBounce 1.2s infinite}
+.ace-typing span:nth-child(2){animation-delay:.2s}.ace-typing span:nth-child(3){animation-delay:.4s}
+@keyframes aceBounce{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-5px);opacity:1}}
+
+.ace-chips{display:flex;flex-wrap:wrap;gap:8px;padding:0 18px 12px;background:var(--bg)}
+.ace-chip{background:var(--card);border:1.5px solid var(--indigo-soft);color:var(--indigo);border-radius:100px;
+  padding:9px 14px;font:600 13px/1 inherit;cursor:pointer;transition:all .15s}
+.ace-chip:hover{background:var(--indigo);color:#fff;border-color:var(--indigo)}
+
+.ace-input{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line);background:var(--card)}
+.ace-input input{flex:1;border:1.5px solid var(--line);border-radius:100px;padding:11px 16px;font:inherit;font-size:14.5px;outline:none;color:var(--ink)}
+.ace-input input:focus{border-color:var(--indigo)}
+.ace-send{background:var(--accent);color:#fff;border:none;border-radius:50%;width:42px;height:42px;flex-shrink:0;cursor:pointer;font-size:17px;transition:transform .15s,background .15s}
+.ace-send:hover{transform:scale(1.06)}
+.ace-send:disabled{opacity:.5;cursor:default;transform:none}
+
+.ace-captured{margin:4px 18px 14px;background:rgba(58,208,122,.1);border:1px solid rgba(58,208,122,.3);border-radius:14px;padding:12px 14px;font-size:13.5px;color:#1a7a43;display:flex;gap:9px;align-items:flex-start}
+.ace-captured b{color:#0f5c30}
+
+@media(max-width:480px){
+  #acePanel{right:8px;bottom:8px;width:calc(100vw - 16px);height:calc(100vh - 16px);max-height:none}
+  #aceLauncher{right:14px;bottom:14px}
+}
+@media (prefers-reduced-motion:reduce){
+  #aceLauncher .ace-orb::after{animation:none}
+  #acePanel.open{animation:none}
+  .ace-typing span{animation:none}
+}
+
+</style></head>
+<body>
+<div id="prog"></div><div id="glow"></div>
+<div class="aurora"><div class="blob b1"></div><div class="blob b2"></div></div>
+<nav class="nav"><div class="nav-inner">
+  <a href="index.html" class="logo" aria-label="ProyTech home">Proy<span class="accent">Tech</span></a>
+  <div class="nav-links"><a href="lenders.html">Lenders</a><a href="realtors.html">Realtors</a><a href="businesses.html">Local Business</a><a href="suite.html">Business Suite</a><a href="#pricing">Pricing</a></div>
+  <div class="nav-cta"><button class="btn btn-ghost">Talk to Ace</button><button class="btn btn-primary">Free Teardown</button></div>
+  <button class="nav-burger" aria-label="Menu" onclick="this.closest('.nav-inner').classList.toggle('open')"><span></span></button>
+  <div class="nav-drop">
+    <a href="lenders.html">Lenders</a><a href="realtors.html">Realtors</a><a href="businesses.html">Local Business</a><a href="suite.html">Business Suite</a><a href="index.html#pricing" onclick="this.closest('.nav-inner').classList.remove('open')">Pricing</a>
+    <div class="dcta"><button class="btn btn-ghost">Talk to Ace</button><button class="btn btn-primary">Free Teardown</button></div>
+  </div>
+</div></nav>
+
+<header class="hero wrap" id="hero">
+  <div>
+    <span class="eyebrow">For realtors, lenders &amp; local businesses</span>
+    <h1 class="serif"><span class="line"><span>Watch your whole</span></span><span class="line"><span>business <em class="accent">run itself</em>.</span></span></h1>
+    <p class="sub">We walk into your business, map how you actually work, and install your entire operating system — website, automations, and an AI-powered Business Suite — with your goals, projections, and custom operations built in.</p>
+    <div class="cta-row"><span class="mag"><button class="btn btn-primary btn-lg">Book a free Pipeline Teardown →</button></span><button class="btn btn-ghost btn-lg">See it live ↓</button></div>
+  </div>
+  <div class="stage" id="stage">
+    <div class="card3d c-chat" data-depth="20">
+      <div class="c-head"><span class="dot"></span> ProyTech Front Desk · Live<span style="margin-left:auto">9:47 PM</span></div>
+      <div class="bubble"><span class="tag">NEW LEAD · 9:47 PM</span><br>Hi, found you online — do you have availability this week?</div>
+      <div class="reply typed" id="heroReply"></div>
+    </div>
+    <div class="card3d c-kpi" data-depth="42"><div class="lbl">Pipeline value</div><div class="val" data-count="486000" data-prefix="$">$0</div><div class="bar"><i></i></div></div>
+    <div class="card3d c-pipe" data-depth="30">
+      <div class="row"><span>Renee Okafor</span><span class="pill a">Won</span></div>
+      <div class="row"><span>Luis Hart</span><span class="pill b">Quoted</span></div>
+      <div class="row"><span>Marcus Bell</span><span class="pill c">Scheduled</span></div>
+    </div>
+  </div>
+</header>
+<div class="marquee"><div class="track"><span>Realtors</span><span>·</span><span>Loan officers</span><span>·</span><span>Local businesses</span><span>·</span><span>Home services</span><span>·</span><span>Contractors</span><span>·</span><span>Auto shops</span><span>·</span><span>Agencies</span><span>·</span><span>Realtors</span><span>·</span><span>Loan officers</span><span>·</span><span>Local businesses</span><span>·</span><span>Home services</span><span>·</span><span>Contractors</span><span>·</span><span>Auto shops</span><span>·</span><span>Agencies</span><span>·</span></div></div>
+
+<!-- ANIMATED PRODUCT SHOWCASE -->
+<section class="showcase" id="showcase"><div class="pin"><div class="show-grid">
+  <div class="caps">
+    <div class="kicker">Your business, running</div>
+    <div class="cap on" data-i="0"><h3 class="serif">Every number, live</h3><p>Pipeline, revenue, and health — the moment you sign in. Nothing to update by hand.</p></div>
+    <div class="cap" data-i="1"><h3 class="serif">A pipeline that moves</h3><p>Every deal is a card. Drag it forward and the move logs itself.</p></div>
+    <div class="cap" data-i="2"><h3 class="serif">AI writes the follow-up</h3><p>It drafts the outreach in your voice, straight into your Gmail. You just send.</p></div>
+    <div class="cap" data-i="3"><h3 class="serif">Know where you stand</h3><p>Every deal grouped by stage, tied out to your real revenue. No spreadsheets.</p></div>
+    <div class="dots"><i class="on"></i><i></i><i></i><i></i></div>
+  </div>
+  <div class="device"><div class="frame">
+    <div class="chrome"><span class="cd"></span><span class="cd"></span><span class="cd"></span><span class="url">app.your-brand.com/dashboard</span></div>
+    <div class="app">
+      <div class="app-sb">
+        <div class="app-brand">ProyTech Business Suite<b>Your Business</b></div>
+        <div class="app-nav">
+          <a data-n="0" class="on">▤ Dashboard</a><a data-n="1">▦ Pipeline</a><a data-n="2">▧ Leads</a><a>✦ AI Tools</a><a data-n="3">▤ Analytics</a><a>⚙ Settings</a>
+        </div>
+      </div>
+      <div class="app-main">
+        <!-- s0 dashboard -->
+        <div class="screen on" data-i="0">
+          <div class="stitle">Dashboard</div><div class="ssub">Your business at a glance</div>
+          <div class="kpis">
+            <div class="kpi blue"><div class="k">Pipeline value</div><div class="v" data-count="486000" data-prefix="$">$0</div></div>
+            <div class="kpi plain"><div class="k">Revenue closed</div><div class="v" data-count="214000" data-prefix="$">$0</div></div>
+            <div class="kpi green"><div class="k">Deals won</div><div class="v" data-count="48">0</div></div>
+            <div class="kpi gold"><div class="k">Avg deal</div><div class="v" data-count="9400" data-prefix="$">$0</div></div>
+          </div>
+          <div class="ps">
+            <div class="psrow"><span>New leads</span><div class="pb"><i style="--w:64%;background:linear-gradient(90deg,#6B73C9,#8f97e0)"></i></div><span>$186k</span></div>
+            <div class="psrow"><span>In progress</span><div class="pb"><i style="--w:82%;background:linear-gradient(90deg,#2E4DE0,#6b78ee)"></i></div><span>$142k</span></div>
+            <div class="psrow"><span>Scheduled</span><div class="pb"><i style="--w:48%;background:linear-gradient(90deg,#C8A24A,#e0c073)"></i></div><span>$96k</span></div>
+            <div class="psrow"><span>Won</span><div class="pb"><i style="--w:90%;background:linear-gradient(90deg,#1F9D55,#46c07d)"></i></div><span>$214k</span></div>
+          </div>
+        </div>
+        <!-- s1 pipeline -->
+        <div class="screen" data-i="1">
+          <div class="stitle">Pipeline</div><div class="ssub">Drag a card to move a deal</div>
+          <div class="kanban">
+            <div class="kcol"><div class="kh"><span>New Lead</span><span>6</span></div>
+              <div class="kcard"><div class="nm">Beau Vega</div><div class="mt">$4,200 · New inquiry</div></div>
+              <div class="kcard"><div class="nm">Victor Nguyen</div><div class="mt">$9,800 · Quote requested</div></div></div>
+            <div class="kcol"><div class="kh"><span>Contacted</span><span>5</span></div>
+              <div class="kcard"><div class="nm">Luis Okafor</div><div class="mt">$6,600 · Follow-up sent</div></div></div>
+            <div class="kcol"><div class="kh"><span>Quoted</span><span>4</span></div>
+              <div class="kcard"><div class="nm">Luis Hart</div><div class="mt">$12,400 · Proposal sent</div></div></div>
+            <div class="kcol"><div class="kh"><span>Won</span><span>8</span></div>
+              <div class="kcard"><div class="nm">Renee Okafor</div><div class="mt">$7,000 · Signed</div></div></div>
+          </div>
+          <div class="kcard flycard"><div class="nm">Ana Romero</div><div class="mt">$6,900 · moving →</div></div>
+        </div>
+        <!-- s2 lead + AI -->
+        <div class="screen" data-i="2">
+          <div class="stitle">Ethan Poole</div><div class="ssub">Quote sent · Follow-up due</div>
+          <div class="lead-ai">
+            <div class="panel"><div class="name">Ethan Poole</div><div class="meta">Owner · You</div>
+              <div class="field"><b>Last contact</b>6 days ago</div><div class="field"><b>Quote sent</b>12 days ago · no reply</div><div class="field"><b>Next step</b>Re-engage before it goes cold</div></div>
+            <div class="panel ai"><div class="aih">✦ AI draft — to Ethan</div><div class="draft" id="aiDraft"></div></div>
+          </div>
+        </div>
+        <!-- s3 analytics -->
+        <div class="screen" data-i="3">
+          <div class="stitle">Analytics</div><div class="ssub">How far leads get, and what closes</div>
+          <div class="funnel">
+            <div class="frow"><span>New leads</span><div class="fbar"><i style="--w:100%;background:linear-gradient(90deg,#FF4D14,#ff8a5c)"></i></div><span>212</span></div>
+            <div class="frow"><span>Contacted</span><div class="fbar"><i style="--w:72%;background:linear-gradient(90deg,#2E4DE0,#6b78ee)"></i></div><span>153</span></div>
+            <div class="frow"><span>Quoted</span><div class="fbar"><i style="--w:44%;background:linear-gradient(90deg,#2E4DE0,#6b78ee)"></i></div><span>93</span></div>
+            <div class="frow"><span>Won</span><div class="fbar"><i style="--w:26%;background:linear-gradient(90deg,#C8A24A,#e0c073)"></i></div><span>55</span></div>
+            <div class="frow"><span>Paid</span><div class="fbar"><i style="--w:16%;background:linear-gradient(90deg,#1F9D55,#46c07d)"></i></div><span>34</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div></div>
+</div></div></section>
+
+<!-- GROWTH OS VALUE -->
+<section class="section" id="growthos">
+  <div class="wrap">
+    <div class="tag-lead reveal">The flagship</div>
+    <h2 class="serif reveal d1">Growth OS: where it all comes together.</h2>
+    <p class="lead-sub reveal d2">A CRM tracks leads. Growth OS runs the <em>whole journey</em> — from the click on your website to the closed deal to your revenue forecast. One connected engine, built and run for you.</p>
+    <div class="gos-flow reveal d1">
+      <div class="grail"></div><div class="gtoken"></div>
+      <div class="gnode"><span class="step">01</span><div class="gi">◒</div><h4 class="serif">Website</h4><p>A premium site + AI front desk captures every lead in seconds.</p></div>
+      <div class="gnode"><span class="step">02</span><div class="gi">⇄</div><h4 class="serif">Automations</h4><p>Replied to, routed &amp; nurtured 24/7 — the machine works leads without you.</p></div>
+      <div class="gnode"><span class="step">03</span><div class="gi">▤</div><h4 class="serif">Business Suite</h4><p>Tracked, worked with AI, and driven to close in one system.</p></div>
+      <div class="gnode"><span class="step">04</span><div class="gi">◆</div><h4 class="serif">Projections</h4><p>Every deal rolls up to your goals and a live revenue forecast.</p></div>
+    </div>
+    <div class="gos-value">
+      <div class="gv reveal"><b>Nothing leaks</b><span>The lead that hits your site at 9pm is captured, nurtured, and on your board before you wake up.</span></div>
+      <div class="gv reveal d1"><b>Your brand, everywhere</b><span>A site that lifts your presence and SEO, feeding a suite that's white-labeled to you — not rented software.</span></div>
+      <div class="gv reveal d2"><b>You see where you're headed</b><span>We build your revenue model and the suite tracks your real numbers against your goals. No CRM does this.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="section" id="pricing" style="padding-top:20px">
+  <div class="wrap">
+    <div class="tag-lead reveal">Plans &amp; pricing</div>
+    <h2 class="serif reveal d1">Start anywhere. Grow into the whole thing.</h2>
+    <p class="lead-sub reveal d2">Every plan is installed for you. One saved deal pays for a year.</p>
+
+    <div class="flag reveal d1">
+      <span class="fb">Flagship · Growth OS</span>
+      <div class="fgrid">
+        <div>
+          <h3 class="serif">Growth <span>OS</span> — the whole engine, integrated</h3>
+          <p style="color:#C9C7DD;font-size:13.5px;max-width:540px">Everything in Signature — the complete Business Suite — <b>plus the machine that fills it</b>: a premium website and an automations layer that generate, capture, and nurture leads 24/7, all wired into one system, with an ongoing growth partner. <b style="color:#fff">Signature runs your business. Growth OS runs it and fills it.</b></p>
+          <div class="flayers"><b>Website</b> → <b>Automations</b> → <b>Business Suite</b> → <b>Revenue projections</b></div>
+        </div>
+        <div class="fprice"><div class="st">One-time setup <b>$5,999</b></div><div class="pm"><b>$549</b>/mo</div></div>
+      </div>
+    </div>
+
+    <div class="tiers reveal d1">
+      <div class="tier">
+        <div class="tn">Website</div>
+        <div class="why">Get found online and capture every lead — even at 9pm.</div>
+        <div class="price-row"><div class="setup">One-time <b>$1,499</b></div><div class="mo"><b>$99</b>/mo hosting</div></div>
+        <div class="base">What you get</div>
+        <ul><li>Custom, mobile-first website</li><li>AI front desk (Ace) answers instantly</li><li>Lead capture + SEO foundation</li><li>Hosting, updates &amp; support</li></ul>
+      </div>
+      <div class="tier">
+        <div class="tn">Solo</div>
+        <div class="why">Step up: a website gets leads in — Solo is the Basic Business Suite that works &amp; closes them.</div>
+        <div class="price-row"><div class="setup">One-time <b>$2,999</b></div><div class="mo"><b>$249</b>/mo</div></div>
+        <div class="base">The Basic Business Suite</div>
+        <ul><li>Leads, pipeline &amp; follow-up engine</li><li>Live dashboard &amp; analytics</li><li>AI outreach drafting</li><li>Google Calendar + Gmail</li><li>1 seat</li></ul>
+      </div>
+      <div class="tier pop">
+        <div class="badge">Most popular</div>
+        <div class="tn">Signature</div>
+        <div class="why">Step up: the entire Business Suite — every module and every AI integration, built to your exact workflow.</div>
+        <div class="price-row"><div class="setup">One-time <b>$4,999</b></div><div class="mo"><b>$449</b>/mo</div></div>
+        <div class="base">The complete Business Suite</div>
+        <ul><li>Every module unlocked — nothing held back</li><li>All AI integrations (drafting, summaries, insights)</li><li>Workflow sit-down → built to your exact process</li><li>2-hour strategy session + growth &amp; projections help</li><li>Up to 5 seats</li></ul>
+      </div>
+      <div class="tier">
+        <div class="tn">Brokerage</div>
+        <div class="why">Step up: your own branded platform for a whole team, at scale.</div>
+        <div class="price-row"><div class="setup">One-time <b>$6,499</b></div><div class="mo"><b>$999</b>/mo</div></div>
+        <div class="base">Everything in Signature, plus</div>
+        <ul><li>White-label — your brand &amp; domain</li><li>Bespoke modules &amp; integrations</li><li>Quarterly 2-hour strategy sessions</li><li>Custom seat counts</li></ul>
+      </div>
+    </div>
+    <p class="terms reveal">Setup is paid upfront and installs you in ~2 weeks · pay annually and get 2 months free · your data is always yours.</p>
+  </div>
+</section>
+
+<!-- COMPARISON -->
+<section class="section" id="compare" style="padding-top:20px">
+  <div class="wrap">
+    <div class="tag-lead reveal">A CRM vs. an operating system</div>
+    <h2 class="serif reveal d1">A CRM tracks your leads.<br>We run your whole business.</h2>
+    <div class="cmp" id="cmp">
+      <div class="col crm"><h4>A normal CRM</h4>
+        <div class="crow"><span class="ic">–</span>You set it up yourself — most of it goes unused</div>
+        <div class="crow"><span class="ic">–</span>Lead follow-up only</div>
+        <div class="crow"><span class="ic">–</span>Generic, rented, 40,000 others log in</div>
+        <div class="crow"><span class="ic">–</span>No website or lead capture</div>
+        <div class="crow"><span class="ic">–</span>Another login you ignore</div>
+      </div>
+      <div class="col os"><h4><b>ProyTech</b> — your Business Operating System</h4>
+        <div class="crow"><span class="ic">✓</span>Installed for you, built around how you work</div>
+        <div class="crow"><span class="ic">✓</span>Your whole business: pipeline, customers, revenue, goals &amp; projections</div>
+        <div class="crow"><span class="ic">✓</span>Your brand, your domain, your data</div>
+        <div class="crow"><span class="ic">✓</span>Website + automations feed it (Growth OS)</div>
+        <div class="crow"><span class="ic">✓</span>The system your business actually runs on</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="pillars"><div class="wrap">
+  <div class="tag-lead reveal">One system, five jobs</div>
+  <h2 class="serif reveal d1">Everything your business needs, in one place.</h2>
+  <div class="pillars reveal d1">
+    <div class="pillar"><div class="pi">▤</div><b>Track</b><span>Leads, relationships &amp; referral partners on a pipeline that's yours.</span></div>
+    <div class="pillar"><div class="pi">◑</div><b>Grow</b><span>A live dashboard of your real numbers — what's closing, what's cold.</span></div>
+    <div class="pillar"><div class="pi">✦</div><b>Automate</b><span>AI that drafts your outreach and tells you who to call today.</span></div>
+    <div class="pillar"><div class="pi">◷</div><b>Operate</b><span>AI-ranked tasks, checklists &amp; a weekly readout so nothing slips.</span></div>
+    <div class="pillar"><div class="pi">◆</div><b>Own</b><span>Your brand, your domain, your data. Not rented software.</span></div>
+  </div>
+</div></section>
+<section class="section" style="padding-top:20px" id="industries"><div class="wrap">
+  <div class="tag-lead reveal">Who we build for</div>
+  <h2 class="serif reveal d1">Made for the way you work.</h2>
+  <div class="ind-strip reveal d1">
+    <a class="ind" href="lenders.html"><div class="ik">Lenders</div><h4 class="serif">Loan officers &amp; brokers</h4><p>Pre-approvals, rate locks, and a pipeline built for the mortgage workflow.</p><span class="gox">Explore →</span></a>
+    <a class="ind" href="realtors.html"><div class="ik">Realtors</div><h4 class="serif">Agents &amp; teams</h4><p>Speed-to-lead, listings, and follow-up that turns showings into closings.</p><span class="gox">Explore →</span></a>
+    <a class="ind" href="businesses.html"><div class="ik">Local business</div><h4 class="serif">Any business, run for you</h4><p>Services, trades, agencies, shops — we walk in and build your goals, projections, and operations right into the suite.</p><span class="gox">Explore →</span></a>
+  </div>
+</div></section>
+<section class="section" style="padding-top:20px" id="faq"><div class="wrap">
+  <div class="tag-lead reveal">Questions</div>
+  <h2 class="serif reveal d1">Good to know.</h2>
+  <div class="faq reveal d1">
+    <details><summary>Do you set it all up for me?</summary><p>Yes — that's the whole point. We install it, migrate your data, connect your email and calendar, and train you. You're live in about two weeks.</p></details>
+    <details><summary>Can I just get a website?</summary><p>Absolutely. Websites are sold on their own from $1,499 + $99/mo hosting. Most clients grow into the full system later.</p></details>
+    <details><summary>How is this different from Follow Up Boss or Lofty?</summary><p>Those are tools you set up yourself and mostly don't use. We build your entire operating system — website, automations, and suite — fit to how you work, and stay on as your growth partner.</p></details>
+    <details><summary>Is my data mine?</summary><p>Always. It's white-labeled to your brand and exportable anytime.</p></details>
+  </div>
+</div></section>
+<div class="cta-band"><h2 class="serif">Let's find the leaks — then plug them.</h2><p>A free 20-minute Pipeline Teardown of how you run things today. No pitch — you keep the teardown either way.</p><span class="mag"><button class="btn btn-primary btn-lg">Book your free Pipeline Teardown →</button></span></div>
+<footer class="footer"><div class="wrap">
+  <div class="fg">
+    <div>
+      <div class="flogo">Proy<span class="accent">Tech</span></div>
+      <div class="ftag">We build your entire business operating system — website, automations, and an AI-powered suite — installed for you.</div>
+    </div>
+    <div><h5>Product</h5><a href="suite.html">Business Suite</a><a href="index.html#growthos">Growth OS</a><a href="index.html#pricing">Websites</a><a href="index.html#pricing">Pricing</a></div>
+    <div><h5>Industries</h5><a href="lenders.html">Lenders</a><a href="realtors.html">Realtors</a><a href="businesses.html">Local business</a><a href="industries.html">All industries</a></div>
+    <div><h5>Company</h5><a href="work.html">Our work</a><a href="#">Talk to Ace</a><a href="#">Book a Teardown</a><a href="https://getproytech.com">getproytech.com</a></div>
+  </div>
+  <div class="fbot"><span>© 2026 ProyTech · Wichita, KS</span><span>Websites, automation &amp; an AI Business Suite for any local business</span></div>
+</div></footer>
+
+<script>document.body.classList.add('js');
+var glow=document.getElementById('glow'),prog=document.getElementById('prog');
+addEventListener('mousemove',function(e){if(glow){glow.style.left=e.clientX+'px';glow.style.top=e.clientY+'px';}});
+function type(el,text,speed){if(!el)return;var i=0;el.classList.add('tp');el.textContent='';(function t(){if(i<=text.length){el.textContent=text.slice(0,i++);setTimeout(t,speed);}else{el.classList.remove('tp');}})();}
+function typeHero(el,text,speed){if(!el)return;var i=0;el.classList.add('typed');(function t(){if(i<=text.length){el.textContent=text.slice(0,i++);setTimeout(t,speed);}})();}
+var hr=document.getElementById('heroReply');if(hr)setTimeout(function(){typeHero(hr,'Replied in 12 seconds. Tour booked for Saturday ✓',26);},900);
+function countUp(el){if(!el||el.dataset.done)return;el.dataset.done=1;var t=+el.dataset.count,pre=el.dataset.prefix||'',dur=1300,st=performance.now();(function f(now){var p=Math.min(1,(now-st)/dur);p=1-Math.pow(1-p,3);el.textContent=pre+Math.round(t*p).toLocaleString();if(p<1)requestAnimationFrame(f);})(performance.now());}
+var hkpi=document.querySelector('#stage [data-count]');if(hkpi)new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting)countUp(e.target);});},{threshold:.6}).observe(hkpi);
+var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting)e.target.classList.add('in');});},{threshold:.16});
+document.querySelectorAll('.reveal,#cmp').forEach(function(el){io.observe(el);});
+var hero=document.getElementById('hero');if(hero)setTimeout(function(){hero.classList.add('in');},80);
+var stage=document.getElementById('stage');
+if(stage){stage.addEventListener('mousemove',function(ev){var r=stage.getBoundingClientRect(),mx=(ev.clientX-r.left)/r.width-.5,my=(ev.clientY-r.top)/r.height-.5;stage.querySelectorAll('.card3d').forEach(function(c){var d=+c.dataset.depth;c.style.transform='translate('+(mx*d)+'px,'+(my*d)+'px) rotateX('+(-my*6)+'deg) rotateY('+(mx*6)+'deg)';});});
+stage.addEventListener('mouseleave',function(){stage.querySelectorAll('.card3d').forEach(function(c){c.style.transform='';});});}
+document.querySelectorAll('.mag').forEach(function(m){var b=m.querySelector('.btn');if(!b)return;m.addEventListener('mousemove',function(e){var r=m.getBoundingClientRect();b.style.transform='translate('+((e.clientX-r.left-r.width/2)*.3)+'px,'+((e.clientY-r.top-r.height/2)*.4)+'px)';});m.addEventListener('mouseleave',function(){b.style.transform='';});});
+var showcase=document.getElementById('showcase');
+if(showcase){var screens=[].slice.call(document.querySelectorAll('.screen')),caps=[].slice.call(document.querySelectorAll('.cap')),dots=[].slice.call(document.querySelectorAll('.dots i')),navs=[].slice.call(document.querySelectorAll('.app-nav a')),url=document.querySelector('.url');
+var urls=['/dashboard','/pipeline','/leads','/analytics'];var aiText="Hi Ethan — just circling back on the quote we sent over. I'd love to get you on the schedule this week before it books up. Want me to hold a spot? Happy to answer any questions.";var cur=-1;
+function setStage(n){if(n===cur)return;cur=n;screens.forEach(function(s){var on=+s.dataset.i===n;s.classList.toggle('on',on);if(!on)s.classList.remove('go');});caps.forEach(function(c){c.classList.toggle('on',+c.dataset.i===n);});dots.forEach(function(d,i){d.classList.toggle('on',i===n);});navs.forEach(function(a){a.classList.toggle('on',+a.dataset.n===n);});if(url)url.textContent='app.your-brand.com'+urls[n];var active=screens[n];setTimeout(function(){active.classList.add('go');if(n===0)active.querySelectorAll('[data-count]').forEach(function(el){el.dataset.done='';countUp(el);});if(n===2)type(document.getElementById('aiDraft'),aiText,17);},60);}
+function onScroll(){var rect=showcase.getBoundingClientRect(),total=showcase.offsetHeight-innerHeight;var p=Math.min(1,Math.max(0,-rect.top/total));if(prog)prog.style.width=(document.documentElement.scrollTop/(document.documentElement.scrollHeight-innerHeight)*100)+'%';if(rect.top<innerHeight&&rect.bottom>0){setStage(Math.min(3,Math.floor(p*4+0.0001)));}}
+if(matchMedia('(max-width:760px)').matches){setStage(0);var _mi=0;setInterval(function(){_mi=(_mi+1)%4;setStage(_mi);},4200);addEventListener('scroll',function(){if(prog)prog.style.width=(document.documentElement.scrollTop/(document.documentElement.scrollHeight-innerHeight)*100)+'%';},{passive:true});}
+else{addEventListener('scroll',onScroll,{passive:true});onScroll();}}
+else{addEventListener('scroll',function(){if(prog)prog.style.width=(document.documentElement.scrollTop/(document.documentElement.scrollHeight-innerHeight)*100)+'%';},{passive:true});}
+</script>
+
+<!-- ===== Ace chat widget ===== -->
+<button id="aceLauncher" aria-label="Chat with Ace">
+  <span class="ace-orb" aria-hidden="true"></span>
+  <span>Talk to Ace</span>
+</button>
+
+<div id="acePanel" role="dialog" aria-label="Chat with Ace" aria-modal="false">
+  <div class="ace-head">
+    <span class="ace-orb" aria-hidden="true"></span>
+    <div>
+      <h4>Ace</h4>
+      <div class="ace-sub">ProyTech front desk</div>
+    </div>
+    <span class="ace-status" title="Online" aria-hidden="true"></span>
+    <button class="ace-x" id="aceClose" aria-label="Close chat">&#10005;</button>
+  </div>
+  <div class="ace-feed" id="aceFeed"></div>
+  <div class="ace-chips" id="aceChips"></div>
+  <div class="ace-input">
+    <input id="aceInput" type="text" placeholder="Ask about growing your business…" autocomplete="off" aria-label="Your message" />
+    <button class="ace-send" id="aceSend" aria-label="Send">&#8593;</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var launcher=document.getElementById('aceLauncher');
+  var panel=document.getElementById('acePanel');
+  var feed=document.getElementById('aceFeed');
+  var chipsWrap=document.getElementById('aceChips');
+  var input=document.getElementById('aceInput');
+  var sendBtn=document.getElementById('aceSend');
+  var closeBtn=document.getElementById('aceClose');
+  if(!launcher||!panel) return;
+
+  var history=[];            // {role, content} sent to /api/chat
+  var leadCaptured=false;    // stop re-firing once a lead is in
+  var busy=false;
+  var opened=false;
+
+  var GREETING="Hey — I'm Ace. Tell me what you do and where deals slip through the cracks, and I'll show you how we'd fix it. What's your business?";
+  var GREET_CHIPS=["I'm a realtor","I'm a lender","How does it all work?"];
+
+  function scrollDown(){ feed.scrollTop=feed.scrollHeight; }
+
+  function addMsg(text,who){
+    var d=document.createElement('div');
+    d.className='ace-msg '+(who==='user'?'user':'bot');
+    d.textContent=text;
+    feed.appendChild(d); scrollDown();
+    return d;
+  }
+  function showTyping(){
+    var t=document.createElement('div');
+    t.className='ace-typing'; t.id='aceTyping';
+    t.innerHTML='<span></span><span></span><span></span>';
+    feed.appendChild(t); scrollDown();
+  }
+  function hideTyping(){ var t=document.getElementById('aceTyping'); if(t) t.remove(); }
+
+  function renderChips(chips){
+    chipsWrap.innerHTML='';
+    (chips||[]).forEach(function(c){
+      var b=document.createElement('button');
+      b.className='ace-chip'; b.type='button'; b.textContent=c;
+      b.addEventListener('click',function(){ send(c); });
+      chipsWrap.appendChild(b);
+    });
+  }
+
+  function showCaptured(){
+    var d=document.createElement('div');
+    d.className='ace-captured';
+    d.innerHTML='<span aria-hidden="true">&#9989;</span><div><b>You&rsquo;re on the list.</b> Garrett or Logan will reach out shortly to set up your free Pipeline Teardown.</div>';
+    feed.appendChild(d); scrollDown();
+  }
+
+  function setBusy(b){
+    busy=b; sendBtn.disabled=b; input.disabled=b;
+  }
+
+  function send(text){
+    text=(text||input.value||'').trim();
+    if(!text||busy) return;
+    input.value='';
+    addMsg(text,'user');
+    history.push({role:'user',content:text});
+    renderChips([]);
+    setBusy(true); showTyping();
+
+    fetch('/api/chat',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({messages:history, leadCaptured:leadCaptured})
+    }).then(function(r){ return r.json().catch(function(){return {};}); })
+      .then(function(data){
+        hideTyping(); setBusy(false);
+        if(data.error){ addMsg("I'm having a hiccup — try again in a sec, or tap Free Teardown up top.",'bot'); return; }
+        var reply=data.reply||"Sorry, I didn't catch that — mind rephrasing?";
+        addMsg(reply,'bot');
+        history.push({role:'assistant',content:reply});
+        if(data.captured && !leadCaptured){ leadCaptured=true; showCaptured(); renderChips([]); }
+        else { renderChips(data.chips); }
+        input.focus();
+      }).catch(function(){
+        hideTyping(); setBusy(false);
+        addMsg("Connection glitch — mind trying that again?",'bot');
+      });
+  }
+
+  function open(){
+    panel.classList.add('open'); launcher.classList.add('hide'); opened=true;
+    if(feed.children.length===0){
+      addMsg(GREETING,'bot');
+      history.push({role:'assistant',content:GREETING});
+      renderChips(GREET_CHIPS);
+    }
+    setTimeout(function(){ input.focus(); },200);
+  }
+  function close(){ panel.classList.remove('open'); launcher.classList.remove('hide'); }
+
+  launcher.addEventListener('click',open);
+  closeBtn.addEventListener('click',close);
+  sendBtn.addEventListener('click',function(){ send(); });
+  input.addEventListener('keydown',function(e){ if(e.key==='Enter'){ e.preventDefault(); send(); } });
+  document.addEventListener('keydown',function(e){ if(e.key==='Escape' && panel.classList.contains('open')) close(); });
+
+  // Wire any "Talk to Ace" button on the page to open the widget.
+  document.querySelectorAll('button, a').forEach(function(el){
+    if(el.id==='aceLauncher'||el.closest('#acePanel')) return;
+    if((el.textContent||'').trim().toLowerCase()==='talk to ace'){
+      el.addEventListener('click',function(e){ e.preventDefault(); open(); });
+    }
+  });
+
+  window.openAce=open;   // so anything can call openAce()
+})();
+</script>
+
+</body></html>
