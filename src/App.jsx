@@ -115,15 +115,25 @@ const ONBOARDING=[
 ];
 const ONB_ITEMS=ONBOARDING.flatMap(g=>g.items.map(([key,label])=>({key,label,phase:g.phase})));
 const onbByPhase=phase=>ONB_ITEMS.filter(i=>i.phase===phase);
+/* Not every checklist item applies to every client. A monthly-only client has
+   no setup fee, so "Deposit / first payment collected" would sit unticked
+   forever and read like something is outstanding when nothing is. Skipped items
+   are hidden, excluded from the x/y progress, and — importantly — cannot hold
+   up anything that waits on them. Per client, because two clients on the same
+   plan can still be sold differently. */
+const skippedOnb=l=>Array.isArray(l&&l.onbSkip)?l.onbSkip:[];
+const onbSkipped=(l,key)=>skippedOnb(l).includes(key);
+const onbItemsFor=l=>ONB_ITEMS.filter(i=>!onbSkipped(l,i.key));
 const seedOnboarding=()=>{const o={};ONB_ITEMS.forEach(i=>o[i.key]={done:null,due:null});return o;};
 /* progress for one phase's checklist (mirrors trackProgress) */
-const phaseProgress=(lead,phase)=>{ const items=onbByPhase(phase); const ob=lead.onboarding||{}; let done=0,overdue=0,nextDue=null,next=null;
+const phaseProgress=(lead,phase)=>{ const items=onbByPhase(phase).filter(i=>!onbSkipped(lead,i.key)); const ob=lead.onboarding||{}; let done=0,overdue=0,nextDue=null,next=null;
   items.forEach(i=>{ const e=normEntry(ob[i.key]); if(e.done) done++; else { if(!next) next=i; if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } } });
   return {items,done,total:items.length,pct:items.length?done/items.length:0,overdue,nextDue,next}; };
 /* whole-checklist stats (mirrors clientOverall) */
 const onboardingStat=lead=>{ const ob=lead.onboarding||{}; let done=0,overdue=0,nextDue=null,next=null;
-  ONB_ITEMS.forEach(i=>{ const e=normEntry(ob[i.key]); if(e.done) done++; else { if(!next) next=i; if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } } });
-  return {done,total:ONB_ITEMS.length,pct:ONB_ITEMS.length?done/ONB_ITEMS.length:0,overdue,nextDue,next}; };
+  const items=onbItemsFor(lead);
+  items.forEach(i=>{ const e=normEntry(ob[i.key]); if(e.done) done++; else { if(!next) next=i; if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } } });
+  return {done,total:items.length,pct:items.length?done/items.length:0,overdue,nextDue,next}; };
 /* one-time, idempotent pipeline migration: pre-migration installs (empty or the
    old 6-key default) get the new 5 stages, and every lead's stage key is remapped.
    Safe to run on every load — a no-op once migrated. */
@@ -443,6 +453,34 @@ const coldList=rels=>(rels||[]).map(r=>{ const tier=tierOf(r); const last=lastTo
    that reached this stage which ultimately CLOSED (the last stage in the flow). */
 /* archived (previously-closed) deals on a repeat client */
 const closedDealsTotal=l=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+num(d.amount),0);
+/* ---- what a client owes and what has actually arrived ---------------------
+   Revenue used to be attributed by CLOSE date: a deal closed 21 July put every
+   dollar in July even if half the money arrived in August. That's accrual
+   accounting, and it's the wrong basis for a business that gets paid in stages
+   — the month you closed and the month you got paid are different facts.
+   Money now lands in the month the PAYMENT is dated. */
+const paymentsOf=l=>Array.isArray(l&&l.payments)?l.payments:[];
+const paidTotal=l=>paymentsOf(l).reduce((a,p)=>a+num(p.amount),0);
+const paidInMonth=(l,mKey)=>paymentsOf(l).reduce((a,p)=>
+  a+((p.date&&String(p.date).slice(0,7)===mKey)?num(p.amount):0),0);
+/* everything this client has been sold: open deals, archived closed deals, and
+   a bare dealValue for leads that never used deal rows */
+const contractedTotal=l=>{
+  const closed=closedDealsTotal(l);
+  /* dealBits, not dealSum — dealSum is a local inside the lead modal, so calling
+     it from module scope crashed at render while building cleanly. Same shape,
+     module-level. */
+  const open=dealsOf(l).reduce((a,d)=>a+dealBits(d),0);
+  return closed+open;
+};
+/* What's still owed. A lead with NO payments logged but a confirmed deposit is
+   treated as settled, because that's exactly how revenue counts it — the legacy
+   fallback. Saying "revenue counted" and "still owes it" about the same client
+   would be two answers to one question. */
+const owedBy=l=>{
+  if(!paymentsOf(l).length) return cashConfirmed(l)?0:contractedTotal(l);
+  return Math.max(0,contractedTotal(l)-paidTotal(l));
+};
 const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.closedAt&&String(d.closedAt).slice(0,7)===mKey)?num(d.amount):0),0);
 /* open deals on a lead, migrating legacy single-deal / bare-dealValue shapes.
    Mirrors the modal's openDeals so the card and the modal always agree. */
@@ -627,6 +665,10 @@ const depositPaidAt=l=>normEntry((l&&l.onboarding||{}).deposit_paid).done||'';
 const CASH_RULE_FROM='2026-08-01';
 const cashConfirmed=l=>{ if(!l) return false;
   if(depositPaidAt(l)) return true;
+  /* deposit switched off for this client — monthly-only, no setup fee to
+     collect — so there is nothing for revenue to wait on. Without this they'd
+     read "awaiting payment" forever over a $0 setup. */
+  if(onbSkipped(l,'deposit_paid')) return true;
   const conv=String(l.convertedAt||l.closedAt||'').slice(0,10);
   return !!conv && conv < CASH_RULE_FROM; };
 const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[track.key])||{}; const ms=track.milestones||[]; const entries={}; let completed=0,overdue=0,nextDue=null;
@@ -875,6 +917,7 @@ const CSS=`
 .pay-head{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0;margin-bottom:10px}
 .pay-head b.due{color:#D97706;font-size:13px}
 .pay-head b.clear{color:#1a7d46;font-size:13px}
+.pay-mon{margin-left:7px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:${COBALT};background:color-mix(in srgb,${COBALT} 10%,#fff);border-radius:5px;padding:1px 5px}
 .pay-bars{margin-bottom:12px}
 .pay-bar{height:9px;background:#EEF0F8;border-radius:5px;overflow:hidden}
 .pay-bar>div{height:100%;border-radius:5px;background:linear-gradient(90deg,${GREEN},#2BA35C);transition:width .3s}
@@ -1258,6 +1301,13 @@ const CSS=`
 .loc-recent button{border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:1px 8px;font-size:10.5px;font-family:inherit;color:${COBALT};cursor:pointer;font-weight:600;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .loc-recent button:hover{border-color:${COBALT}}
 .rbc-pend{font-size:10.5px;font-weight:700;color:#D97706;background:rgba(217,119,6,.1);border-radius:6px;padding:1px 6px}
+.onb-item.skipped{opacity:.5}
+.onb-item.skipped .onb-label{text-decoration:line-through;color:#9A96AC}
+.onb-skip{margin-left:auto;border:1px solid #E4E5EF;background:#fff;color:#9A96AC;border-radius:7px;padding:2px 8px;font-size:10.5px;font-weight:700;font-family:inherit;cursor:pointer;flex:none}
+.onb-skip:hover{border-color:${COBALT};color:${COBALT}}
+.onb-item .onb-skip.hide{opacity:0;margin-left:6px}
+.onb-item:hover .onb-skip.hide{opacity:1}
+.onb-showskip{background:none;border:0;color:${COBALT};font-size:11.5px;font-weight:700;font-family:inherit;cursor:pointer;padding:2px 0 8px}
 .tx-src{margin-left:7px;font-size:9.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:${COBALT};background:color-mix(in srgb,${COBALT} 11%,#fff);border-radius:5px;padding:1px 5px}
 tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .ev-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
@@ -2428,6 +2478,16 @@ export default function App(){
     const updated={...l,closedAt:d,convertedAt:l.convertedAt||d,stage:wonStage?wonStage.key:l.stage,activities:[...acts,...(l.activities||[])]};
     setLeads(leads.map(x=>x.id===id?updated:x)); putLead(updated); };
   /* toggle one onboarding item + log it — single atomic write */
+  /* Mark a checklist item as not applying to this client, or bring it back.
+     Any tick already on it is left in place, so switching it off and on again
+     doesn't lose the date it was completed. */
+  const toggleOnbSkip=(id,itemKey)=>{ const l=leadsRef.current.find(x=>x.id===id); if(!l) return;
+    const cur=skippedOnb(l); const off=cur.includes(itemKey);
+    const next=off?cur.filter(k=>k!==itemKey):[...cur,itemKey];
+    const label=(ONB_ITEMS.find(i=>i.key===itemKey)||{}).label||itemKey;
+    updateLead(id,{onbSkip:next,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',
+      text:off?`Checklist: "${label}" applies again.`:`Checklist: "${label}" marked not applicable.`,who:me},
+      ...(l.activities||[])]}); };
   const toggleOnboarding=(id,itemKey)=>{ let updated=null; let linkedTaskId=null; let doneState=false;
     setLeads(leads.map(l=>{ if(l.id!==id)return l;
       const ob={...(l.onboarding||{})}; const cur=normEntry(ob[itemKey]); const doneNow=!cur.done; doneState=doneNow;
@@ -2602,7 +2662,7 @@ export default function App(){
           view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
           view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
-          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
+          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead}/>:
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings}/>:
@@ -2624,7 +2684,7 @@ function useMetrics(leads,stages,settings){
   return useMemo(()=>{
     const ratioEx=ratioExcludeOf(settings);
     const byStage={}; stages.forEach(s=>byStage[s.key]={count:0,value:0});
-    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,wonPending=0,lostCount=0,mrr=0,retainers=0,upsellCount=0,upsellValue=0;
+    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,wonValued=0,wonPending=0,lostCount=0,mrr=0,retainers=0,upsellCount=0,upsellValue=0;
     /* An upsell to somebody you've already delivered for is at least as likely to
        land as a proposal sitting with a new lead, so it's weighted at the best
        probability on the open stages rather than at an invented number. */
@@ -2638,7 +2698,13 @@ function useMetrics(leads,stages,settings){
          does too and avgDeal divides one by the other. Counting the deal but not
          its value made average deal size DROP every time you converted somebody
          who hadn't paid yet. wonPending tracks the rest so nothing is hidden. */
-      if(s.won){ if(cashConfirmed(l)){ wonCount++; wonValue+=openSaleValue(l); } else wonPending++;
+      if(s.won){ if(cashConfirmed(l)){ wonCount++; const v=openSaleValue(l); wonValue+=v;
+          /* A retainer-only client has no setup deal, so a $0 setup is not a
+             data point about deal SIZE — averaging it in drags the number
+             toward zero and misreports what a setup sale is actually worth.
+             They still count as a win and their retainer still counts in MRR. */
+          if(v>0) wonValued++; }
+        else wonPending++;
         const uv=upsellValueOf(l);
         if(uv>0){ upsellCount++; upsellValue+=uv; weighted+=uv*upsellProb; } }
       if(s.lost) lostCount++; wonValue+=closedDealsTotal(l);
@@ -2653,11 +2719,11 @@ function useMetrics(leads,stages,settings){
        it below winRate crashed at render while still building cleanly. */
     const wonForRate=wonCount+wonPending;
     const winRate=(wonForRate+lostCount)>0?wonForRate/(wonForRate+lostCount):0;
-    const avgDeal=wonCount>0?wonValue/wonCount:0; const avgRet=retainers>0?mrr/retainers:0;
+    const avgDeal=wonValued>0?wonValue/wonValued:0; const avgRet=retainers>0?mrr/retainers:0;
     /* meetings — ONE unified source. Every meeting (scheduled or logged) counts
        once, and held/no-show is read from the same record everywhere. */
     const mKey=todayISO().slice(0,7); const nowMs=Date.now();
-    let bookedAll=0,bookedMonth=0,mtgUpcoming=0,heldMonth=0,noShowMonth=0,heldAll=0,noShowAll=0,needsStatusCount=0,needsDateCount=0,onboardedMonth=0,depositsMonth=0;
+    let bookedAll=0,bookedMonth=0,mtgUpcoming=0,heldMonth=0,noShowMonth=0,heldAll=0,noShowAll=0,needsStatusCount=0,needsDateCount=0,onboardedMonth=0,depositsMonth=0,onbNeeded=0,onbMonthlyOnly=0;
     const bookedByType={};
     leads.forEach(l=>{
       meetingsOf(l).forEach(mt=>{ bookedAll++;
@@ -2670,9 +2736,15 @@ function useMetrics(leads,stages,settings){
         if(mt.status==='held'){ heldAll++; if(mk===mKey) heldMonth++; }
         else if(mt.status==='noshow'){ noShowAll++; if(mk===mKey) noShowMonth++; }
       });
-      if(l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey) onboardedMonth++;
-      const dep=l.onboarding&&l.onboarding.deposit_paid&&normEntry(l.onboarding.deposit_paid).done;
-      if(dep&&String(dep).slice(0,7)===mKey) depositsMonth++;
+      /* Both numbers describe the SAME clients — the ones onboarded this month.
+         depositsMonth used to scan every lead in the CRM, so a client converted
+         in July whose deposit landed in August was counted here but absent from
+         the list below it: the tile said "2 deposits" over a list showing one.
+         onbNeeded counts only clients a deposit is actually expected from. */
+      if(l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey){ onboardedMonth++;
+        if(!onbSkipped(l,'deposit_paid')){ onbNeeded++;
+          if(depositPaidAt(l)) depositsMonth++; }
+        else onbMonthlyOnly++; }
     });
     /* speed to first touch + follow-up discipline */
     const touchHrs=[]; let untouched=0,fuCleared=0,fuOnTime=0;
@@ -2680,13 +2752,30 @@ function useMetrics(leads,stages,settings){
       if(h==null){ if(!(l.activities||[]).some(REAL_TOUCH)) untouched++; } else touchHrs.push(h);
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
-    let closedMonth=0,revenueMonth=0;
+    let closedMonth=0;
     /* a won lead only counts once the money is confirmed — see cashConfirmed */
     let awaitingCash=0,awaitingValue=0;
     leads.forEach(l=>{ if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){
-        if(cashConfirmed(l)){ closedMonth++; revenueMonth+=num(l.dealValue); }
+        if(cashConfirmed(l)){ closedMonth++; }
         else { awaitingCash++; awaitingValue+=num(l.dealValue); } }
-      const cm=closedDealsInMonth(l,mKey); if(cm>0){ revenueMonth+=cm; closedMonth+=closedDealsCountInMonth(l,mKey); } });
+      const cm=closedDealsInMonth(l,mKey); if(cm>0){ closedMonth+=closedDealsCountInMonth(l,mKey); } });
+
+    /* Revenue = money that actually arrived this month, from the payment dates.
+       LEGACY FALLBACK: a lead closed this month with cash confirmed but NO
+       payments logged still counts at its close date — otherwise every deal
+       recorded before payments were tracked would silently vanish from your
+       history. Once you log a payment on a lead, its payments take over. */
+    let revenueMonth=0,collectedMonth=0,legacyMonth=0,outstanding=0;
+    leads.forEach(l=>{
+      const pays=paidInMonth(l,mKey);
+      if(pays>0){ collectedMonth+=pays; revenueMonth+=pays; }
+      if(!paymentsOf(l).length){
+        const closedHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l);
+        const legacy=(closedHere?num(l.dealValue):0)+closedDealsInMonth(l,mKey);
+        if(legacy>0){ legacyMonth+=legacy; revenueMonth+=legacy; }
+      }
+      outstanding+=owedBy(l);
+    });
     const firstTouch=median(touchHrs);
     const fuRate=fuCleared>0?fuOnTime/fuCleared:null;
     const funnel=funnelOf(leads,stages);
@@ -2741,9 +2830,9 @@ function useMetrics(leads,stages,settings){
         mrr:l.retainerActive?num(l.retainer):0,deals:((l.closedDeals||[]).length)+((sOf(l.stage,stages).won||l.isClient)&&num(l.dealValue)>0?1:0)};
     }).filter(c=>c.lifetime>0||c.mrr>0||c.pending>0).sort((a,b)=>b.lifetime-a.lifetime);
     return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
-      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,
-      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,awaitingCash,awaitingValue,
-      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,avgDaysToClose,movingPct,rotting,sourceROI};
+      bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,onbNeeded,onbMonthlyOnly,
+      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
+      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages,settings]);
 }
 
@@ -2930,7 +3019,25 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     return {u,touches,booked,conv,open:openL.length,pipe,owed,pend,last};
   }).sort((a,b)=>b.conv-a.conv||b.touches-a.touches);
   const openLeads=leads.filter(l=>sOf(l.stage,stages).open).sort((a,b)=>num(b.dealValue)-num(a.dealValue));
-  const wonLeads=leads.filter(l=>sOf(l.stage,stages).won).sort((a,b)=>(b.closedAt||'').localeCompare(a.closedAt||''));
+  const [wonScope,setWonScope]=useState('month');
+  /* What a lead ACTUALLY closed. dealValue alone is wrong the moment you use
+     "Close this deal": that moves the money into closedDeals and empties
+     dealValue, so the row read $0 for a deal that was closed properly — which
+     is exactly what made the panel look broken while every total was right. */
+  const wonRowValue=(l,scoped)=>scoped
+    ? ((l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l)?num(l.dealValue):0)+closedDealsInMonth(l,mKey))
+    : ((cashConfirmed(l)?num(l.dealValue):0)+closedDealsTotal(l));
+  const wonLeads=(()=>{ const scoped=wonScope==='month';
+    return leads
+      .filter(l=>sOf(l.stage,stages).won||closedDealsTotal(l)>0)
+      .map(l=>({l,v:wonRowValue(l,scoped),
+        setup:(scoped?(l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l)?num(l.dealValue):0):(cashConfirmed(l)?num(l.dealValue):0)),
+        deals:(scoped?closedDealsInMonth(l,mKey):closedDealsTotal(l))}))
+      /* in month view, a lead with nothing closed THIS month isn't a row —
+         that's why July's Agent Kidd was showing under a this-month tile */
+      .filter(r=>scoped?r.v>0:(r.v>0||sOf(r.l.stage,stages).won))
+      .sort((a,b)=>(b.l.closedAt||'').localeCompare(a.l.closedAt||'')); })();
+  const wonShownTotal=wonLeads.reduce((a,r)=>a+r.v,0);
   const retLeads=leads.filter(l=>l.retainerActive).sort((a,b)=>num(b.retainer)-num(a.retainer));
   const onboardedLeads=leads.filter(l=>l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey);
   const cold=coldList(rels||[]);
@@ -2996,7 +3103,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Open Pipeline" value={usd(m.pipelineValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} lead${m.openCount===1?'':'s'}${m.upsellCount>0?` · ${m.upsellCount} client upsell${m.upsellCount===1?'':'s'}`:''}${G.revenue>0?` · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:''}`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
-      <Kpi label="Revenue Closed" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?'setup closed this month':'weighted forecast')+(m.awaitingCash>0?` · ${usd(m.awaitingValue)} awaiting payment`:'')} onClick={()=>tog('won')} active={drill==='won'} goal={G.revenue} current={m.revenueMonth}/>
+      <Kpi label="Revenue Collected" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?'collected this month':'weighted forecast')+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={m.revenueMonth}/>
       <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.revenueMonth)} setup`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
@@ -3014,11 +3121,42 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       {!rows&&<Empty t="Nothing open."/>}
     </Drill>); })()}
 
-    {drill==='won'&&<Drill title="Deals closed" sub={usd(m.wonValue)+' total'} onClose={()=>setDrill(null)}>
-      {wonLeads.length?wonLeads.map(l=>(<div className="drow" key={l.id}>
-        <div className="drow-m"><Name l={l}/><div className="subcell">{l.closedAt?`closed ${fmtDate(l.closedAt)}`:'—'}{l.owner?` · ${l.owner}`:''}</div></div>
-        <span className="drow-v">{usd(l.dealValue)}</span>
-      </div>)):<Empty t="No closed deals yet."/>}
+    {drill==='rev'&&(()=>{ const rows=leads.flatMap(l=>paymentsOf(l)
+        .filter(p=>p.date&&String(p.date).slice(0,7)===mKey)
+        .map(p=>({l,p}))).sort((a,b)=>(b.p.date||'').localeCompare(a.p.date||''));
+      const legacyRows=leads.filter(l=>!paymentsOf(l).length)
+        .map(l=>({l,amt:((sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l))?num(l.dealValue):0)+closedDealsInMonth(l,mKey)}))
+        .filter(r=>r.amt>0);
+      return (<Drill title="Collected this month" sub={usd(m.revenueMonth)+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClose={()=>setDrill(null)}>
+        {rows.map(({l,p})=>(<div className="drow" key={l.id+p.id}>
+          <div className="drow-m"><Name l={l}/><div className="subcell">{fmtDate(p.date)}{p.note?` · ${p.note}`:''}
+            {owedBy(l)>0?<span className="mtg-flag"> · {usd(owedBy(l))} still owed</span>:null}</div></div>
+          <span className="drow-v">{usdc(p.amount)}</span>
+        </div>))}
+        {/* deals recorded before payments were tracked — counted at their close
+            date so no history disappears, but labelled so it's obvious why */}
+        {legacyRows.map(({l,amt})=>(<div className="drow" key={'lg'+l.id}>
+          <div className="drow-m"><Name l={l}/><div className="subcell">closed {fmtDate(l.closedAt)} · no payments logged</div></div>
+          <span className="drow-v">{usd(amt)}</span>
+        </div>))}
+        {!rows.length&&!legacyRows.length&&<Empty t="Nothing collected this month yet."/>}
+      </Drill>); })()}
+
+    {drill==='won'&&<Drill title="Deals closed" sub={usd(wonShownTotal)+(wonScope==='month'?' this month':' all time')} onClose={()=>setDrill(null)}>
+      {/* the header total is the sum of the rows below it, always — it used to
+          show all-time next to a this-month tile, so the two never agreed */}
+      <div className="mtab-time" style={{marginBottom:10}}>
+        <button className={wonScope==='month'?'on':''} onClick={()=>setWonScope('month')}>This month</button>
+        <button className={wonScope==='all'?'on':''} onClick={()=>setWonScope('all')}>All time</button>
+      </div>
+      {wonLeads.length?wonLeads.map(({l,v,setup,deals})=>(<div className="drow" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">
+          {l.closedAt?`closed ${fmtDate(l.closedAt)}`:'—'}{l.owner?` · ${l.owner}`:''}
+          {setup>0&&deals>0?` · ${usd(setup)} setup + ${usd(deals)} closed deals`:''}
+          {v===0?' · nothing closed yet':''}
+        </div></div>
+        <span className="drow-v">{usd(v)}</span>
+      </div>)):<Empty t={wonScope==='month'?'Nothing closed this month.':'No closed deals yet.'}/>}
     </Drill>}
 
     {drill==='mrr'&&<Drill title="Retainer clients" sub={usd(m.mrr)+'/mo'} onClose={()=>setDrill(null)}>
@@ -3033,7 +3171,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     <div className="kgrid">
       <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming${m.needsDateCount>0?` · ${m.needsDateCount} need a date`:''} · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
       <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show${m.needsStatusCount>0?` · ${m.needsStatusCount} unmarked`:''}`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
-      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
+      <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} of ${m.onbNeeded} deposit${m.onbNeeded===1?'':'s'} in${m.onbMonthlyOnly>0?` · ${m.onbMonthlyOnly} monthly-only`:''}`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
       <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
       <Kpi label="Follow-Up Health" value={m.fuRate==null?'—':Math.round(m.fuRate*100)+'%'} icon={<Bell size={14}/>} d={m.overdue.length>0?`${m.overdue.length} overdue right now`:(m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time`:'clear a follow-up to start')} onClick={()=>tog('fu')} active={drill==='fu'}/>
       <Kpi label="Going Cold" value={cold.length} icon={<Users size={14}/>} d={cold.length>0?`${cold.filter(x=>x.tier==='champion').length} champion${cold.filter(x=>x.tier==='champion').length===1?'':'s'} need a touch`:'everyone is warm'} onClick={()=>tog('cold')} active={drill==='cold'}/>
@@ -3091,10 +3229,10 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       </div>)):<Empty t="Everyone's been touched recently. Nice."/>}
     </Drill>}
 
-    {drill==='onboarded'&&<Drill title="Clients onboarded this month" sub={`${m.depositsMonth} deposit${m.depositsMonth===1?'':'s'} collected`} onClose={()=>setDrill(null)}>
+    {drill==='onboarded'&&<Drill title="Clients onboarded this month" sub={`${m.depositsMonth} of ${m.onbNeeded} deposit${m.onbNeeded===1?'':'s'} in${m.onbMonthlyOnly>0?` · ${m.onbMonthlyOnly} monthly-only`:''}`} onClose={()=>setDrill(null)}>
       {onboardedLeads.length?onboardedLeads.map(l=>{ const st=onboardingStat(l); const dep=normEntry((l.onboarding||{}).deposit_paid).done;
         return (<div className="drow" key={l.id}>
-          <div className="drow-m"><Name l={l}/><div className="subcell">since {fmtDate(l.convertedAt)} · {st.done}/{st.total} onboarding{dep?` · deposit ${fmtDate(dep)}`:' · no deposit yet'}</div></div>
+          <div className="drow-m"><Name l={l}/><div className="subcell">since {fmtDate(l.convertedAt)} · {st.done}/{st.total} onboarding{onbSkipped(l,'deposit_paid')?' · monthly only':dep?` · deposit ${fmtDate(dep)}`:' · no deposit yet'}</div></div>
           <span className="drow-v">{l.retainerActive?usd(l.retainer)+'/mo':'—'}</span>
         </div>); }):<Empty t="No clients onboarded this month."/>}
     </Drill>}
@@ -3129,7 +3267,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       <div className="an-card"><div className="an-l">Avg Days to Close</div><div className="an-v">{m.avgDaysToClose==null?'—':m.avgDaysToClose+'d'}</div><div className="an-d">lead created → converted</div></div>
       <div className="an-card"><div className="an-l">Win Rate</div><div className="an-v">{(m.wonCount+m.lostCount)?Math.round(m.winRate*100)+'%':'—'}</div><div className="an-d">of decided deals ({m.wonCount}W · {m.lostCount}L)</div></div>
       <div className={'an-card'+(m.rotting>0?' warn':'')}><div className="an-l">Pipeline Moving</div><div className="an-v">{m.openCount?Math.round(m.movingPct*100)+'%':'—'}</div><div className="an-d">{m.rotting} deal{m.rotting===1?'':'s'} cold 14+ days</div></div>
-      <div className="an-card"><div className="an-l">Avg Deal Size</div><div className="an-v">{m.avgDeal?usd(m.avgDeal):'—'}</div><div className="an-d">across {m.wonCount} closed</div></div>
+      <div className="an-card"><div className="an-l">Avg Deal Size</div><div className="an-v">{m.avgDeal?usd(m.avgDeal):'—'}</div><div className="an-d">across {m.wonValued} closed{(m.wonCount-m.wonValued)>0?` · ${m.wonCount-m.wonValued} retainer-only`:''}</div></div>
     </div>
     </>),
     sources:(<>
@@ -4212,7 +4350,10 @@ function ClientBoard({clients,settings,onCard,setClientPhase}){
     </div>);})}</div>);
 }
 
-function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,team,setClientPhase,addCustomPhase,removeCustomPhase}){
+function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase}){
+  /* off by default: hidden items should stay out of the way, but you need a way
+     back to them or switching one off would be one-directional */
+  const [showSkipped,setShowSkipped]=useState(false);
   const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS;
   const [showChurned,setShowChurned]=useState(false);
   const [expand,setExpand]=useState(null);
@@ -4261,9 +4402,17 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,a
             <CustomPhaseAdd settings={settings} onAdd={info=>addCustomPhase(l.id,info)}/>
           </div>
           {(l.customPhases||[]).length>0&&<div className="cp-list">{(l.customPhases||[]).map(cp=><span key={cp.key} className="cp-chip" style={{borderColor:cp.color,color:cp.color}}><span className="dot" style={{background:cp.color}}/>{cp.label}<span className="subcell" style={{fontWeight:400}}>after {phaseInfo(cp.after,settings).label}</span><button onClick={()=>{if(window.confirm(`Remove custom phase "${cp.label}"?`))removeCustomPhase(l.id,cp.key);}}><X size={11}/></button></span>)}</div>}
+          {(()=>{const n=skippedOnb(l).length; return n>0?(<button className="onb-showskip" onClick={()=>setShowSkipped(v=>!v)}>
+            {showSkipped?'Hide':'Show'} {n} item{n===1?'':'s'} marked N/A</button>):null;})()}
           {ONBOARDING.map(g=>{const gp=phaseProgress(l,g.phase);return (<div className="onb-group" key={g.phase}>
             <div className="onb-gh"><PhaseBadge k={g.phase}/><span className="onb-gc">{gp.done}/{gp.total}</span></div>
-            {g.items.map(([key,label])=>{const e=normEntry((l.onboarding||{})[key]);const done=!!e.done;const od=!done&&e.due&&daysUntil(e.due)<0;return (
+            {g.items.filter(([key])=>showSkipped||!onbSkipped(l,key)).map(([key,label])=>{const e=normEntry((l.onboarding||{})[key]);const done=!!e.done;const od=!done&&e.due&&daysUntil(e.due)<0;const skipped=onbSkipped(l,key);
+              if(skipped) return (<div className="onb-item skipped" key={key}>
+                <span className="onb-check"><Ban size={15} color="#C9C5D9"/></span>
+                <span className="onb-label">{label}</span>
+                <button className="onb-skip" onClick={()=>toggleSkip&&toggleSkip(l.id,key)}>Bring back</button>
+              </div>);
+              return (
               <div className={'onb-item'+(done?' done':'')+(od?' over':'')} key={key}>
                 <span className="onb-check" onClick={()=>toggleOnboarding(l.id,key)}>{done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color={od?RED:'#C9C5D9'}/>}</span>
                 <span className="onb-label" onClick={()=>toggleOnboarding(l.id,key)}>{label}</span>
@@ -4271,6 +4420,7 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,a
                   <option value="">+ assign</option>
                   {(team||[]).map(n=><option key={n} value={n}>{n}</option>)}
                 </select>
+                <button className="onb-skip hide" title="Doesn't apply to this client" onClick={()=>toggleSkip&&toggleSkip(l.id,key)}>N/A</button>
                 {done?<span className="onb-date done">✓ {fmtDate(e.done)}</span>
                      :<label className="onb-due"><span>{od?'overdue':'due'}</span><input type="date" className={od?'over':''} value={e.due||''} onChange={ev=>setOnboardingDue(l.id,key,ev.target.value)}/></label>}
               </div>);})}
@@ -6045,8 +6195,15 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   const logPayment=()=>{
                     const raw=window.prompt('Payment amount received ($):', remaining>0?String(remaining):'');
                     if(raw===null) return; const amount=num(raw); if(amount<=0){ window.alert('Enter a dollar amount.'); return; }
+                    /* the DATE matters now: revenue lands in the month the money
+                       arrived, so a deposit in July and a balance in August show
+                       in their own months rather than both at the close date. */
+                    const dRaw=window.prompt('What date did it land? (YYYY-MM-DD)',todayISO());
+                    if(dRaw===null) return;
+                    const date=String(dRaw).trim().slice(0,10);
+                    if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ window.alert('Please use YYYY-MM-DD, e.g. 2026-08-07.'); return; }
                     const note=(window.prompt('Note (e.g. "Square deposit", "balance on delivery") — optional:','')||'').trim();
-                    const pay={id:uid(),amount,date:todayISO(),note};
+                    const pay={id:uid(),amount,date,note};
                     const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who:me};
                     set({payments:[...pays,pay],activities:[act,...(draft.activities||[])]});
                   };
@@ -6058,7 +6215,11 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                     </div>}
                     {pays.length>0&&<div className="pay-list">{pays.map(p=>(
                       <div className="pay-row" key={p.id}>
-                        <div className="pay-m"><b>{usdc(p.amount)}</b><span>{fmtDate(p.date)}{p.note?` · ${p.note}`:''}</span></div>
+                        <div className="pay-m"><b>{usdc(p.amount)}</b><span>{fmtDate(p.date)}
+                          {/* the month is what the dashboard actually counts on,
+                              so it's spelled out rather than inferred from the date */}
+                          {p.date?<span className="pay-mon">counts in {new Date(p.date+'T12:00:00').toLocaleString(undefined,{month:'long'})}</span>:null}
+                          {p.note?` · ${p.note}`:''}</span></div>
                         <button className="ex-del" title="Remove payment" onClick={()=>{ if(window.confirm('Remove this payment?')) set({payments:pays.filter(x=>x.id!==p.id)}); }}><X size={13}/></button>
                       </div>))}</div>}
                     {over>0&&<div className="pay-over">{usdc(over)} paid over the deal total (extra / tip / adjust the deal)</div>}
@@ -6080,6 +6241,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               at the bottom of the delivery checklist. */}
           {!isNew&&draft.isClient&&(()=>{
             const paid=depositPaidAt(draft);
+            const noSetup=onbSkipped(draft,'deposit_paid');
             const doRevert=()=>{ if(window.confirm(
               'Revert this client back to a lead?\n\n'+
               '· They come off the client board and out of closed-deal counts\n'+
@@ -6088,7 +6250,9 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               'You can convert them again at any time.')) revertClient(draft.id); };
             return (<div className={'client-bar'+(paid?' paid':'')}>
               <div className="cb-l">
-                {paid?<><CheckCircle2 size={14} color={GREEN}/><span><b>Payment confirmed {fmtDate(paid)}</b> · counting in your numbers</span></>
+                {noSetup&&!paid
+                  ? <><CheckCircle2 size={14} color={GREEN}/><span><b>Monthly only — no setup fee</b>{draft.retainerActive?` · ${usd(num(draft.retainer))}/mo`:''} · nothing held back</span></>
+                  : paid?<><CheckCircle2 size={14} color={GREEN}/><span><b>Payment confirmed {fmtDate(paid)}</b> · counting in your numbers</span></>
                      :<><Clock size={14} color="#D97706"/><span><b>Client, payment not collected yet</b> · {usd(num(draft.dealValue))} counts once you tick <i>Deposit / first payment collected</i></span></>}
               </div>
               {/* The tick lives here, not just on the Clients page. Gating
@@ -6102,7 +6266,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   $0 while the record claimed payment was confirmed.
                   It reads the payments already logged so pressing this after
                   using the panel confirms without double-counting. */}
-              <button className={'cb-pay'+(paid?' on':'')} onClick={()=>{
+              {(!noSetup||paid)&&<button className={'cb-pay'+(paid?' on':'')} onClick={()=>{
                 const ob={...(draft.onboarding||{})};
                 const cur=normEntry(ob.deposit_paid);
                 if(cur.done){
@@ -6139,7 +6303,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 acts.push({id:uid(),ts:new Date().toISOString(),type:'Note',
                   text:`Payment confirmed ${fmtDate(clean)} — ${usd(num(draft.dealValue))} now counting.`,who:me});
                 set({...patch,activities:[...acts,...(draft.activities||[])]});
-              }}>{paid?<><CheckCircle2 size={13}/>Payment collected</>:<><DollarSign size={13}/>Mark payment collected</>}</button>
+              }}>{paid?<><CheckCircle2 size={13}/>Payment collected</>:<><DollarSign size={13}/>Mark payment collected</>}</button>}
               <button className="linkbtn cb-undo" onClick={doRevert}>Revert to lead</button>
             </div>);
           })()}
