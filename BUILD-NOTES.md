@@ -1,189 +1,254 @@
-# BUILD-NOTES — sales team + commissions
+# Build notes — conversation capture + goals engine
 
-Pulled fresh from `GVonFlue/proytech-crm@main` (commit `49d5c70`) before any
-edit. That repo did **not** contain the earlier lender-CRM multi-user work —
-there is no `crm_users`, no RLS and no `owner_id` anywhere in it — so Section 1
-was built from scratch rather than extended. If a `crm_users` table already
-exists in your Supabase project, `MIGRATION.sql` adapts to it (`create table if
-not exists` + `add column if not exists`) rather than replacing it. One
-difference to know about: the old helper was `is_manager()`; this build uses
-`is_owner()` with roles `owner` / `rep`.
+Against the brief `CRMCONVERSATIONANDGOALSPROMPT`. Part A and Part B are built.
+Part C was not started.
 
-**Changed files (deliver these two only):**
-
-- `src/App.jsx`
-- `src/lib/supabase.js`
-
-Plus the docs — `MIGRATION.sql`, `VERIFY-RLS.md`, `VERIFY-CLICK.md`, `ROLES.md`, this file — and
-the test harness (`tests/`), which is optional and not part of the app.
-`package.json` was **not** touched: no new dependencies. `npm run build` exits 0.
+```
+npm install
+npm run build          # exits 0
+npm i --no-save jsdom  # DOM tests only; not added to package.json
+npm test               # 102 passed, 0 failed
+```
 
 ---
 
-## What changed
+## What was built
 
-### 1. Roles, users, database-enforced access
+### Part A — conversation capture
 
-- `crm_users`: `id` (auth uid), `name`, `email`, `role` (`owner`|`rep`),
-  `pools text[]`, `commission_pct`, `active`, `tabs text[]`,
-  `goal_conversions`.
-- `leads` gains real `owner_id uuid` and `pool text` columns beside the jsonb.
-  The client mirrors them on **every** write (`stampOwner` in `App.jsx` →
-  `db.upsertLead` / `upsertMany`), keeping them in lock-step with the
-  `data.owner` name string. Installs that haven't run the migration fall back
-  to plain `(id,data)` automatically, so nothing breaks before the SQL is run.
-- RLS on `leads`, `crm_users`, `app_settings`, plus `is_owner()`, `my_pools()`,
-  `no_users()`, `crm_active()`, `crm_listed()`.
-- **Login now accepts a real email.** Anything containing `@` is used verbatim;
-  a bare username still maps to `username@{authDomain}` so existing logins keep
-  working.
+- **`api/conversation.js`** — Sonnet (`claude-sonnet-4-6`), strict JSON, parsed
+  defensively on both sides. Modelled on `api/huddle.js`. The thread goes to
+  `api.anthropic.com` and nowhere else, and nothing is logged in the handler,
+  including on the error path.
+- **`src/lib/convo.js`** — everything decidable without the model: splitting a
+  paste into turns (explicit labels, `From:` / `On …, X wrote:` markers, blank-
+  line blocks), local speaker signals, chunking, response validation, note
+  rendering, field diffs. Pure, and unit tested directly.
+- **Composer** — a `Conversation` button in the lead modal alongside
+  Note / Call / Text / Booked / Payment. Paste → review → save.
+- **Speaker review** — the model proposes a mapping with its evidence and a
+  confidence, you confirm or swap with one tap, and **nothing is written until
+  exactly one speaker is marked as the lead**. Save is disabled until then.
+  Two speakers both mapped to the lead, no speaker mapped to the lead, or a
+  hallucinated speaker who is not in the thread all collapse to "I can't tell
+  who is who" rather than a guess.
+- **What lands** — one `Note` activity carrying the structured summary,
+  stamped with **the date the conversation happened**, not the date it was
+  pasted. Extracted facts are offered as field diffs with the old value shown
+  and a conflict flag; suggested follow-ups are checkboxes, unchecked by
+  default. One `updateLead` call, never two.
 
-**Two deliberate deviations from the SQL in the brief**, both to close holes the
-brief's own acceptance list demands:
+### Part B — goals engine
 
-1. The `leads` policy also requires `crm_active()`. Without it, "deactivating
-   blocks access" would have been a screen, not a rule.
-2. `crm_whoami()` was added. A rep can only *select* their own `crm_users` row,
-   so from the browser "no owners exist" and "I'm not allowed to see the
-   owners" look identical — a stray signed-in account would have been handed
-   the owner UI. `crm_whoami()` (security definer) answers role / active /
-   setup definitively. Pre-migration installs fall back to the old heuristic.
-
-### 2. Team management (Settings → Team, owner-only)
-
-People list with role, commission %, active state. Per person: commission %,
-pool checklist, **visible tabs**, monthly conversion goal, deactivate /
-reactivate, remove, and *Send password email*.
-
-**How a new hire gets a login:** the app POSTs to Supabase's gotrue
-`/auth/v1/signup` endpoint directly rather than calling `supabase.auth.signUp()`
-— the SDK call would swap the browser session over to the new user and sign the
-owner out. It returns the new uid, which becomes the `crm_users.id`. The owner
-is shown a one-time temporary password to hand over, and can alternatively fire
-Supabase's `/auth/v1/recover` email so the person sets their own.
-**This requires Email sign-ups enabled with "Confirm email" OFF** — with
-confirmation on, Supabase doesn't return the user id and the row can't be
-created. The app says so on screen if it happens.
-
-Per-rep tabs are stored in `crm_users.tabs` (empty = the default rep set:
-Dashboard, Leaderboard, Leads, Follow-Up, Tasks, Activity, Pipeline). They can
-only ever narrow the install's global module list, never widen it. Settings and
-Clients are owner-only and not offerable. Invoices / The Books / Money / Monday
-Huddle are offerable but flagged ⚠ in the UI, because switching one on shows
-that rep company money — the brief asks for them to be toggleable and also asks
-that a rep never see company revenue, so they are toggleable, off by default,
-and labelled.
-
-### 3. Commissions
-
-Stored **on the lead**, inside the existing jsonb:
-
-```
-data.commission = { repId, repName, pct, base, amount,
-                    status: 'pending'|'earned'|'void',
-                    convertedAt, approvedAt, approvedBy, voidedAt }
-```
-
-Snapshotted at conversion — `pct` and `base` are frozen copies, so editing a
-rep's percentage in Settings, or the deal later, never rewrites history. Credit
-goes to the lead's **owner** when that owner is a rep (an owner closing a rep's
-deal doesn't steal it), otherwise to the converting rep. Owners earn nothing.
-Owner controls live on the client record in the lead modal: approve, void, put
-back to pending, and an editable base while it is still pending.
-
-### 4. Conversion alerts
-
-Chosen implementation: **a flag on the lead** (`data.onboardingAlert =
-{at, repId, repName, ack}`), surfaced as an owner-only **Awaiting onboarding**
-queue at the top of the owner dashboard, with a *Got it* acknowledge.
-
-Why not an `alerts` table: owners can already read every lead, so the queue is a
-filter over data they have — a new table would have meant new RLS surface for
-nothing. **No email is sent.** There is no mail sender anywhere in this repo
-(`/api` has Google Calendar, huddle, receipt-parse and rank-tasks; no Resend,
-SendGrid, nodemailer or equivalent, and no mail credentials), so adding email
-would have meant a new provider, a new secret and a new dependency — not the
-"trivial via an existing serverless pattern" the brief allowed for. The in-app
-queue is v1.
-
-### 5–7. Rep dashboard, leaderboard, feel
-
-- **Same `Dashboard` component**, branched on role. Every hook is declared above
-  the branch. Owners' dashboard is untouched.
-- **Leaderboard** is a new module (`board`). Ranked by clients closed, month /
-  all-time toggle, own row highlighted, a crown on #1, owners excluded, no
-  dollars. It comes from `crm_leaderboard()` — a security-definer function
-  returning names and counts only — because a rep cannot read another rep's
-  leads and therefore could never compute the ranking client-side. Owners on a
-  pre-migration install get a locally-computed board; reps get a clear "run
-  MIGRATION.sql" message rather than a wrong number.
-- **Motion**: a `CountUp` component (cubic ease, ~0.8s) on the commission
-  counter and conversion counts; `.lift` hover on cards that are actually
-  targets (leaderboard rows, the rank card) rather than on every card; one
-  restrained celebration on conversion — a small toast with a single light
-  sweep, gone in ~2s, never blocking a click. **`prefers-reduced-motion` is
-  honoured twice**: a CSS media query kills every animation and transition, and
-  `useReducedMotion()` makes `CountUp` render the final value immediately. The
-  DOM is correct on the first paint either way — no animation gates usability.
+- **`src/lib/goals.js`** — periods (monthly / quarterly / annual with
+  seasonality weights), seven goal types, per-person and per-team targets with
+  reconciliation, the backwards-planning chain, working-day arithmetic,
+  Wilson intervals, sample-size gating, gap-to-goal ranking, and the
+  explanation formatter. Pure. Every derived number has a worked example in a
+  comment, and every worked example is re-derived by a test.
+- **Backwards planning** — `target ÷ avg deal = deals ÷ close rate =
+  meetings ÷ show rate = bookings ÷ working days left`, off this install's own
+  rates from `useMetrics`. Entered at the right rung per goal type.
+- **Sample size next to every rate, without exception.** Below the threshold
+  (10, configurable per install) a rate reads as a range and says the sample is
+  thin. Proportions use a Wilson interval; average deal size uses the observed
+  min–max spread, because a confidence interval on three deals is false
+  precision and "your three deals ran $1,500 to $8,000" is both truer and more
+  useful. A thin rate does not stop the plan — it widens it into a range.
+- **Honest pace** — by working days, not calendar days, and it says *by how
+  much* you are behind and what it now takes to catch up.
+- **Gap to goal with names** — the specific open deals whose expected value
+  (`value × stage probability`) covers what is still needed, and an explicit
+  "your open pipeline can't cover this" when it can't.
+- **Explain on tap** — every card shows the formula and the inputs, sample
+  sizes included.
+- **Goal wizard** in Settings: pick a period, type a target, see immediately
+  what it means in meetings, adjust. Per-person targets reconcile against the
+  team number and the difference is shown deliberately.
+- **Dashboard section** `goals`, in `settings.dashOrder` / `dashHidden` like
+  every other section.
 
 ---
 
-## What is NOT enforced at the database
+## Answers to "ask before assuming"
 
-Stated plainly, because a UI filter is not a security boundary:
+| Question | Answer (Garrett) |
+|---|---|
+| Retention for pasted conversations, hard or soft delete | **Neither — the raw thread is never stored.** It converts to a note and the paste is discarded. |
+| Owner-set or self-set goals | **Owner sets all.** |
+| Can a rep see team goal / forecast | **No.** Own target, own pace, own daily number only. |
+| Sample-size threshold | **10**, exposed as a per-install setting. |
 
-1. **`dealValue` is readable by the rep who owns the lead.** It lives in the
-   same jsonb blob their policy legitimately returns. The app never renders it
-   for a rep — no Deal section, no money columns, no value on kanban cards, no
-   money in their CSV export — but someone reading the network response would
-   see it. Making this real means moving deal money into its own columns (or
-   table) that the rep's policy doesn't select.
-2. **`app_settings` is team-wide.** Tasks, invoices, transactions and the huddle
-   are single shared blobs keyed by row id; RLS cannot split a blob per person.
-   Any listed, active signed-in user can read and write them. Reps don't get
-   those tabs (and the Tasks list is filtered to their own tasks in the UI),
-   which sidesteps it — but it is a sidestep, not a wall. Next step: a real
-   `tasks` table with its own policies.
-3. **Per-rep tab visibility** is a UI convenience on top of RLS, not a boundary.
-   The boundary is which *leads* they can read, and that is enforced.
+### On not storing the thread
 
-## Assumptions made
+This changes Part A materially and for the better. The brief asked for a raw
+thread behind a "show full conversation" toggle plus a retention setting and a
+delete. Garrett's call was that the thread should not live in the CRM at all.
 
-- A rep should not reach Settings or the Clients book at all; those are owner
-  surfaces. (The brief listed neither.)
-- "Pools" needed a definition: a named bucket (`settings.pools`, default
-  `General`) set per lead in **Qualifying**, with unowned + pooled = claimable.
-- Commission goes to the lead's owner when that owner is a rep, not to whoever
-  clicked convert.
-- The Leaderboard module is switched **on** once for installs that already saved
-  a module list (`settings.modulesV`), otherwise a new tab would have been
-  invisible until someone found it in Sections.
-- The rep dashboard's personal goal reuses the existing goal/pace bar, driven by
-  `crm_users.goal_conversions`.
+What that buys: there is no retention policy to write, no purge job to run, no
+delete button to get wrong, and nothing to hand over if a client ever asks what
+you keep about the people they talk to. A pasted thread is a third party's
+personal data and the safest place for it is nowhere.
 
-## Requested but not built
+**The cost, stated plainly:** you cannot later check a summary against the
+transcript. If the model mis-summarises, the mistake is the record. Two things
+push against that — the extraction quotes the client's own words where it can,
+and nothing is written until a human has reviewed the speaker mapping and the
+note preview. It is the right trade for a two-person business. It would be
+worth revisiting for a team large enough that whoever reads the note is never
+the person who pasted it.
 
-- **Email alerting on conversion** — see §4 above. In-app queue only.
-- **Invite-link flow** — Supabase's admin `inviteUserByEmail` needs the service
-  key, which must never reach client code. Temporary password + reset email is
-  what a browser can do safely.
+---
 
-## Verification
+## Assumptions, stated
 
-- `npm run build` → exits 0.
-- `node tests/run.mjs` → **53 checks, all passing** (needs `npm i --no-save
-  jsdom`; esbuild comes with Vite). The auth + db layer is stubbed and the real
-  `src/App.jsx` is mounted **signed in**, as an owner and as a rep, and clicked
-  through every page in the sidebar for both. It covers: no blank screen on any
-  page for either role, rep scoping (a rep's stub only ever returns their own
-  leads and their own `crm_users` row, exactly as the policies do), no deal
-  value / MRR / other reps' money anywhere in a rep's DOM, convert → pending →
-  approve → earned → void with stamps, editing a rep's % leaving a converted
-  commission untouched, claiming a pool lead stamping both `owner` and
-  `owner_id`, settings round-trip of the new `pools` / `modulesV` keys, the
-  empty-`crm_users` install behaving exactly as before, a deactivated rep hitting
-  the gate, an unlisted account getting nothing, and the leaderboard degrading
-  gracefully when the DB function isn't there yet.
-- **RLS is not covered by those tests and cannot be** — it is Postgres, not
-  jsdom. `VERIFY-RLS.md` is the manual multi-account procedure plus the
-  officer-side SQL check. Run it before letting a rep in.
+1. **A quarterly or annual target is planned against this month's share of it.**
+   `useMetrics` computes month-to-date figures and nothing else. Measuring a
+   whole quarter would mean a second aggregation over every lead — a second
+   place for the numbers to disagree with the dashboard. One month, one set of
+   numbers. The UI says so on screen. Whole-period progress is a v2 item.
+2. **MRR is a running total and is never divided across months.** A $5,000
+   annual MRR target is $5,000 of MRR, not $60,000.
+3. **Working days default to Mon–Fri**, changeable per install. A realtor who
+   works Saturdays should say so or every daily number is too high.
+4. **Conversation is a composer mode, not a stored activity type.** It writes an
+   ordinary `Note`. Adding a real new type means `ACT_TYPES`, `ACT_ORDER` and
+   `ACT_ICON` all move together, and a `Conversation` filter tab that matched
+   nothing would be worse than no tab. A test asserts no new type reaches the
+   database.
+5. **`settings.goals` (the five legacy flat numbers) is left exactly as it is**
+   and keeps driving the existing tile progress bars. The planner reads a new
+   `settings.goalPlan`, and every write keeps the five legacy keys in step, so
+   the dashboard tiles, the Monday huddle digest and the goals screen cannot
+   disagree. Loading an existing install writes nothing at all — there is a
+   test for that.
+6. **Suggested follow-ups become `Task` activities on the lead** when ticked,
+   not rows in the separate tasks list. `Task` is an existing type with an
+   existing icon; the tasks list is not reachable from the lead modal.
+7. **The daily number is not rounded up before dividing.** The brief's worked
+   example rounds 13.47 bookings up to 14 and then divides by 9 to get 1.6. I
+   divide 13.47 by 9 and get 1.5. Both defensible; the unrounded one does not
+   accumulate rounding into the number people are measured against.
+
+---
+
+## What was cut
+
+- **Part C in its entirety** — sheet import, CSV/XLSX upload, the AI advisor,
+  forecast accuracy tracking, sales velocity. Not started, per the brief.
+- **Whole-period (quarter/year) progress measurement** — see assumption 1.
+- **Rep-visible team forecast** — deliberately not built. It would need a
+  security-definer RPC like `crm_leaderboard`, because RLS means a rep cannot
+  read anyone else's leads and so cannot compute a team number in the browser.
+  Building the RPC to then show a rep something the answer above says they
+  should not see would be work spent going backwards.
+- **A `retention` setting and a delete for stored conversations** — no longer
+  applicable, see above.
+
+---
+
+## Bugs found on the way
+
+All pre-existing unless noted.
+
+0. **Monthly / Quarterly / Annual were one number wearing three labels** —
+   reported from the live install, fixed. v1 stored a single `team` set and let
+   `period` decide how to *read* it, so $200,000 typed as an annual target was
+   literally the same stored number as $200,000 monthly: the toggle relabelled
+   the figure instead of showing a different one, and editing either overwrote
+   the other. `goalPlan` is now v2, with `targets: {month, quarter, year}`,
+   each holding its own `team` and `people`. `plan.team` / `plan.people` are
+   **derived views** of the active period and are stripped before storage
+   (`serializeGoals`) so they can't drift from `targets`. Switching the period
+   is a pure view change that touches no number.
+   Migration: a v1 plan's single set lands in the slot for the period it was
+   saved under, and the five legacy flat keys — which were always monthly —
+   keep the monthly slot. A period never used stays empty rather than being
+   back-filled with a guess.
+   Also fixed alongside it: the wizard labelled a monthly-share plan with the
+   *period* name, so a $200k annual target read as "$197,702 to go in 2026"
+   when the number was actually August's share; and `sentence()` named the
+   period on the normal path but not on the no-history path, so the same target
+   read as period-scoped or not depending on whether the install had history.
+
+1. **`tests/` does not exist.** The brief says the repo has a jsdom harness to
+   extend. `main` has one commit ("Add files via upload"), no `tests/`, no test
+   script, and jsdom is not a dependency. The harness in `tests/harness.mjs` was
+   written from scratch: esbuild (already present as a Vite dependency, so no
+   new package) bundles the real `src/App.jsx` with `./lib/supabase` swapped for
+   a recording stub, and jsdom mounts it signed in. Tests assert on what reached
+   the database, not on what appeared on screen.
+
+2. **A stray `App.jsx` at the repo root**, 5,187 lines, diverged from the
+   6,567-line `src/App.jsx` that `index.html` actually loads. Dead code that
+   anyone grepping the repo would land in first. Deleted.
+
+3. **`daysSince()` returned `NaN` for a missing or unparseable timestamp**, and
+   the `NaN` went straight to screen — a lead imported without a `createdAt` and
+   never touched rendered **"NaNd ago"** in the Last Contact column. Now returns
+   `null`, rendered as an em dash. Every other caller was checked; the one
+   behavioural difference (`NaN < n` is false, `null < n` is true) was in the
+   "cold for at least N days" lead filter, where an explicit null check keeps
+   the old behaviour exactly rather than silently dropping those leads.
+
+4. **`settings.goalPlan` was being dropped on every load.** `setSettings` after
+   the boot fetch rebuilds the settings object from an explicit field list, and
+   any key not on that list is discarded. A stored `goalPlan` survived the write
+   and vanished on the next refresh. Same bug in the backup-restore path. Both
+   fixed. Caught only by a DOM test — the app looked completely fine.
+
+5. **New dashboard sections were appended to the bottom for anyone who had ever
+   saved a layout.** `dashOrderOf` did `[...saved, ...missing]` while its own
+   comment promised new sections appear "in default position". On the one
+   install that has saved a layout, Goals would have landed underneath ten other
+   sections. Now inserted at its default index, which moves nothing that was
+   already saved relative to anything else.
+
+6. **`normalizeGoals` (new code, caught by its own test)** — `Math.max(1,
+   num(x) || DEFAULT)` treats a stored `-3` as truthy and yields a sample
+   threshold of **1**, i.e. every rate on the install treated as trustworthy
+   from a single data point. Exactly the failure this feature exists to prevent.
+
+7. **`normalizeGoals` (new code)** — targets arriving from `jsonb` as strings
+   were being spread through unchanged. `"9000" / 2500` happens to work;
+   `"9000" + 500` gives `"9000500"`. Everything is coerced through `num()` now.
+
+8. **Speaker parsing (new code, caught by its own test)** — the email marker
+   regex used a lazy `.+?` before the comma, so
+   `On Tue, Aug 4, 2026 at 9:14 AM, Garrett Von Flue wrote:` produced a speaker
+   named `Aug 4, 2026 at 9:14 AM, Garrett Von Flue` — a date offered to the user
+   as a person in the review screen.
+
+9. **The test runner deadlocked itself.** Test files importing the runner while
+   the runner was `await import()`-ing them is a circular top-level await; ESM
+   reports "Detected unsettled top-level await" and the suite silently reports
+   nothing. Split into `tests/assert.mjs` (assertions + collector) and
+   `tests/run.mjs` (discovery).
+
+---
+
+## Definition of done
+
+- [x] `npm run build` exits 0
+- [x] Every new behaviour has a jsdom test asserting on what reaches the database
+- [x] Backwards-planning maths has unit tests: zero history, single-deal sample,
+      divide-by-zero, target already hit, negative remaining days
+- [x] Speaker mapping tested with a labelled thread, an unlabelled thread, and a
+      thread where the model must refuse to guess
+- [x] A malformed AI response degrades to a plain note, never a crash — and the
+      fallback keeps the user's own paste rather than losing it
+- [x] Goal numbers reconcile with the dashboard — the goal card and the KPI tile
+      read the same pair, and `settings.goals` is kept in step on every write
+- [x] Every rate shown displays its sample size
+- [x] Existing installs see identical historical numbers — loading writes nothing
+- [x] BUILD-NOTES.md
+
+## Test inventory
+
+```
+convo.test.mjs   30   splitting, signals, chunking, parsing, merging, notes, diffs
+dom.test.mjs     18   the real app in jsdom, asserting on database writes
+goals.test.mjs   54   periods, working days, intervals, the planning chain, edges
+                 ---
+                 102
+```

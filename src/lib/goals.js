@@ -83,23 +83,44 @@ export const NEUTRAL_RATES = { meetCloseRate: 0.2, showRate: 0.75 };
    ------------------------------------------------------------------------- */
 const emptyTargets = () => GOAL_KEYS.reduce((o, k) => (o[k] = 0, o), {});
 
+export const PERIODS = ['month', 'quarter', 'year'];
+const emptySlot = () => ({ team: emptyTargets(), people: {} });
+const emptyBook = () => PERIODS.reduce((o, p) => (o[p] = emptySlot(), o), {});
+
 export function normalizeGoals(settings, today = new Date()) {
   const legacy = (settings && settings.goals) || {};
   const raw = (settings && settings.goalPlan) || null;
-  const base = {
-    v: 1,
+  const plan = {
+    v: 2,
     period: 'month',                 // 'month' | 'quarter' | 'year'
     anchor: iso(today).slice(0, 7),  // 'YYYY-MM' for month; 'YYYY-Qn'; 'YYYY'
     sampleMin: DEFAULT_SAMPLE_MIN,
     weekMask: [0, 1, 1, 1, 1, 1, 0], // Sun..Sat — which days count as working
     seasonality: null,               // 12 weights, only used by an annual plan
-    team: emptyTargets(),
-    people: {},                      // { personKey: targets }
-    assumedRates: null,              // { meetCloseRate, showRate, avgDeal } if the
-  };                                 // owner accepted neutral defaults
+    /* THREE SEPARATE SETS OF NUMBERS, one per period.
+       v1 stored a single `team` and let `period` decide how to READ it, which
+       meant $200,000 typed as an annual target was the same stored number as
+       $200,000 typed as a monthly one — switching the toggle relabelled the
+       figure instead of showing you a different figure. A yearly goal and a
+       monthly goal are different facts about the business and each needs its
+       own slot. */
+    targets: emptyBook(),
+  };
+
+  /* coerce through num(): a target that came back from jsonb as the STRING
+     "9000" would otherwise reach the planner, where "9000" / 2500 happens to
+     work but "9000" + 500 gives "9000500" */
+  const asTargets = o => GOAL_KEYS.reduce((acc, k) => (acc[k] = Math.max(0, num((o || {})[k])), acc), {});
+  const asPeople = o => {
+    const out = {};
+    Object.entries(o || {}).forEach(([k, v]) => { out[k] = asTargets(v); });
+    return out;
+  };
+
   if (!raw) {
-    /* migrate the five legacy monthly numbers across, unchanged */
-    base.team = {
+    /* no plan yet: the five legacy flat numbers were always MONTHLY, so they
+       land in the monthly slot and the other two start empty */
+    plan.targets.month.team = {
       ...emptyTargets(),
       booked: num(legacy.booked),
       closed: num(legacy.closed),
@@ -107,27 +128,95 @@ export function normalizeGoals(settings, today = new Date()) {
       revenue: num(legacy.revenue),
       mrr: num(legacy.mrr),
     };
-    return base;
+    return derive(plan);
   }
-  const plan = { ...base, ...raw };
-  plan.period = ['month', 'quarter', 'year'].includes(raw.period) ? raw.period : 'month';
+
+  plan.period = PERIODS.includes(raw.period) ? raw.period : 'month';
+  plan.anchor = typeof raw.anchor === 'string' && raw.anchor ? raw.anchor : plan.anchor;
   /* NOT Math.max(1, num(x) || DEFAULT): a stored -3 is truthy, so that form
      silently ships a sample threshold of 1 — i.e. every rate on the install
      treated as trustworthy from a single data point, which is the exact
      failure this whole file exists to prevent. */
   const sm = Math.round(num(raw.sampleMin));
   plan.sampleMin = sm >= 1 ? sm : DEFAULT_SAMPLE_MIN;
-  plan.weekMask = Array.isArray(raw.weekMask) && raw.weekMask.length === 7 ? raw.weekMask.map(v => (v ? 1 : 0)) : base.weekMask;
-  /* coerce through num() rather than spreading raw values: a target that came
-     back from jsonb as the STRING "9000" would otherwise reach the planner,
-     where "9000" / 2500 happens to work but "9000" + 500 gives "9000500" */
-  const targets = o => GOAL_KEYS.reduce((acc, k) => (acc[k] = Math.max(0, num((o || {})[k])), acc), {});
-  plan.team = targets(raw.team);
-  plan.people = {};
-  Object.entries(raw.people || {}).forEach(([k, v]) => { plan.people[k] = targets(v); });
+  plan.weekMask = Array.isArray(raw.weekMask) && raw.weekMask.length === 7 ? raw.weekMask.map(v => (v ? 1 : 0)) : plan.weekMask;
   plan.seasonality = Array.isArray(raw.seasonality) && raw.seasonality.length === 12
     ? raw.seasonality.map(v => Math.max(0, num(v))) : null;
+
+  if (raw.targets && typeof raw.targets === 'object') {
+    PERIODS.forEach(pk => {
+      const slot = raw.targets[pk] || {};
+      plan.targets[pk] = { team: asTargets(slot.team), people: asPeople(slot.people) };
+    });
+  } else {
+    /* v1 -> v2 migration. The one set of numbers that existed described the
+       period that was selected when they were saved, so that is the slot they
+       belong in. The other two stay empty rather than being back-filled with a
+       guess: an empty box the wizard asks you to fill is honest, a number you
+       never typed is not. */
+    plan.targets[plan.period] = { team: asTargets(raw.team), people: asPeople(raw.people) };
+    /* except: if the saved period was NOT monthly, the five legacy flat keys
+       are still genuinely monthly targets from before any of this shipped, so
+       they keep their own slot rather than being thrown away. */
+    if (plan.period !== 'month') {
+      plan.targets.month.team = {
+        ...emptyTargets(),
+        booked: num(legacy.booked), closed: num(legacy.closed), onboarded: num(legacy.onboarded),
+        revenue: num(legacy.revenue), mrr: num(legacy.mrr),
+      };
+    }
+  }
+  return derive(plan);
+}
+
+/* `team` and `people` are DERIVED views of the active period, not storage.
+   Everything downstream (the planner, reconcile, the dashboard) reads them, so
+   switching the period switches the numbers rather than relabelling them.
+   Anything that WRITES must go through setTarget / setPersonTarget below. */
+function derive(plan) {
+  const slot = plan.targets[plan.period] || emptySlot();
+  plan.team = slot.team;
+  plan.people = slot.people;
   return plan;
+}
+
+/* Switch which period the wizard is editing. Deliberately touches no numbers —
+   the anchor moves to the current month/quarter/year and the targets already
+   stored for that period come back exactly as they were left. */
+export function setPeriod(plan, period, today = new Date()) {
+  const p = PERIODS.includes(period) ? period : 'month';
+  const anchor = p === 'month' ? iso(today).slice(0, 7)
+    : p === 'quarter' ? `${today.getFullYear()}-Q${Math.floor(today.getMonth() / 3) + 1}`
+    : String(today.getFullYear());
+  return derive({ ...plan, period: p, anchor });
+}
+
+/* Set one team target on the ACTIVE period only. */
+export function setTarget(plan, key, value) {
+  const pk = plan.period;
+  const slot = plan.targets[pk] || emptySlot();
+  return derive({
+    ...plan,
+    targets: { ...plan.targets, [pk]: { ...slot, team: { ...slot.team, [key]: Math.max(0, num(value)) } } },
+  });
+}
+
+/* Set one person's target on the ACTIVE period only. */
+export function setPersonTarget(plan, who, key, value) {
+  const pk = plan.period;
+  const slot = plan.targets[pk] || emptySlot();
+  const person = { ...emptyTargets(), ...(slot.people[who] || {}), [key]: Math.max(0, num(value)) };
+  return derive({
+    ...plan,
+    targets: { ...plan.targets, [pk]: { ...slot, people: { ...slot.people, [who]: person } } },
+  });
+}
+
+/* Strip the derived views before storing, so `team` and `people` can never
+   drift out of step with `targets` in the database. */
+export function serializeGoals(plan) {
+  const { team, people, ...rest } = plan;
+  return rest;
 }
 
 /* Writing back. settings.goals is kept in sync FROM the plan for the five
@@ -138,7 +227,7 @@ export function goalsToSettings(settings, plan, today = new Date()) {
   const monthly = monthlyTargets(plan, today);
   return {
     ...settings,
-    goalPlan: plan,
+    goalPlan: serializeGoals(plan),
     goals: {
       ...((settings && settings.goals) || {}),
       booked: Math.round(monthly.booked),
@@ -634,7 +723,10 @@ export function sentence(p, rates, periodLabel) {
   const t = goalType(p.key);
   const unit = t && t.unit === '$' ? money(p.remaining) : r1(p.remaining) + ' ' + (t ? t.label.toLowerCase() : '');
   if (p.status === 'blocked') {
-    return `${unit} to go with ${p.daysLeft} working days left. Not enough history to work backwards yet — ${p.blockers.map(b => label(b.rate)).join(' and ')} missing.`;
+    /* the period is named here too. The "ok" path says "in August 2026" and
+       this one used not to, so the same target read as period-scoped or not
+       depending on whether the install happened to have any history. */
+    return `${unit} to go in ${periodLabel}, with ${p.daysLeft} working day${p.daysLeft === 1 ? '' : 's'} left. Not enough history to work backwards yet — ${p.blockers.map(b => label(b.rate)).join(' and ')} missing.`;
   }
   const s = p.steps || {};
   const bits = [`${unit} to go in ${periodLabel}.`];

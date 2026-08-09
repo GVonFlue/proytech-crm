@@ -5410,21 +5410,22 @@ function GoalWizard({settings,saveSettings,leads,users}){
   const [person,setPerson]=useState('');
 
   /* every write goes through goalsToSettings so the legacy settings.goals keys
-     stay in step with the plan — one source of truth, two readers */
+     stay in step with the plan — one source of truth, two readers.
+
+     All three mutations go through the tested helpers in lib/goals rather than
+     spreading `plan.team` directly: `team` is a DERIVED view of the active
+     period, so writing to it would update the copy on screen and silently drop
+     the change on save. */
   const write=next=>saveSettings(GOALS.goalsToSettings(settings,next,today));
-  const setTeam=(k,v)=>write({...plan,team:{...plan.team,[k]:Math.max(0,num(v))}});
-  const setPersonGoal=(who,k,v)=>write({...plan,people:{...plan.people,[who]:{...(plan.people[who]||{}),[k]:Math.max(0,num(v))}}});
-  const setPeriod=p=>{
-    const anchor=p==='month'?isoOf(today).slice(0,7)
-      :p==='quarter'?`${today.getFullYear()}-Q${Math.floor(today.getMonth()/3)+1}`
-      :String(today.getFullYear());
-    write({...plan,period:p,anchor});
-  };
+  const setTeam=(k,v)=>write(GOALS.setTarget(plan,k,v));
+  const setPersonGoal=(who,k,v)=>write(GOALS.setPersonTarget(plan,who,k,v));
+  const setPeriod=p=>write(GOALS.setPeriod(plan,p,today));
 
   const range=GOALS.periodRange(plan,today);
   const monthly=GOALS.monthlyTargets(plan,today);
   const rates=GOALS.ratesFrom(m,plan);
   const monthPlan={...plan,period:'month',anchor:isoOf(today).slice(0,7)};
+  const monthRange=GOALS.periodRange(monthPlan,today);
   const daysLeft=GOALS.remainingWorkingDays(monthPlan,today);
   const pace=GOALS.periodPace(monthPlan,today);
 
@@ -5470,7 +5471,13 @@ function GoalWizard({settings,saveSettings,leads,users}){
     {/* what it actually means — the whole point of a wizard */}
     {anySet&&headline&&(<div className="gw-implies">
       <div className="gw-implies-h"><Sparkles size={14}/>What that means</div>
-      <div className="gw-implies-t">{GOALS.sentence(headline.p,rates,range.label)}</div>
+      {/* the plan is always built against THIS MONTH — labelling the sentence
+          "in 2026" while the number is a monthly share is how a $200k annual
+          target reads as $197k left to close in August */}
+      <div className="gw-implies-t">{GOALS.sentence(headline.p,rates,monthRange.label)}</div>
+      {plan.period!=='month'&&<div className="subcell" style={{marginTop:6}}>
+        That is <b>this month's share</b> of your {plan.period==='year'?'annual':'quarterly'} target ({range.label}), measured against this month's numbers.
+      </div>}
       <div className="rchips" style={{marginTop:10}}>
         <RateChip label="Avg deal size" r={rates.avgDeal} fmt={v=>usd(Math.round(v))}/>
         <RateChip label="Meeting → close" r={rates.meetCloseRate}/>
@@ -7127,7 +7134,12 @@ function repGoalSettings(settings,personName,today){
   const plan=GOALS.normalizeGoals(settings,today);
   const mine=(plan.people||{})[personName];
   if(!mine||!GOALS.GOAL_KEYS.some(k=>num(mine[k])>0)) return null;
-  return {...settings,goalPlan:{...plan,team:mine,people:{}}};
+  /* swap the ACTIVE PERIOD'S slot, not the derived `team` view — normalizeGoals
+     rebuilds `team` from targets[period] on the way back in, so a plan that set
+     only `team` would come back as the owner's numbers, which is the one thing
+     a rep must never see. */
+  const solo={...plan.targets,[plan.period]:{team:mine,people:{}}};
+  return {...settings,goalPlan:GOALS.serializeGoals({...plan,targets:solo})};
 }
 
 function GoalSection({settings,m,leads,stages,open,today,mineOnly,personName}){
