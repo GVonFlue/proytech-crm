@@ -18,12 +18,6 @@ import {
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
-/* Goals + conversation capture live in their own files because they are pure
-   arithmetic and pure parsing, and tests/*.test.mjs import them directly.
-   Pulling them into this 6,500-line component would make them untestable
-   without mounting React, recharts and a Supabase client. */
-import * as GOALS from './lib/goals';
-import * as CONVO from './lib/convo';
 import { BRAND } from './lib/brand';
 
 /* ===================== brand ===================== */
@@ -44,6 +38,12 @@ const DEFAULT_STAGES=[
   {key:'discovery',label:'Discovery',     color:COBALT,    prob:0.30, open:true,  won:false, lost:false},
   {key:'proposal', label:'Proposal Sent', color:GOLD,      prob:0.70, open:true,  won:false, lost:false},
   {key:'signed',   label:'Signed',        color:GREEN,     prob:1.00, open:false, won:true,  lost:false},
+  /* "Not right now" is a THIRD outcome, not a flavour of lost. Open would
+     inflate the pipeline and the forecast with people who just said no; lost
+     would bury them and drag win rate down for a deal that was never refused.
+     open/won/lost all false = counted nowhere, which is exactly right — they
+     come back through the follow-up date instead. */
+  {key:'nurture',  label:'Not right now', color:'#7C8AA5', prob:0.00, open:false, won:false, lost:false, nurture:true},
   {key:'lost',     label:'Lost',          color:'#B0606A', prob:0.00, open:false, won:false, lost:true},
 ];
 /* old default set — used to detect a pre-migration install */
@@ -399,7 +399,10 @@ function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
     if(l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey) mtdOnboarded++;
   });
   const openLeads=(leads||[]).filter(l=>sOf(l.stage,stages).open);
-  const overdue=(leads||[]).filter(l=>l.followUp&&daysUntil(l.followUp)<0&&sOf(l.stage,stages).open)
+  /* nurtured leads are not "open", but a revisit date is the only way they ever
+     come back — so follow-ups deliberately include them */
+  const dueEligible=l=>{ const st=sOf(l.stage,stages); return st.open||st.nurture; };
+  const overdue=(leads||[]).filter(l=>l.followUp&&daysUntil(l.followUp)<0&&dueEligible(l))
     .sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
   const cold=coldList(rels||[]).slice(0,8);
   const stalled=openLeads.map(l=>({l,d:daysSince(lastTouchTs(l)||l.createdAt||new Date().toISOString())}))
@@ -426,8 +429,13 @@ function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
 }
 /* monthly targets. 0 or missing = no goal, so nothing renders. */
 const DEFAULT_GOALS={booked:0,closed:0,onboarded:0,revenue:0,mrr:0};
-/* GOAL_FIELDS lived here: the five labels for the old flat goal boxes.
-   The wizard builds its rows from GOALS.GOAL_TYPES now, so this was dead. */
+const GOAL_FIELDS=[
+  ['booked','Meetings booked','per month','n'],
+  ['closed','Deals closed','per month','n'],
+  ['onboarded','Clients onboarded','per month','n'],
+  ['revenue','Setup revenue closed','per month','$'],
+  ['mrr','MRR target','running total','$'],
+];
 const goalsOf=settings=>({...DEFAULT_GOALS,...((settings&&settings.goals)||{})});
 /* how far through the month we are — lets a tile say "behind pace" honestly */
 const monthPace=(d=new Date())=>{ const days=new Date(d.getFullYear(),d.getMonth()+1,0).getDate();
@@ -478,7 +486,13 @@ const contractedTotal=l=>{
    treated as settled, because that's exactly how revenue counts it — the legacy
    fallback. Saying "revenue counted" and "still owes it" about the same client
    would be two answers to one question. */
-const owedBy=l=>{
+const owedBy=(l,stages)=>{
+  /* Only money you've actually WON can be owed. An open lead sitting at
+     Discovery hasn't bought anything, and counting its deal value as debt made
+     "still owed" read as roughly the whole open pipeline. Lost leads owe
+     nothing either. */
+  const won=!!(l&&(l.isClient||(stages&&sOf(l.stage,stages).won)));
+  if(!won) return 0;
   if(!paymentsOf(l).length) return cashConfirmed(l)?0:contractedTotal(l);
   return Math.max(0,contractedTotal(l)-paidTotal(l));
 };
@@ -564,12 +578,7 @@ const fmtDate=iso=>{if(!iso)return '';const d=new Date(iso+(iso.length<=10?'T00:
 const fmtStamp=ts=>{const d=new Date(ts);return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 const daysUntil=iso=>{if(!iso)return null;const a=new Date(iso+'T00:00:00'),b=new Date(todayISO()+'T00:00:00');return Math.round((a-b)/86400000);};
 const lastContact=l=>{const ts=(l.activities||[]).map(a=>a.ts).sort().pop();return ts||l.createdAt;};
-/* BUG FIX: an unparseable or missing timestamp made this NaN, and NaN went
-   straight to screen — a lead imported without a createdAt and never touched
-   rendered "NaNd ago" in the Last Contact column. null means "we don't know",
-   which every caller can render honestly; NaN means "the app is broken",
-   which is what the user read. */
-const daysSince=ts=>{ const t=new Date(ts).getTime(); return isNaN(t)?null:Math.floor((Date.now()-t)/86400000); };
+const daysSince=ts=>Math.floor((Date.now()-new Date(ts))/86400000);
 const monthKey=d=>{d=new Date(d);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;};
 const monthLabel=k=>{const[y,m]=k.split('-');return new Date(+y,+m-1,1).toLocaleString('en-US',{month:'short'});};
 const lastNMonths=n=>{const out=[];const d=new Date();d.setDate(1);for(let i=n-1;i>=0;i--){const x=new Date(d);x.setMonth(d.getMonth()-i);out.push(monthKey(x));}return out;};
@@ -584,7 +593,7 @@ function leadColumnDefs(stages,customFields){
     serviceInterest:{label:'Service',render:l=><span className="subcell">{(l.serviceInterest||[]).join(', ')||'—'}</span>},
     nextAction:{label:'Next Action',render:l=><span className="subcell">{l.nextAction}</span>},
     nextSteps:{label:'Next Steps',render:l=><span className="subcell">{l.nextSteps||'—'}</span>},
-    lastContacted:{label:'Last Contact',render:l=>{const ds=daysSince(lastContact(l));return <span className="subcell" style={ds!=null&&ds>=14?{color:RED,fontWeight:600}:undefined}>{ds==null?'\u2014':ds===0?'Today':ds+'d ago'}</span>;}},
+    lastContacted:{label:'Last Contact',render:l=>{const ds=daysSince(lastContact(l));return <span className="subcell" style={ds>=14?{color:RED,fontWeight:600}:undefined}>{ds===0?'Today':ds+'d ago'}</span>;}},
     followUp:{label:'Follow-up',render:l=><Due iso={l.followUp}/>},
     priority:{label:'Priority',render:l=><PriBadge p={l.priority}/>},
     dealValue:{label:'Deal',render:l=><span style={{fontWeight:600,color:INK}}>{l.dealValue>0?usd(l.dealValue):'—'}</span>},
@@ -1269,99 +1278,6 @@ const CSS=`
 .kpi.accent .kgbar,.kpi.green .kgbar,.kpi.gold .kgbar{background:rgba(255,255,255,.28)}
 .kpi.accent .kgt,.kpi.green .kgt,.kpi.gold .kgt{color:rgba(255,255,255,.75)}
 .kpi.accent .kgt b,.kpi.green .kgt b,.kpi.gold .kgt b{color:#fff}
-/* ---- goals: backwards planning ---- */
-.goal-hero{display:flex;gap:12px;align-items:flex-start;padding:16px 18px;border-radius:14px;margin-bottom:12px;
-  background:linear-gradient(135deg,${INDIGO},${COBALT});color:#fff}
-.gh-icon{flex:none;width:32px;height:32px;border-radius:9px;background:rgba(255,255,255,.16);display:flex;align-items:center;justify-content:center}
-.gh-text{font-size:14.5px;line-height:1.55;font-weight:600}
-.rchips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.rchip{border:1px solid #E7E8F1;border-radius:10px;padding:8px 11px;background:#fff;min-width:132px}
-.rchip b{display:block;font-size:11px;color:#9b98ad;font-weight:700;text-transform:uppercase;letter-spacing:.03em}
-.rchip span{display:block;font-size:17px;font-weight:800;color:${INK};margin-top:2px}
-.rchip i{display:block;font-style:normal;font-size:10.5px;color:#a6a2bc;margin-top:1px}
-.rchip.thin{border-color:#F2D9C4;background:#FFFBF7}
-.rchip.thin i{color:#C4712F;font-weight:700}
-.rchip.none span{color:#b9b6c8;font-size:13px;font-weight:600}
-.goal-grid-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}
-.goalcard{border:1px solid #EDEEF5;border-radius:13px;background:#fff;padding:14px 15px}
-.goalcard.behind{border-color:#F0D2BE}
-.goalcard.hit{border-color:#CDE9D5;background:#FAFFFB}
-.gc-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px}
-.gc-l{display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:700;color:#6f6b8a}
-.gc-v{font-size:19px;font-weight:800;color:${INK}}
-.gc-v span{font-size:13px;font-weight:600;color:#a6a2bc}
-.gc-pace{font-size:12.5px;line-height:1.6;color:#56527a;margin-top:8px}
-.gc-pace b.behind{color:#C4571F}.gc-pace b.ok{color:${COBALT}}.gc-pace b.hit{color:${GREEN}}
-.gc-daily{display:flex;align-items:center;gap:12px;margin-top:11px;padding:11px 12px;border-radius:10px;background:#F6F5FF}
-.gc-daily-v{font-size:30px;font-weight:800;color:${INDIGO};line-height:1}
-.gc-daily-l{font-size:11.5px;color:#6f6b8a;font-weight:600;line-height:1.35}
-.gc-daily-r{margin-left:auto;font-size:11px;color:#C4712F;font-weight:700;text-align:right}
-.gc-warn{display:flex;gap:7px;align-items:flex-start;margin-top:10px;padding:9px 11px;border-radius:9px;
-  background:#FFF8F1;border:1px solid #F2DECB;font-size:12px;color:#8a5a2b;line-height:1.5}
-.gc-gap{margin-top:12px;border-top:1px solid #F0F0F6;padding-top:10px}
-.gc-gap-h{font-size:11.5px;font-weight:700;color:#9b98ad;text-transform:uppercase;letter-spacing:.03em;margin-bottom:6px}
-.gc-gap-row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:12.5px;cursor:pointer}
-.gc-gap-row:hover .gc-gap-n{color:${COBALT}}
-.gc-gap-n{font-weight:700;color:${INK}}
-.gc-gap-v{color:#8b87a3;font-variant-numeric:tabular-nums}
-.gc-why{margin-top:10px;font-size:12px}
-.gc-explain{margin-top:8px;border-top:1px dashed #E7E8F1;padding-top:8px}
-.gc-explain div{padding:4px 0}
-.gc-explain b{display:block;font-size:12.5px;color:${INK};font-weight:700}
-.gc-explain i{display:block;font-style:normal;font-size:11.5px;color:#8b87a3;font-variant-numeric:tabular-nums}
-.gw-periods{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.gw-implies{margin-top:14px;padding:13px 14px;border-radius:11px;background:#F6F5FF;border:1px solid #E7E4FA}
-.gw-implies-h{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:800;color:${INDIGO};text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px}
-.gw-implies-t{font-size:13.5px;line-height:1.6;color:${INK};font-weight:600}
-.gw-psel{display:flex;gap:6px;flex-wrap:wrap}
-.gw-rec{margin-top:12px;border-top:1px solid #F0F0F6;padding-top:8px}
-.gw-rec-row{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;padding:5px 0;font-size:12.5px;color:#56527a}
-.gw-rec-row b{font-size:11.5px;font-weight:700}
-.gw-rec-row.match b{color:${GREEN}}
-.gw-rec-row.under b{color:#C4571F}
-.gw-rec-row.over b{color:#C4571F}
-.gw-adv{margin-top:10px;display:flex;flex-direction:column;gap:12px}
-.gw-adv-b{padding:11px 13px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE}
-.gw-adv-b>b{font-size:12.5px;color:${INK}}
-.gw-season{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:6px;margin-top:8px}
-.gw-season label{display:flex;flex-direction:column;gap:2px;font-size:11px;color:#8b87a3}
-.gw-season input{border:1px solid #E1E2EC;border-radius:7px;padding:5px 6px;font-size:12.5px;font-weight:700;color:${INK};text-align:right}
-.gw-season i{font-style:normal;font-size:10px;color:#a6a2bc}
-.gw-days{display:flex;align-items:center;gap:5px;margin-top:8px;flex-wrap:wrap}
-/* ---- conversation capture ---- */
-.act-t.convo.on{background:${INDIGO};border-color:${INDIGO};color:#fff}
-.convo{margin-top:4px}
-.convo-head b{display:block;font-size:13.5px;color:${INK};font-weight:800}
-.convo-head span{display:block;font-size:12px;color:#8b87a3;line-height:1.55;margin-top:3px}
-.convo-ta{min-height:190px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;line-height:1.55;margin-top:9px}
-.convo-meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;margin-bottom:8px}
-.convo-meta label{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:#8b87a3;font-weight:600}
-.convo-meta input,.convo-meta select{border:1px solid #E1E2EC;border-radius:9px;padding:7px 9px;font-size:12.5px;color:${INK};background:#fff}
-.convo-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:12px}
-.convo-conf{display:flex;gap:8px;align-items:flex-start;padding:11px 13px;border-radius:10px;font-size:12.5px;line-height:1.55;margin-bottom:11px}
-.convo-conf.high,.convo-conf.medium{background:#F4FBF6;border:1px solid #CDE9D5;color:#2c6b41}
-.convo-conf.low{background:#FFFBF7;border:1px solid #F2DECB;color:#8a5a2b}
-.convo-conf.none{background:#FFF6F6;border:1px solid #F2CFCF;color:#9c3b3b}
-.convo-sp{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px}
-.csp{border:1px solid #EDEEF5;border-radius:11px;padding:11px 12px;background:#fff}
-.csp.lead{border-color:#C9D6F5;background:#F8FAFF}
-.csp.us{border-color:#CDE9D5;background:#FAFFFB}
-.csp-n{font-size:13px;font-weight:800;color:${INK};display:flex;justify-content:space-between;gap:8px;align-items:baseline}
-.csp-n i{font-style:normal;font-size:10.5px;color:#a6a2bc;font-weight:600}
-.csp-ev{font-size:11.5px;color:#8b87a3;margin:3px 0 8px;line-height:1.45}
-.csp-roles{display:flex;gap:5px;flex-wrap:wrap}
-.convo-prev{margin-top:12px;border:1px solid #EDEEF5;border-radius:11px;padding:12px 13px;background:#FAFAFE}
-.cp-h{display:flex;align-items:center;gap:6px;font-size:11.5px;font-weight:800;color:#9b98ad;text-transform:uppercase;letter-spacing:.03em;margin-bottom:8px}
-.convo-note,.convo-raw{white-space:pre-wrap;font-family:inherit;font-size:12.5px;line-height:1.6;color:${INK};margin:0;
-  max-height:280px;overflow:auto;background:#fff;border:1px solid #EDEEF5;border-radius:9px;padding:11px 12px}
-.cdiff{display:flex;align-items:center;gap:9px;padding:6px 0;font-size:12.5px;color:#56527a;cursor:pointer}
-.cdiff.conflict{color:#8a5a2b}
-.cdiff-l{font-weight:700;color:${INK};min-width:96px}
-.cdiff-v{color:#8b87a3}
-.cdiff-v s{color:#c0bcd0}
-.cdiff i{font-style:normal;font-size:10.5px;color:#C4712F;font-weight:700;margin-left:auto}
-.spin{animation:spin 1s linear infinite}
-@keyframes spin{to{transform:rotate(360deg)}}
 .goal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px}
 .goal-row{display:flex;align-items:center;gap:12px;padding:11px 13px;border:1px solid #EDEEF5;border-radius:10px;background:#FAFAFE}
 .goal-l{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -1395,6 +1311,10 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.mf-sel{position:relative;cursor:pointer}
+.mf-sel select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-family:inherit}
+.mf-v{display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;color:${INK};line-height:1.25}
+.mf-v em{width:7px;height:7px;border-radius:50%;flex:none}
 .mtg-loc{display:inline-flex;align-items:center;gap:3px;margin-left:7px;color:#8E89A8}
 .loc-recent{display:inline-flex;gap:5px;flex-wrap:wrap;margin-left:8px}
 .loc-recent button{border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:1px 8px;font-size:10.5px;font-family:inherit;color:${COBALT};cursor:pointer;font-weight:600;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1895,6 +1815,19 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
   .m-left,.m-right{overflow:visible}
   .m-right{border-left:none;border-top:1px solid #E8E9F2}
   .modal{max-height:94vh}
+  /* The header was ONE flex row: the title fought the nav buttons and the fact
+     strip for a 390px screen, so the nav wrapped under the tags and the fields
+     ran off the right edge. On a phone it stacks — title, nav, then facts
+     across the full width — and nothing inside may exceed the screen. */
+  .m-head{flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px}
+  .m-headright{align-items:stretch;width:100%}
+  .m-headright>div:first-child{justify-content:flex-end}
+  .m-facts{max-width:100%;justify-content:flex-start}
+  .m-facts .mf{flex:1 1 calc(50% - 4px);min-width:0}
+  .m-left,.m-right{padding:16px 16px}
+  .modal h2{font-size:20px;line-height:1.25}
+  .modal,.m-head,.m-grid,.m-left,.m-right{max-width:100%;min-width:0}
+  .m-jump{padding:8px 12px;gap:6px}
   .m-foot{padding:11px 16px;flex-wrap:wrap}
   .m-foot-n{width:100%;margin-left:0;white-space:normal}
   .scrim{display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25}.body{padding:18px}.top{padding:14px 18px}.fgrid{grid-template-columns:1fr}
@@ -2193,6 +2126,17 @@ export default function App(){
       }
       /* Meetings, same reason: a saved module list predates the tab, so without
          this it ships invisible and nothing looks broken. */
+      /* An install with saved settings.stages ignores DEFAULT_STAGES entirely,
+         so a new stage ships invisible unless it's backfilled once. Inserted
+         before Lost, because "not right now" sits between open and dead. */
+      if(amOwner&&Array.isArray(st.stages)&&st.stages.length&&!st.stages.some(x=>x.key==='nurture')){
+        const lostAt=st.stages.findIndex(x=>x.lost);
+        const nur={key:'nurture',label:'Not right now',color:'#7C8AA5',prob:0,open:false,won:false,lost:false,nurture:true};
+        const next=[...st.stages];
+        next.splice(lostAt<0?next.length:lostAt,0,nur);
+        st={...st,stages:next};
+        try{ await db.saveSettings(st); }catch(err){ console.error('stage backfill failed',err); }
+      }
       if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<4){
         st={...st,modules:st.modules.includes('meetings')?st.modules:[...st.modules,'meetings'],modulesV:4};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
@@ -2202,7 +2146,7 @@ export default function App(){
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
       if(amOwner&&mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},goalPlan:st.goalPlan||null,huddle:st.huddle||null,repPayments:!!st.repPayments,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,repPayments:!!st.repPayments,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -2784,7 +2728,6 @@ function useMetrics(leads,stages,settings){
     const ratioEx=ratioExcludeOf(settings);
     const byStage={}; stages.forEach(s=>byStage[s.key]={count:0,value:0});
     let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,wonValued=0,wonPending=0,lostCount=0,mrr=0,retainers=0,upsellCount=0,upsellValue=0;
-    const wonValues=[];   // every confirmed setup sale, for avgDeal's sample size
     /* An upsell to somebody you've already delivered for is at least as likely to
        land as a proposal sitting with a new lead, so it's weighted at the best
        probability on the open stages rather than at an invented number. */
@@ -2799,10 +2742,6 @@ function useMetrics(leads,stages,settings){
          its value made average deal size DROP every time you converted somebody
          who hadn't paid yet. wonPending tracks the rest so nothing is hidden. */
       if(s.won){ if(cashConfirmed(l)){ wonCount++; const v=openSaleValue(l); wonValue+=v;
-          /* the individual deal values behind avgDeal. The MEAN alone cannot
-             tell you whether it came from 40 deals or 2, and the goals engine
-             refuses to plan off a rate whose sample it cannot see. */
-          if(v>0) wonValues.push(v);
           /* A retainer-only client has no setup deal, so a $0 setup is not a
              data point about deal SIZE — averaging it in drags the number
              toward zero and misreports what a setup sale is actually worth.
@@ -2814,8 +2753,11 @@ function useMetrics(leads,stages,settings){
       if(s.lost) lostCount++; wonValue+=closedDealsTotal(l);
       if(l.retainerActive){mrr+=num(l.retainer);retainers++;}});
     const pipelineValue=openValue+upsellValue;
-    const overdue=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<0&&sOf(l.stage,stages).open);
-    const dueWeek=leads.filter(l=>{const d=l.followUp?daysUntil(l.followUp):null;return d!==null&&d>=0&&d<=7&&sOf(l.stage,stages).open;});
+    /* same rule as the follow-up page: a nurtured lead's revisit date is the
+       only thing that brings them back, so it has to count as overdue */
+    const dueOK=l=>{ const st=sOf(l.stage,stages); return st.open||st.nurture; };
+    const overdue=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<0&&dueOK(l));
+    const dueWeek=leads.filter(l=>{const d=l.followUp?daysUntil(l.followUp):null;return d!==null&&d>=0&&d<=7&&dueOK(l);});
     const hot=leads.filter(l=>l.priority==='high'&&sOf(l.stage,stages).open);
     /* win rate is about SELLING, so a won deal counts the moment it's won
        whether or not the money has landed. Revenue is the cash question.
@@ -2855,20 +2797,22 @@ function useMetrics(leads,stages,settings){
     leads.forEach(l=>{ const h=firstTouchHrs(l);
       if(h==null){ if(!(l.activities||[]).some(REAL_TOUCH)) untouched++; } else touchHrs.push(h);
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
-    /* new leads this month — a leading goal type, and the only one of the seven
-       that had no number anywhere in the app before. createdAt is an ISO
-       timestamp on every lead the CRM has ever made; leads imported without one
-       simply don't count toward a monthly target, which is correct — an import
-       is not prospecting. */
-    const leadsCreatedMonth=leads.filter(l=>l.createdAt&&String(isoOf(new Date(l.createdAt))).slice(0,7)===mKey).length;
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
     let closedMonth=0;
     /* a won lead only counts once the money is confirmed — see cashConfirmed */
     let awaitingCash=0,awaitingValue=0;
-    leads.forEach(l=>{ if(sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){
-        if(cashConfirmed(l)){ closedMonth++; }
-        else { awaitingCash++; awaitingValue+=num(l.dealValue); } }
-      const cm=closedDealsInMonth(l,mKey); if(cm>0){ closedMonth+=closedDealsCountInMonth(l,mKey); } });
+    /* A lead that BOTH reached a won stage this month AND has a deal archived
+       into closedDeals this month used to fire both branches and count twice —
+       which is why the tile said 3 over a list of 2. The drilldown dedupes by
+       lead, so the two never agreed. One lead closing is one close, however its
+       money is recorded. Only a SECOND closed deal on the same lead adds again,
+       because that genuinely is another close. */
+    leads.forEach(l=>{ const cmCount=closedDealsCountInMonth(l,mKey);
+      const wonHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey;
+      if(wonHere&&!cashConfirmed(l)){ awaitingCash++; awaitingValue+=num(l.dealValue); }
+      if(cmCount>0) closedMonth+=cmCount;                    // each archived deal is a close
+      else if(wonHere&&cashConfirmed(l)) closedMonth++;      // no archived deal — the lead itself
+    });
 
     /* Revenue = money that actually arrived this month, from the payment dates.
        LEGACY FALLBACK: a lead closed this month with cash confirmed but NO
@@ -2884,7 +2828,7 @@ function useMetrics(leads,stages,settings){
         const legacy=(closedHere?num(l.dealValue):0)+closedDealsInMonth(l,mKey);
         if(legacy>0){ legacyMonth+=legacy; revenueMonth+=legacy; }
       }
-      outstanding+=owedBy(l);
+      outstanding+=owedBy(l,stages);
     });
     const firstTouch=median(touchHrs);
     const fuRate=fuCleared>0?fuOnTime/fuCleared:null;
@@ -2942,10 +2886,7 @@ function useMetrics(leads,stages,settings){
     return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,onbNeeded,onbMonthlyOnly,
       firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
-      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,avgDaysToClose,movingPct,rotting,sourceROI,
-      /* ADDITIVE ONLY — nothing above this line changed. The goals engine needs
-         the samples behind the rates, not just the rates. */
-      wonValues,cycleN:cycleDays.length,leadsCreatedMonth,newLeadsMonth:leadsCreatedMonth};
+      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages,settings]);
 }
 
@@ -3051,10 +2992,6 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
   const [dragSec,setDragSec]=useState(null);
   const tog=k=>{ setDrill(d=>d===k?null:k); };
   const mKey=todayISO().slice(0,7);
-  /* one Date for the whole render tree. new Date() inline would be a fresh
-     object every render, which busts the goals useMemo on every keystroke
-     anywhere on the page. */
-  const today=useMemo(()=>new Date(),[]);
 
   if(rep){
     const mine=myCommissions(leads,myUid);
@@ -3067,9 +3004,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     const ahead=myRank>1?ranked[myRank-2]:null;
     const openMine=leads.filter(l=>sOf(l.stage,stages).open);
     const fu=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
-    const myGoals=repGoalSettings(settings,me,today);
     return (<>
-      {myGoals&&<GoalSection settings={myGoals} m={m} leads={leads} stages={stages} open={open} today={today} mineOnly personName={me}/>}
       <div className="kgroup">Your commission</div>
       <div className="cmsn-hero">
         <div className="cmsn-main">
@@ -3199,7 +3134,6 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     ? dashHidden.filter(k=>k!==key) : [...dashHidden,key]);
 
   const BLOCKS={
-    goals:(<GoalSection settings={settings} m={m} leads={leads} stages={stages} open={open} today={today}/>),
     scorecard:(<>
     {scorecard.length>0&&<div className="card" style={{marginBottom:20}}>
       <div className="sec-title" style={{margin:'0 0 4px'}}><Users size={15}/>The team this month</div>
@@ -3250,7 +3184,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       return (<Drill title="Collected this month" sub={usd(m.revenueMonth)+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClose={()=>setDrill(null)}>
         {rows.map(({l,p})=>(<div className="drow" key={l.id+p.id}>
           <div className="drow-m"><Name l={l}/><div className="subcell">{fmtDate(p.date)}{p.note?` · ${p.note}`:''}
-            {owedBy(l)>0?<span className="mtg-flag"> · {usd(owedBy(l))} still owed</span>:null}</div></div>
+            {owedBy(l,stages)>0?<span className="mtg-flag"> · {usd(owedBy(l,stages))} still owed</span>:null}</div></div>
           <span className="drow-v">{usdc(p.amount)}</span>
         </div>))}
         {/* deals recorded before payments were tracked — counted at their close
@@ -3536,7 +3470,6 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
    Alerts are deliberately NOT in here — an onboarding queue or an unacknowledged
    commission is not decoration and shouldn't be reorderable or hideable. */
 const DASH_SECTIONS=[
-  ['goals',    'Goals & daily number'],
   ['scorecard','Team scorecard'],
   ['revenue',  'Pipeline & revenue'],
   ['activity', 'Activity & health'],
@@ -3555,17 +3488,8 @@ const dashLabel=k=>(DASH_SECTIONS.find(x=>x[0]===k)||[k,k])[1];
    anyone who already saved a layout. */
 const dashOrderOf=settings=>{
   const saved=Array.isArray(settings&&settings.dashOrder)?settings.dashOrder.filter(k=>DASH_DEFAULT.includes(k)):[];
-  if(!saved.length) return [...DASH_DEFAULT];
-  /* BUG FIX: this used to be [...saved,...missing], which appended every newly
-     shipped section to the BOTTOM of the dashboard for anyone who had ever
-     saved a layout — the opposite of the "new ones appended in default
-     position" the comment above promised, and the reason Goals would have
-     landed underneath ten other sections on the only install that has one.
-     Inserting at the default index moves nothing that was already saved
-     relative to anything else that was already saved. */
-  const out=[...saved];
-  DASH_DEFAULT.forEach((k,i)=>{ if(!out.includes(k)) out.splice(Math.min(i,out.length),0,k); });
-  return out;
+  const missing=DASH_DEFAULT.filter(k=>!saved.includes(k));
+  return [...saved,...missing];
 };
 const dashHiddenOf=settings=>Array.isArray(settings&&settings.dashHidden)
   ? settings.dashHidden.filter(k=>DASH_DEFAULT.includes(k)) : [];
@@ -4124,11 +4048,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
     let r=scopeLeads(leads,view,me,rep?myPools:null).filter(l=>{
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
-      /* daysSince now returns null (was NaN) when a lead has no usable
-         timestamp. NaN<n was false, so those leads passed the filter; null<n
-         is TRUE, which would have silently dropped them. Explicit null check
-         keeps the old behaviour exactly. */
-      if(cold!=='all'){ const ds=daysSince(lastContact(l)); if(ds!=null&&ds<+cold) return false; }
+      if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
       if(spon==='potential'&&!l.potentialSponsor)return false;
       if(spon==='past'&&!l.pastSponsor)return false;
       if(spon==='any'&&!(l.potentialSponsor||l.pastSponsor))return false;
@@ -5390,179 +5310,11 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
   </div>);
 }
 
-/* ===================== THE GOAL WIZARD =====================
-   Not five empty boxes. Ask for the target, and the moment it is typed show
-   what it means in meetings — because somebody who sees "that's 14 meetings"
-   often revises the target, and that revision IS the wizard working. */
-const MONTH_ABBR=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-const DAY_ABBR=['S','M','T','W','T','F','S'];
-
-function GoalWizard({settings,saveSettings,leads,users}){
-  const today=useMemo(()=>new Date(),[]);
-  /* stages come from settings, NOT from a prop: SettingsPage has no `stages`
-     in scope, and passing one would have been a ReferenceError at render on a
-     component that builds perfectly cleanly. Exactly the failure mode the
-     brief warned about. */
-  const st=(settings.stages&&settings.stages.length)?settings.stages:DEFAULT_STAGES;
-  const m=useMetrics(leads||[],st,settings);
-  const plan=GOALS.normalizeGoals(settings,today);
-  const [showAdv,setShowAdv]=useState(false);
-  const [person,setPerson]=useState('');
-
-  /* every write goes through goalsToSettings so the legacy settings.goals keys
-     stay in step with the plan — one source of truth, two readers.
-
-     All three mutations go through the tested helpers in lib/goals rather than
-     spreading `plan.team` directly: `team` is a DERIVED view of the active
-     period, so writing to it would update the copy on screen and silently drop
-     the change on save. */
-  const write=next=>saveSettings(GOALS.goalsToSettings(settings,next,today));
-  const setTeam=(k,v)=>write(GOALS.setTarget(plan,k,v));
-  const setPersonGoal=(who,k,v)=>write(GOALS.setPersonTarget(plan,who,k,v));
-  const setPeriod=p=>write(GOALS.setPeriod(plan,p,today));
-
-  const range=GOALS.periodRange(plan,today);
-  const monthly=GOALS.monthlyTargets(plan,today);
-  const rates=GOALS.ratesFrom(m,plan);
-  const monthPlan={...plan,period:'month',anchor:isoOf(today).slice(0,7)};
-  const monthRange=GOALS.periodRange(monthPlan,today);
-  const daysLeft=GOALS.remainingWorkingDays(monthPlan,today);
-  const pace=GOALS.periodPace(monthPlan,today);
-
-  /* the live implication — recomputed on every keystroke */
-  const preview=GOALS.GOAL_TYPES.map(t=>({t,p:GOALS.plan({
-    key:t.key,target:monthly[t.key],achieved:achievedOf(t.key,m),rates,daysLeft,pace})}))
-    .filter(x=>x.p.status!=='no_target');
-  const headline=preview.find(x=>x.t.key==='revenue')||preview[0];
-
-  const rec=GOALS.reconcile(plan);
-  const people=(users||[]).filter(u=>u.active!==false).map(u=>u.name).filter(Boolean);
-  const anySet=GOALS.GOAL_KEYS.some(k=>num(plan.team[k])>0);
-  const noHistory=rates.avgDeal.value==null&&rates.meetCloseRate.value==null&&rates.showRate.value==null;
-
-  return (<div className="card" style={{marginBottom:18}}>
-    <div className="sec-title"><Target size={15}/>Goals</div>
-    <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>
-      Set a target and this works backwards through your own funnel to the number of meetings it takes to hit it. Leave one at 0 to turn it off.
-    </div>
-
-    {/* period */}
-    <div className="gw-periods">
-      {[['month','Monthly'],['quarter','Quarterly'],['year','Annual']].map(([k,l])=>(
-        <button key={k} className={'bk-chip'+(plan.period===k?' on':'')} onClick={()=>setPeriod(k)}>{l}</button>))}
-      <span className="subcell" style={{marginLeft:8}}>Currently: <b>{range.label}</b></span>
-    </div>
-
-    {/* the targets */}
-    <div className="goal-grid" style={{marginTop:14}}>{GOALS.GOAL_TYPES.map(t=>(
-      <div className="goal-row" key={t.key}>
-        <div className="goal-l"><b>{t.label}</b><span>
-          {t.key==='mrr'?'running total, never divided across months'
-            :plan.period==='month'?'per month'
-            :plan.period==='quarter'?`per quarter · ${t.unit==='$'?usd(Math.round(monthly[t.key])):r1(monthly[t.key])} a month`
-            :`per year · ${t.unit==='$'?usd(Math.round(monthly[t.key])):r1(monthly[t.key])} this month`}
-          {t.lagging?'':' · leading'}
-        </span></div>
-        <div className="goal-in">{t.unit==='$'&&<i>$</i>}
-          <input type="number" min="0" value={plan.team[t.key]||''} placeholder="0" onChange={e=>setTeam(t.key,e.target.value)}/>
-        </div>
-      </div>))}</div>
-
-    {/* what it actually means — the whole point of a wizard */}
-    {anySet&&headline&&(<div className="gw-implies">
-      <div className="gw-implies-h"><Sparkles size={14}/>What that means</div>
-      {/* the plan is always built against THIS MONTH — labelling the sentence
-          "in 2026" while the number is a monthly share is how a $200k annual
-          target reads as $197k left to close in August */}
-      <div className="gw-implies-t">{GOALS.sentence(headline.p,rates,monthRange.label)}</div>
-      {plan.period!=='month'&&<div className="subcell" style={{marginTop:6}}>
-        That is <b>this month's share</b> of your {plan.period==='year'?'annual':'quarterly'} target ({range.label}), measured against this month's numbers.
-      </div>}
-      <div className="rchips" style={{marginTop:10}}>
-        <RateChip label="Avg deal size" r={rates.avgDeal} fmt={v=>usd(Math.round(v))}/>
-        <RateChip label="Meeting → close" r={rates.meetCloseRate}/>
-        <RateChip label="Show rate" r={rates.showRate}/>
-      </div>
-      {noHistory&&<div className="gc-warn" style={{marginTop:10}}><AlertTriangle size={13}/>
-        This install has no closed deals or held meetings yet, so there are no rates to work backwards through. Nothing is being assumed on your behalf — the target still shows a daily number, it just can’t be turned into meetings until you’ve closed something.
-      </div>}
-      {!anySet&&<div className="subcell">No targets set — dashboard tiles show plain numbers.</div>}
-    </div>)}
-    {!anySet&&<div className="subcell" style={{marginTop:10}}>No goals set yet — tiles show plain numbers until you add one.</div>}
-
-    {/* per person */}
-    {people.length>0&&(<div className="gw-people">
-      <div className="sec-title" style={{fontSize:13.5,marginTop:18}}><Users size={14}/>Per person</div>
-      <div className="ch-sub" style={{marginTop:-8,marginBottom:10}}>
-        You set these. A rep sees only their own target, their own pace and their own daily number — never the team total and never anybody else’s.
-      </div>
-      <div className="gw-psel">
-        {people.map(p=><button key={p} className={'bk-chip'+(person===p?' on':'')} onClick={()=>setPerson(person===p?'':p)}>{p}</button>)}
-      </div>
-      {person&&(<div className="goal-grid" style={{marginTop:12}}>{GOALS.GOAL_TYPES.map(t=>(
-        <div className="goal-row" key={t.key}>
-          <div className="goal-l"><b>{t.label}</b><span>{person}</span></div>
-          <div className="goal-in">{t.unit==='$'&&<i>$</i>}
-            <input type="number" min="0" value={(plan.people[person]||{})[t.key]||''} placeholder="0"
-              onChange={e=>setPersonGoal(person,t.key,e.target.value)}/>
-          </div>
-        </div>))}</div>)}
-
-      {/* reconciliation — shown deliberately, never hidden */}
-      {Object.keys(plan.people).length>0&&(<div className="gw-rec">
-        {GOALS.GOAL_TYPES.filter(t=>num(plan.team[t.key])>0||rec[t.key].sum>0).map(t=>{
-          const r=rec[t.key]; const f=v=>t.unit==='$'?usd(Math.round(v)):r1(v);
-          return (<div key={t.key} className={'gw-rec-row '+r.state}>
-            <span>{t.label}</span>
-            <span>{f(r.sum)} assigned of {f(r.team)}</span>
-            <b>{r.state==='match'?'reconciles'
-              :r.state==='under'?`${f(r.gap)} belongs to nobody`
-              :`${f(-r.gap)} over-assigned`}</b>
-          </div>);
-        })}
-      </div>)}
-    </div>)}
-
-    {/* advanced: seasonality, working days, sample threshold */}
-    <button className="linkbtn" style={{marginTop:14}} onClick={()=>setShowAdv(a=>!a)}>
-      {showAdv?'Hide':'Show'} seasonality, working days and sample size
-    </button>
-    {showAdv&&(<div className="gw-adv">
-      {plan.period==='year'&&(<div className="gw-adv-b">
-        <b>Seasonality</b>
-        <div className="subcell">Relative weights, not percentages — all 1s means flat. A December of 3 gets three times a January of 1, and the twelve months still add up to your annual number exactly.</div>
-        <div className="gw-season">{MONTH_ABBR.map((mo,i)=>(
-          <label key={mo}><span>{mo}</span>
-            <input type="number" min="0" step="0.5" value={(plan.seasonality||new Array(12).fill(1))[i]}
-              onChange={e=>{const w=[...(plan.seasonality||new Array(12).fill(1))];w[i]=Math.max(0,num(e.target.value));write({...plan,seasonality:w});}}/>
-            <i>{usd(Math.round(GOALS.distributeAnnual(plan.team.revenue,plan.seasonality)[i]))}</i>
-          </label>))}</div>
-      </div>)}
-      <div className="gw-adv-b">
-        <b>Working days</b>
-        <div className="subcell">Which days count when a target is turned into “per day”. A realtor who works Saturdays should say so, or every daily number here is too high.</div>
-        <div className="gw-days">{DAY_ABBR.map((d,i)=>(
-          <button key={i} className={'bk-chip'+(plan.weekMask[i]?' on':'')}
-            onClick={()=>{const w=[...plan.weekMask];w[i]=w[i]?0:1;write({...plan,weekMask:w});}}>{d}</button>))}
-          <span className="subcell" style={{marginLeft:8}}>{daysLeft} working day{daysLeft===1?'':'s'} left this month</span>
-        </div>
-      </div>
-      <div className="gw-adv-b">
-        <b>Thin-sample threshold</b>
-        <div className="subcell">Below this many data points a rate is shown as a range instead of a number. A close rate computed from 3 deals is not a close rate.</div>
-        <div className="goal-in" style={{maxWidth:120,marginTop:6}}>
-          <input type="number" min="1" value={plan.sampleMin} onChange={e=>write({...plan,sampleMin:Math.max(1,num(e.target.value)||GOALS.DEFAULT_SAMPLE_MIN)})}/>
-        </div>
-      </div>
-    </div>)}
-  </div>);
-}
-
 function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},goalPlan:d.settings.goalPlan||null,huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,modulesV:num(d.settings.modulesV),pools:Array.isArray(d.settings.pools)?d.settings.pools:[],notifyEmails:d.settings.notifyEmails||'',leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,modulesV:num(d.settings.modulesV),pools:Array.isArray(d.settings.pools)?d.settings.pools:[],notifyEmails:d.settings.notifyEmails||'',leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
     {/* team & roles — owner-only */}
@@ -5597,10 +5349,20 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <div className="ch-sub" style={{marginTop:12,marginBottom:0}}>Add a new salesperson under <b>Dropdown options → Owner</b> and they'll appear here. Give them <b>Own + Pool</b> and they'll only ever see their own leads plus the shared pool.</div>
     </div>); })()}
 
-    {/* goals — the wizard replaces the five flat boxes. Legacy numbers are
-        migrated in automatically by GOALS.normalizeGoals, so an install that
-        already had targets opens this and finds its own numbers waiting. */}
-    <GoalWizard settings={settings} saveSettings={saveSettings} leads={leads} users={users}/>
+    {/* monthly goals */}
+    {(()=>{ const G=goalsOf(settings);
+      const setGoal=(k,v)=>saveSettings({...settings,goals:{...G,[k]:Math.max(0,num(v))}});
+      const anySet=Object.values(G).some(v=>num(v)>0);
+      return (<div className="card" style={{marginBottom:18}}>
+        <div className="sec-title"><Target size={15}/>Monthly goals</div>
+        <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Set a target and the matching dashboard tile grows a progress bar that tells you if you’re on pace for the month. Leave one at 0 to hide it.</div>
+        <div className="goal-grid">{GOAL_FIELDS.map(([k,label,note,kind])=>(
+          <div className="goal-row" key={k}>
+            <div className="goal-l"><b>{label}</b><span>{note}</span></div>
+            <div className="goal-in">{kind==='$'&&<i>$</i>}<input type="number" min="0" value={G[k]||''} placeholder="0" onChange={e=>setGoal(k,e.target.value)}/></div>
+          </div>))}</div>
+        {!anySet&&<div className="subcell" style={{marginTop:10}}>No goals set yet — tiles show plain numbers until you add one.</div>}
+      </div>); })()}
 
     {/* which meeting types count toward conversion ratios */}
     {(()=>{ const ex=ratioExcludeOf(settings);
@@ -5997,193 +5759,6 @@ function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
     {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
   </div>);
 }
-/* ===================== CONVERSATION CAPTURE =====================
-   Paste a thread, get structured notes on the lead.
-
-   Two rules drive every decision in here.
-
-   1. THE RAW THREAD IS NEVER STORED. It lives in this component's state while
-      you review it and is gone when the modal closes. No "show full
-      conversation" toggle, no retention window, no purge job, no delete
-      button — because there is nothing to delete. The paste is a third
-      party's personal data and the safest place to keep it is nowhere.
-      The trade-off, stated plainly in the UI: you cannot later check the
-      summary against the transcript. So the summary is reviewed BEFORE it is
-      written, by a human, every time.
-
-   2. THE MODEL NEVER SILENTLY GUESSES WHO IS WHO. It proposes a mapping with
-      its evidence and its confidence, you confirm or swap it with one tap,
-      and only then does anything get written. A wrong mapping records "the
-      client said they're ready to move forward" when in fact you said it —
-      a confidently false record, which is worse than no record.             */
-const CONVO_CHANNELS=['Text','Email','DM','Call transcript','In person'];
-
-function ConversationCapture({lead,me,onCancel,onSave}){
-  const [text,setText]=useState('');
-  const [when,setWhen]=useState(todayISO());
-  const [channel,setChannel]=useState('Text');
-  const [busy,setBusy]=useState(false);
-  const [err,setErr]=useState('');
-  const [review,setReview]=useState(null);   // {speakers, extract, parts, turns}
-  const [roles,setRoles]=useState({});       // speakerKey -> 'lead' | 'us' | 'other'
-  const [pickFields,setPickFields]=useState({});
-  const [pickTasks,setPickTasks]=useState({});
-  const [setFollowUp,setSetFollowUp]=useState(false);
-
-  const turns=useMemo(()=>CONVO.splitTurns(text),[text]);
-  const signals=useMemo(()=>CONVO.speakerSignals(turns,{lead,meName:me}),[turns,lead,me]);
-  const localConf=useMemo(()=>CONVO.localConfidence(signals),[signals]);
-
-  const read=async()=>{
-    if(!text.trim()){ setErr('Paste a conversation first.'); return; }
-    setBusy(true); setErr('');
-    try{
-      const chunks=CONVO.chunkTurns(turns);
-      const parts=[];
-      let speakers=null;
-      for(let i=0;i<chunks.length;i++){
-        const r=await fetch('/api/conversation',{method:'POST',headers:{'content-type':'application/json'},
-          body:JSON.stringify({text:CONVO.turnsToText(chunks[i]),lead:{name:lead.name,company:lead.company},
-            me,when,channel,signals,part:chunks.length>1?i+1:0,parts:chunks.length})});
-        const j=await r.json().catch(()=>({ok:false,error:'unreadable response'}));
-        if(!j.ok) throw new Error(j.error||'could not read that');
-        parts.push(CONVO.normalizeExtract(j.result));
-        /* the speaker mapping is decided once, on the first chunk, and reused.
-           Re-deciding per chunk lets part 3 disagree with part 1 about who the
-           client is, and then the merged note contradicts itself. */
-        if(i===0) speakers=CONVO.normalizeSpeakers(j.result,turns);
-      }
-      const extract=CONVO.mergeExtracts(parts);
-      const sp=speakers||CONVO.normalizeSpeakers(null,turns);
-      setReview({speakers:sp,extract,parts:chunks.length});
-      setRoles(sp.speakers.reduce((o,s)=>(o[s.key]=s.role,o),{}));
-    }catch(e){
-      /* never a crash, and never silently losing what they pasted */
-      setErr(e.message||'could not read that');
-      setReview({failed:true,note:CONVO.fallbackNote(text,e.message)});
-    }finally{ setBusy(false); }
-  };
-
-  const diffs=useMemo(()=>review&&review.extract?CONVO.fieldDiffs(review.extract.facts,lead):[],[review,lead]);
-  const leadCount=Object.values(roles).filter(r=>r==='lead').length;
-  const mustChoose=review&&!review.failed&&(review.speakers.ambiguous||leadCount!==1);
-
-  const save=()=>{
-    if(review.failed){ onSave({note:review.note,fields:{},tasks:[],followUp:''}); return; }
-    const note=CONVO.toNoteText(review.extract,{when,channel,parts:review.parts});
-    const fields={};
-    diffs.forEach((d,i)=>{ if(pickFields[i]) fields[d.field]=d.after; });
-    const tasks=review.extract.followUps.filter((_,i)=>pickTasks[i]);
-    const due=tasks.map(t=>t.due).filter(Boolean).sort()[0]||'';
-    onSave({note,fields,tasks,followUp:setFollowUp?due:'',when});
-  };
-
-  /* ---------- paste screen ---------- */
-  if(!review) return (<div className="convo">
-    <div className="convo-head">
-      <b>Paste a conversation</b>
-      <span>Texts, an email thread, DMs, a call transcript. It gets summarised onto this lead — <b>the conversation itself is never saved</b>, so nothing you paste here is stored anywhere.</span>
-    </div>
-    <textarea className="act-input convo-ta" placeholder={"Me: Hey Sarah, following up on the site.\nSarah: Yes! Can we do $3,500?\n\nPaste as much as you like — labels are optional."}
-      value={text} onChange={e=>setText(e.target.value)}/>
-    <div className="convo-meta">
-      <label>When did this happen?<input type="date" value={when} max={todayISO()} onChange={e=>setWhen(e.target.value)}/></label>
-      <label>Where?<select value={channel} onChange={e=>setChannel(e.target.value)}>{CONVO_CHANNELS.map(c=><option key={c}>{c}</option>)}</select></label>
-    </div>
-    {turns.length>0&&<div className="subcell">
-      {turns.length} message{turns.length===1?'':'s'} · {CONVO.chunkTurns(turns).length>1?`long, will be read in ${CONVO.chunkTurns(turns).length} parts`:'one pass'} ·{' '}
-      {localConf==='none'?'no speaker labels detected — you’ll be asked who is who':`speaker labels look ${localConf==='high'?'clear':'partial'}`}
-    </div>}
-    {err&&<div className="gc-warn"><AlertTriangle size={13}/>{err}</div>}
-    <div className="convo-actions">
-      <button className="btn btn-g" onClick={onCancel}>Cancel</button>
-      <button className="btn btn-p" disabled={busy||!text.trim()} onClick={read}>
-        {busy?<><Loader2 size={14} className="spin"/>Reading…</>:<><Sparkles size={14}/>Read this conversation</>}
-      </button>
-    </div>
-  </div>);
-
-  /* ---------- failure: keep their text, write it as a plain note ---------- */
-  if(review.failed) return (<div className="convo">
-    <div className="gc-warn"><AlertTriangle size={13}/>Couldn’t summarise that{err?` — ${err}`:''}. Your text isn’t lost — save it as a plain note and nothing is thrown away.</div>
-    <pre className="convo-raw">{review.note}</pre>
-    <div className="convo-actions">
-      <button className="btn btn-g" onClick={()=>{setReview(null);setErr('');}}>Back</button>
-      <button className="btn btn-p" onClick={save}><StickyNote size={14}/>Save as a plain note</button>
-    </div>
-  </div>);
-
-  /* ---------- review screen: who is who, then what it says ---------- */
-  const conf=review.speakers.confidence;
-  return (<div className="convo">
-    <div className={'convo-conf '+conf}>
-      {conf==='none'
-        ? <><AlertTriangle size={14}/><b>I can’t tell who is who.</b> Nothing will be written until you say. Tap a speaker to set their role.</>
-        : <><UserCheck size={14}/><b>{conf==='high'?'Confident':conf==='medium'?'Fairly confident':'Not confident'}</b> — {review.speakers.reasoning||'based on the labels in the thread'}. Check it before saving.</>}
-    </div>
-
-    <div className="convo-sp">
-      {review.speakers.speakers.map(s=>{
-        const sig=signals[s.key];
-        return (<div key={s.key} className={'csp '+(roles[s.key]||'unknown')}>
-          <div className="csp-n">{s.label}<i>{sig?`${sig.turns} message${sig.turns===1?'':'s'}`:''}</i></div>
-          <div className="csp-ev">{s.evidence||(sig&&sig.signals[0]&&sig.signals[0].why)||'no clear signal'}</div>
-          <div className="csp-roles">
-            {[['lead',lead.name||lead.company||'The lead'],['us','Us'],['other','Someone else']].map(([k,l])=>(
-              <button key={k} className={'bk-chip'+(roles[s.key]===k?' on':'')}
-                onClick={()=>setRoles(r=>({...r,[s.key]:k}))}>{l}</button>))}
-          </div>
-        </div>);
-      })}
-      {!review.speakers.speakers.length&&<div className="empty">No speaker labels in this thread at all. The summary below says who did what only where the words themselves make it obvious.</div>}
-    </div>
-    {mustChoose&&<div className="gc-warn"><AlertTriangle size={13}/>
-      {leadCount>1?'Two people can’t both be the lead.':'Mark exactly one speaker as the lead before saving.'}
-    </div>}
-
-    <div className="convo-prev">
-      <div className="cp-h"><StickyNote size={13}/>What gets saved to the lead</div>
-      <pre className="convo-note">{CONVO.toNoteText(review.extract,{when,channel,parts:review.parts})}</pre>
-      <div className="subcell">This note is the record — the conversation itself is discarded when you close this.</div>
-    </div>
-
-    {diffs.length>0&&(<div className="convo-prev">
-      <div className="cp-h"><Clipboard size={13}/>Update these fields?</div>
-      {diffs.map((d,i)=>(<label key={i} className={'cdiff'+(d.conflict?' conflict':'')}>
-        <input type="checkbox" checked={!!pickFields[i]} onChange={()=>setPickFields(p=>({...p,[i]:!p[i]}))}/>
-        <span className="cdiff-l">{d.label}</span>
-        <span className="cdiff-v">{d.before?<><s>{d.before}</s> → </>:null}<b>{d.after}</b></span>
-        {d.conflict&&<i>overwrites what’s there</i>}
-      </label>))}
-    </div>)}
-
-    {review.extract.followUps.length>0&&(<div className="convo-prev">
-      <div className="cp-h"><ListTodo size={13}/>Suggested follow-ups</div>
-      <div className="subcell" style={{marginBottom:6}}>Unchecked by default — these are suggestions, not tasks anybody created.</div>
-      {review.extract.followUps.map((f,i)=>(<label key={i} className="cdiff">
-        <input type="checkbox" checked={!!pickTasks[i]} onChange={()=>setPickTasks(p=>({...p,[i]:!p[i]}))}/>
-        <span className="cdiff-l">{f.title}</span>
-        {f.due&&<span className="cdiff-v">{fmtDate(f.due)}</span>}
-      </label>))}
-      {review.extract.followUps.some(f=>f.due)&&(<label className="cdiff">
-        <input type="checkbox" checked={setFollowUp} onChange={()=>setSetFollowUp(v=>!v)}/>
-        <span className="cdiff-l">Also set this lead’s follow-up date to the earliest of them</span>
-      </label>)}
-    </div>)}
-
-    {review.extract.dates.length>0&&(<div className="convo-prev">
-      <div className="cp-h"><CalendarClock size={13}/>Dates mentioned</div>
-      {review.extract.dates.map((d,i)=><div key={i} className="subcell">{fmtDate(d.date)} — {d.what}</div>)}
-      <div className="subcell" style={{marginTop:4}}>Book any of these from the <b>Booked</b> tab — nothing here creates a meeting on its own.</div>
-    </div>)}
-
-    <div className="convo-actions">
-      <button className="btn btn-g" onClick={()=>setReview(null)}>Back to the paste</button>
-      <button className="btn btn-p" disabled={mustChoose} onClick={save}><CheckCircle2 size={14}/>Save to lead</button>
-    </div>
-  </div>);
-}
-
 function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
@@ -6203,7 +5778,21 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
   /* functional form so two set() calls in one tick compose instead of the second
      spreading a stale draft over the first */
-  const set=patch=>{ setDraft(d=>({...d,...patch})); if(!isNew) updateLead(draft.id,patch); };
+  const set=patch=>{
+    /* Moving to a nurture stage without a revisit date means the lead simply
+       disappears: not in the pipeline, not lost, not in follow-ups. The date IS
+       the feature, so it's asked for at the moment the stage changes. */
+    if(patch.stage&&patch.stage!==draft.stage&&sOf(patch.stage,stages).nurture&&!draft.followUp){
+      const d=new Date(); d.setMonth(d.getMonth()+3);
+      const when=window.prompt(
+        'When should this come back to you? (YYYY-MM-DD)\n\n'+
+        'They said not right now, so they leave the pipeline. This date is the only thing that surfaces them again.',
+        isoOf(d));
+      if(when!==null){ const clean=String(when).trim().slice(0,10);
+        if(/^\d{4}-\d{2}-\d{2}$/.test(clean)) patch={...patch,followUp:clean,
+          nextAction:draft.nextAction||'Check back in — said not right now'}; }
+    }
+    setDraft(d=>({...d,...patch})); if(!isNew) updateLead(draft.id,patch); };
   /* One booking path, used by the Meetings section AND the activity log's
      Meeting Booked button. Always writes the meeting + the Booked activity, so
      it always reaches the dashboard numbers; the Google Calendar event is the
@@ -6355,29 +5944,6 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
      reads, so paid / remaining update everywhere at once. ONE write: the payment
      and its activity go together, or the second write clobbers the first from a
      stale `leads` closure. */
-  /* Write the reviewed conversation. ONE patch, one write — the payment
-     composer above learned the hard way that two updateLead calls in the same
-     tick clobber each other from a stale `leads` closure.
-
-     What lands: exactly one Note carrying the structured summary, plus only
-     the field updates and follow-ups the user actually ticked. The raw thread
-     is not in this patch and never touches the database. */
-  const saveConversation=({note,fields,tasks,followUp,when})=>{
-    if(!note) return;
-    /* the note is stamped with WHEN THE CONVERSATION HAPPENED, not when it was
-       pasted. A thread pasted today may be three weeks old and the activity
-       feed is a timeline — filing it under today puts it above calls that
-       actually came after it. Noon local so a timezone shift can't roll it
-       onto the previous day. */
-    const ts=(when&&/^\d{4}-\d{2}-\d{2}$/.test(when))?new Date(when+'T12:00:00').toISOString():new Date().toISOString();
-    const acts=[{id:uid(),ts,type:'Note',text:note,who,convo:true}];
-    (tasks||[]).forEach(t=>acts.push({id:uid(),ts,type:'Task',text:t.title+(t.due?` (due ${t.due})`:''),who,done:false}));
-    const patch={...(fields||{}),
-      ...(followUp?{followUp}:{}),
-      activities:[...acts,...(draft.activities||[])]};
-    setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
-    setAtype('Note');
-  };
   const logPaymentFromComposer=()=>{
     const amount=num(payAmt); if(amount<=0){ window.alert('Enter a payment amount.'); return; }
     const note=payNote.trim();
@@ -6422,7 +5988,11 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
           </div>
           {!isNew&&(()=>{ const bc=bookedCount(draft);
             const next=[...(draft.meetings||[])].filter(mt=>new Date(mt.end||mt.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0];
+            const st=sOf(draft.stage,stages);
             const facts=[
+              {k:'stage', l:'Stage',    v:st.label||'—', dot:st.color},
+              {k:'pri',   l:'Priority', v:(PRIORITIES[draft.priority]||{}).label||'—',
+                dot:(PRIORITIES[draft.priority]||{}).color},
               {k:'qual',  l:'Source',   v:draft.source||'—'},
               {k:'qual',  l:'Owner',    v:draft.owner||'—'},
               {k:'qual',  l:'Type',     v:draft.businessType&&draft.businessType!=='—'?draft.businessType:'—'},
@@ -6431,10 +6001,24 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               (rep&&cmsnOf(draft))?{k:'mycmsn',l:'Your cut',v:usd(cmsnOf(draft).amount)}:null,
               {k:'meetings',l:'Meetings',v:next?fmtDate(next.start):(bc?bc+' booked':'—'),hot:!!next},
             ].filter(Boolean);
-            return (<div className="m-facts">{facts.map((f,i)=>(
-              <button key={i} className={'mf'+(f.hot?' hot':'')} onClick={()=>jumpTo(f.k)} title={`Open ${f.k==='qual'?'Qualifying':f.k==='deal'?'Deal':'Meetings'}`}>
+            /* Stage and Priority are pickers, not jump links — they're the two
+               things you change most and they were buried in the form below. */
+            return (<div className="m-facts">{facts.map((f,i)=>{
+              if(f.k==='stage') return (<label key={i} className="mf mf-sel">
+                <i>Stage</i>
+                <span className="mf-v"><em style={{background:f.dot}}/>{f.v}</span>
+                <select value={draft.stage} onChange={e=>set({stage:e.target.value})}>
+                  {stages.map(x=><option key={x.key} value={x.key}>{x.label}</option>)}
+                </select></label>);
+              if(f.k==='pri') return (<label key={i} className="mf mf-sel">
+                <i>Priority</i>
+                <span className="mf-v"><em style={{background:f.dot}}/>{f.v}</span>
+                <select value={draft.priority||'medium'} onChange={e=>set({priority:e.target.value})}>
+                  {Object.entries(PRIORITIES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}
+                </select></label>);
+              return (<button key={i} className={'mf'+(f.hot?' hot':'')} onClick={()=>jumpTo(f.k)} title={`Open ${f.k==='qual'?'Qualifying':f.k==='deal'?'Deal':'Meetings'}`}>
                 <i>{f.l}</i><b>{f.v}</b>
-              </button>))}</div>);
+              </button>);})}</div>);
           })()}
         </div>
       </div>
@@ -6830,20 +6414,10 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             <div className="dh"><MessageSquare size={13}/>Activity Log</div>
             <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
               {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
-              {/* Conversation is a COMPOSER MODE, not a stored activity type.
-                  It writes an ordinary Note. Adding it to ACT_TYPES would put a
-                  "Conversation" tab on the feed filter that matched nothing,
-                  and adding a real new type means ACT_TYPES, ACT_ORDER and
-                  ACT_ICON all have to move together or the Activity page
-                  renders a blank icon and the type vanishes from the filters. */}
-              <button className={'act-t convo'+(atype==='Conversation'?' on':'')} onClick={()=>setAtype('Conversation')}><Sparkles size={12}/>Conversation</button>
             </div>
             {atype==='Booked'
               ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail}
                   onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/></div>
-              : null}
-            {atype==='Conversation'
-              ? <ConversationCapture lead={draft} me={who} onCancel={()=>setAtype('Note')} onSave={saveConversation}/>
               : null}
             {atype==='Payment'
               ? <div className="pay-compose">
@@ -6852,9 +6426,9 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                     <input className="pc-note" placeholder="Note (e.g. Square deposit)" value={payNote} onChange={e=>setPayNote(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/>
                   </div>
                 </div>
-              : (atype==='Booked'||atype==='Conversation') ? null
+              : atype==='Booked' ? null
               : <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
-            {atype!=='Booked'&&atype!=='Conversation'&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
+            {atype!=='Booked'&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
               {rep
                 ? <span className="subcell" style={{fontWeight:600}}>logging as {me}</span>
                 : <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>}
@@ -7012,172 +6586,6 @@ function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
         </div>
       </div>
     </div>
-  </>);
-}
-
-/* ===================== GOALS: BACKWARDS PLANNING =====================
-   The maths lives in src/lib/goals.js and is unit tested there. Everything
-   below is presentation — reading the plan out loud, showing its formula, and
-   naming the leads that close the gap.
-
-   SCOPE NOTE, stated on screen as well as here: a quarterly or annual target
-   is planned against THIS MONTH'S SHARE of it. useMetrics computes month-to-
-   date figures and nothing else, so measuring a quarter's progress would mean
-   a second aggregation of every lead — a second place for the numbers to
-   disagree with the dashboard. One month, one set of numbers, no two screens
-   arguing. Whole-period progress is a v2 item.                             */
-
-const GOAL_ICON={revenue:DollarSign,closed:Handshake,held:CheckCircle2,booked:CalendarCheck,leads:UserPlus,mrr:Repeat,onboarded:Rocket};
-/* which live number answers "how much of this goal have we already done" */
-const achievedOf=(key,m)=>({
-  revenue:m.revenueMonth, closed:m.closedMonth, held:m.heldMonth, booked:m.bookedMonth,
-  leads:m.leadsCreatedMonth, mrr:m.mrr, onboarded:m.onboardedMonth,
-}[key]||0);
-
-/* Build every plan for the current month in one place, so the dashboard, the
-   wizard preview and the rep view can never disagree about them. */
-function useGoalPlans(settings,m,today){
-  return useMemo(()=>{
-    const stored=GOALS.normalizeGoals(settings,today);
-    /* planning always happens on the calendar month — see the scope note */
-    const monthPlan={...stored,period:'month',anchor:isoOf(today).slice(0,7)};
-    const targets=GOALS.monthlyTargets(stored,today);
-    const rates=GOALS.ratesFrom(m,stored);
-    const daysLeft=GOALS.remainingWorkingDays(monthPlan,today);
-    const pace=GOALS.periodPace(monthPlan,today);
-    const range=GOALS.periodRange(monthPlan,today);
-    const plans=GOALS.GOAL_TYPES.map(t=>({
-      type:t,
-      plan:GOALS.plan({key:t.key,target:targets[t.key],achieved:achievedOf(t.key,m),rates,daysLeft,pace}),
-    })).filter(p=>p.plan.status!=='no_target');
-    return {stored,monthPlan,targets,rates,daysLeft,pace,range,plans};
-  },[settings,m,today]);
-}
-
-/* A rate, never shown without its sample size. Below the threshold it reads as
-   a range and says the sample is thin — the single rule that decides whether
-   somebody trusts this screen. */
-function RateChip({label,r,fmt}){
-  if(!r||r.value==null) return (<div className="rchip none"><b>{label}</b><span>no history yet</span></div>);
-  const f=fmt||(v=>Math.round(v*100)+'%');
-  return (<div className={'rchip'+(r.thin?' thin':'')}>
-    <b>{label}</b>
-    <span>{r.thin&&r.lo!=null?`${f(r.lo)}–${f(r.hi)}`:f(r.value)}</span>
-    <i>n={r.n}{r.thin?` · thin sample (under ${r.sampleMin})`:''}</i>
-  </div>);
-}
-
-const r1=n=>Math.round(n*10)/10;
-const goalFmt=(t,v)=>t.unit==='$'?usd(Math.round(v)):String(r1(v));
-
-function GoalCard({entry,rates,periodLabel,gap,open}){
-  const [why,setWhy]=useState(false);
-  const {type:t,plan:p}=entry;
-  const Ic=GOAL_ICON[t.key]||Target;
-  const pct=p.target>0?Math.min(100,Math.round(p.achieved/p.target*100)):0;
-  const hit=p.status==='hit';
-  const lines=GOALS.explain(p,rates);
-  return (<div className={'goalcard'+(hit?' hit':p.behind?' behind':'')}>
-    <div className="gc-top">
-      <div className="gc-l"><Ic size={14}/>{t.label}</div>
-      <div className="gc-v">{goalFmt(t,p.achieved)}<span> / {goalFmt(t,p.target)}</span></div>
-    </div>
-    <div className="kgbar"><div style={{width:Math.max(2,pct)+'%',background:hit?GREEN:p.behind?'#E0662B':COBALT}}/></div>
-
-    {/* honest pace — by how much, and what it now takes, never just red */}
-    <div className="gc-pace">
-      {hit
-        ? <b className="hit">Target hit for {periodLabel}.</b>
-        : p.status==='period_over'
-          ? <span>{periodLabel} is over — ended at {goalFmt(t,p.achieved)} of {goalFmt(t,p.target)}.</span>
-          : <>
-              <b className={p.behind?'behind':'ok'}>{pct}% in, {Math.round(p.pace*100)}% of the working month gone</b>
-              {p.behind
-                ? <span> — {goalFmt(t,p.shortfall)} behind where pace puts you. {goalFmt(t,p.remaining)} left over {p.daysLeft} working day{p.daysLeft===1?'':'s'} is {goalFmt(t,p.perDay)} a day.</span>
-                : <span> — ahead by {goalFmt(t,-p.shortfall)}. {goalFmt(t,p.remaining)} left over {p.daysLeft} working day{p.daysLeft===1?'':'s'}.</span>}
-            </>}
-    </div>
-
-    {/* the daily number: the one thing to do today */}
-    {p.perDayBookings!=null&&(
-      <div className="gc-daily">
-        <div className="gc-daily-v">{r1(p.perDayBookings)}</div>
-        <div className="gc-daily-l">meetings to book<br/>per working day</div>
-        {p.range&&p.range.best.bookings!=null&&<div className="gc-daily-r">range {r1(p.range.best.bookings/p.daysLeft)}–{r1(p.range.worst.bookings/p.daysLeft)} · thin sample</div>}
-      </div>)}
-
-    {p.status==='blocked'&&<div className="gc-warn"><AlertTriangle size={13}/>Can’t work backwards yet — {p.blockers.map(b=>b.rate==='avgDeal'?'no closed deals to average':b.rate==='meetCloseRate'?'no meeting → close history':'no held/no-show history').join(', ')}. The daily number above is still real.</div>}
-    {p.status==='partial'&&<div className="gc-warn"><AlertTriangle size={13}/>Planned as far as the data goes — {p.blockers.map(b=>b.rate==='showRate'?'show rate':b.rate==='meetCloseRate'?'close rate':'average deal size').join(' and ')} not known yet.</div>}
-
-    {/* gap to goal, with names — "follow up with these four" beats "improve follow-up" */}
-    {gap&&gap.picks.length>0&&(<div className="gc-gap">
-      <div className="gc-gap-h">{gap.covered?'These would cover it':'Everything open only gets you part way'}</div>
-      {gap.picks.map(d=>(<div className="gc-gap-row" key={d.id} onClick={()=>open&&open(d.lead)}>
-        <span className="gc-gap-n">{d.name}</span>
-        <span className="gc-gap-v">{usd(d.value)} × {Math.round(d.prob*100)}% = {usd(d.ev)}</span>
-      </div>))}
-      {!gap.covered&&<div className="subcell" style={{marginTop:6}}>Open pipeline is worth {usd(gap.ev)} expected — {usd(gap.shortBy)} short of the {usd(gap.need)} still needed. New leads, not just follow-ups.</div>}
-    </div>)}
-
-    <button className="linkbtn gc-why" onClick={()=>setWhy(w=>!w)}>{why?'Hide the maths':'Explain every number'}</button>
-    {why&&<div className="gc-explain">{lines.map((l,i)=>(<div key={i}><b>{l.line}</b>{l.sub?<i>{l.sub}</i>:null}</div>))}</div>}
-  </div>);
-}
-
-/* A rep sees THEIR target and nothing else — no team total, no team forecast,
-   no colleague's number. That is Garrett's call and it matches how the
-   database already behaves: RLS lets a rep read only their own leads, so a
-   team figure could not be computed in their browser anyway without a
-   security-definer RPC. Rather than build one, we don't show it.
-   Returns null when the owner hasn't given this person a target. */
-function repGoalSettings(settings,personName,today){
-  const plan=GOALS.normalizeGoals(settings,today);
-  const mine=(plan.people||{})[personName];
-  if(!mine||!GOALS.GOAL_KEYS.some(k=>num(mine[k])>0)) return null;
-  /* swap the ACTIVE PERIOD'S slot, not the derived `team` view — normalizeGoals
-     rebuilds `team` from targets[period] on the way back in, so a plan that set
-     only `team` would come back as the owner's numbers, which is the one thing
-     a rep must never see. */
-  const solo={...plan.targets,[plan.period]:{team:mine,people:{}}};
-  return {...settings,goalPlan:GOALS.serializeGoals({...plan,targets:solo})};
-}
-
-function GoalSection({settings,m,leads,stages,open,today,mineOnly,personName}){
-  const G=useGoalPlans(settings,m,today);
-  const rev=G.plans.find(p=>p.type.key==='revenue');
-  /* name the specific open deals that would cover the revenue still needed */
-  const gap=useMemo(()=>{
-    if(!rev||rev.plan.remaining<=0) return null;
-    const opens=(leads||[]).filter(l=>sOf(l.stage,stages).open&&num(l.dealValue)>0)
-      .filter(l=>!mineOnly||!personName||l.owner===personName)
-      .map(l=>({id:l.id,name:l.company||l.name||'—',value:num(l.dealValue),prob:num(sOf(l.stage,stages).prob),lead:l}));
-    return GOALS.gapLeads(rev.plan.remaining,opens);
-  },[rev,leads,stages,mineOnly,personName]);
-
-  if(!G.plans.length) return (<>
-    <div className="kgroup">Goals</div>
-    <div className="empty">No targets set yet. <b>Settings → Goals</b> asks for one number and shows you what it means in meetings before you commit to it.</div>
-  </>);
-
-  const lead=rev||G.plans[0];
-  return (<>
-    <div className="kgroup">Goals — {G.range.label}</div>
-    <div className="goal-hero">
-      <div className="gh-icon"><Target size={16}/></div>
-      <div className="gh-text">{GOALS.sentence(lead.plan,G.rates,G.range.label)||'Nothing to do — every target is hit.'}</div>
-    </div>
-    <div className="rchips">
-      <RateChip label="Avg deal size" r={G.rates.avgDeal} fmt={v=>usd(Math.round(v))}/>
-      <RateChip label="Meeting → close" r={G.rates.meetCloseRate}/>
-      <RateChip label="Show rate" r={G.rates.showRate}/>
-    </div>
-    <div className="goal-grid-cards">
-      {G.plans.map(e=>(<GoalCard key={e.type.key} entry={e} rates={G.rates} periodLabel={G.range.label}
-        gap={e.type.key==='revenue'?gap:null} open={open}/>))}
-    </div>
-    {G.stored.period!=='month'&&<div className="subcell" style={{marginTop:10}}>
-      Your targets are set {G.stored.period==='year'?'annually':'quarterly'}. Shown here is <b>this month’s share</b> of them, measured against this month’s numbers, so nothing on this screen can disagree with the tiles above.
-    </div>}
   </>);
 }
 
