@@ -429,6 +429,12 @@ function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
 }
 /* monthly targets. 0 or missing = no goal, so nothing renders. */
 const DEFAULT_GOALS={booked:0,closed:0,onboarded:0,revenue:0,mrr:0};
+/* how far out "Not right now" parks a lead. 45 days is the default because
+   that's roughly a sales quarter's patience — long enough not to annoy, short
+   enough that the trail is still warm. Editable per install. */
+const NURTURE_DAYS_DEFAULT=45;
+const nurtureDaysOf=settings=>{ const n=num(settings&&settings.nurtureDays);
+  return n>0?n:NURTURE_DAYS_DEFAULT; };
 const GOAL_FIELDS=[
   ['booked','Meetings booked','per month','n'],
   ['closed','Deals closed','per month','n'],
@@ -1311,6 +1317,10 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.notnow{display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;border:1px solid rgba(124,138,165,.35);background:rgba(124,138,165,.08);color:#4A5568;border-radius:11px;padding:9px 12px;font-size:12.5px;font-weight:700;font-family:inherit;cursor:pointer;text-align:left}
+.notnow:hover{border-color:#7C8AA5;background:rgba(124,138,165,.14)}
+.notnow span{margin-left:auto;font-weight:500;font-size:11px;color:#8E89A8;text-align:right}
+@media(max-width:640px){.notnow{flex-wrap:wrap}.notnow span{margin-left:0;width:100%;text-align:left}}
 .mf-sel{position:relative;cursor:pointer}
 .mf-sel select{position:absolute;inset:0;opacity:0;width:100%;height:100%;cursor:pointer;font-family:inherit}
 .mf-v{display:flex;align-items:center;gap:5px;font-size:12.5px;font-weight:700;color:${INK};line-height:1.25}
@@ -5782,7 +5792,9 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
     /* Moving to a nurture stage without a revisit date means the lead simply
        disappears: not in the pipeline, not lost, not in follow-ups. The date IS
        the feature, so it's asked for at the moment the stage changes. */
-    if(patch.stage&&patch.stage!==draft.stage&&sOf(patch.stage,stages).nurture&&!draft.followUp){
+    /* ...unless the caller already supplied one — the one-tap button below sets
+       its own date, and prompting after a single tap would defeat the point. */
+    if(patch.stage&&patch.stage!==draft.stage&&sOf(patch.stage,stages).nurture&&!patch.followUp&&!draft.followUp){
       const d=new Date(); d.setMonth(d.getMonth()+3);
       const when=window.prompt(
         'When should this come back to you? (YYYY-MM-DD)\n\n'+
@@ -6412,6 +6424,28 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
         <div className="m-right">
           {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
             <div className="dh"><MessageSquare size={13}/>Activity Log</div>
+            {/* One tap for the most common cold-call outcome. Logs the call,
+                parks the lead out of the pipeline, and books the revisit — all
+                in ONE patch, because three separate writes in a tick overwrite
+                each other (see the v7 stale-write notes). */}
+            {!sOf(draft.stage,stages).nurture&&!sOf(draft.stage,stages).won&&(()=>{
+              const days=nurtureDaysOf(settings);
+              const park=()=>{
+                const d=new Date(); d.setDate(d.getDate()+days);
+                const back=isoOf(d);
+                const ts=new Date().toISOString();
+                set({ stage:(stages.find(x=>x.nurture)||{}).key||draft.stage,
+                  followUp:back,
+                  nextAction:'Check back in — said not right now',
+                  activities:[
+                    {id:uid(),ts,type:'Call',text:`Not interested right now. Parked until ${fmtDate(back)}.`,who:me},
+                    ...(draft.activities||[])] });
+              };
+              return (<button className="notnow" onClick={park}>
+                <Clock size={13}/>Not right now
+                <span>logs the call · revisit {fmtDate((()=>{const d=new Date();d.setDate(d.getDate()+days);return isoOf(d);})())}</span>
+              </button>);
+            })()}
             <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
               {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
             </div>
