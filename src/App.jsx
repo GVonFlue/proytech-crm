@@ -1317,6 +1317,15 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.recentbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid #E4E5EF;border-radius:14px;padding:10px 13px;margin-bottom:12px}
+.rb-l{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0}
+.rb{display:inline-flex;align-items:center;gap:5px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:5px 11px;font-size:12px;font-weight:600;font-family:inherit;color:${INK};cursor:pointer}
+.rb:hover{border-color:${COBALT}}
+.rb.on{background:${COBALT};border-color:${COBALT};color:#fff}
+.rb.clear{border:0;color:#8E89A8;font-weight:500}
+.rb-n{margin-left:auto;font-size:12px;color:#8E89A8}
+.rb-n b{color:${COBALT}}
+@media(max-width:640px){.rb-n{margin-left:0;width:100%}}
 .notnow{display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;border:1px solid rgba(124,138,165,.35);background:rgba(124,138,165,.08);color:#4A5568;border-radius:11px;padding:9px 12px;font-size:12.5px;font-weight:700;font-family:inherit;cursor:pointer;text-align:left}
 .notnow:hover{border-color:#7C8AA5;background:rgba(124,138,165,.14)}
 .notnow span{margin-left:auto;font-weight:500;font-size:11px;color:#8E89A8;text-align:right}
@@ -2087,6 +2096,7 @@ export default function App(){
   const [activeId,setActiveId]=useState(null);
   const [navIds,setNavIds]=useState(null);
   const [events,setEvents]=useState([]);
+  const [importOpen,setImportOpen]=useState(false);
   const [navEdit,setNavEdit]=useState(false);   // sidebar reorder mode
   useEffect(()=>{ if(!session) return; let dead=false;
     db.getEvents().then(r=>{ if(!dead) setEvents(r||[]); }).catch(console.error);
@@ -2435,7 +2445,13 @@ export default function App(){
   const delLead=id=>{ if(rep){ window.alert('Only an owner can delete a lead.'); return; }
     setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); putLead(lead); setActiveId(lead.id); };
-  const importLeads=arr=>{ if(!arr||!arr.length)return; setLeads([...arr,...leads]); (async()=>{ try{ await putMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
+  /* Every import gets a batch id and a timestamp. Without them "show me what I
+     just added" is guesswork — createdAt alone can't separate an import from
+     leads typed the same afternoon. */
+  const importLeads=arr=>{ if(!arr||!arr.length)return;
+    const batch='imp_'+Date.now().toString(36); const at=new Date().toISOString();
+    arr=arr.map(l=>({...l,importBatch:batch,importedAt:at}));
+    setLeads([...arr,...leads]); (async()=>{ try{ await putMany(arr); }catch(e){ console.error(e); window.alert('Some imported leads may not have saved: '+(e.message||e)); } })(); };
   /* Converting to a client IS closing the deal. Stamp the close date and move the
      lead onto the won stage so the pipeline, the money numbers and the client board
      all agree — a client should never still be sitting in "Proposal Sent". */
@@ -2691,6 +2707,9 @@ export default function App(){
       </nav>
       <div className="sb-fixed">
         <button className="nav-i" style={{background:'rgba(43,77,224,.16)',color:'#fff'}} onClick={()=>setActiveId('new')}><Plus size={18}/>New Lead</button>
+        {/* sat on the Leads page only, which is the last place you look when
+            you've just been handed a list */}
+        <button className="nav-i" onClick={()=>{setPage('leads');setImportOpen(true);setSbOpen(false);}}><Upload size={18}/>Import a list</button>
         <button className="nav-i" onClick={()=>{setAcct(true);setSbOpen(false);}}><KeyRound size={18}/>My account</button>
         <button className="nav-i" onClick={()=>auth.logout()}><LogOut size={18}/>Sign out ({me})</button>
         <div className="sb-foot"><b>{BRAND.tagline}</b><br/>{BRAND.taglineSub}</div>
@@ -2713,7 +2732,7 @@ export default function App(){
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
           view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
           view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
-          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools}/>:
+          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
@@ -4025,14 +4044,39 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools}){
-  const [importOpen,setImportOpen]=useState(false);
+function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen}){
+  /* importOpen is owned by App so the sidebar's "Import a list" can open it.
+     A local useState here would shadow the prop: the sidebar sets one piece of
+     state and the page renders off another, so the modal never appears. */
   /* a rep always has the whole-company view switched off — the database
      wouldn't return anyone else's leads anyway. */
   const canAll=!rep&&teamAccess(settings,me)==='all';
   const [view,setView]=useState('mine');
+  const [recent,setRecent]=useState(null);   // null | '1' | '7' | batch id
   useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
   const counts={mine:leads.filter(l=>l.owner===me).length,pool:leads.filter(l=>isPoolLead(l,rep?myPools:null)).length,all:leads.length};
+  /* One chip per import, newest first — "the list I loaded this morning" is a
+     click rather than a date guess. createdAt alone can't separate an import
+     from leads typed the same afternoon, which is why importBatch exists. */
+  const batches=useMemo(()=>{ const m=new Map();
+    (leads||[]).forEach(l=>{ if(!l.importBatch)return;
+      const cur=m.get(l.importBatch)||{id:l.importBatch,at:l.importedAt||l.createdAt,n:0};
+      cur.n++; if((l.importedAt||'')>(cur.at||'')) cur.at=l.importedAt; m.set(l.importBatch,cur); });
+    return [...m.values()].sort((a,b)=>(b.at||'').localeCompare(a.at||'')).slice(0,3); },[leads]);
+  const recentFilter=l=>{
+    if(!recent) return true;
+    if(String(recent).startsWith('imp_')) return l.importBatch===recent;
+    const t=l.importedAt||l.createdAt;
+    return !!t && (Date.now()-new Date(t).getTime())/864e5 <= num(recent);
+  };
+  /* "Not touched yet" means nobody has REACHED OUT — not that the feed is
+     empty. Every lead is born with a "Lead created." note and an import can add
+     the note column as a second one, so an empty-array test would always be
+     false and the count would read 0 forever. Only a real outbound counts. */
+  const REACHED=new Set(['Call','Text','Email','Meeting','Booked']);
+  const untouched=l=>!(l.activities||[]).some(a=>a&&REACHED.has(a.type));
+  const recentCount=leads.filter(recentFilter).length;
+  const toWorkCount=leads.filter(l=>recentFilter(l)&&untouched(l)).length;
   const claim=(e,l)=>{ e.stopPropagation(); if(updateLead) updateLead(l.id,{owner:me}); };
   const customFields=settings.customFields||[];
   const defs=leadColumnDefs(stages,customFields);
@@ -4056,6 +4100,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   const toggleSort=k=>{ if(sortK===k) setDir(d=>d==='asc'?'desc':'asc'); else {setSortK(k);setDir('asc');} };
   const rows=useMemo(()=>{
     let r=scopeLeads(leads,view,me,rep?myPools:null).filter(l=>{
+      if(!recentFilter(l))return false;
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
       if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
@@ -4067,7 +4112,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
     });
     r.sort((a,b)=>{const av=sortVal(a,sortK),bv=sortVal(b,sortK);const c=av<bv?-1:av>bv?1:0;return dir==='asc'?c:-c;});
     return r;
-  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me]);
+  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me,recent]);
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
@@ -4076,6 +4121,21 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   };
   const Th=({k,children})=>(<th className={sortK===k?'sorted':''} onClick={()=>toggleSort(k)}>{children}<span className="ar">{sortK===k?(dir==='asc'?'▲':'▼'):'↕'}</span></th>);
   return (<>
+    {/* A row of chips for "what did I just add". Only shown when there's
+        actually something recent, so it stays out of the way otherwise. */}
+    {(batches.length>0||leads.some(l=>l.importedAt||daysSince(l.createdAt)<=7))&&(
+      <div className="recentbar">
+        <span className="rb-l"><Sparkles size={13}/>Recently added</span>
+        {[['1','Today'],['7','Last 7 days']].map(([k,label])=>(
+          <button key={k} className={'rb '+(recent===k?'on':'')} onClick={()=>setRecent(recent===k?null:k)}>{label}</button>))}
+        {batches.map(b=>(
+          <button key={b.id} className={'rb '+(recent===b.id?'on':'')} onClick={()=>setRecent(recent===b.id?null:b.id)}>
+            <Upload size={12}/>{fmtDate(b.at)} · {b.n}</button>))}
+        {recent&&<>
+          <span className="rb-n">{recentCount} shown · <b>{toWorkCount}</b> not touched yet</span>
+          <button className="rb clear" onClick={()=>setRecent(null)}>Clear</button>
+        </>}
+      </div>)}
     <div className="toolbar">
       <ScopeSeg view={view} setView={setView} counts={counts} canAll={canAll}/>
       <div className="searchbox"><Search size={16} color="#928DAD"/><input placeholder="Search name, company, phone, service…" value={q} onChange={e=>setQ(e.target.value)}/></div>
@@ -4127,6 +4187,14 @@ const parseCSV=text=>{const rows=[];let row=[],cur='',q=false;
   return rows.filter(r=>r.some(c=>(c||'').trim()!==''));};
 
 function ImportModal({onClose,onImport,businessTypes}){
+  /* Sheets and CSV land in the same place: both produce headers + rows and then
+     run the same AI mapping, preview and import. The only difference is how the
+     bytes arrive, so there's one code path after ingest(). */
+  const [src,setSrc]=useState('file');           // file | sheet
+  const [sheetUrl,setSheetUrl]=useState('');
+  const [sheetTab,setSheetTab]=useState('');
+  const [sheetBusy,setSheetBusy]=useState(false);
+  const [sheetErr,setSheetErr]=useState('');
   const [headers,setHeaders]=useState(null);
   const [rows,setRows]=useState([]);
   const [mapping,setMapping]=useState({});
@@ -4143,21 +4211,68 @@ function ImportModal({onClose,onImport,businessTypes}){
       if(j&&j.ok&&j.mapping){ const m={}; hd.forEach(h=>{const v=j.mapping[h];m[h]=(v&&IMPORT_KEYS.includes(v))?v:base[h];}); setMapping(m); setAi('done'); }
       else setAi('heuristic'); }catch(e){ setAi('heuristic'); } })();
   };
+  const ingestRows=(hd,rw)=>{
+    setHeaders(hd); setRows(rw);
+    const base={}; hd.forEach(h=>base[h]=guessField(h)); setMapping(base);
+    setAi('reading');
+    (async()=>{ try{ const r=await fetch('/api/import-leads',{method:'POST',headers:{'content-type':'application/json'},
+        body:JSON.stringify({headers:hd,samples:rw.slice(0,6)})}); const j=await r.json();
+      if(j&&j.ok&&j.mapping){ const m={}; hd.forEach(h=>{const v=j.mapping[h];m[h]=(v&&IMPORT_KEYS.includes(v))?v:base[h];}); setMapping(m); setAi('done'); }
+      else setAi('heuristic'); }catch(e){ setAi('heuristic'); } })();
+  };
+  const readSheet=async()=>{
+    setSheetErr(''); setSheetBusy(true);
+    try{
+      const r=await fetch('/api/sheet-read',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({sheet:sheetUrl,tab:sheetTab||''})});
+      const j=await r.json();
+      if(!r.ok) throw new Error(j.error||'Could not read that sheet.');
+      const hd=(j.headers||[]).map(h=>String(h||'').trim());
+      const rw=(j.rows||[]).map(row=>hd.map((_,i)=>String(row[i]==null?'':row[i]).trim()));
+      if(!hd.length||!rw.length) throw new Error('That tab has no header row and data rows.');
+      setFileName(`${j.tab||'Sheet'} · ${rw.length} rows`);
+      ingestRows(hd,rw);
+    }catch(e){ setSheetErr(e.message||'Could not read that sheet.'); }
+    setSheetBusy(false);
+  };
   const onFile=e=>{ const f=e.target.files?.[0]; e.target.value=''; if(!f)return; setFileName(f.name); const r=new FileReader(); r.onload=()=>ingest(String(r.result)); r.readAsText(f); };
   const buildLead=row=>{ const f={}; headers.forEach((h,i)=>{ const t=mapping[h]; if(!t||t==='ignore')return; const v=(row[i]||'').trim(); if(!v)return; if(t==='name')f.name=(f.name?f.name+' ':'')+v; else if(t==='note')f.note=(f.note?f.note+' | ':'')+v; else f[t]=v; });
     if(!f.name)f.name=f.company||'(no name)'; if(!f.source)f.source='CSV import'; if(markSponsor)f.potentialSponsor=true; return mkLead(f); };
-  const preview=headers?rows.slice(0,6).map(buildLead):[];
+  /* A row with nothing in the name or company column isn't a lead — it's a
+     trailing blank, a separator, or a totals row. Importing it as "(no name)"
+     means someone has to find and delete it later. */
+  const usable=row=>headers.some((h,i)=>['name','company'].includes(mapping[h])&&(row[i]||'').trim());
+  const skipped=headers?rows.filter(r=>!usable(r)).length:0;
+  const preview=headers?rows.filter(r=>usable(r)).slice(0,6).map(buildLead):[];
   const mapped=k=>headers?headers.filter(h=>mapping[h]===k).length:0;
-  const doImport=()=>{ const built=rows.map(buildLead); onImport(built); };
+  const doImport=()=>{ const built=rows.filter(usable).map(buildLead); onImport(built); };
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:720}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>Import leads from CSV</h2><div className="meta">AI maps your columns — you review, then import</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
       <div style={{padding:'4px 22px 22px'}}>
         {!headers?(<>
+          <div className="seg" style={{marginBottom:14}}>
+            <button className={'seg-b '+(src==='file'?'on':'')} onClick={()=>setSrc('file')}>File or paste</button>
+            <button className={'seg-b '+(src==='sheet'?'on':'')} onClick={()=>setSrc('sheet')}>Google Sheet</button>
+          </div>
+          {src==='sheet'&&<div style={{marginBottom:6}}>
+            <div className="sheet-row">
+              <input placeholder="Paste the Google Sheet link" value={sheetUrl} onChange={e=>setSheetUrl(e.target.value)}/>
+              <input className="sheet-tab" placeholder="Tab (optional)" value={sheetTab} onChange={e=>setSheetTab(e.target.value)}/>
+              <button className="btn btn-p btn-sm" disabled={!sheetUrl||sheetBusy} onClick={readSheet}>
+                {sheetBusy?<Loader2 size={14} className="spin"/>:<Sheet size={14}/>}{sheetBusy?'Reading…':'Read the sheet'}</button>
+            </div>
+            {sheetErr&&<div className="mtg-err" style={{marginTop:8}}>{sheetErr}</div>}
+            <div className="subcell" style={{marginTop:8}}>Reads through your connected Google account, read-only.
+              Nothing is imported until you review the mapping.</div>
+          </div>}
+          {src==='file'&&<>
           <div className="drop" onClick={()=>fileRef.current?.click()}><Upload size={22}/><div style={{marginTop:8,fontWeight:600,color:INK}}>Choose a .csv file</div><div style={{fontSize:12,color:'#8b88a0',marginTop:3}}>Export your Google Sheet as CSV, or drag any contact list. Messy columns are fine — the AI sorts them out.</div></div>
           <input ref={fileRef} type="file" accept=".csv,text/csv" style={{display:'none'}} onChange={onFile}/>
           <div style={{textAlign:'center',color:'#c7c5d4',fontSize:12,margin:'12px 0 6px'}}>or paste rows below</div>
           <textarea rows={5} placeholder="Name,Company,Phone,Email&#10;Jane Doe,Acme,3165551234,jane@acme.com" style={{width:'100%',border:'1px solid #E1E2EC',borderRadius:10,padding:10,fontSize:12.5,fontFamily:'monospace'}} onBlur={e=>{if(e.target.value.trim())ingest(e.target.value);}}/>
+          </>}
+
         </>):(<>
           {ai==='reading'&&<div className="ai-banner ai-reading"><Loader2 size={15} className="spin"/>AI is reading your columns…</div>}
           {ai==='done'&&<div className="ai-banner ai-done"><Sparkles size={15}/>AI mapped your columns — check them below and fix any that look off.</div>}
