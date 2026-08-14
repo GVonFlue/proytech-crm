@@ -14,7 +14,7 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket,
-  Handshake, Sheet, RefreshCw, Clock, MapPin
+  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -181,7 +181,7 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['events','Events'],['invoices','Invoices'],['books','The Books'],['money','Money']];
+const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['books','The Books'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -1317,6 +1317,31 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.sp-hist{margin-top:12px;border-top:1px solid #EDEEF6;padding-top:12px}
+.sp-h{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0;margin-bottom:8px}
+.sp-h b{font-size:12.5px;text-transform:none;letter-spacing:0;color:${INK}}
+.sp-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #F2F3F9}
+.sp-row:last-of-type{border-bottom:0}
+.sp-m{flex:1;min-width:0}
+.sp-name{background:none;border:0;padding:0;font-size:13.5px;font-weight:700;color:${COBALT};cursor:pointer;text-align:left}
+.sp-name:disabled{color:${INK};cursor:default}
+.sp-tag{margin-left:6px;font-size:9.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#8E89A8;background:#F1F2F8;border-radius:5px;padding:1px 5px}
+.sp-amt{font-size:13.5px;font-weight:700;color:${GREEN};flex:none}
+.sp-amt.owed{color:#D97706}
+.sp-lrow{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid #F0F1F7}
+.sp-lrow:last-child{border-bottom:0}
+.sp-lm{flex:1;min-width:0}
+.sp-on{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:${GREEN};background:rgba(43,150,94,.1);border-radius:6px;padding:2px 8px;flex:none}
+.sp-ask{border:1px solid ${COBALT};background:#fff;color:${COBALT};border-radius:9px;padding:5px 11px;font-size:12px;font-weight:700;font-family:inherit;cursor:pointer;flex:none}
+.sp-ask:hover{background:color-mix(in srgb,${COBALT} 8%,#fff)}
+@media(max-width:640px){.sp-lrow{flex-wrap:wrap}.sp-lm{flex:1 1 100%}}
+.sheet-fail{margin-top:10px;background:rgba(209,67,67,.06);border:1px solid rgba(209,67,67,.24);border-radius:12px;padding:12px 13px}
+.sf-t{display:flex;align-items:flex-start;gap:7px;font-size:13px;font-weight:700;color:${RED};line-height:1.35}
+.sf-t svg{flex:none;margin-top:1px}
+.sf-f{font-size:12.5px;color:#5B6478;margin:7px 0 10px;line-height:1.45}
+.sf-d{margin-top:10px;font-size:11.5px;color:#8E89A8}
+.sf-d summary{cursor:pointer;font-weight:600}
+.sf-d[open]{white-space:pre-wrap;word-break:break-word}
 .recentbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid #E4E5EF;border-radius:14px;padding:10px 13px;margin-bottom:12px}
 .rb-l{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0}
 .rb{display:inline-flex;align-items:center;gap:5px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:5px 11px;font-size:12px;font-weight:600;font-family:inherit;color:${INK};cursor:pointer}
@@ -2161,6 +2186,12 @@ export default function App(){
         st={...st,modules:st.modules.includes('meetings')?st.modules:[...st.modules,'meetings'],modulesV:4};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
+      /* Sponsors — same reason as Events and Meetings before it: a saved module
+         list predates the tab, so without this it ships invisible. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<5){
+        st={...st,modules:st.modules.includes('sponsors')?st.modules:[...st.modules,'sponsors'],modulesV:5};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
@@ -2631,7 +2662,7 @@ export default function App(){
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['events','Events',<Ticket size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -2738,6 +2769,7 @@ export default function App(){
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead}/>:
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings}/>:
+          view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
           view==='money'?<Money leads={bizLeads} stages={stages} settings={settings}/>:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
@@ -2746,7 +2778,7 @@ export default function App(){
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
     {celebrate&&<Celebration data={celebrate} onDone={()=>setCelebrate(null)}/>}
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} events={events} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -3610,6 +3642,38 @@ const blankEvent=()=>({ id:uid(), name:'', venue:'', date:'', seatsTotal:19, hou
   slots:[], guests:[], milestones:[], createdAt:new Date().toISOString() });
 
 const evNum=v=>{const n=Number(v);return isNaN(n)?0:n;};
+/* ---- sponsorship history -------------------------------------------------
+   DERIVED from event slots, not stored twice. A filled slot already holds the
+   contact, the amount and whether it's paid, so a sponsorships[] array on the
+   lead would be a second copy of the same fact — and two records of one fact
+   drift the moment either is edited. That's the bug that produced $0 rows in
+   the Deals Closed panel.
+   Two exceptions are kept as MANUAL entries on the lead, clearly marked:
+   sponsorships from before the Events module existed, and sponsorships of
+   something that was never a CRM event. */
+const manualSponsorships=l=>Array.isArray(l&&l.sponsorships)?l.sponsorships:[];
+const sponsorshipsOf=(lead,events)=>{
+  if(!lead) return [];
+  const fromEvents=(events||[]).flatMap(ev=>(ev.slots||[])
+    .filter(sl=>sl.contactId===lead.id&&(sl.price!==''&&sl.price!=null))
+    .map(sl=>({ id:ev.id+'_'+sl.id, eventId:ev.id, eventName:ev.name||'Untitled event',
+      date:ev.date||ev.createdAt||'', label:sl.label||'Sponsorship',
+      amount:evNum(sl.price), paid:!!sl.paid, source:'event' })));
+  const manual=manualSponsorships(lead).map(m=>({ ...m, source:'manual',
+    amount:evNum(m.amount), eventName:m.eventName||m.label||'Sponsorship' }));
+  /* the legacy single-amount field, only when there's nothing better — so an
+     install that recorded one number before any of this keeps showing it */
+  const legacy=(!fromEvents.length&&!manual.length&&evNum(lead.sponsorAmount)>0&&lead.pastSponsor)
+    ? [{id:'legacy_'+lead.id,eventName:lead.sponsorTier||'Sponsorship',date:'',
+        label:'Recorded before events were tracked',amount:evNum(lead.sponsorAmount),
+        paid:true,source:'legacy'}] : [];
+  return [...fromEvents,...manual,...legacy]
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+};
+const sponsorTotal=(lead,events)=>sponsorshipsOf(lead,events).reduce((a,x)=>a+x.amount,0);
+const sponsorPaidTotal=(lead,events)=>sponsorshipsOf(lead,events).filter(x=>x.paid).reduce((a,x)=>a+x.amount,0);
+const isSponsor=(lead,events)=>sponsorshipsOf(lead,events).length>0;
+
 const evFilled=e=>(e.slots||[]).filter(s=>s.contactName||s.contactId);
 const evSponsorSeats=e=>evFilled(e).length*evNum(e.sponsorSeatEach);
 const evHeads=g=>1+evNum(g.plusOnes);
@@ -3723,6 +3787,97 @@ function MeetingsPage({leads,setMeetingStatus,setMeetingTime,tagMeetingType,remo
           tab==='needs'?'Nothing waiting on a status. Clean.':
           tab==='undated'?'Every meeting has a real date on it.':
           tab==='noshow'?'No no-shows. Nice.':'Nothing here yet.'}/>}
+    </div>
+  </>);
+}
+
+/* Who you've worked with, what they gave, and — the point of the page — who to
+   ask next. A list of past sponsors is a record; lapsed and never-asked are the
+   two lists that actually produce a phone call. */
+function SponsorsPage({leads,events,open,goEvents}){
+  const [tab,setTab]=useState('sponsors');
+  const Blank=({t})=><div className="empty" style={{padding:'26px 4px'}}>{t}</div>;
+  const nextEvent=useMemo(()=>evUpcomingEvents(events||[])[0]||null,[events]);
+  const onNext=useMemo(()=>new Set((nextEvent?nextEvent.slots||[]:[])
+    .filter(sl=>sl.contactId).map(sl=>sl.contactId)),[nextEvent]);
+
+  const rows=useMemo(()=>(leads||[]).map(l=>{
+      const hist=sponsorshipsOf(l,events||[]);
+      if(!hist.length) return null;
+      const total=hist.reduce((a,x)=>a+x.amount,0);
+      const owed=hist.filter(x=>!x.paid).reduce((a,x)=>a+x.amount,0);
+      const dates=hist.map(x=>x.date).filter(Boolean).sort();
+      return { l, hist, total, owed, n:hist.length,
+        first:dates[0]||'', last:dates[dates.length-1]||'',
+        booked:onNext.has(l.id),
+        /* what they sponsor repeatedly — a catering sponsor twice is a
+           catering sponsor, and that's what you lead with next time */
+        usual:(()=>{ const c={}; hist.forEach(x=>{ const k=(x.label||'').trim(); if(k) c[k]=(c[k]||0)+1; });
+          const top=Object.entries(c).sort((a,b)=>b[1]-a[1])[0]; return top&&top[1]>1?top[0]:''; })() };
+    }).filter(Boolean).sort((a,b)=>b.total-a.total),[leads,events,onNext]);
+
+  /* sponsored before, not on the next event — the outreach list */
+  const lapsed=rows.filter(r=>!r.booked);
+  /* warm contacts who have never sponsored, best first */
+  const neverAsked=useMemo(()=>(leads||[])
+    .filter(l=>!sponsorshipsOf(l,events||[]).length&&(l.isRelationship||l.isClient||l.potentialSponsor))
+    .sort((a,b)=>{ const w=x=>(x.isClient?2:0)+(x.potentialSponsor?1:0);
+      return w(b)-w(a)||String(a.name||a.company||'').localeCompare(String(b.name||b.company||'')); })
+    .slice(0,20),[leads,events]);
+
+  const given=rows.reduce((a,r)=>a+r.total,0);
+  const owedAll=rows.reduce((a,r)=>a+r.owed,0);
+  const repeat=rows.filter(r=>r.n>1).length;
+
+  const Row=({r})=>(<div className="sp-lrow" key={r.l.id}>
+    <div className="sp-lm">
+      <button className="mrow-name" onClick={()=>open&&open(r.l.id)}>{r.l.name||r.l.company||'Unnamed'}</button>
+      <div className="subcell">
+        {r.n} sponsorship{r.n===1?'':'s'}
+        {r.last?` · last ${fmtDate(r.last)}`:''}
+        {r.usual?` · usually ${r.usual}`:''}
+        {r.owed>0?<span className="mtg-flag"> · {usd(r.owed)} owed</span>:null}
+      </div>
+    </div>
+    {r.booked?<span className="sp-on">On the next one</span>
+             :nextEvent?<button className="sp-ask" onClick={()=>goEvents&&goEvents()}>Add to {nextEvent.name||'next event'}</button>:null}
+    <span className="drow-v">{usd(r.total)}</span>
+  </div>);
+
+  return (<>
+    <div className="sec-h"><div><h2>Sponsors</h2>
+      <div className="meta">Who you've worked with, what they've given, and who to call next</div></div></div>
+
+    <div className="kgrid" style={{marginBottom:16}}>
+      <Kpi variant="accent" label="Given all time" value={usd(given)} icon={<Handshake size={14}/>}
+        d={`${rows.length} sponsor${rows.length===1?'':'s'}`}/>
+      <Kpi label="Came back" value={repeat} icon={<RefreshCw size={14}/>}
+        d={rows.length?`${Math.round(repeat/rows.length*100)}% sponsored more than once`:'no history yet'}/>
+      <Kpi variant={lapsed.length?'gold':undefined} label="Not on the next one" value={lapsed.length} icon={<Clock size={14}/>}
+        d={nextEvent?(nextEvent.name||'next event'):'no event scheduled'}/>
+      <Kpi variant={owedAll>0?'gold':undefined} label="Still owed" value={usd(owedAll)} icon={<DollarSign size={14}/>}
+        d={owedAll>0?'promised, not collected':'all collected'}/>
+    </div>
+
+    <div className="seg" style={{marginBottom:14}}>
+      {[['sponsors',`All sponsors · ${rows.length}`],
+        ['lapsed',`Not on the next one · ${lapsed.length}`],
+        ['never',`Never asked · ${neverAsked.length}`]].map(([k,l])=>
+        <button key={k} className={'seg-b '+(tab===k?'on':'')} onClick={()=>setTab(k)}>{l}</button>)}
+    </div>
+
+    <div className="card">
+      {tab==='sponsors'&&(rows.length?rows.map(r=><Row key={r.l.id} r={r}/>)
+        :<Blank t="Nobody has sponsored yet. Attach a sponsor to an event slot and they'll appear here."/>)}
+      {tab==='lapsed'&&(lapsed.length?lapsed.map(r=><Row key={r.l.id} r={r}/>)
+        :<Blank t={nextEvent?'Every past sponsor is on the next one. Good.':'No upcoming event to compare against.'}/>)}
+      {tab==='never'&&(neverAsked.length?neverAsked.map(l=>(<div className="sp-lrow" key={l.id}>
+          <div className="sp-lm">
+            <button className="mrow-name" onClick={()=>open&&open(l.id)}>{l.name||l.company||'Unnamed'}</button>
+            <div className="subcell">{l.isClient?'Client':l.isRelationship?'Relationship':'Lead'}
+              {l.potentialSponsor?' · flagged as a potential sponsor':''}</div>
+          </div>
+        </div>)):<Blank t="Everyone warm has already been asked."/>)}
     </div>
   </>);
 }
@@ -4226,13 +4381,13 @@ function ImportModal({onClose,onImport,businessTypes}){
       const r=await fetch('/api/sheet-read',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({sheet:sheetUrl,tab:sheetTab||''})});
       const j=await r.json();
-      if(!r.ok) throw new Error(j.error||'Could not read that sheet.');
+      if(!r.ok){ setSheetErr(j); setSheetBusy(false); return; }
       const hd=(j.headers||[]).map(h=>String(h||'').trim());
       const rw=(j.rows||[]).map(row=>hd.map((_,i)=>String(row[i]==null?'':row[i]).trim()));
       if(!hd.length||!rw.length) throw new Error('That tab has no header row and data rows.');
       setFileName(`${j.tab||'Sheet'} · ${rw.length} rows`);
       ingestRows(hd,rw);
-    }catch(e){ setSheetErr(e.message||'Could not read that sheet.'); }
+    }catch(e){ setSheetErr({error:e.message||'Could not read that sheet.'}); }
     setSheetBusy(false);
   };
   const onFile=e=>{ const f=e.target.files?.[0]; e.target.value=''; if(!f)return; setFileName(f.name); const r=new FileReader(); r.onload=()=>ingest(String(r.result)); r.readAsText(f); };
@@ -4262,7 +4417,15 @@ function ImportModal({onClose,onImport,businessTypes}){
               <button className="btn btn-p btn-sm" disabled={!sheetUrl||sheetBusy} onClick={readSheet}>
                 {sheetBusy?<Loader2 size={14} className="spin"/>:<Sheet size={14}/>}{sheetBusy?'Reading…':'Read the sheet'}</button>
             </div>
-            {sheetErr&&<div className="mtg-err" style={{marginTop:8}}>{sheetErr}</div>}
+            {sheetErr&&<div className="sheet-fail">
+              <div className="sf-t"><AlertTriangle size={14}/>{sheetErr.error||String(sheetErr)}</div>
+              {sheetErr.fix&&<div className="sf-f">{sheetErr.fix}</div>}
+              {sheetErr.link&&<a className="btn btn-p btn-sm" href={sheetErr.link} target="_blank" rel="noreferrer">
+                Open Google Cloud<ExternalLink size={13}/></a>}
+              {/* Google's own wording is kept, but folded away — it names the
+                  project id, which is occasionally the only useful part. */}
+              {sheetErr.detail&&<details className="sf-d"><summary>What Google said</summary>{sheetErr.detail}</details>}
+            </div>}
             <div className="subcell" style={{marginTop:8}}>Reads through your connected Google account, read-only.
               Nothing is imported until you review the mapping.</div>
           </div>}
@@ -5884,7 +6047,7 @@ function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
     {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
   </div>);
 }
-function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users}){
+function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,events,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -6305,9 +6468,54 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   <label className={'spon-tog'+(draft.potentialSponsor?' on':'')}><input type="checkbox" checked={!!draft.potentialSponsor} onChange={e=>set({potentialSponsor:e.target.checked})}/>Potential sponsor</label>
                   <label className={'spon-tog past'+(draft.pastSponsor?' on':'')}><input type="checkbox" checked={!!draft.pastSponsor} onChange={e=>set({pastSponsor:e.target.checked})}/>Past sponsor</label>
                 </div>
+                {(()=>{ const hist=sponsorshipsOf(draft,events||[]);
+                  const total=hist.reduce((a,x)=>a+x.amount,0);
+                  const owed=hist.filter(x=>!x.paid).reduce((a,x)=>a+x.amount,0);
+                  const addManual=()=>{
+                    const name=(window.prompt('What did they sponsor? (event or description)','')||'').trim();
+                    if(!name) return;
+                    const amt=evNum(window.prompt('How much? ($)',''));
+                    if(amt<=0){ window.alert('Enter a dollar amount.'); return; }
+                    const when=(window.prompt('When? (YYYY-MM-DD)',todayISO())||'').trim().slice(0,10);
+                    if(!/^\d{4}-\d{2}-\d{2}$/.test(when)){ window.alert('Please use YYYY-MM-DD.'); return; }
+                    const paid=window.confirm('Has this been paid?\n\nOK = paid · Cancel = still owed');
+                    set({ sponsorships:[...manualSponsorships(draft),
+                        {id:uid(),eventName:name,label:name,date:when,amount:amt,paid}],
+                      pastSponsor:true,
+                      activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',
+                        text:`Sponsorship logged: ${name} — ${usd(amt)}${paid?'':' (unpaid)'}`,who:me},
+                        ...(draft.activities||[])] });
+                  };
+                  return (<div className="sp-hist">
+                    <div className="sp-h">
+                      <span>Sponsorship history</span>
+                      {hist.length>0&&<b>{usd(total)} across {hist.length}{owed>0?` · ${usd(owed)} owed`:''}</b>}
+                    </div>
+                    {hist.length?hist.map(x=>(<div className="sp-row" key={x.id}>
+                      <div className="sp-m">
+                        <button className="sp-name" disabled={!x.eventId}
+                          onClick={()=>x.eventId&&goEvents&&goEvents()}>{x.eventName}</button>
+                        <div className="subcell">{x.date?fmtDate(x.date):'no date'}
+                          {x.label&&x.label!==x.eventName?` · ${x.label}`:''}
+                          {x.source==='manual'?<span className="sp-tag">logged by hand</span>:null}
+                          {x.source==='legacy'?<span className="sp-tag">before events</span>:null}
+                        </div>
+                      </div>
+                      <span className={'sp-amt'+(x.paid?'':' owed')}>{usd(x.amount)}{x.paid?'':' owed'}</span>
+                      {x.source==='manual'&&<button className="ev-x" title="Remove"
+                        onClick={()=>{ if(window.confirm('Remove this sponsorship?'))
+                          set({sponsorships:manualSponsorships(draft).filter(m=>m.id!==x.id)}); }}><Trash2 size={13}/></button>}
+                    </div>)):<div className="subcell" style={{padding:'6px 0 10px'}}>
+                      Nothing yet. Sponsorships attached to an event show up here on their own.</div>}
+                    <button className="deal-add-btn" onClick={addManual}><Plus size={14}/>Log one by hand</button>
+                  </div>); })()}
                 {(draft.potentialSponsor||draft.pastSponsor)&&<div className="fgrid" style={{marginTop:10}}>
                   {F({label:'Sponsor tier',k:'sponsorTier'})}
-                  {F({label:draft.pastSponsor?'Amount given ($)':'Amount possible ($)',k:'sponsorAmount',type:'number'})}
+                  {/* once real sponsorships exist this single number is noise —
+                      the history above is the truth, so it becomes "possible" */}
+                  {F({label:sponsorshipsOf(draft,events||[]).some(x=>x.source!=='legacy')
+                    ?'Amount possible ($)':(draft.pastSponsor?'Amount given ($)':'Amount possible ($)'),
+                    k:'sponsorAmount',type:'number'})}
                 </div>}
               </>)}
 
