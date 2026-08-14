@@ -12,6 +12,39 @@ export function sheetIdFrom(input) {
   return m ? m[1] : (/^[a-zA-Z0-9-_]{20,}$/.test(s) ? s : '');
 }
 
+// Google's own errors are long and bury the actionable part at the end. Turn
+// the two failures that actually happen into a short instruction plus a link,
+// and keep Google's text as a secondary detail rather than the headline.
+function explain(status, body) {
+  const raw = (body && body.error && body.error.message) || '';
+  // "API has not been used in project N before or it is disabled" — the Sheets
+  // API is off in Google Cloud. Nothing in this app can fix that.
+  const proj = raw.match(/project (\d+)/);
+  if (/has not been used in project|is disabled/i.test(raw)) {
+    return {
+      error: 'The Google Sheets API is switched off for this project.',
+      fix: 'Enable it in Google Cloud, wait about two minutes, then reconnect Google under Settings.',
+      link: proj
+        ? `https://console.developers.google.com/apis/api/sheets.googleapis.com/overview?project=${proj[1]}`
+        : 'https://console.developers.google.com/apis/api/sheets.googleapis.com/overview',
+      detail: raw,
+    };
+  }
+  // A token issued before spreadsheets.readonly existed still looks valid and
+  // still returns 403, which is why this needs saying explicitly.
+  if (status === 403) return {
+    error: 'This Google connection cannot read Sheets yet.',
+    fix: 'Reconnect Google under Settings → Google Calendar. The sheet permission was added after you connected.',
+    detail: raw,
+  };
+  if (status === 404) return {
+    error: 'That sheet could not be opened.',
+    fix: 'Check the link, and that the connected Google account has access to it.',
+    detail: raw,
+  };
+  return { error: raw || 'Sheet read failed.' };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   try {
@@ -30,15 +63,7 @@ export default async function handler(req, res) {
         `https://sheets.googleapis.com/v4/spreadsheets/${id}?fields=sheets.properties.title`,
         { headers: { Authorization: `Bearer ${token}` } });
       const mj = await meta.json();
-      if (!meta.ok) {
-        const msg = (mj.error && mj.error.message) || 'Could not open that sheet.';
-        // 403 with a good token almost always means the scope was added after
-        // the grant. Say so instead of "permission denied".
-        const hint = meta.status === 403
-          ? ' Reconnect Google under Settings — the sheet permission is new.'
-          : meta.status === 404 ? ' Check the link, and that this Google account can open it.' : '';
-        return res.status(meta.status).json({ error: msg + hint });
-      }
+      if (!meta.ok) return res.status(meta.status).json(explain(meta.status, mj));
       range = ((mj.sheets || [])[0] || {}).properties?.title || 'Sheet1';
     }
 
@@ -47,7 +72,7 @@ export default async function handler(req, res) {
       `?majorDimension=ROWS&valueRenderOption=UNFORMATTED_VALUE`,
       { headers: { Authorization: `Bearer ${token}` } });
     const j = await r.json();
-    if (!r.ok) return res.status(r.status).json({ error: (j.error && j.error.message) || 'Sheet read failed.' });
+    if (!r.ok) return res.status(r.status).json(explain(r.status, j));
 
     const rows = j.values || [];
     if (!rows.length) return res.status(200).json({ headers: [], rows: [], tab: range });
