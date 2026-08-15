@@ -14,7 +14,7 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket,
-  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink
+  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -158,6 +158,24 @@ function migrateStages(settings,leads){
 }
 const PRIORITIES={high:{label:'High',color:'#E0662B',bg:'rgba(224,102,43,.12)',rank:0},medium:{label:'Medium',color:COBALT,bg:'rgba(43,77,224,.10)',rank:1},low:{label:'Low',color:'#8E89A8',bg:'#F0F1F7',rank:2}};
 const OWNERS=[...BRAND.team,BRAND.pool];
+/* ---- @mentions ------------------------------------------------------------
+   A tag is stored as a name on the activity, NOT parsed out of the text every
+   time it's read. Parsing would break the moment someone writes an email
+   address or renames themselves, and there'd be no way to mark one done.
+   Cleared is per-person: Logan ticking his tag off must not clear it for
+   Garrett, so it's an array of names rather than a boolean. */
+const tagsOn=a=>Array.isArray(a&&a.tags)?a.tags:[];
+const tagCleared=a=>Array.isArray(a&&a.tagsDone)?a.tagsDone:[];
+const taggedFor=(a,who)=>tagsOn(a).includes(who)&&!tagCleared(a).includes(who);
+/* every open tag for one person, newest first, with the lead it sits on */
+const openTagsFor=(leads,who)=>(leads||[]).flatMap(l=>(l.activities||[])
+    .filter(a=>taggedFor(a,who)).map(a=>({lead:l,a})))
+  .sort((x,y)=>(y.a.ts||'').localeCompare(x.a.ts||''));
+/* strips a trailing "@Name" the composer already turned into a real tag, so the
+   note doesn't read "call him @Logan @Logan" */
+const stripTagText=(text,names)=>{ let t=String(text||'');
+  (names||[]).forEach(n=>{ t=t.replace(new RegExp('@'+n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','gi'),''); });
+  return t.replace(/\s{2,}/g,' ').trim(); };
 /* ---- team scoping: everyone sees their own leads; "ProyTech" is the shared pool ---- */
 const POOL_OWNER=BRAND.pool;
 const DEFAULT_TEAM=BRAND.team.map(name=>({name,access:'all'}));
@@ -522,6 +540,13 @@ const dealsOf=l=>{
      revenueMonth read the dealValue, so Revenue Closed and Avg Deal Size
      disagreed about the same lead. Fall through to the legacy shapes instead. */
   if(Array.isArray(l&&l.deals)&&l.deals.length) return l.deals;
+  /* Once a deal has been CLOSED, its money lives in closedDeals — and the old
+     `deal` object / bare dealValue it came from are still sitting on the record.
+     Falling through to them then counts the same money twice: Justus showed
+     $2,499 closed plus a $2,499 phantom open deal, so "still owed" read $2,250
+     against a client who had paid in full. A lead with closed deals has no
+     legacy open deal by definition. */
+  if((l&&l.closedDeals||[]).length) return [];
   if(l&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return [{id:'d_legacy',label:'Deal',...l.deal}];
   if(l&&num(l.dealValue)>0) return [{id:'d_legacy',label:'Deal',setup:l.dealValue}];
   return [];
@@ -1317,6 +1342,26 @@ const CSS=`
 .mtg-flag{color:#D97706;font-weight:700}
 .mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
 .mtg-acct b{color:${INK};font-weight:700}
+.today-clear{display:flex;align-items:center;gap:9px;font-size:13px;color:#5B6478;margin-bottom:18px}
+.today{margin-bottom:18px}
+.td-n{margin-left:8px;font-size:11px;font-weight:700;color:${COBALT};background:color-mix(in srgb,${COBALT} 11%,#fff);border-radius:20px;padding:1px 8px;text-transform:none;letter-spacing:0}
+.td-grp+.td-grp{margin-top:14px;border-top:1px solid #F0F1F7;padding-top:12px}
+.td-h{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0;margin-bottom:7px}
+.td-row{display:flex;align-items:baseline;gap:9px;padding:5px 0;flex-wrap:wrap}
+.td-name{background:none;border:0;padding:0;font-size:13.5px;font-weight:700;color:${INK};cursor:pointer;flex:none;text-align:left}
+.td-name:hover{color:${COBALT}}
+.td-txt{flex:1;min-width:0;font-size:12.5px;color:#5B6478;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.td-who{font-size:11.5px;color:#9A96AC;flex:none}
+.td-who.late{color:${RED};font-weight:700}
+@media(max-width:640px){.td-txt{flex:1 1 100%;white-space:normal}}
+.tagpick{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
+.tagpick>span:first-child{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0}
+.tagchip{display:inline-flex;align-items:center;gap:4px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:3px 10px;font-size:11.5px;font-weight:600;font-family:inherit;color:${INK};cursor:pointer}
+.tagchip:hover{border-color:${COBALT}}
+.tagchip.on{background:${COBALT};border-color:${COBALT};color:#fff}
+.tagpick-n{font-size:11px;color:#8E89A8}
+.ftag{display:inline-flex;align-items:center;gap:3px;margin-left:6px;font-size:10.5px;font-weight:700;color:${COBALT};background:color-mix(in srgb,${COBALT} 11%,#fff);border-radius:6px;padding:1px 6px;cursor:pointer;vertical-align:1px}
+.ftag.done{color:#9A96AC;background:#F1F2F8;text-decoration:line-through}
 .sp-hist{margin-top:12px;border-top:1px solid #EDEEF6;padding-top:12px}
 .sp-h{display:flex;justify-content:space-between;align-items:baseline;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0;margin-bottom:8px}
 .sp-h b{font-size:12.5px;text-transform:none;letter-spacing:0;color:${INK}}
@@ -3195,6 +3240,57 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     ? dashHidden.filter(k=>k!==key) : [...dashHidden,key]);
 
   const BLOCKS={
+    today:(()=>{
+      /* Everything waiting on YOU, in one place, before the numbers. Tags other
+         people left, follow-ups due, tasks due, and meetings today — each
+         linking straight to the thing rather than to a page you then search. */
+      const tags=openTagsFor(leads,me);
+      const due=leads.filter(l=>l.followUp&&daysUntil(l.followUp)<=0
+        &&(sOf(l.stage,stages).open||sOf(l.stage,stages).nurture))
+        .sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
+      const today=isoOf(new Date());
+      const mtgs=allMeetings(leads).filter(r=>!r.m.status&&!needsDate(r.m)
+        &&String(r.m.start||'').slice(0,10)===today)
+        .sort((a,b)=>(a.m.start||'').localeCompare(b.m.start||''));
+      const total=tags.length+due.length+mtgs.length;
+      if(!total) return (<>
+        <div className="kgroup" style={{marginTop:4}}>Your day</div>
+        <div className="card today-clear"><CheckCircle2 size={16} color={GREEN}/>
+          Nothing waiting on you. No tags, no follow-ups due, no meetings today.</div>
+      </>);
+      return (<>
+        <div className="kgroup" style={{marginTop:4}}>Your day
+          <span className="td-n">{total} thing{total===1?'':'s'}</span></div>
+        <div className="card today">
+          {tags.length>0&&<div className="td-grp">
+            <div className="td-h"><AtSign size={13}/>Tagged you · {tags.length}</div>
+            {tags.slice(0,6).map(({lead,a})=>(<div className="td-row" key={a.id}>
+              <button className="td-name" onClick={()=>open(lead.id)}>{lead.name||lead.company}</button>
+              <span className="td-txt">{a.text}</span>
+              <span className="td-who">{a.who}{a.ts?` · ${fmtDate(a.ts.slice(0,10))}`:''}</span>
+            </div>))}
+            {tags.length>6&&<div className="subcell">+ {tags.length-6} more</div>}
+          </div>}
+          {due.length>0&&<div className="td-grp">
+            <div className="td-h"><Bell size={13}/>Follow-ups due · {due.length}</div>
+            {due.slice(0,6).map(l=>{ const od=daysUntil(l.followUp)<0;
+              return (<div className="td-row" key={l.id}>
+                <button className="td-name" onClick={()=>open(l.id)}>{l.name||l.company}</button>
+                <span className="td-txt">{l.nextAction||'Follow up'}</span>
+                <span className={'td-who'+(od?' late':'')}>{od?`${-daysUntil(l.followUp)}d overdue`:'today'}</span>
+              </div>); })}
+            {due.length>6&&<div className="subcell">+ {due.length-6} more</div>}
+          </div>}
+          {mtgs.length>0&&<div className="td-grp">
+            <div className="td-h"><CalendarClock size={13}/>Meetings today · {mtgs.length}</div>
+            {mtgs.map(({lead,m})=>(<div className="td-row" key={m.id}>
+              <button className="td-name" onClick={()=>open(lead.id)}>{lead.name||lead.company}</button>
+              <span className="td-txt">{m.title||m.mtype}{m.location?` · ${m.location}`:''}</span>
+              <span className="td-who">{fmtMeetingTime(m.start).replace(/^.*?,\s*/,'')}</span>
+            </div>))}
+          </div>}
+        </div>
+      </>); })(),
     scorecard:(<>
     {scorecard.length>0&&<div className="card" style={{marginBottom:20}}>
       <div className="sec-title" style={{margin:'0 0 4px'}}><Users size={15}/>The team this month</div>
@@ -3531,6 +3627,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
    Alerts are deliberately NOT in here — an onboarding queue or an unacknowledged
    commission is not decoration and shouldn't be reorderable or hideable. */
 const DASH_SECTIONS=[
+  ['today',    'Your day'],
   ['scorecard','Team scorecard'],
   ['revenue',  'Pipeline & revenue'],
   ['activity', 'Activity & health'],
@@ -3543,6 +3640,10 @@ const DASH_SECTIONS=[
   ['events',   'Next event'],
 ];
 const DASH_DEFAULT=DASH_SECTIONS.map(x=>x[0]);
+/* "Your day" is new, and dashOrderOf appends unknown keys at the END — which
+   would bury the one section that's meant to be read first. Anyone with a saved
+   layout gets it pulled to the top once. */
+const dashPinFirst='today';
 const dashLabel=k=>(DASH_SECTIONS.find(x=>x[0]===k)||[k,k])[1];
 /* saved order, repaired on read: unknown keys dropped, new ones appended in
    default position, so shipping a new section never leaves it invisible for
@@ -3550,7 +3651,10 @@ const dashLabel=k=>(DASH_SECTIONS.find(x=>x[0]===k)||[k,k])[1];
 const dashOrderOf=settings=>{
   const saved=Array.isArray(settings&&settings.dashOrder)?settings.dashOrder.filter(k=>DASH_DEFAULT.includes(k)):[];
   const missing=DASH_DEFAULT.filter(k=>!saved.includes(k));
-  return [...saved,...missing];
+  const merged=[...saved,...missing];
+  if(saved.length&&!saved.includes(dashPinFirst))
+    return [dashPinFirst,...merged.filter(k=>k!==dashPinFirst)];
+  return merged;
 };
 const dashHiddenOf=settings=>Array.isArray(settings&&settings.dashHidden)
   ? settings.dashHidden.filter(k=>DASH_DEFAULT.includes(k)) : [];
@@ -6053,7 +6157,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const opt=settings.options; const customFields=settings.customFields||[];
   const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',relTier:'',meetings:[],custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
-  const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');
+  const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
   const [firstNote,setFirstNote]=useState('');
@@ -6213,6 +6317,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   };
   const logIt=()=>{
     const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:''); if(!t)return;
+    const tags=[...pendTags];
     if(atype==='Booked'){
       /* a logged meeting IS a meeting — create the record so it shows up with a
          Held/No-show control, not just a line in the activity feed. It has no
@@ -6222,13 +6327,15 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
          up overdue a minute later). It lands in Needs a date instead. */
       const mid=uid(); const now=new Date().toISOString();
       const meeting={id:mid,title:`${logMtype} with ${draft.name||'lead'}`,mtype:logMtype,start:now,end:now,status:'',who,createdAt:now,logged:true,dateUnknown:true};
-      const act={id:uid(),ts:now,type:'Booked',mtype:logMtype,meetingId:mid,text:t,who};
+      const act={id:uid(),ts:now,type:'Booked',mtype:logMtype,meetingId:mid,text:stripTagText(t,tags)||t,who,...(tags.length?{tags}:{})};
       const patch={meetings:[...(draft.meetings||[]),meeting],activities:[act,...(draft.activities||[])]};
       setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
     } else {
-      addActivity(draft.id,atype,t,who);
+      /* tags ride WITH the activity — a separate write would race it, and the
+         note would land tagged for nobody (see the v7 stale-write notes) */
+      addActivity(draft.id,atype,stripTagText(t,tags)||t,who,tags.length?{tags}:undefined);
     }
-    setAtext('');
+    setAtext(''); setPendTags([]);
   };
   /* log a payment straight from the composer — same payments[] the deal panel
      reads, so paid / remaining update everywhere at once. ONE write: the payment
@@ -6610,7 +6717,11 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   /* owed = one-time deal work + the first month of retainer (option 3:
                      the client's deal total IS the amount owed) */
                   const firstMonth=draft.retainerActive?num(draft.retainer):0;
-                  const owed=openDealsTotal+firstMonth;
+                  /* Closing a deal moves it out of openDeals — but the client
+                     still owes it. Counting only open work made a $2,499 closed
+                     deal read "of $249" and call a part-paid client PAID IN
+                     FULL. What they owe is everything sold, open or closed. */
+                  const owed=openDealsTotal+closedDealsTotal(draft)+firstMonth;
                   const remaining=Math.max(0,owed-paid);
                   const over=paid-owed;
                   const logPayment=()=>{
@@ -6785,6 +6896,19 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 </div>
               : atype==='Booked' ? null
               : <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
+            {/* Who needs to see this. Names come from the team, so it can't
+                drift from who actually has a login. */}
+            {(()=>{ const team=(users&&users.length?users.filter(u=>u.active!==false).map(u=>u.name):BRAND.team)
+                .filter(n=>n&&n!==me);
+              if(!team.length) return null;
+              return (<div className="tagpick">
+                <span>Tag</span>
+                {team.map(n=>(<button key={n} type="button"
+                  className={'tagchip'+(pendTags.includes(n)?' on':'')}
+                  onClick={()=>setPendTags(t=>t.includes(n)?t.filter(x=>x!==n):[...t,n])}>
+                  <AtSign size={11}/>{n}</button>))}
+                {pendTags.length>0&&<span className="tagpick-n">shows on {pendTags.join(' and ')}{pendTags.length===1?"'s":"'"} dashboard</span>}
+              </div>); })()}
             {atype!=='Booked'&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
               {rep
                 ? <span className="subcell" style={{fontWeight:600}}>logging as {me}</span>
@@ -6799,7 +6923,14 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               {ACT_TYPES.filter(t=>t.key!=='Note').map(t=><button key={t.key} className={feedFilter===t.key?'on':''} onClick={()=>setFeedFilter(t.key)}>{t.key}</button>)}
             </div>
             <div className="feed">{feed.map(a=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;return (<div className={'fitem'+(a.type==='Note'?' note':'')} key={a.id}>
-              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className={'ftxt'+(a.cancelled?' cancelled':'')}>{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
+              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className={'ftxt'+(a.cancelled?' cancelled':'')}>{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}
+          {tagsOn(a).map(n=>{ const done=tagCleared(a).includes(n);
+            return (<span key={n} className={'ftag'+(done?' done':'')}
+              title={done?`${n} cleared this`:(n===me?'Tap to clear':`Waiting on ${n}`)}
+              onClick={e=>{ e.stopPropagation(); if(n!==me) return;
+                const next=done?tagCleared(a).filter(x=>x!==n):[...tagCleared(a),n];
+                set({activities:(draft.activities||[]).map(x=>x.id===a.id?{...x,tagsDone:next}:x)}); }}>
+              <AtSign size={10}/>{n}{done?' ✓':''}</span>); })}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
               <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div>);})}
               {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
             <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid #F0F0F6'}}>{rep
