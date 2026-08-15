@@ -32,6 +32,12 @@ const DEFAULT_OPTIONS={
   service:['Web Design','AI Integration','Both','Unknown','Missed-Call Text-Back','AI Receptionist','Booking / Scheduling','CRM Setup','Full Front Office'],
   nextAction:['Schedule Coffee','Schedule Sit Down','Text in 1 Week','Visit and Introduce','Send Proposal','Follow Up Call','Close','—'],
   owner:[...BRAND.team,BRAND.pool],
+  /* Who someone IS, not what stage they're at — so you can reach every veteran
+     or first responder at once when something relevant comes up. Deliberately
+     separate from @mention tags, which mean "act on this". Editable in
+     Settings, so a client install ships whatever vocabulary fits them. */
+  labels:['Military','Veteran','Police','Fire / EMS','First Responder','Teacher',
+    'Healthcare','Small Business Owner','Chamber Member','Church','Alumni','VIP'],
 };
 const DEFAULT_STAGES=[
   {key:'new',      label:'New Lead',      color:'#6B73C9', prob:0.10, open:true,  won:false, lost:false},
@@ -158,6 +164,9 @@ function migrateStages(settings,leads){
 }
 const PRIORITIES={high:{label:'High',color:'#E0662B',bg:'rgba(224,102,43,.12)',rank:0},medium:{label:'Medium',color:COBALT,bg:'rgba(43,77,224,.10)',rank:1},low:{label:'Low',color:'#8E89A8',bg:'#F0F1F7',rank:2}};
 const OWNERS=[...BRAND.team,BRAND.pool];
+const labelsOf=l=>Array.isArray(l&&l.labels)?l.labels:[];
+const labelVocab=settings=>{ const o=(settings&&settings.options&&settings.options.labels);
+  return Array.isArray(o)&&o.length?o:DEFAULT_OPTIONS.labels; };
 /* ---- @mentions ------------------------------------------------------------
    A tag is stored as a name on the activity, NOT parsed out of the text every
    time it's read. Parsing would break the moment someone writes an email
@@ -752,6 +761,7 @@ function mkLead(o){
     stage:'new',priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',
     followUp:'',expectedClose:'',serviceInterest:[],owner:BRAND.team[0]||'',dealValue:0,retainer:0,
     potentialSponsor:false,pastSponsor:false,sponsorTier:'',sponsorAmount:0,
+    labels:[],
     isRelationship:false,introducedBy:'',relNote:'',relTier:'',
     retainerActive:false,retainerStart:'',closedAt:'',closedDeals:[],custom:{},createdAt,activities:acts,...rest};
 }
@@ -1354,6 +1364,12 @@ const CSS=`
 .td-who{font-size:11.5px;color:#9A96AC;flex:none}
 .td-who.late{color:${RED};font-weight:700}
 @media(max-width:640px){.td-txt{flex:1 1 100%;white-space:normal}}
+.lbl-pick{display:flex;gap:6px;flex-wrap:wrap}
+.lblchip{border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:600;font-family:inherit;color:${INK};cursor:pointer}
+.lblchip:hover{border-color:${COBALT}}
+.lblchip.on{background:${COBALT};border-color:${COBALT};color:#fff}
+.lblchip.add{display:inline-flex;align-items:center;gap:3px;border-style:dashed;color:#8E89A8}
+.lbl-tag{display:inline-block;margin-right:5px;font-size:10px;font-weight:700;color:${COBALT};background:color-mix(in srgb,${COBALT} 10%,#fff);border-radius:5px;padding:1px 6px}
 .tagpick{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:8px}
 .tagpick>span:first-child{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0}
 .tagchip{display:inline-flex;align-items:center;gap:4px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:3px 10px;font-size:11.5px;font-weight:600;font-family:inherit;color:${INK};cursor:pointer}
@@ -4312,6 +4328,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   const canAll=!rep&&teamAccess(settings,me)==='all';
   const [view,setView]=useState('mine');
   const [recent,setRecent]=useState(null);   // null | '1' | '7' | batch id
+  const [label,setLabel]=useState('all');
   useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
   const counts={mine:leads.filter(l=>l.owner===me).length,pool:leads.filter(l=>isPoolLead(l,rep?myPools:null)).length,all:leads.length};
   /* One chip per import, newest first — "the list I loaded this morning" is a
@@ -4366,12 +4383,13 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       if(spon==='potential'&&!l.potentialSponsor)return false;
       if(spon==='past'&&!l.pastSponsor)return false;
       if(spon==='any'&&!(l.potentialSponsor||l.pastSponsor))return false;
-      if(q){const s=(l.name+' '+l.company+' '+l.businessType+' '+l.phone+' '+(l.serviceInterest||[]).join(' ')+' '+l.source).toLowerCase();if(!s.includes(q.toLowerCase()))return false;}
+      if(label!=='all'&&!labelsOf(l).includes(label))return false;
+      if(q){const s=(l.name+' '+l.company+' '+l.businessType+' '+l.phone+' '+(l.serviceInterest||[]).join(' ')+' '+labelsOf(l).join(' ')+' '+l.source).toLowerCase();if(!s.includes(q.toLowerCase()))return false;}
       return true;
     });
     r.sort((a,b)=>{const av=sortVal(a,sortK),bv=sortVal(b,sortK);const c=av<bv?-1:av>bv?1:0;return dir==='asc'?c:-c;});
     return r;
-  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me,recent]);
+  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me,recent,label]);
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
@@ -4397,6 +4415,14 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       </div>)}
     <div className="toolbar">
       <ScopeSeg view={view} setView={setView} counts={counts} canAll={canAll}/>
+      {/* only shown once something is actually labelled — an empty filter is
+          clutter on a fresh install */}
+      {(()=>{ const used=[...new Set((leads||[]).flatMap(labelsOf))].sort();
+        if(!used.length) return null;
+        return (<select className="selctl" value={label} onChange={e=>setLabel(e.target.value)}>
+          <option value="all">All labels</option>
+          {used.map(x=><option key={x} value={x}>{x} · {(leads||[]).filter(l=>labelsOf(l).includes(x)).length}</option>)}
+        </select>); })()}
       <div className="searchbox"><Search size={16} color="#928DAD"/><input placeholder="Search name, company, phone, service…" value={q} onChange={e=>setQ(e.target.value)}/></div>
       <select className="selctl" value={stage} onChange={e=>setStage(e.target.value)}><option value="all">All stages</option>{stages.map(s=><option key={s.key} value={s.key}>{s.label}</option>)}</select>
       <select className="selctl" value={pri} onChange={e=>setPri(e.target.value)}><option value="all">All priority</option>{Object.entries(PRIORITIES).map(([k,v])=><option key={k} value={k}>{v.label}</option>)}</select>
@@ -5872,6 +5898,10 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <OptionEditor label="Lead Source" items={settings.options.source} onChange={a=>setOptions('source',a)}/>
       <OptionEditor label="Business Type" items={settings.options.businessType} onChange={a=>setOptions('businessType',a)}/>
       <OptionEditor label="Next Action" items={settings.options.nextAction} onChange={a=>setOptions('nextAction',a)}/>
+      {/* labelVocab falls back to the defaults when this has never been saved,
+          so the editor has to be seeded with the same list or the first edit
+          would wipe every built-in label. */}
+      <OptionEditor label="Labels (Military, Police, Fire…)" items={labelVocab(settings)} onChange={a=>setOptions('labels',a)}/>
       <OptionEditor label="Owner" items={settings.options.owner||OWNERS} onChange={a=>setOptions('owner',a)}/>
     </div>
 
@@ -6437,6 +6467,21 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {F({label:'Name',k:'name'})}{F({label:'Company',k:'company'})}
             {F({label:'Phone',k:'phone',type:'tel'})}{F({label:'Email',k:'email',type:'email'})}
             {F({label:'Website',k:'website',full:true})}
+            {/* Who they are, for reaching a whole group at once. Add-new writes
+                straight into settings so the next person gets the same list. */}
+            <div className="field full"><label>Labels</label>
+              <div className="lbl-pick">
+                {labelVocab(settings).map(x=>{ const on=labelsOf(draft).includes(x);
+                  return (<button key={x} type="button" className={'lblchip'+(on?' on':'')}
+                    onClick={()=>set({labels:on?labelsOf(draft).filter(v=>v!==x):[...labelsOf(draft),x]})}>{x}</button>); })}
+                <button type="button" className="lblchip add" onClick={()=>{
+                  const v=(window.prompt('New label (saved for everyone)','')||'').trim();
+                  if(!v) return;
+                  addOption&&addOption('labels',v);
+                  set({labels:[...labelsOf(draft),v]});
+                }}><Plus size={11}/>New</button>
+              </div>
+            </div>
           </div>
           {isNew&&(draft.phone||draft.email)&&(()=>{
             const dupes=(allLeads||[]).filter(x=>{
