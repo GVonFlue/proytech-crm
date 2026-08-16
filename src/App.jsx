@@ -1011,7 +1011,11 @@ const CSS=`
 .qbtn:hover{background:rgba(43,77,224,.15)}
 .m-x{background:#F0F1F7;border:none;border-radius:9px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a;flex:none}.m-x:hover{background:#E6E7F1}.m-x:disabled{opacity:.35;cursor:default}
 .m-grid{display:grid;grid-template-columns:1.15fr .85fr;overflow:hidden;flex:1;min-height:0}
-.m-left{padding:20px 22px;overflow-y:auto}.m-right{padding:20px 22px;overflow-y:auto;background:#fff;border-left:1px solid #E8E9F2;display:flex;flex-direction:column}
+.m-left{padding:20px 22px;overflow-y:auto}/* hidden, not auto — the column itself must not scroll, or you get the two
+   nested scrollbars that caused this */
+.m-right{padding:20px 22px;overflow:hidden;background:#fff;border-left:1px solid #E8E9F2;display:flex;flex-direction:column;min-height:0}
+/* everything above the feed keeps its natural height and stays put */
+.m-right>.dh,.m-right>.touchbar,.m-right>.notnow,.m-right>.compose-open,.m-right>.afilter,.m-right>.act-types{flex:none}
 @media(max-width:760px){.m-grid{grid-template-columns:1fr;overflow-y:auto}.m-left,.m-right{overflow:visible}.m-right{border-left:none;border-top:1px solid #E8E9F2}}
 .dh{font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${COBALT};margin:2px 0 12px;display:flex;align-items:center;gap:8px}.dh.mt{margin-top:22px}
 .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
@@ -1767,7 +1771,18 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .pc-note:focus{outline:none;border-color:${GREEN};box-shadow:0 0 0 3px color-mix(in srgb,${GREEN} 18%,#fff)}
 .rep-pay-toggle{display:flex;gap:12px;align-items:flex-start;margin-top:16px;padding-top:16px;border-top:1px solid #EFEFF6;cursor:pointer}
 .rep-pay-toggle .sw{margin-top:2px}
-.feed{margin-top:14px;display:flex;flex-direction:column;overflow-y:auto}
+/* The feed is now the ONLY scroller in this column. It was a flex child with
+   overflow-y:auto and no flex sizing, nested inside .m-right which also
+   scrolled — so it collapsed to a ~120px sliver with its own scrollbar while
+   the column scrolled around it. flex:1 claims the leftover height and
+   min-height:0 is what actually lets it shrink; without that a flex child
+   refuses to go below its content and overflows instead. */
+.m-danger{flex:none;margin-top:14px;padding-top:14px;border-top:1px solid #F0F0F6}
+.feed{margin-top:12px;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow-y:auto;
+  scrollbar-width:thin;scrollbar-color:#D8D9E6 transparent}
+.feed::-webkit-scrollbar{width:7px}
+.feed::-webkit-scrollbar-thumb{background:#D8D9E6;border-radius:4px}
+.feed::-webkit-scrollbar-thumb:hover{background:#BFC0D4}
 .fitem{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid #F0F0F6}.fitem:last-child{border:none}
 .fic{width:30px;height:30px;border-radius:8px;background:rgba(43,77,224,.09);color:${COBALT};display:flex;align-items:center;justify-content:center;flex:none}
 .fitem.note .fic{background:rgba(200,162,74,.16);color:#9A7B22}
@@ -2020,8 +2035,13 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
   .sheet-map select{max-width:100%}
   /* Anything that lives in a horizontal strip needs to be allowed to wrap. */
   .mtg-actions,.sheet-acts,.dash-arrange,.ev-stats{gap:8px}
+  /* On a phone the two columns stack and the MODAL scrolls as one page — so
+     the feed must NOT be its own scroller here, or you get a tiny box inside a
+     long page. Exactly the reverse of the desktop rule above. */
   .m-grid{grid-template-columns:1fr;overflow-y:auto}
   .m-left,.m-right{overflow:visible}
+  .m-right{min-height:auto}
+  .feed{flex:none;min-height:auto;overflow:visible}
   .m-right{border-left:none;border-top:1px solid #E8E9F2}
   .modal{max-height:94vh}
   /* The header was ONE flex row: the title fought the nav buttons and the fact
@@ -7257,7 +7277,8 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               <AtSign size={10}/>{n}{done?' ✓':''}</span>); })}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
               <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div></Fragment>);})}
               {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
-            <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid #F0F0F6'}}>{rep
+            {/* pinned under the feed, never scrolls, never grows */}
+            <div className="m-danger">{rep
               ? (()=>{ const lost=(stages||[]).find(x=>x.lost);
                   return lost&&draft.stage!==lost.key
                     ? <><button className="btn btn-g" onClick={()=>{ if(window.confirm(`Mark ${draft.name||'this lead'} as ${lost.label}? Nothing is deleted — an owner can bring it back.`)) set({stage:lost.key}); }}><Ban size={15}/>Mark {lost.label}</button>
