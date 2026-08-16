@@ -14,7 +14,7 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket,
-  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift
+  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -183,6 +183,37 @@ const dayLabel=iso=>{ const t=isoOf(new Date());
   return d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',
     ...(sameYear?{}:{year:'numeric'})});
 };
+/* ---- recurring costs ------------------------------------------------------
+   Supabase, Vercel, Google Workspace — the bills that arrive whether or not you
+   sell anything. Stored as templates in settings, NOT auto-generated into the
+   ledger: inventing transactions that may not have happened would corrupt the
+   only record of what actually left the account. They answer a different
+   question ("what am I committed to") than the ledger ("what did I spend"),
+   and the page keeps those apart on purpose. */
+const RECUR_EVERY=[['monthly','Monthly',1],['quarterly','Quarterly',3],
+  ['yearly','Yearly',12],['weekly','Weekly',0.25]];
+const recurringOf=settings=>Array.isArray(settings&&settings.recurring)?settings.recurring:[];
+/* everything normalised to a monthly figure so one number means one thing */
+const perMonth=r=>{ const a=num(r&&r.amount); const e=(RECUR_EVERY.find(x=>x[0]===(r&&r.every))||RECUR_EVERY[0]);
+  return e[0]==='weekly'?a*52/12:a/e[2]; };
+const monthlyBurn=settings=>recurringOf(settings).filter(r=>r.active!==false)
+  .reduce((a,r)=>a+perMonth(r),0);
+/* the next time each bill lands, inside a window */
+const recurDueIn=(settings,days=90)=>{ const out=[]; const now=new Date();
+  recurringOf(settings).filter(r=>r.active!==false).forEach(r=>{
+    const e=(RECUR_EVERY.find(x=>x[0]===r.every)||RECUR_EVERY[0])[0];
+    const step=e==='weekly'?7:e==='monthly'?30:e==='quarterly'?91:365;
+    let d=r.nextDue?new Date(r.nextDue+'T12:00:00'):new Date();
+    if(isNaN(d)) d=new Date();
+    let guard=0;
+    while(d<now&&guard++<400){ d=new Date(d.getTime()+step*864e5); }
+    while(d<=new Date(now.getTime()+days*864e5)&&guard++<400){
+      out.push({r,date:isoOf(d),amount:num(r.amount)});
+      d=new Date(d.getTime()+step*864e5); }
+  });
+  return out.sort((a,b)=>a.date.localeCompare(b.date)); };
+const EXPENSE_CATS=['Software','Hosting','Contractors','Marketing','Events',
+  'Office','Travel','Fees','Taxes','Other'];
 const labelsOf=l=>Array.isArray(l&&l.labels)?l.labels:[];
 
 /* ---- birthdays and key dates ---------------------------------------------
@@ -270,7 +301,7 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['books','The Books'],['money','Money']];
+const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -863,16 +894,16 @@ const CSS=`
 @keyframes sbp{0%,100%{opacity:.25}50%{opacity:.85}}
 @media(prefers-reduced-motion:reduce){.sb-pulse circle{animation:none;opacity:.5}}
 .sb-brand{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:22px 14px 18px;margin:-4px -6px 14px}
-.sb-brand img{max-height:56px;max-width:184px;object-fit:contain;position:relative;z-index:1}
+.sb-brand img{max-height:112px;max-width:196px;object-fit:contain;position:relative;z-index:1;border-radius:16px}
 .sb-brand b{font-family:'Space Grotesk';font-size:19px;font-weight:700;letter-spacing:-.01em;position:relative;z-index:1}
 /* the bloom that replaces the box — same trick as the bright node in the
    reference art, so the mark reads as lit rather than stuck on */
 .sb-glow{position:absolute;top:-6px;left:50%;transform:translateX(-50%);
-  width:190px;height:120px;pointer-events:none;
+  width:220px;height:170px;pointer-events:none;
   background:radial-gradient(50% 50% at 50% 40%,rgba(56,189,248,.30),rgba(43,77,224,.16) 45%,transparent 72%);
   filter:blur(2px)}
 .sb-sub{position:relative;z-index:1;font-family:'Space Mono',ui-monospace,monospace;
-  font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#7FC8F0;
+  font-size:15px;letter-spacing:.18em;text-transform:uppercase;color:#7FC8F0;
   text-shadow:0 0 12px rgba(56,189,248,.5);margin-top:4px}
 /* a hairline under the mark, brightest in the middle — the panel's own divider
    rather than a border box */
@@ -1015,6 +1046,7 @@ const CSS=`
    nested scrollbars that caused this */
 .m-right{padding:20px 22px;overflow:hidden;background:#fff;border-left:1px solid #E8E9F2;display:flex;flex-direction:column;min-height:0}
 /* everything above the feed keeps its natural height and stays put */
+.m-right>.dh{display:flex;align-items:center;gap:7px}
 .m-right>.dh,.m-right>.touchbar,.m-right>.notnow,.m-right>.compose-open,.m-right>.afilter,.m-right>.act-types{flex:none}
 @media(max-width:760px){.m-grid{grid-template-columns:1fr;overflow-y:auto}.m-left,.m-right{overflow:visible}.m-right{border-left:none;border-top:1px solid #E8E9F2}}
 .dh{font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${COBALT};margin:2px 0 12px;display:flex;align-items:center;gap:8px}.dh.mt{margin-top:22px}
@@ -1777,6 +1809,49 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
    the column scrolled around it. flex:1 claims the leftover height and
    min-height:0 is what actually lets it shrink; without that a flex child
    refuses to go below its content and overflows instead. */
+/* wide mode: the left column collapses out and the log owns the window */
+.m-grid.wide{grid-template-columns:1fr}
+.m-grid.wide .m-left{display:none}
+.m-grid.wide .m-right{border-left:0}
+.m-grid.wide .fitem{padding:13px 0}
+.m-grid.wide .ftxt{font-size:14px}
+.feed-wide{margin-left:auto;display:inline-flex;align-items:center;gap:5px;border:1px solid #E4E5EF;background:#fff;color:#8E89A8;border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;text-transform:none;letter-spacing:0}
+.feed-wide:hover{border-color:${COBALT};color:${COBALT}}
+.mn-note{font-size:12.5px;color:#5B6478;background:color-mix(in srgb,${COBALT} 5%,#fff);border:1px solid color-mix(in srgb,${COBALT} 14%,#fff);border-radius:10px;padding:10px 12px;margin-bottom:14px;line-height:1.5}
+.mn-two{display:grid;grid-template-columns:1fr 1fr;gap:26px}
+.mn-row{display:flex;align-items:baseline;gap:10px;padding:6px 0;border-bottom:1px solid #F2F3F9;font-size:13px}
+.mn-row:last-child{border-bottom:0}
+.mn-row span{flex:1;min-width:0;color:#5B6478}
+.mn-row b{font-weight:700}
+.mn-row b.in,.mn-net b.in{color:${GREEN}}
+.mn-row b.out,.mn-net b.out{color:#b4322e}
+.mn-net{margin-top:16px;padding-top:13px;border-top:1px solid #EDEEF6;font-size:14px;font-weight:600;color:${INK}}
+.mn-chart{display:flex;align-items:flex-end;gap:10px;height:230px;padding:8px 0}
+.mn-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:5px;height:100%}
+.mn-bars{flex:1;display:flex;align-items:flex-end;gap:3px;width:100%;justify-content:center}
+.mn-bar{width:14px;height:100%;display:flex;align-items:flex-end}
+.mn-fill{width:100%;border-radius:4px 4px 0 0;transition:height .3s}
+.mn-fill.in{background:linear-gradient(180deg,#38BDF8,${COBALT})}
+.mn-fill.out{background:linear-gradient(180deg,#F0A17A,#b4322e)}
+.mn-net-s{font-size:10.5px;font-weight:700}
+.mn-net-s.in{color:${GREEN}}.mn-net-s.out{color:#b4322e}
+.mn-lbl{font-size:10.5px;color:#8E89A8;text-transform:uppercase;letter-spacing:.04em}
+.mn-key{display:flex;gap:16px;justify-content:center;font-size:11.5px;color:#8E89A8;margin-top:6px}
+.mn-key i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.mn-key i.in{background:${COBALT}}.mn-key i.out{background:#b4322e}
+.mn-cat{display:flex;align-items:center;gap:11px;padding:8px 0}
+.mn-cat-n{flex:0 0 130px;font-size:13px;font-weight:600;color:${INK}}
+.mn-cat-bar{flex:1;height:8px;background:#F1F2F8;border-radius:5px;overflow:hidden}
+.mn-cat-bar div{height:100%;background:linear-gradient(90deg,${COBALT},#38BDF8);border-radius:5px}
+.mn-cat b{font-size:13px;font-weight:700;flex:0 0 78px;text-align:right}
+.mn-cat em{font-style:normal;font-size:11.5px;color:#9A96AC;flex:0 0 40px;text-align:right}
+.mn-bill{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid #F2F3F9}
+.mn-bill.off{opacity:.45}
+.mn-bill input,.mn-bill select{border:1px solid #E4E5EF;border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit;min-width:0}
+.mn-bn{flex:1 1 160px}
+.mn-ba{width:92px}
+.mn-pm{font-size:12px;font-weight:700;color:${COBALT};min-width:76px;text-align:right}
+@media(max-width:760px){.mn-two{grid-template-columns:1fr;gap:18px}.mn-cat-n{flex:0 0 100px}}
 .m-danger{flex:none;margin-top:14px;padding-top:14px;border-top:1px solid #F0F0F6}
 .feed{margin-top:12px;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow-y:auto;
   scrollbar-width:thin;scrollbar-color:#D8D9E6 transparent}
@@ -2240,6 +2315,8 @@ const SidebarArt=()=>(
 
 const Brand=({logo,sub,size})=>(<div className="sb-brand">
   <div className="sb-glow" aria-hidden="true"/>
+  {/* a saved logoSize of 34 used to cap this via the inline style — the floor
+      above means the mark can actually breathe without editing settings */}
   {logo
     ? <img src={logo} alt="ProyTech" style={{maxHeight:size||44,maxWidth:(size||44)*5}}/>
     : <><span className="nucleus"/><b>ProyTech</b></>}
@@ -2457,7 +2534,11 @@ export default function App(){
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
       if(amOwner&&mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
-      setSettings({logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,repPayments:!!st.repPayments,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      /* Spread the saved object FIRST. This loader names every field
+         explicitly, so anything added later — recurring bills, and whatever
+         comes next — was silently dropped on load: saved fine, gone on
+         refresh. The named fields below still win where they apply defaults. */
+      setSettings({...st,logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,repPayments:!!st.repPayments,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -2922,7 +3003,7 @@ export default function App(){
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['books','The Books',<BookText size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -2975,7 +3056,7 @@ export default function App(){
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <SidebarArt/>
-      <Brand logo={settings.logo} size={settings.logoSize||44} sub={rep?'Sales':'Business Suite'}/>
+      <Brand logo={settings.logo} size={Math.max(88,num(settings.logoSize)||88)} sub={rep?'Sales':'Business Suite'}/>
       {/* Only the tab list scrolls. New Lead / My account / Sign out stay pinned
           below it — signing out shouldn't require scrolling past fifteen tabs,
           and on a short laptop screen they were falling off the bottom
@@ -3028,11 +3109,11 @@ export default function App(){
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
-          view==='books'?<Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead}/>:
+          
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings}/>:
           view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
-          view==='money'?<Money leads={bizLeads} stages={stages} settings={settings}/>:
+          view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} />:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
             isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers}/>}
       </div>
@@ -5560,7 +5641,160 @@ const paymentTxns=leads=>(leads||[]).flatMap(l=>(l.payments||[]).map(p=>({
   id:'pay_'+l.id+'_'+p.id, date:p.date||'', type:'income', amount:num(p.amount),
   who:l.name||l.company||'Client', note:p.note||'', leadId:l.id, derived:true,
 })));
-function Books({txns,upsertTxn,deleteTxn,leads,openLead}){
+/* One page for money. "Money" and "The Books" both meant money in the sidebar,
+   so answering a single question meant checking two tabs with overlapping
+   tiles. Four sections, in the order the questions get asked:
+     Now      — what happened this month
+     Coming   — committed cash over 90 days (contractual only, never pipeline)
+     History  — profit and loss by month
+     Where    — expenses by category, and which clients are worth it           */
+function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSettings,stages}){
+  const [tab,setTab]=useState('now');
+  /* computed here rather than passed in — `metrics` is local to Dashboard and
+     Money, so threading it through the router would mean lifting it for one
+     consumer */
+  const m=useMetrics(leads,stages,settings);
+  const burn=monthlyBurn(settings);
+  const mKey=isoOf(new Date()).slice(0,7);
+  const all=useMemo(()=>[...txns,...paymentTxns(leads)],[txns,leads]);
+  const inMonth=k=>all.filter(t=>(t.date||'').slice(0,7)===k);
+  const sum=(rows,dir)=>rows.filter(t=>((TX_TYPES[t.type]||{}).dir)===dir)
+    .reduce((a,t)=>a+num(t.amount),0);
+  const thisIn=sum(inMonth(mKey),'in'), thisOut=sum(inMonth(mKey),'out');
+
+  /* twelve months of in/out/net, oldest first */
+  const months=useMemo(()=>{ const out=[]; const d=new Date();
+    for(let i=11;i>=0;i--){ const x=new Date(d.getFullYear(),d.getMonth()-i,1);
+      const k=`${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}`;
+      const rows=all.filter(t=>(t.date||'').slice(0,7)===k);
+      const gi=sum(rows,'in'), go=sum(rows,'out');
+      out.push({k,label:x.toLocaleDateString(undefined,{month:'short'}),in:gi,out:go,net:gi-go}); }
+    return out; },[all]);
+  const best=Math.max(1,...months.map(x=>Math.max(x.in,x.out)));
+
+  const byCat=useMemo(()=>{ const c={};
+    all.filter(t=>((TX_TYPES[t.type]||{}).dir)==='out').forEach(t=>{
+      const k=t.category||'Uncategorised'; c[k]=(c[k]||0)+num(t.amount); });
+    return Object.entries(c).sort((a,b)=>b[1]-a[1]); },[all]);
+  const catTotal=byCat.reduce((a,x)=>a+x[1],0)||1;
+
+  const due=recurDueIn(settings,90);
+  const dueTotal=due.reduce((a,x)=>a+x.amount,0);
+  /* retainers are contractual, so three months of them is a fact, not a guess */
+  const mrr=(leads||[]).filter(l=>l.retainerActive).reduce((a,l)=>a+num(l.retainer),0);
+  const owedNow=(leads||[]).reduce((a,l)=>a+owedBy(l,stages),0);
+
+  const setRec=list=>saveSettings({...settings,recurring:list});
+  const addRec=()=>{ const name=(window.prompt('What is the bill? (e.g. Supabase Pro)','')||'').trim();
+    if(!name) return;
+    const amt=num(window.prompt('How much per charge? ($)',''));
+    if(amt<=0){ window.alert('Enter a dollar amount.'); return; }
+    setRec([...recurringOf(settings),{id:uid(),name,amount:amt,every:'monthly',
+      category:'Software',nextDue:isoOf(new Date()),active:true}]); };
+  const patchRec=(id,p)=>setRec(recurringOf(settings).map(r=>r.id===id?{...r,...p}:r));
+
+  const Bar=({v,tone})=>(<div className="mn-bar"><div className={'mn-fill '+tone}
+    style={{height:Math.max(2,Math.round(v/best*100))+'%'}}/></div>);
+
+  return (<>
+    <div className="sec-h"><div><h2>Money</h2>
+      <div className="meta">What came in, what's committed, and where it goes</div></div></div>
+
+    <div className="kgrid" style={{marginBottom:16}}>
+      <Kpi variant="accent" label="Collected this month" value={usd(thisIn)} icon={<DollarSign size={14}/>}
+        d={thisOut>0?`${usd(thisOut)} out · ${usd(thisIn-thisOut)} net`:'nothing out yet'}/>
+      <Kpi variant={burn>0?'gold':undefined} label="Monthly burn" value={usd(burn)} icon={<RefreshCw size={14}/>}
+        d={`${recurringOf(settings).filter(r=>r.active!==false).length} recurring bill${recurringOf(settings).filter(r=>r.active!==false).length===1?'':'s'}`}/>
+      <Kpi variant="green" label="MRR" value={usd(mrr)} icon={<Handshake size={14}/>}
+        d={burn>0?`covers burn ${mrr>=burn?'✓':`· ${usd(burn-mrr)} short`}`:'no burn recorded'}/>
+      <Kpi variant={owedNow>0?'gold':undefined} label="Owed to you" value={usd(owedNow)} icon={<Clock size={14}/>}
+        d={owedNow>0?'sold, not collected':'all collected'}/>
+    </div>
+
+    <div className="seg" style={{marginBottom:14}}>
+      {[['now','This month'],['coming','Next 90 days'],['history','Month by month'],
+        ['where','Where it goes'],['bills','Recurring bills']].map(([k,l])=>
+        <button key={k} className={'seg-b '+(tab===k?'on':'')} onClick={()=>setTab(k)}>{l}</button>)}
+    </div>
+
+    {tab==='now'&&<div className="card">
+      <Books txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={leads} openLead={openLead} embedded/>
+    </div>}
+
+    {tab==='coming'&&<div className="card">
+      {/* deliberately NOT a forecast. Everything here is under contract — a
+          signed retainer or a bill you already owe. No pipeline guesswork. */}
+      <div className="mn-note">Committed only — signed retainers and bills you already owe.
+        Nothing here is a guess about deals that might close.</div>
+      <div className="mn-two">
+        <div>
+          <div className="td-h"><ArrowDownLeft size={13}/>Expected in · {usd(mrr*3)}</div>
+          <div className="mn-row"><span>Retainers, 3 months</span><b className="in">{usd(mrr*3)}</b></div>
+          {owedNow>0&&<div className="mn-row"><span>Invoiced, not yet paid</span><b className="in">{usd(owedNow)}</b></div>}
+        </div>
+        <div>
+          <div className="td-h"><ArrowUpRight size={13}/>Going out · {usd(dueTotal)}</div>
+          {due.length?due.slice(0,14).map((x,i)=>(<div className="mn-row" key={i}>
+            <span>{fmtDate(x.date)} · {x.r.name}</span><b className="out">{usdc(x.amount)}</b></div>))
+            :<div className="subcell">No recurring bills yet — add them under Recurring bills.</div>}
+          {due.length>14&&<div className="subcell">+ {due.length-14} more</div>}
+        </div>
+      </div>
+      <div className="mn-net">Net over 90 days: <b className={(mrr*3+owedNow-dueTotal)>=0?'in':'out'}>
+        {usd(mrr*3+owedNow-dueTotal)}</b></div>
+    </div>}
+
+    {tab==='history'&&<div className="card">
+      <div className="mn-chart">{months.map(x=>(<div className="mn-col" key={x.k}>
+        <div className="mn-bars"><Bar v={x.in} tone="in"/><Bar v={x.out} tone="out"/></div>
+        <div className={'mn-net-s '+(x.net>=0?'in':'out')}>{x.net?usdK(x.net):'—'}</div>
+        <div className="mn-lbl">{x.label}</div>
+      </div>))}</div>
+      <div className="mn-key"><span><i className="in"/>in</span><span><i className="out"/>out</span></div>
+    </div>}
+
+    {tab==='where'&&<div className="card">
+      {byCat.length?byCat.map(([k,v])=>(<div className="mn-cat" key={k}>
+        <span className="mn-cat-n">{k}</span>
+        <div className="mn-cat-bar"><div style={{width:Math.round(v/catTotal*100)+'%'}}/></div>
+        <b>{usd(v)}</b><em>{Math.round(v/catTotal*100)}%</em>
+      </div>)):<div className="empty" style={{padding:'24px 4px'}}>No expenses recorded yet.</div>}
+      {m&&m.byClient&&m.byClient.length>0&&<>
+        <div className="td-h" style={{marginTop:20}}><Building2 size={13}/>Revenue by client</div>
+        {m.byClient.slice(0,10).map(c=>(<div className="mn-row" key={c.id}>
+          <span>{c.name}{c.mrr>0?` · ${usd(c.mrr)}/mo`:''}</span><b className="in">{usd(c.lifetime)}</b></div>))}
+      </>}
+    </div>}
+
+    {tab==='bills'&&<div className="card">
+      <div className="mn-note">Bills that arrive whether or not you sell anything.
+        These drive your burn and the 90-day view — they are <b>not</b> added to the ledger,
+        so nothing is counted twice.</div>
+      {recurringOf(settings).length?recurringOf(settings).map(r=>(<div className={'mn-bill'+(r.active===false?' off':'')} key={r.id}>
+        <input className="mn-bn" value={r.name} onChange={e=>patchRec(r.id,{name:e.target.value})}/>
+        <input className="mn-ba" type="number" value={r.amount} onChange={e=>patchRec(r.id,{amount:num(e.target.value)})}/>
+        <select value={r.every||'monthly'} onChange={e=>patchRec(r.id,{every:e.target.value})}>
+          {RECUR_EVERY.map(([k,l])=><option key={k} value={k}>{l}</option>)}
+        </select>
+        <select value={r.category||'Software'} onChange={e=>patchRec(r.id,{category:e.target.value})}>
+          {EXPENSE_CATS.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        <input type="date" value={r.nextDue||''} onChange={e=>patchRec(r.id,{nextDue:e.target.value})}/>
+        <span className="mn-pm">{usdc(perMonth(r))}/mo</span>
+        <button className="linkbtn" onClick={()=>patchRec(r.id,{active:r.active===false})}>
+          {r.active===false?'On':'Pause'}</button>
+        <button className="ev-x" onClick={()=>{ if(window.confirm(`Remove ${r.name}?`))
+          setRec(recurringOf(settings).filter(x=>x.id!==r.id)); }}><Trash2 size={13}/></button>
+      </div>)):<div className="empty" style={{padding:'20px 4px'}}>
+        Nothing yet. Add Supabase, Vercel, your domain — anything that bills on a schedule.</div>}
+      <button className="deal-add-btn" onClick={addRec}><Plus size={14}/>Add a recurring bill</button>
+      {burn>0&&<div className="mn-net">Total burn: <b className="out">{usd(burn)}/mo</b>
+        <span className="subcell"> · {usd(burn*12)} a year</span></div>}
+    </div>}
+  </>);
+}
+
+function Books({txns,upsertTxn,deleteTxn,leads,openLead,embedded}){
   const thisYear=todayISO().slice(0,4);
   const [year,setYear]=useState(thisYear);
   const [filter,setFilter]=useState('all');
@@ -6401,6 +6635,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',relTier:'',meetings:[],custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
   const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
+  const [wideFeed,setWideFeed]=useState(()=>{ try{return localStorage.getItem('pt_widefeed')==='1';}catch{return false;} });
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
   const [firstNote,setFirstNote]=useState('');
@@ -6690,7 +6925,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
           <button key={k} className={'mj'+(openSec[k]?' on':'')} onClick={()=>jumpTo(k)}><Ic size={13}/>{label}{badge!==''&&<i>{badge}</i>}</button>
         ))}
       </div>}
-      <div className="m-grid">
+      <div className={'m-grid'+(wideFeed?' wide':'')}>
         <div className="m-left">
           {/* ---------- 1. CONTACT — always first, always open ---------- */}
           <div className="dh"><Contact2 size={13}/>{isNew?'New lead':'Contact'}</div>
@@ -7169,7 +7404,17 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
 
         <div className="m-right">
           {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
-            <div className="dh"><MessageSquare size={13}/>Activity Log</div>
+            {/* Follow Up Boss, HubSpot and Salesforce all treat the timeline as
+                the primary object, not a side rail — because reading history is
+                what you open a contact for. A two-column split can never give
+                the feed more than half the window, so this lets it take the
+                whole modal on demand and remembers the choice. */}
+            <div className="dh"><MessageSquare size={13}/>Activity Log
+              <button className="feed-wide" title={wideFeed?'Back to split view':'Give the log the full window'}
+                onClick={()=>{ setWideFeed(!wideFeed); try{localStorage.setItem('pt_widefeed',wideFeed?'0':'1');}catch{} }}>
+                {wideFeed?<><Minimize2 size={12}/>Split</>:<><Maximize2 size={12}/>Expand</>}
+              </button>
+            </div>
             {/* A one-line answer to "how much have we actually talked", above
                 the fold. The composer used to fill the whole panel and push the
                 history out of sight, which is the opposite of what you open a
