@@ -853,14 +853,37 @@ const CSS=`
 .gate-card input{width:100%;padding:12px 14px;border:1px solid #DEDFEA;border-radius:10px;font-size:15px;text-align:center;letter-spacing:.04em;margin-bottom:12px}
 .gate-card input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .gate-err{color:${RED};font-size:12.5px;font-weight:600;margin-bottom:10px}
-.sb{width:236px;flex:none;background:linear-gradient(180deg,#211d44,${INK});color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:20px 14px;z-index:30}
-.sb-brand{display:flex;align-items:center;justify-content:center;gap:11px;padding:16px 14px;margin:-4px -6px 16px;background:#000110;border-radius:14px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.05)}
-.sb-brand img{max-height:46px;max-width:172px;object-fit:contain}
+.sb{width:236px;flex:none;background:linear-gradient(180deg,#0F1433 0%,#0A0E27 55%,#05071A 100%);color:#fff;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;padding:20px 14px;z-index:30}
+.sb-art{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:.9}
+/* everything else has to sit above the art */
+.sb>*:not(.sb-art){position:relative;z-index:1}
+.sb-pulse circle{animation:sbp 4.5s ease-in-out infinite}
+.sb-pulse circle:nth-child(2){animation-delay:1.5s}
+.sb-pulse circle:nth-child(3){animation-delay:3s}
+@keyframes sbp{0%,100%{opacity:.25}50%{opacity:.85}}
+@media(prefers-reduced-motion:reduce){.sb-pulse circle{animation:none;opacity:.5}}
+.sb-brand{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:22px 14px 18px;margin:-4px -6px 14px}
+.sb-brand img{max-height:56px;max-width:184px;object-fit:contain;position:relative;z-index:1}
+.sb-brand b{font-family:'Space Grotesk';font-size:19px;font-weight:700;letter-spacing:-.01em;position:relative;z-index:1}
+/* the bloom that replaces the box — same trick as the bright node in the
+   reference art, so the mark reads as lit rather than stuck on */
+.sb-glow{position:absolute;top:-6px;left:50%;transform:translateX(-50%);
+  width:190px;height:120px;pointer-events:none;
+  background:radial-gradient(50% 50% at 50% 40%,rgba(56,189,248,.30),rgba(43,77,224,.16) 45%,transparent 72%);
+  filter:blur(2px)}
+.sb-sub{position:relative;z-index:1;font-family:'Space Mono',ui-monospace,monospace;
+  font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:#7FC8F0;
+  text-shadow:0 0 12px rgba(56,189,248,.5);margin-top:4px}
+/* a hairline under the mark, brightest in the middle — the panel's own divider
+   rather than a border box */
+.sb-brand::after{content:'';position:absolute;left:14px;right:14px;bottom:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(56,189,248,.42),transparent)}
 .nucleus{width:14px;height:14px;border-radius:50%;background:${COBALT};box-shadow:0 0 0 4px rgba(43,77,224,.25),0 0 14px 2px rgba(92,118,238,.6);flex:none}
 .sb-brand b{font-family:'Space Grotesk';font-size:16px;font-weight:600}
 .sb-brand span{display:block;font-size:11px;color:#A9A4CC;font-weight:400;letter-spacing:.04em}
 .nav-i{display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:10px;color:#C7C3E6;font-size:14px;font-weight:500;cursor:pointer;transition:.16s;border:none;background:none;width:100%;text-align:left;margin-bottom:2px}
-.nav-i:hover{background:rgba(255,255,255,.06);color:#fff}.nav-i.on{background:${COBALT};color:#fff;box-shadow:0 6px 18px -8px rgba(43,77,224,.9);position:relative}
+.nav-i:hover{background:rgba(255,255,255,.06);color:#fff;backdrop-filter:blur(2px)}.nav-i.on{background:linear-gradient(90deg,color-mix(in srgb,${COBALT} 46%,transparent),color-mix(in srgb,${COBALT} 16%,transparent));color:#fff;box-shadow:inset 2px 0 0 #38BDF8,0 0 22px -8px rgba(56,189,248,.55)}
+.nav-i.on svg{color:#7FD8FF};color:#fff;box-shadow:0 6px 18px -8px rgba(43,77,224,.9);position:relative}
 .nav-i.on::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:3px;background:#FFA500}
 .nav-i svg{flex:none}
 .nav-i.nav-edit{cursor:grab;background:rgba(255,255,255,.05);color:#E8E6F7}
@@ -2126,7 +2149,82 @@ const StageBadge=({k,stages})=>{const s=sOf(k,stages);return <span className="pi
 const PriBadge=({p})=>{const x=PRIORITIES[p]||PRIORITIES.medium;return <span className="pill" style={{background:x.bg,color:x.color}}><Flag size={11}/>{x.label}</span>;};
 const Due=({iso})=>{if(!iso)return <span className="subcell">—</span>;const d=daysUntil(iso);let c='far',t=fmtDate(iso);if(d<0){c='over';t='Overdue · '+fmtDate(iso);}else if(d===0){c='today';t='Today';}else if(d<=7){c='soon';t=fmtDate(iso);}return <span className={'due '+c}>{t}</span>;};
 const tipStyle={borderRadius:10,border:'1px solid #E8E9F2',fontFamily:'Inter',fontSize:12,boxShadow:'0 8px 24px -12px rgba(0,0,0,.3)'};
-const Brand=({logo,sub,size})=>(<div className="sb-brand">{logo?<img src={logo} alt="ProyTech" style={{maxHeight:size||34,maxWidth:(size||34)*5}}/>:<><span className="nucleus"/><div><b>ProyTech</b><span>{sub}</span></div></>}</div>);
+/* The logo used to sit in a hard-edged #000110 box on a navy gradient, which is
+   exactly why it read as pasted on rather than part of the panel. No box now —
+   the mark sits on the gradient with a soft bloom behind it, the way the bright
+   node in the reference does. */
+/* Circuit traces, in SVG rather than a PNG: ~3KB, crisp at any density, and the
+   nodes can pulse. Detail lives at the EDGES with the middle third left clean —
+   the nav labels sit there, and busy artwork behind text is the fastest way to
+   make a UI feel cheap. preserveAspectRatio="none" lets it stretch to whatever
+   height the sidebar is without redrawing. */
+const SidebarArt=()=>(
+  <svg className="sb-art" viewBox="0 0 236 900" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="tr" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#38BDF8" stopOpacity=".55"/>
+        <stop offset="55%" stopColor="#2B4DE0" stopOpacity=".30"/>
+        <stop offset="100%" stopColor="#2B4DE0" stopOpacity=".08"/>
+      </linearGradient>
+      <radialGradient id="nd"><stop offset="0%" stopColor="#7FD8FF"/><stop offset="100%" stopColor="#38BDF8" stopOpacity="0"/></radialGradient>
+      <pattern id="gr" width="26" height="26" patternUnits="userSpaceOnUse">
+        <path d="M26 0H0V26" fill="none" stroke="#5B8DEF" strokeOpacity=".055" strokeWidth="1"/>
+      </pattern>
+    </defs>
+    <rect width="236" height="900" fill="url(#gr)"/>
+    <g fill="none" stroke="url(#tr)" strokeWidth="1" strokeLinecap="square">
+      {/* left rail — right angles only, the way real traces run */}
+      <path d="M14 60 L14 150 L30 166 L30 300 L18 312 L18 470"/>
+      <path d="M30 190 L52 190 L60 198 L60 268"/>
+      <path d="M14 520 L14 610 L28 624 L28 760 L16 772 L16 880"/>
+      <path d="M28 660 L48 660 L56 668 L56 726"/>
+      {/* right rail */}
+      <path d="M222 40 L222 130 L206 146 L206 250 L218 262 L218 430"/>
+      <path d="M206 180 L184 180 L176 188 L176 240"/>
+      <path d="M222 500 L222 590 L208 604 L208 742 L220 754 L220 872"/>
+      <path d="M208 640 L188 640 L180 648 L180 700"/>
+      <path d="M176 300 L176 340 L190 354 L190 400"/>
+    </g>
+    {/* concentric arcs, echoing the reference's corner rings */}
+    <g fill="none" stroke="#38BDF8" strokeOpacity=".16" strokeWidth="1">
+      <path d="M236 806 A118 118 0 0 0 118 900"/>
+      <path d="M236 838 A86 86 0 0 0 150 900"/>
+      <path d="M0 148 A96 96 0 0 1 96 52"/>
+    </g>
+    <g stroke="#38BDF8" strokeOpacity=".13" strokeWidth="1" strokeDasharray="2 5" fill="none">
+      <path d="M236 770 A152 152 0 0 0 84 900"/>
+      <path d="M0 190 A132 132 0 0 1 132 58"/>
+    </g>
+    {/* hex cluster, bottom right — the reference's densest corner */}
+    <g fill="none" stroke="#5B8DEF" strokeOpacity=".2" strokeWidth="1">
+      <path d="M196 690l9 5v10l-9 5-9-5v-10z"/>
+      <path d="M214 700l9 5v10l-9 5-9-5v-10z"/>
+      <path d="M196 710l9 5v10l-9 5-9-5v-10z"/>
+      <path d="M34 268l7 4v8l-7 4-7-4v-8z"/>
+      <path d="M200 268l7 4v8l-7 4-7-4v-8z"/>
+    </g>
+    {/* nodes — a few carry current */}
+    <g fill="#7FD8FF">
+      <circle cx="14" cy="150" r="1.9"/><circle cx="30" cy="300" r="1.6"/>
+      <circle cx="60" cy="268" r="1.6"/><circle cx="222" cy="130" r="1.9"/>
+      <circle cx="176" cy="240" r="1.6"/><circle cx="208" cy="742" r="1.6"/>
+      <circle cx="28" cy="760" r="1.9"/><circle cx="180" cy="700" r="1.6"/>
+    </g>
+    <g className="sb-pulse">
+      <circle cx="14" cy="150" r="7" fill="url(#nd)"/>
+      <circle cx="222" cy="130" r="7" fill="url(#nd)"/>
+      <circle cx="28" cy="760" r="7" fill="url(#nd)"/>
+    </g>
+  </svg>
+);
+
+const Brand=({logo,sub,size})=>(<div className="sb-brand">
+  <div className="sb-glow" aria-hidden="true"/>
+  {logo
+    ? <img src={logo} alt="ProyTech" style={{maxHeight:size||44,maxWidth:(size||44)*5}}/>
+    : <><span className="nucleus"/><b>ProyTech</b></>}
+  {sub&&<span className="sb-sub">{sub}</span>}
+</div>);
 
 /* ===================== login ===================== */
 function Login(){
@@ -2856,7 +2954,8 @@ export default function App(){
   return (<><style>{CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
-      <Brand logo={settings.logo} size={settings.logoSize||34} sub={rep?'Sales':'Client CRM'}/>
+      <SidebarArt/>
+      <Brand logo={settings.logo} size={settings.logoSize||44} sub={rep?'Sales':'Business Suite'}/>
       {/* Only the tab list scrolls. New Lead / My account / Sign out stay pinned
           below it — signing out shouldn't require scrolling past fifteen tabs,
           and on a short laptop screen they were falling off the bottom
