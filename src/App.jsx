@@ -14,7 +14,7 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket,
-  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign
+  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift
 } from 'lucide-react';
 import JSZip from 'jszip';
 import { auth, db, configured } from './lib/supabase';
@@ -38,6 +38,8 @@ const DEFAULT_OPTIONS={
      Settings, so a client install ships whatever vocabulary fits them. */
   labels:['Military','Veteran','Police','Fire / EMS','First Responder','Teacher',
     'Healthcare','Small Business Owner','Chamber Member','Church','Alumni','VIP'],
+  keyDates:['Birthday','Spouse birthday','Work anniversary','Business anniversary',
+    'Home purchase anniversary','Closing anniversary','Client since','Wedding anniversary'],
 };
 const DEFAULT_STAGES=[
   {key:'new',      label:'New Lead',      color:'#6B73C9', prob:0.10, open:true,  won:false, lost:false},
@@ -165,6 +167,49 @@ function migrateStages(settings,leads){
 const PRIORITIES={high:{label:'High',color:'#E0662B',bg:'rgba(224,102,43,.12)',rank:0},medium:{label:'Medium',color:COBALT,bg:'rgba(43,77,224,.10)',rank:1},low:{label:'Low',color:'#8E89A8',bg:'#F0F1F7',rank:2}};
 const OWNERS=[...BRAND.team,BRAND.pool];
 const labelsOf=l=>Array.isArray(l&&l.labels)?l.labels:[];
+
+/* ---- birthdays and key dates ---------------------------------------------
+   Stored as {id,label,date,annual,lead}. `date` is YYYY-MM-DD; the year is kept
+   when known (so "turns 40" is answerable) and set to 0000 when it isn't,
+   because plenty of people will give you a day and month and nothing else.
+   Recurring dates need the NEXT occurrence, not a comparison against a date
+   twenty years in the past — that's the whole reason this can't reuse followUp. */
+const keyDatesOf=l=>Array.isArray(l&&l.keyDates)?l.keyDates:[];
+const DATE_LABELS=['Birthday','Spouse birthday','Work anniversary','Business anniversary',
+  'Home purchase anniversary','Closing anniversary','Client since','Wedding anniversary'];
+const dateVocab=settings=>{ const o=(settings&&settings.options&&settings.options.keyDates);
+  return Array.isArray(o)&&o.length?o:DATE_LABELS; };
+
+/* Next time this date comes around. Feb 29 is the trap: in a non-leap year
+   there is no Feb 29, and `new Date(2027,1,29)` silently rolls to March 1 —
+   so a leap-day birthday would quietly move. Pinned to Feb 28 instead, which
+   is what most people celebrate and, more importantly, is deliberate. */
+const nextOccurrence=(iso,annual,from=new Date())=>{
+  const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m) return null;
+  const mo=+m[2]-1, dy=+m[3];
+  if(!annual){ const d=new Date(+m[1],mo,dy); return isNaN(d)?null:d; }
+  const base=new Date(from.getFullYear(),from.getMonth(),from.getDate());
+  const build=y=>{ const leapOK=(mo===1&&dy===29)&&!(new Date(y,1,29).getMonth()===1);
+    return new Date(y,mo,leapOK?28:dy); };
+  let d=build(base.getFullYear());
+  if(d<base) d=build(base.getFullYear()+1);
+  return d;
+};
+const daysToDate=(iso,annual,from=new Date())=>{ const d=nextOccurrence(iso,annual,from);
+  if(!d) return null;
+  const base=new Date(from.getFullYear(),from.getMonth(),from.getDate());
+  return Math.round((d-base)/864e5); };
+/* how many years it will be, when a real year was given */
+const yearsAt=(iso,annual)=>{ const m=String(iso||'').match(/^(\d{4})/); if(!m) return null;
+  const y=+m[1]; if(y<1900) return null;
+  const nx=nextOccurrence(iso,annual); return nx?nx.getFullYear()-y:null; };
+const DATE_LEAD_DEFAULT=7;
+/* every date coming up inside its own reminder window, soonest first */
+const upcomingDates=(leads,horizon=null)=>(leads||[]).flatMap(l=>keyDatesOf(l)
+    .map(d=>({lead:l,d,days:daysToDate(d.date,d.annual!==false)}))
+    .filter(x=>x.days!==null&&x.days>=0
+      &&x.days<=(horizon!==null?horizon:(num(x.d.lead)||DATE_LEAD_DEFAULT))))
+  .sort((a,b)=>a.days-b.days);
 const labelVocab=settings=>{ const o=(settings&&settings.options&&settings.options.labels);
   return Array.isArray(o)&&o.length?o:DEFAULT_OPTIONS.labels; };
 /* ---- @mentions ------------------------------------------------------------
@@ -761,7 +806,7 @@ function mkLead(o){
     stage:'new',priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',
     followUp:'',expectedClose:'',serviceInterest:[],owner:BRAND.team[0]||'',dealValue:0,retainer:0,
     potentialSponsor:false,pastSponsor:false,sponsorTier:'',sponsorAmount:0,
-    labels:[],
+    labels:[],keyDates:[],
     isRelationship:false,introducedBy:'',relNote:'',relTier:'',
     retainerActive:false,retainerStart:'',closedAt:'',closedDeals:[],custom:{},createdAt,activities:acts,...rest};
 }
@@ -1364,6 +1409,17 @@ const CSS=`
 .td-who{font-size:11.5px;color:#9A96AC;flex:none}
 .td-who.late{color:${RED};font-weight:700}
 @media(max-width:640px){.td-txt{flex:1 1 100%;white-space:normal}}
+.kd-list{margin-bottom:8px}
+.kd-row{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid #F2F3F9}
+.kd-row:last-child{border-bottom:0}
+.kd-row.soon .kd-d b{color:${COBALT}}
+.kd-l{font-size:13px;font-weight:700;color:${INK};flex:0 0 auto}
+.kd-d{flex:1;min-width:0;font-size:12.5px;color:#8E89A8}
+.kd-d b{font-weight:700}
+.kd-d em{font-style:normal;color:#A5A2BC}
+.kd-add{display:flex;gap:7px;flex-wrap:wrap}
+.kd-add select,.kd-add input{border:1px solid #E4E5EF;border-radius:9px;padding:7px 9px;font-size:12.5px;font-family:inherit;min-width:0}
+.kd-add select{flex:1 1 150px}
 .lbl-pick{display:flex;gap:6px;flex-wrap:wrap}
 .lblchip{border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:4px 11px;font-size:11.5px;font-weight:600;font-family:inherit;color:${INK};cursor:pointer}
 .lblchip:hover{border-color:${COBALT}}
@@ -3268,11 +3324,12 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       const mtgs=allMeetings(leads).filter(r=>!r.m.status&&!needsDate(r.m)
         &&String(r.m.start||'').slice(0,10)===today)
         .sort((a,b)=>(a.m.start||'').localeCompare(b.m.start||''));
-      const total=tags.length+due.length+mtgs.length;
+      const dates=upcomingDates(leads);
+      const total=tags.length+due.length+mtgs.length+dates.length;
       if(!total) return (<>
         <div className="kgroup" style={{marginTop:4}}>Your day</div>
         <div className="card today-clear"><CheckCircle2 size={16} color={GREEN}/>
-          Nothing waiting on you. No tags, no follow-ups due, no meetings today.</div>
+          Nothing waiting on you. No tags, no follow-ups due, no meetings today, no birthdays coming up.</div>
       </>);
       return (<>
         <div className="kgroup" style={{marginTop:4}}>Your day
@@ -3296,6 +3353,17 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
                 <span className={'td-who'+(od?' late':'')}>{od?`${-daysUntil(l.followUp)}d overdue`:'today'}</span>
               </div>); })}
             {due.length>6&&<div className="subcell">+ {due.length-6} more</div>}
+          </div>}
+          {dates.length>0&&<div className="td-grp">
+            <div className="td-h"><Gift size={13}/>Birthdays &amp; dates · {dates.length}</div>
+            {dates.slice(0,6).map(({lead,d,days})=>{ const yrs=yearsAt(d.date,d.annual!==false);
+              return (<div className="td-row" key={lead.id+d.id}>
+                <button className="td-name" onClick={()=>open(lead.id)}>{lead.name||lead.company}</button>
+                <span className="td-txt">{d.label}{yrs?` · turns ${yrs}`:''}</span>
+                <span className={'td-who'+(days<=1?' late':'')}>
+                  {days===0?'today':days===1?'tomorrow':`in ${days} days`}</span>
+              </div>); })}
+            {dates.length>6&&<div className="subcell">+ {dates.length-6} more</div>}
           </div>}
           {mtgs.length>0&&<div className="td-grp">
             <div className="td-h"><CalendarClock size={13}/>Meetings today · {mtgs.length}</div>
@@ -5902,6 +5970,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
           so the editor has to be seeded with the same list or the first edit
           would wipe every built-in label. */}
       <OptionEditor label="Labels (Military, Police, Fire…)" items={labelVocab(settings)} onChange={a=>setOptions('labels',a)}/>
+      <OptionEditor label="Key date types (Birthday, anniversaries…)" items={dateVocab(settings)} onChange={a=>setOptions('keyDates',a)}/>
       <OptionEditor label="Owner" items={settings.options.owner||OWNERS} onChange={a=>setOptions('owner',a)}/>
     </div>
 
@@ -6187,7 +6256,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const opt=settings.options; const customFields=settings.customFields||[];
   const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',relTier:'',meetings:[],custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
-  const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');
+  const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
   const [firstNote,setFirstNote]=useState('');
@@ -6469,6 +6538,42 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {F({label:'Website',k:'website',full:true})}
             {/* Who they are, for reaching a whole group at once. Add-new writes
                 straight into settings so the next person gets the same list. */}
+            {/* Birthdays and anniversaries. Kept separate from the follow-up
+                date, which is a one-off task — these recur every year and need
+                the NEXT occurrence, not a date twenty years past. */}
+            <div className="field full"><label>Birthdays &amp; key dates</label>
+              {keyDatesOf(draft).length>0&&<div className="kd-list">
+                {keyDatesOf(draft).map(d=>{ const days=daysToDate(d.date,d.annual!==false);
+                  const yrs=d.annual!==false?yearsAt(d.date,true):null;
+                  const soon=days!==null&&days<=(num(d.lead)||DATE_LEAD_DEFAULT);
+                  return (<div className={'kd-row'+(soon?' soon':'')} key={d.id}>
+                    <span className="kd-l">{d.label}</span>
+                    <span className="kd-d">{fmtDate(d.date)}
+                      {days===0?<b> · today</b>:days!==null?<b> · in {days}d</b>:null}
+                      {yrs?<em> · turns {yrs}</em>:null}</span>
+                    <button className="ev-x" title="Remove" onClick={()=>
+                      set({keyDates:keyDatesOf(draft).filter(x=>x.id!==d.id)})}><Trash2 size={13}/></button>
+                  </div>); })}
+              </div>}
+              <div className="kd-add">
+                <select value={kdLabel} onChange={e=>setKdLabel(e.target.value)}>
+                  {dateVocab(settings).map(x=><option key={x} value={x}>{x}</option>)}
+                  <option value="__new">Something else…</option>
+                </select>
+                <input type="date" value={kdDate} onChange={e=>setKdDate(e.target.value)}/>
+                <button className="btn btn-p btn-sm" disabled={!kdDate} onClick={()=>{
+                  let label=kdLabel;
+                  if(label==='__new'){ label=(window.prompt('What is this date?','')||'').trim();
+                    if(!label) return; addOption&&addOption('keyDates',label); }
+                  set({keyDates:[...keyDatesOf(draft),
+                    {id:uid(),label,date:kdDate,annual:true,lead:DATE_LEAD_DEFAULT}]});
+                  setKdDate(''); setKdLabel('Birthday');
+                }}><Plus size={13}/>Add</button>
+              </div>
+              <div className="subcell" style={{marginTop:6}}>
+                Repeats every year. If you don't know the year, put any year — only the day and month are used.
+              </div>
+            </div>
             <div className="field full"><label>Labels</label>
               <div className="lbl-pick">
                 {labelVocab(settings).map(x=>{ const on=labelsOf(draft).includes(x);
