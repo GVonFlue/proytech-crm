@@ -137,5 +137,23 @@ console.log('\nthe sidebar scrolls, the actions stay put');
   ok('and it scrolls on the Y axis', /\.sb-scroll\{[^}]*overflow-y:auto/.test(css));
 }
 
+console.log('\nthe new sidebar treatment');
+{
+  const art=document.querySelector('aside .sb-art');
+  ok('the circuit backdrop renders', !!art);
+  ok('it is behind the nav, not over it',
+     art && !!document.querySelector('aside .nav-i'), 'art+nav both present');
+  const brand=document.querySelector('.sb-brand');
+  ok('the logo box is gone', brand && !/#000110/.test(brand.getAttribute('style')||''));
+  ok('a glow sits behind the mark', !!document.querySelector('.sb-glow'));
+  const sub=document.querySelector('.sb-sub');
+  ok('it reads Business Suite', sub && /Business Suite/.test(sub.textContent||''),
+     sub&&sub.textContent);
+  const css=[...document.querySelectorAll('style')].map(e=>e.textContent||'').join('');
+  ok('the panel is the deeper navy', /#0A0E27/.test(css));
+  ok('the active item is a lit edge, not a solid slab', /inset 2px 0 0 #38BDF8/.test(css));
+  ok('motion is disabled for people who ask', /prefers-reduced-motion[\s\S]{0,80}sb-pulse/.test(css));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);
