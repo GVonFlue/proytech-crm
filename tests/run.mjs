@@ -143,7 +143,7 @@ if (tile) {
 }
 
 console.log('\nother pages still render');
-for (const nav of ['Leads','Pipeline','Follow-Up','Activity','Monday Huddle','Clients','The Books','Money','Tasks','Leaderboard','Settings']) {
+for (const nav of ['Leads','Pipeline','Follow-Up','Activity','Monday Huddle','Clients','Meetings','Money','Tasks','Leaderboard','Settings']) {
   const b = [...document.querySelectorAll('.nav-i, nav button, aside button, a')].find(e => (e.textContent||'').trim() === nav);
   if (!b) continue;
   await click(b);

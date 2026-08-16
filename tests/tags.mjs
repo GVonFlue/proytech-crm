@@ -173,5 +173,31 @@ console.log('\nthe feed gets the room');
   ok('the feed element is present', !!feed);
 }
 
+console.log('\nthe log can take the whole window');
+{
+  const btn=document.querySelector('.feed-wide');
+  ok('an Expand control exists', !!btn, (document.querySelector('.m-right .dh')||{}).textContent);
+  const grid=document.querySelector('.m-grid');
+  ok('it starts in split view', grid && !/wide/.test(grid.className), grid&&grid.className);
+  await click(btn); await settle();
+  ok('expanding widens the grid', document.querySelector('.m-grid.wide'),
+     (document.querySelector('.m-grid')||{}).className);
+  ok('the form column is out of the way', !document.querySelector('.m-grid.wide .m-left')
+     || getComputedStyle(document.querySelector('.m-grid.wide .m-left')).display==='none',
+     'left column still shown');
+  ok('the button now offers Split back', /Split/.test((document.querySelector('.feed-wide')||{}).textContent||''),
+     (document.querySelector('.feed-wide')||{}).textContent);
+  await click(document.querySelector('.feed-wide')); await settle();
+  ok('and toggles back', !document.querySelector('.m-grid.wide'));
+}
+
+console.log('\nbrand sizing');
+{
+  const css=[...document.querySelectorAll('style')].map(e=>e.textContent||'').join('');
+  ok('the logo is twice the height', /\.sb-brand img\{max-height:112px/.test(css));
+  ok('with rounded corners', /\.sb-brand img\{[^}]*border-radius:16px/.test(css));
+  ok('Business Suite is 1.5x', /\.sb-sub\{[^}]*font-size:15px/.test(css)||/font-size:15px[^}]*letter-spacing:\.18em/.test(css));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);

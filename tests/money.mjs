@@ -127,8 +127,9 @@ ok('and shows $0 lifetime', unpaidRow && /\$0/.test(unpaidRow), unpaidRow);
 const paidRow=rows.find(r=>/Paid Co/.test(r));
 ok('the paid client shows its full value', paidRow && /\$4,000/.test(paidRow), paidRow);
 
-console.log('\nThe Books is a real P&L now');
-await nav('The Books');
+console.log('\nThe ledger is a real P&L now');
+/* The Books merged into Money — the ledger is the "This month" tab there. */
+await nav('Money');
 const body=document.body.textContent||'';
 ok('the client payment shows as income', /client payment/i.test(body), body.slice(0,200));
 ok('with the client name on it', /Paid Co/.test(body));
