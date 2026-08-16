@@ -158,5 +158,20 @@ ok('types with none are dimmed, not hidden',
 ok('the feed groups by day', !!document.querySelector('.fday'),
    [...document.querySelectorAll('.fday')].map(e=>e.textContent).join(' | '));
 
+console.log('\nthe feed gets the room');
+{
+  const css=[...document.querySelectorAll('style')].map(e=>e.textContent||'').join('');
+  ok('the feed claims the leftover height', /\.feed\{[^}]*flex:1 1 auto/.test(css),
+     (css.match(/\.feed\{[^}]*\}/)||[''])[0].slice(0,110));
+  ok('and can actually shrink (min-height:0)', /\.feed\{[^}]*min-height:0/.test(css));
+  ok('the column no longer scrolls too', /\.m-right\{[^}]*overflow:hidden/.test(css),
+     (css.match(/\.m-right\{[^}]*\}/)||[''])[0].slice(0,110));
+  ok('delete is pinned, not in the scroll flow', /\.m-danger\{[^}]*flex:none/.test(css));
+  ok('on a phone the feed stops being its own scroller',
+     /\.feed\{flex:none;min-height:auto;overflow:visible\}/.test(css));
+  const feed=document.querySelector('.feed');
+  ok('the feed element is present', !!feed);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);
