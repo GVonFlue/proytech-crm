@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, Fragment } from 'react';
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, AreaChart, Area
@@ -166,6 +166,23 @@ function migrateStages(settings,leads){
 }
 const PRIORITIES={high:{label:'High',color:'#E0662B',bg:'rgba(224,102,43,.12)',rank:0},medium:{label:'Medium',color:COBALT,bg:'rgba(43,77,224,.10)',rank:1},low:{label:'Low',color:'#8E89A8',bg:'#F0F1F7',rank:2}};
 const OWNERS=[...BRAND.team,BRAND.pool];
+/* A dropdown with no empty option shows its FIRST entry, so a new lead silently
+   became whatever happened to be at the top — Real Estate. Installs that saved
+   their Business Type list before '—' existed have no blank to select, so one
+   is prepended at render rather than depending on saved settings. Lead Source
+   already did this; Business Type didn't. */
+const blankFirst=list=>{ const a=Array.isArray(list)?list:[];
+  return a.some(x=>x===''||x==='—')?a:['—',...a]; };
+/* "Today" beats a date you have to decode. */
+const dayLabel=iso=>{ const t=isoOf(new Date());
+  if(iso===t) return 'Today';
+  const y=new Date(); y.setDate(y.getDate()-1);
+  if(iso===isoOf(y)) return 'Yesterday';
+  const d=new Date(iso+'T12:00:00'); if(isNaN(d)) return iso;
+  const sameYear=d.getFullYear()===new Date().getFullYear();
+  return d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',
+    ...(sameYear?{}:{year:'numeric'})});
+};
 const labelsOf=l=>Array.isArray(l&&l.labels)?l.labels:[];
 
 /* ---- birthdays and key dates ---------------------------------------------
@@ -1409,6 +1426,14 @@ const CSS=`
 .td-who{font-size:11.5px;color:#9A96AC;flex:none}
 .td-who.late{color:${RED};font-weight:700}
 @media(max-width:640px){.td-txt{flex:1 1 100%;white-space:normal}}
+.fday{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#A6A2BC;padding:12px 0 5px;position:sticky;top:0;background:#fff;z-index:1}
+.touchbar{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;background:color-mix(in srgb,${COBALT} 5%,#fff);border:1px solid color-mix(in srgb,${COBALT} 14%,#fff);border-radius:11px;padding:9px 12px;margin-bottom:11px}
+.touchbar b{font-size:13px;font-weight:700;color:${INK}}
+.touchbar span{font-size:12px;color:#5B6478}
+.touchbar em{font-style:normal;font-size:11.5px;color:#9A96AC;margin-left:auto}
+.compose-open{display:flex;align-items:center;gap:7px;width:100%;border:1px dashed #D8D9E6;background:#fff;color:#8E89A8;border-radius:11px;padding:10px 13px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;margin-bottom:4px}
+.compose-open:hover{border-color:${COBALT};color:${COBALT}}
+.afilter button.none{opacity:.45}
 .kd-list{margin-bottom:8px}
 .kd-row{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid #F2F3F9}
 .kd-row:last-child{border-bottom:0}
@@ -6256,7 +6281,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const opt=settings.options; const customFields=settings.customFields||[];
   const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',relTier:'',meetings:[],custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
-  const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');
+  const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
   const [firstNote,setFirstNote]=useState('');
@@ -6434,7 +6459,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
          note would land tagged for nobody (see the v7 stale-write notes) */
       addActivity(draft.id,atype,stripTagText(t,tags)||t,who,tags.length?{tags}:undefined);
     }
-    setAtext(''); setPendTags([]);
+    setAtext(''); setPendTags([]); setComposeOpen(false);
   };
   /* log a payment straight from the composer — same payments[] the deal panel
      reads, so paid / remaining update everywhere at once. ONE write: the payment
@@ -6459,6 +6484,24 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   };
   const feed=(isNew?[]:(lead?.activities||[])).filter(a=>feedFilter==='All'||a.type===feedFilter);
   const noteCount=(lead?.activities||[]).filter(a=>a.type==='Note').length;
+  /* How much contact there has actually been, by type. The filter chips already
+     existed but only Notes carried a count — so the answer to "how many times
+     have we spoken" was to click each chip and count rows by eye. */
+  const touch=useMemo(()=>{
+    const acts=(lead?.activities||[]);
+    const by={}; ACT_TYPES.forEach(t=>by[t.key]=0);
+    let first='',last='';
+    acts.forEach(a=>{ if(by[a.type]!==undefined) by[a.type]++;
+      const d=String(a.ts||'').slice(0,10); if(!d) return;
+      if(!first||d<first) first=d; if(!last||d>last) last=d; });
+    /* "Lead created." is written by the system, not by you — counting it as a
+       note would mean every lead claims one touch it never had. */
+    const sysNotes=acts.filter(a=>a.type==='Note'&&/^Lead created\.$/.test(a.text||'')).length;
+    by.Note=Math.max(0,by.Note-sysNotes);
+    const spoken=(by.Call||0)+(by.Meeting||0)+(by.Booked||0);
+    const total=Object.values(by).reduce((x,y)=>x+y,0);
+    return {by,first,last,total,spoken};
+  },[lead]);
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head">
@@ -6626,7 +6669,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               {!showMore&&<i>optional — {draft.owner} · {draft.nextAction}</i>}
             </button>
             {showMore&&<div className="fgrid" style={{marginTop:12}}>
-              {Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
+              {Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
               {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
               {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}
               {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
@@ -6670,7 +6713,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
               [draft.source,draft.businessType!=='—'?draft.businessType:null,sOf(draft.stage,stages)?.label,PRIORITIES[draft.priority]?.label].filter(Boolean).join(' · ')||'not set',
               <div className="fgrid">
-                {Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}{Sel({label:'Business Type',k:'businessType',opts:opt.businessType})}
+                {Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}{Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}
                 {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
                 {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
                 {F({label:'Expected Close',k:'expectedClose',type:'date'})}
@@ -7008,6 +7051,19 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
         <div className="m-right">
           {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
             <div className="dh"><MessageSquare size={13}/>Activity Log</div>
+            {/* A one-line answer to "how much have we actually talked", above
+                the fold. The composer used to fill the whole panel and push the
+                history out of sight, which is the opposite of what you open a
+                lead to see. */}
+            {!isNew&&touch.total>0&&<div className="touchbar">
+              <b>{touch.spoken>0?`${touch.spoken} conversation${touch.spoken===1?'':'s'}`:'No calls or meetings yet'}</b>
+              <span>
+                {[['Call','call'],['Text','text'],['Meeting','meeting'],['Booked','booked'],['Email','email']]
+                  .filter(([k])=>touch.by[k]>0)
+                  .map(([k,w])=>`${touch.by[k]} ${w}${touch.by[k]===1?'':'s'}`).join(' · ')||'notes only'}
+              </span>
+              {touch.first&&<em>since {fmtDate(touch.first)}</em>}
+            </div>}
             {/* One tap for the most common cold-call outcome. Logs the call,
                 parks the lead out of the pipeline, and books the revisit — all
                 in ONE patch, because three separate writes in a tick overwrite
@@ -7030,6 +7086,11 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 <span>logs the call · revisit {fmtDate((()=>{const d=new Date();d.setDate(d.getDate()+days);return isoOf(d);})())}</span>
               </button>);
             })()}
+            {/* collapsed to a single row until you actually want to write
+                something — the feed is what you came for */}
+            {!composeOpen&&!isNew&&<button className="compose-open" onClick={()=>setComposeOpen(true)}>
+              <Plus size={14}/>Log a call, note or text</button>}
+            {(composeOpen||isNew)&&<>
             <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
               {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
             </div>
@@ -7067,12 +7128,26 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 ? <button className="btn btn-g" style={{padding:'8px 16px'}} onClick={logPaymentFromComposer}><DollarSign size={14}/>Log Payment</button>
                 : <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>}
             </div>}
-            <div className="afilter" style={{marginTop:16}}>
-              <button className={feedFilter==='All'?'on':''} onClick={()=>setFeedFilter('All')}>All</button>
+            </>}
+            <div className="afilter" style={{marginTop:14}}>
+              {/* every chip carries its count, so the filter row doubles as the
+                  contact tally — one place, not two things to keep in sync */}
+              <button className={feedFilter==='All'?'on':''} onClick={()=>setFeedFilter('All')}>All{touch.total?` (${touch.total})`:''}</button>
               <button className={feedFilter==='Note'?'on':''} onClick={()=>setFeedFilter('Note')}>Notes{noteCount?` (${noteCount})`:''}</button>
-              {ACT_TYPES.filter(t=>t.key!=='Note').map(t=><button key={t.key} className={feedFilter===t.key?'on':''} onClick={()=>setFeedFilter(t.key)}>{t.key}</button>)}
+              {ACT_TYPES.filter(t=>t.key!=='Note').map(t=>{ const n=touch.by[t.key]||0;
+                return (<button key={t.key} className={(feedFilter===t.key?'on':'')+(n?'':' none')}
+                  onClick={()=>setFeedFilter(t.key)}>{actLabel(t.key)}{n?` (${n})`:''}</button>); })}
             </div>
-            <div className="feed">{feed.map(a=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;return (<div className={'fitem'+(a.type==='Note'?' note':'')} key={a.id}>
+            {/* A day heading whenever the date changes. Without it a long feed
+                is one undifferentiated wall and you can't tell a call from
+                yesterday from one in March without reading every timestamp. */}
+            <div className="feed">{feed.map((a,i)=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;
+              const d=String(a.ts||'').slice(0,10);
+              const prev=i>0?String(feed[i-1].ts||'').slice(0,10):null;
+              const head=d&&d!==prev?d:null;
+              return (<Fragment key={a.id}>
+              {head&&<div className="fday">{dayLabel(head)}</div>}
+              <div className={'fitem'+(a.type==='Note'?' note':'')}>
               <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className={'ftxt'+(a.cancelled?' cancelled':'')}>{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}
           {tagsOn(a).map(n=>{ const done=tagCleared(a).includes(n);
             return (<span key={n} className={'ftag'+(done?' done':'')}
@@ -7081,7 +7156,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 const next=done?tagCleared(a).filter(x=>x!==n):[...tagCleared(a),n];
                 set({activities:(draft.activities||[]).map(x=>x.id===a.id?{...x,tagsDone:next}:x)}); }}>
               <AtSign size={10}/>{n}{done?' ✓':''}</span>); })}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
-              <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div>);})}
+              <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div></Fragment>);})}
               {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
             <div style={{marginTop:18,paddingTop:16,borderTop:'1px solid #F0F0F6'}}>{rep
               ? (()=>{ const lost=(stages||[]).find(x=>x.lost);
