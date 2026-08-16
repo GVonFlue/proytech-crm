@@ -75,6 +75,10 @@ console.log('NON-STYLE TEXT:', nonStyle.map(c=>(c.textContent||'').slice(0,300))
 
 /* ---- 1. book a meeting NEXT MONTH from the activity log's Meeting Booked ---- */
 console.log('\nMeeting Booked in the activity log');
+/* the composer collapses by default now — open it before reaching for the
+   Meeting Booked tab inside it */
+const opener=document.querySelector('.compose-open');
+if(opener){ await click(opener); await act(async()=>{ await new Promise(r=>setTimeout(r,60)); }); }
 const bookedTab=findBtn(/^Meeting Booked$/);
 ok('Meeting Booked button exists', !!bookedTab);
 await click(bookedTab);

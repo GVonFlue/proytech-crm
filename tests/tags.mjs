@@ -91,6 +91,8 @@ console.log('\ntagging someone from a note');
 await nav('Leads');
 const row=[...document.querySelectorAll('tbody tr')].find(e=>/Tag Target/.test(e.textContent||''));
 if(row) await click(row); await settle(110);
+const opener=document.querySelector('.compose-open');
+if(opener){ await click(opener); await settle(); }
 const chip=[...document.querySelectorAll('.tagchip')].find(b=>/Logan/.test(b.textContent||''));
 ok('a Logan chip is offered', !!chip,
    [...document.querySelectorAll('.tagchip')].map(b=>b.textContent).join(' | '));
@@ -138,6 +140,23 @@ if(ftag){ await click(ftag); await settle();
   ok('clearing marks only that person', w2 && (w2.activities||[])[0] && (w2.activities[0].tagsDone||[]).includes('Garrett'),
      JSON.stringify(w2&&w2.activities&&w2.activities[0]));
   ok('the tag itself is kept as history', w2 && (w2.activities[0].tags||[]).includes('Garrett')); }
+
+console.log('\nactivity log is readable');
+/* Waiting Co has one note on it from Logan. */
+const bar=document.querySelector('.touchbar');
+ok('a contact summary sits above the feed', !!bar, (document.querySelector('.m-right')||{}).textContent?.slice(0,120));
+ok('it counts conversations, not just rows', bar && /conversation|No calls or meetings/.test(bar.textContent||''), bar&&bar.textContent);
+ok('the composer is collapsed by default', !!document.querySelector('.compose-open')&&!document.querySelector('.act-input'),
+   'compose-open='+!!document.querySelector('.compose-open')+' input='+!!document.querySelector('.act-input'));
+await click(document.querySelector('.compose-open')); await settle();
+ok('clicking it opens the composer', !!document.querySelector('.act-input'));
+const chips=[...document.querySelectorAll('.afilter button')].map(b=>b.textContent.trim());
+ok('every filter chip carries a count', chips.some(c=>/^All \(\d+\)/.test(c)), chips.join(' | '));
+ok('types with none are dimmed, not hidden',
+   [...document.querySelectorAll('.afilter button.none')].length>0,
+   chips.join(' | '));
+ok('the feed groups by day', !!document.querySelector('.fday'),
+   [...document.querySelectorAll('.fday')].map(e=>e.textContent).join(' | '));
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);
