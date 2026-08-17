@@ -1,0 +1,140 @@
+// Meeting Log — turns a raw team-meeting transcript into structured JSON.
+//
+// This is the one place in the app that reads a raw transcript. Everything
+// downstream (the meeting page, the huddle digest, the task list) reads the
+// EXTRACTION, never the transcript. A transcript is ~5,000 tokens of filler
+// with maybe 1,200 tokens of signal in it; feeding the raw thing to anything
+// else would make every later call slower, dearer and worse.
+//
+// Sonnet, not Haiku, and for the same reason as huddle.js: this is judgement,
+// not extraction. Deciding that "we need an LLC" is a blocking dependency of
+// "hire a commission rep" is exactly the kind of call Haiku fumbles. It runs
+// once a week, so the cost difference is a rounding error — about six cents.
+//
+// Requires env var ANTHROPIC_API_KEY. The key never reaches the browser.
+
+export default async function handler(req, res) {
+  if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'POST only' }); return; }
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) { res.status(200).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' }); return; }
+
+  const b = req.body || {};
+  const transcript = String(b.transcript || '').trim();
+  const brand = String(b.brand || 'the business');
+  const team = Array.isArray(b.team) && b.team.length ? b.team : ['Garrett', 'Logan'];
+  const meetingDate = String(b.meetingDate || '').slice(0, 10);
+  // Open items carried in from the last meeting, so the model can score them.
+  // Phase 1 sends an empty array; the wiring is here so Phase 2 is a one-line
+  // change on the client rather than a rewrite of this prompt.
+  const prior = Array.isArray(b.priorOpen) ? b.priorOpen.slice(0, 40) : [];
+
+  if (transcript.length < 200) { res.status(200).json({ ok: false, error: 'That transcript is too short to be worth reading.' }); return; }
+  // ~120k characters is roughly 30k tokens — a very long meeting. Past that,
+  // refuse loudly rather than silently truncating and losing the end, which is
+  // where the action items always are.
+  if (transcript.length > 120000) { res.status(200).json({ ok: false, error: 'That transcript is too long. Split it into two meetings.' }); return; }
+
+  const system = `You read the transcript of an internal team meeting at ${brand} and turn it into structured data. The team is ${team.join(' and ')}. ${brand} builds websites, CRMs and AI automation for realtors, lenders and local service businesses in Wichita, Kansas.
+
+These transcripts are machine transcriptions of voice recordings. They are messy: no speaker labels, mangled names, dropped words, dead ends, and long stretches of personal chat that have nothing to do with the business. Read past all of it. Your job is to find the signal.
+
+WHAT MATTERS, in order:
+1. Decisions that were actually made, and decisions that were raised and left open. An open decision is worth more than a made one, because it is still costing them.
+2. Concrete commitments — who said they would do what, by when.
+3. Money — deals, amounts, deposits, expenses, targets. Only if the transcript states them.
+4. Ideas about how the business should work, especially ones that would remove a bottleneck.
+5. Risks the team named or walked straight past without noticing.
+
+RULES:
+- Never invent a name, number, date or commitment. If the transcript does not contain it, leave it out. A short honest extraction is worth far more than a padded one.
+- Transcription mangles proper nouns. If a name is clearly garbled but obvious from context, correct it silently. If it is genuinely ambiguous, keep what was said.
+- Personal chat, jokes, insults between the two of them, and anything about cars, TVs, watches or motorcycles: ignore entirely. It is not business content and it should not appear anywhere in your output.
+- Do not soften. If the transcript shows them avoiding something, say so.
+- Owners must be one of: ${team.join(', ')}, or "Both". Never assign work to someone who is not on the team.
+- Dates must be YYYY-MM-DD or an empty string. Never guess a date. The meeting was ${meetingDate || 'recently'}.
+- For every action, score revenue (1-5, how directly it produces cash), urgency (1-5) and effort (1-5, where 5 is the most work). These feed an existing ranking system, so be discriminating: not everything is a 5.
+- "tier" is your call on when it must happen: "now" (this week, revenue or bleeding), "soon" (next two weeks, structural), or "later" (this month, leverage).
+
+${prior.length ? `OPEN ITEMS FROM LAST MEETING. For each, decide from THIS transcript whether it was closed, is still open, or was quietly dropped without anyone saying so. "abandoned" is the important verdict — it is the one nobody notices.\n${JSON.stringify(prior)}` : 'There are no open items from a previous meeting. Return an empty loopReview array.'}
+
+Return ONLY valid JSON. No markdown fences, no preamble, no commentary:
+{
+  "title": "short name for this meeting, max 8 words",
+  "headline": "one sentence, max 18 words: the single most important thing about this meeting",
+  "summary": "3-5 sentences on what this meeting was actually about and what changed",
+  "themes": [{"title": "short heading", "body": "2-5 sentences. Explain the thinking, not just the topic."}],
+  "decisions": [{"decision": "what was decided or raised", "status": "made" | "open", "detail": "one or two sentences of context", "options": ["A. ...", "B. ..."]}],
+  "actions": [{"title": "short imperative task", "owner": "name or Both", "why": "one sentence on the payoff", "due": "YYYY-MM-DD or empty", "revenue": 1-5, "urgency": 1-5, "effort": 1-5, "tier": "now" | "soon" | "later"}],
+  "numbers": [{"label": "what it is", "value": "as stated", "note": "context, or empty"}],
+  "risks": ["specific risks, named or unnoticed. Empty array if none."],
+  "openItems": [{"key": "short-stable-slug", "title": "the thing still outstanding"}],
+  "loopReview": [{"key": "the key from the list above", "verdict": "closed" | "open" | "abandoned", "note": "one sentence of evidence from this transcript"}]
+}
+
+"themes" 2-6 items. "decisions" 0-8. "actions" 3-15. "options" only for decisions with status "open", otherwise an empty array. "openItems" is every action and open decision that is not finished at the end of this meeting — this is what next week's meeting gets scored against, so give each one a lowercase-hyphenated key that would stay the same if the same item came up again.`;
+
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 8000,
+        system,
+        messages: [{ role: 'user', content: 'Transcript follows.\n\n' + transcript }],
+      }),
+    });
+    const j = await r.json();
+    if (!r.ok) { res.status(200).json({ ok: false, error: (j.error && j.error.message) || 'api error' }); return; }
+
+    let text = (j.content || []).filter(x => x.type === 'text').map(x => x.text).join('').trim();
+    text = text.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    let out;
+    try { out = JSON.parse(text); }
+    catch {
+      // Same salvage as huddle.js: the model occasionally wraps the object in a
+      // sentence. Take the first balanced-looking object rather than failing.
+      const m = text.match(/\{[\s\S]*\}/);
+      if (!m) { res.status(200).json({ ok: false, error: 'Could not read the response.' }); return; }
+      try { out = JSON.parse(m[0]); } catch { res.status(200).json({ ok: false, error: 'Could not read the response.' }); return; }
+    }
+
+    // Coerce everything. The UI must never have to defend against a missing
+    // field, and a bad score must never poison the task ranker.
+    const S = v => String(v == null ? '' : v);
+    const A = v => (Array.isArray(v) ? v : []);
+    const N = (v, d) => { const n = Math.round(Number(v)); return n >= 1 && n <= 5 ? n : d; };
+    const OWNERS = team.concat('Both');
+    const own = v => { const s = S(v).trim(); return OWNERS.find(o => o.toLowerCase() === s.toLowerCase()) || 'Both'; };
+    const date = v => (/^\d{4}-\d{2}-\d{2}$/.test(S(v)) ? S(v) : '');
+    const tier = v => (['now', 'soon', 'later'].includes(S(v).toLowerCase()) ? S(v).toLowerCase() : 'soon');
+    const slug = v => S(v).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+
+    res.status(200).json({
+      ok: true,
+      extraction: {
+        title: S(out.title).slice(0, 90),
+        headline: S(out.headline).slice(0, 220),
+        summary: S(out.summary),
+        themes: A(out.themes).filter(t => t && t.title).map(t => ({ title: S(t.title), body: S(t.body) })).slice(0, 6),
+        decisions: A(out.decisions).filter(d => d && d.decision).map(d => ({
+          decision: S(d.decision), status: S(d.status) === 'made' ? 'made' : 'open',
+          detail: S(d.detail), options: A(d.options).map(S).slice(0, 5),
+        })).slice(0, 8),
+        actions: A(out.actions).filter(a => a && a.title).map(a => ({
+          title: S(a.title).slice(0, 160), owner: own(a.owner), why: S(a.why), due: date(a.due),
+          revenue: N(a.revenue, 3), urgency: N(a.urgency, 3), effort: N(a.effort, 3), tier: tier(a.tier),
+        })).slice(0, 15),
+        numbers: A(out.numbers).filter(n => n && n.label).map(n => ({ label: S(n.label), value: S(n.value), note: S(n.note) })).slice(0, 12),
+        risks: A(out.risks).map(S).filter(Boolean).slice(0, 8),
+        openItems: A(out.openItems).filter(o => o && o.title).map(o => ({ key: slug(o.key || o.title), title: S(o.title) })).slice(0, 25),
+        loopReview: A(out.loopReview).filter(l => l && l.key).map(l => ({
+          key: slug(l.key), verdict: ['closed', 'open', 'abandoned'].includes(S(l.verdict)) ? S(l.verdict) : 'open', note: S(l.note),
+        })).slice(0, 40),
+      },
+      usage: j.usage || null,
+    });
+  } catch (e) {
+    res.status(200).json({ ok: false, error: (e && e.message) || 'error' });
+  }
+}

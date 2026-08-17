@@ -138,6 +138,23 @@ export const db = {
     const { error } = await supabase.from('events').delete().eq('id', id);
     if (error) throw error;
   },
+  /* meeting logs: one row each, owner-only at the RLS level. The transcript
+     lives here and is never read by anything except the person who wrote it. */
+  async getMeetingLogs() {
+    const { data, error } = await supabase.from('meeting_logs').select('id,data').order('created_at', { ascending: false });
+    if (error) { if (error.code === '42P01') return []; throw error; }
+    return (data || []).map(r => ({ ...(r.data || {}), id: r.id }));
+  },
+  async upsertMeetingLog(log) {
+    if (!log || !log.id) return;
+    const { id, ...rest } = log;
+    const { error } = await supabase.from('meeting_logs').upsert({ id, data: rest, updated_at: new Date().toISOString() });
+    if (error) throw error;
+  },
+  async deleteMeetingLog(id) {
+    const { error } = await supabase.from('meeting_logs').delete().eq('id', id);
+    if (error) throw error;
+  },
   async getSettings() {
     const { data, error } = await supabase.from('app_settings').select('data').eq('id', 'main').maybeSingle();
     if (error) throw error;

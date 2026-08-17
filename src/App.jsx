@@ -17,6 +17,7 @@ import {
   Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2
 } from 'lucide-react';
 import JSZip from 'jszip';
+import MeetingLog from './MeetingLog';
 import { auth, db, configured } from './lib/supabase';
 import { BRAND } from './lib/brand';
 
@@ -301,7 +302,7 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
+const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -319,7 +320,7 @@ const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
 const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','pipeline'];
 /* a rep can never be given these by accident — they expose company money.
    An owner CAN still switch them on deliberately (see Team settings). */
-const MONEY_TABS=['invoices','books','money','huddle'];
+const MONEY_TABS=['invoices','books','money','huddle','mlog'];
 /* modules a rep may be granted at all. 'settings' and 'clients' stay with owners:
    Settings configures the whole install, Clients is the money-side client book. */
 const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients').concat(['dash']);
@@ -2458,10 +2459,12 @@ export default function App(){
   const [activeId,setActiveId]=useState(null);
   const [navIds,setNavIds]=useState(null);
   const [events,setEvents]=useState([]);
+  const [mlogs,setMlogs]=useState([]);
   const [importOpen,setImportOpen]=useState(false);
   const [navEdit,setNavEdit]=useState(false);   // sidebar reorder mode
   useEffect(()=>{ if(!session) return; let dead=false;
     db.getEvents().then(r=>{ if(!dead) setEvents(r||[]); }).catch(console.error);
+    db.getMeetingLogs().then(r=>{ if(!dead) setMlogs(r||[]); }).catch(console.error);
     return ()=>{dead=true;}; },[session]);
   const [navDrag,setNavDrag]=useState(null);
   const [navLocal,setNavLocal]=useState(null);  // keeps the order on screen if the save fails
@@ -2601,6 +2604,10 @@ export default function App(){
     eventsRef.current=next; setEvents(next); db.upsertEvent(ev).catch(console.error); };
   const removeEvent=id=>{ const next=eventsRef.current.filter(x=>x.id!==id);
     eventsRef.current=next; setEvents(next); db.deleteEvent(id).catch(console.error); };
+  /* meeting logs: own table, newest first — the write is awaited so the page can
+     show a failure instead of pretending a transcript was saved. */
+  const saveMlog=async l=>{ await db.upsertMeetingLog(l); setMlogs(p=>[l,...p.filter(x=>x.id!==l.id)]); };
+  const delMlog=async id=>{ await db.deleteMeetingLog(id); setMlogs(p=>p.filter(x=>x.id!==id)); };
   /* a guest or sponsor typed in by hand becomes a real lead, sourced to the
      event. That is the whole point — otherwise the night is untracked spend. */
   const quickLead=(name,source,extra)=>{ const lead={id:uid(),name:String(name||'').trim(),company:'',stage:stages[0]&&stages[0].key||'new',
@@ -3003,7 +3010,7 @@ export default function App(){
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -3031,7 +3038,7 @@ export default function App(){
     const others=tasks.filter(t=>t.owner!==me);
     saveTasks([...(next||[]).filter(t=>t.owner===me),...others]);
   };
-  const titles={dash:['Dashboard','The whole board at a glance'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const titles={dash:['Dashboard','The whole board at a glance'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],mlog:['Meeting Log','Paste a transcript · Claude pulls out what matters'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
   if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; }
   /* the leaderboard the DB gave us; pre-migration an owner can still see one
      computed locally (an owner can read every lead, a rep never could). */
@@ -3111,6 +3118,7 @@ export default function App(){
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings}/>:
+          view==='mlog'?<MeetingLog logs={mlogs} tasks={tasks} saveLog={saveMlog} deleteLog={delMlog} saveTasks={saveTasks} me={me}/>:
           view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
           view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} />:
