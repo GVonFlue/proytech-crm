@@ -175,6 +175,16 @@ const OWNERS=[...BRAND.team,BRAND.pool];
 const blankFirst=list=>{ const a=Array.isArray(list)?list:[];
   return a.some(x=>x===''||x==='—')?a:['—',...a]; };
 /* "Today" beats a date you have to decode. */
+/* Every /api/* endpoint that costs money now requires a signed-in caller, so
+   the token rides along. One helper rather than a dozen edited fetch calls. */
+const apiPost=async(url,body)=>{
+  let tok='';
+  try{ const sess=await auth.session(); tok=(sess&&sess.access_token)||''; }catch{}
+  const r=await fetch(url,{method:'POST',
+    headers:{'Content-Type':'application/json',...(tok?{authorization:`Bearer ${tok}`}:{})},
+    body:JSON.stringify(body||{})});
+  return r;
+};
 const dayLabel=iso=>{ const t=isoOf(new Date());
   if(iso===t) return 'Today';
   const y=new Date(); y.setDate(y.getDate()-1);
@@ -215,6 +225,9 @@ const recurDueIn=(settings,days=90)=>{ const out=[]; const now=new Date();
   return out.sort((a,b)=>a.date.localeCompare(b.date)); };
 const EXPENSE_CATS=['Software','Hosting','Contractors','Marketing','Events',
   'Office','Travel','Fees','Taxes','Other'];
+/* what counts as real outreach — shared by the untouched filter and the
+   batch-delete warning so the two can't drift apart */
+const REACHED_TYPES=new Set(['Call','Text','Email','Meeting','Booked','Payment']);
 const labelsOf=l=>Array.isArray(l&&l.labels)?l.labels:[];
 
 /* ---- birthdays and key dates ---------------------------------------------
@@ -1550,6 +1563,8 @@ const CSS=`
 .rb:hover{border-color:${COBALT}}
 .rb.on{background:${COBALT};border-color:${COBALT};color:#fff}
 .rb.clear{border:0;color:#8E89A8;font-weight:500}
+.rb.wipe{border-color:rgba(209,67,67,.35);color:${RED}}
+.rb.wipe:hover{background:rgba(209,67,67,.08);border-color:${RED}}
 .rb-n{margin-left:auto;font-size:12px;color:#8E89A8}
 .rb-n b{color:${COBALT}}
 @media(max-width:640px){.rb-n{margin-left:0;width:100%}}
@@ -2821,6 +2836,26 @@ export default function App(){
   const delActivity=(id,aid)=>{ let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) putLead(updated); };
   /* deleting is an owner action — the database enforces it too (leads_delete
      in MIGRATION.sql). This guard just keeps the UI honest. */
+  /* Delete a whole import in one go — test data is the reason this exists.
+     Scoped to ONE batch id so it can never reach anything typed in by hand,
+     owner-only, and it makes you type the count: a misclick here is
+     unrecoverable in a way a single delete isn't. */
+  const delBatch=async batch=>{
+    if(rep){ window.alert('Only an owner can delete leads.'); return; }
+    const hit=leadsRef.current.filter(l=>l.importBatch===batch);
+    if(!hit.length) return;
+    const withWork=hit.filter(l=>(l.activities||[]).some(a=>REACHED_TYPES.has(a.type))
+      ||(l.meetings||[]).length||(l.payments||[]).length);
+    const warn=withWork.length
+      ? `\n\n⚠ ${withWork.length} of these have real activity on them — calls, meetings or payments. That history goes too.`
+      : '';
+    const typed=window.prompt(
+      `Delete all ${hit.length} leads from this import?${warn}\n\nThis cannot be undone. Type ${hit.length} to confirm.`);
+    if(String(typed||'').trim()!==String(hit.length)) return;
+    const ids=new Set(hit.map(l=>l.id));
+    commitLeads(leadsRef.current.filter(l=>!ids.has(l.id)));
+    for(const l of hit){ try{ await db.deleteLead(l.id); }catch(e){ console.error('delete failed',l.id,e); } }
+  };
   const delLead=id=>{ if(rep){ window.alert('Only an owner can delete a lead.'); return; }
     setLeads(leads.filter(l=>l.id!==id)); db.deleteLead(id).catch(console.error); setActiveId(null); };
   const createNew=lead=>{ setLeads([lead,...leads]); putLead(lead); setActiveId(lead.id); };
@@ -3112,7 +3147,7 @@ export default function App(){
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
           view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
           view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
-          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen}/>:
+          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen} delBatch={delBatch}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
@@ -4328,8 +4363,7 @@ function EventsPage({events,saveEvent,removeEvent,leads,quickLead,open,me}){
   const readSheet=async()=>{
     if(!ev) return; setSheetErr(''); setPlan(null); setSheetBusy(true);
     try{
-      const r=await fetch('/api/sheet-read',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({sheet:ev.sheetUrl,tab:ev.sheetTab||''})});
+      const r=await apiPost('/api/sheet-read',{sheet:ev.sheetUrl,tab:ev.sheetTab||''});
       const j=await r.json();
       if(!r.ok) throw new Error(j.error||'Could not read that sheet.');
       const hs=j.headers||[];
@@ -4620,7 +4654,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen,delBatch}){
   /* importOpen is owned by App so the sidebar's "Import a list" can open it.
      A local useState here would shadow the prop: the sidebar sets one piece of
      state and the page renders off another, so the modal never appears. */
@@ -4650,8 +4684,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
      empty. Every lead is born with a "Lead created." note and an import can add
      the note column as a second one, so an empty-array test would always be
      false and the count would read 0 forever. Only a real outbound counts. */
-  const REACHED=new Set(['Call','Text','Email','Meeting','Booked']);
-  const untouched=l=>!(l.activities||[]).some(a=>a&&REACHED.has(a.type));
+  const untouched=l=>!(l.activities||[]).some(a=>a&&REACHED_TYPES.has(a.type));
   const recentCount=leads.filter(recentFilter).length;
   const toWorkCount=leads.filter(l=>recentFilter(l)&&untouched(l)).length;
   const claim=(e,l)=>{ e.stopPropagation(); if(updateLead) updateLead(l.id,{owner:me}); };
@@ -4711,6 +4744,11 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
             <Upload size={12}/>{fmtDate(b.at)} · {b.n}</button>))}
         {recent&&<>
           <span className="rb-n">{recentCount} shown · <b>{toWorkCount}</b> not touched yet</span>
+          {/* only for a specific import — never "Today" or "Last 7 days",
+              which would sweep up leads typed in by hand */}
+          {String(recent).startsWith('imp_')&&delBatch&&
+            <button className="rb wipe" onClick={()=>delBatch(recent)}>
+              <Trash2 size={12}/>Delete this import</button>}
           <button className="rb clear" onClick={()=>setRecent(null)}>Clear</button>
         </>}
       </div>)}
@@ -4793,7 +4831,7 @@ function ImportModal({onClose,onImport,businessTypes}){
     setHeaders(hd); setRows(rw);
     const base={}; hd.forEach(h=>base[h]=guessField(h)); setMapping(base);
     setAi('reading');
-    (async()=>{ try{ const r=await fetch('/api/import-leads',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({headers:hd,samples:rw.slice(0,6)})}); const j=await r.json();
+    (async()=>{ try{ const r=await apiPost('/api/import-leads',{headers:hd,samples:rw.slice(0,6)}); const j=await r.json();
       if(j&&j.ok&&j.mapping){ const m={}; hd.forEach(h=>{const v=j.mapping[h];m[h]=(v&&IMPORT_KEYS.includes(v))?v:base[h];}); setMapping(m); setAi('done'); }
       else setAi('heuristic'); }catch(e){ setAi('heuristic'); } })();
   };
@@ -4801,16 +4839,14 @@ function ImportModal({onClose,onImport,businessTypes}){
     setHeaders(hd); setRows(rw);
     const base={}; hd.forEach(h=>base[h]=guessField(h)); setMapping(base);
     setAi('reading');
-    (async()=>{ try{ const r=await fetch('/api/import-leads',{method:'POST',headers:{'content-type':'application/json'},
-        body:JSON.stringify({headers:hd,samples:rw.slice(0,6)})}); const j=await r.json();
+    (async()=>{ try{ const r=await apiPost('/api/import-leads',{headers:hd,samples:rw.slice(0,6)}); const j=await r.json();
       if(j&&j.ok&&j.mapping){ const m={}; hd.forEach(h=>{const v=j.mapping[h];m[h]=(v&&IMPORT_KEYS.includes(v))?v:base[h];}); setMapping(m); setAi('done'); }
       else setAi('heuristic'); }catch(e){ setAi('heuristic'); } })();
   };
   const readSheet=async()=>{
     setSheetErr(''); setSheetBusy(true);
     try{
-      const r=await fetch('/api/sheet-read',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({sheet:sheetUrl,tab:sheetTab||''})});
+      const r=await apiPost('/api/sheet-read',{sheet:sheetUrl,tab:sheetTab||''});
       const j=await r.json();
       if(!r.ok){ setSheetErr(j); setSheetBusy(false); return; }
       const hd=(j.headers||[]).map(h=>String(h||'').trim());
@@ -5510,7 +5546,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
     setBusy(true);
     try{
       const payload=open.map(t=>({id:t.id,title:t.title,notes:t.notes||'',owner:t.owner,lead:leadName(t.leadId),due:t.due||'',revenue:num(t.revenue),urgency:num(t.urgency),effort:num(t.effort)}));
-      const r=await fetch('/api/rank-tasks',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({tasks:payload})});
+      const r=await apiPost('/api/rank-tasks',{tasks:payload});
       const j=await r.json();
       if(!j.ok){window.alert('AI ranking isn\u2019t available: '+(j.error||'unknown')+'.\nTasks are still sorted by impact \u00d7 urgency.');setBusy(false);return;}
       const map={}; (j.ranking||[]).forEach((x,i)=>{map[x.id]={rank:i+1,reason:x.reason||''};});
@@ -5895,7 +5931,7 @@ function TxnModal({txn,file,onSave,onDelete,onClose}){
   const [saving,setSaving]=useState(false);
   const set=p=>setD(x=>({...x,...p}));
   useEffect(()=>{ if(!file||txn) return; let go=true; (async()=>{ setAi('reading');
-    try{ const b64=await toB64(file); const r=await fetch('/api/parse-receipt',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({file:b64,mime:file.type})}); const j=await r.json();
+    try{ const b64=await toB64(file); const r=await apiPost('/api/parse-receipt',{file:b64,mime:file.type}); const j=await r.json();
       if(go&&j&&j.ok&&j.fields){ const f=j.fields; setD(x=>({...x,type:'expense',party:f.vendor||x.party,date:f.date||x.date,amount:f.total||x.amount,category:f.category||x.category,notes:f.summary||x.notes})); setAi('done'); }
       else if(go){ setAi('off'); } }
     catch(e){ if(go)setAi('off'); } })(); return ()=>{go=false;}; },[]);
@@ -7571,7 +7607,7 @@ function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
   const cur=H.lastWeek, prev=H.weekBefore;
   const write=async()=>{ setErr(''); setBusy(true);
     try{
-      const r=await fetch('/api/huddle',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({digest:H,brand:BRAND.name})});
+      const r=await apiPost('/api/huddle',{digest:H,brand:BRAND.name});
       const j=await r.json();
       if(!j.ok) throw new Error(j.error||'could not write the huddle');
       setBrief(j.brief);
