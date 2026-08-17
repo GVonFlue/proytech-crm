@@ -1,3 +1,4 @@
+import { guard, sweep } from './_guard.js';
 // Meeting Log — turns a raw team-meeting transcript into structured JSON.
 //
 // This is the one place in the app that reads a raw transcript. Everything
@@ -14,6 +15,12 @@
 // Requires env var ANTHROPIC_API_KEY. The key never reaches the browser.
 
 export default async function handler(req, res) {
+  // Signed-in users only, plus per-IP and a global daily ceiling. These
+  // endpoints cost money, so an open one is a direct line to the card.
+  const gate = await guard(req, res, { name: 'meeting-log', perIp: 30, perDay: 900, requireAuth: true });
+  if (!gate.ok) return;
+  sweep();
+
   if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'POST only' }); return; }
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) { res.status(200).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' }); return; }

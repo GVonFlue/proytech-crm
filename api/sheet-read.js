@@ -1,3 +1,4 @@
+import { guard, sweep } from './_guard.js';
 // Reads a Google Sheet tab through the account already connected for Calendar.
 // Read-only, and only sheets that account can open — no extra credentials, no
 // published-to-web URL, so a guest list full of emails and phone numbers never
@@ -46,6 +47,12 @@ function explain(status, body) {
 }
 
 export default async function handler(req, res) {
+  // Signed-in users only, plus per-IP and a global daily ceiling. These
+  // endpoints cost money, so an open one is a direct line to the card.
+  const gate = await guard(req, res, { name: 'sheet-read', perIp: 40, perDay: 1500, requireAuth: true });
+  if (!gate.ok) return;
+  sweep();
+
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   try {
     const { sheet, tab } = req.body || {};

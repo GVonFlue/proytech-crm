@@ -133,5 +133,48 @@ ok('there is a button straight to the right console page', !!link, link&&link.ge
 ok('the link carries the project id', link && /project=123509276392/.test(link.getAttribute('href')||''));
 ok('Google\'s own wording is kept but folded away', !!fail2.querySelector('details'));
 
+console.log('\nwiping a test import');
+/* the chip filter is still active from the block above */
+const wipe=[...document.querySelectorAll('.rb.wipe')].find(b=>/Delete this import/.test(b.textContent||''));
+ok('a delete control appears for a specific import', !!wipe,
+   [...document.querySelectorAll('.rb')].map(b=>b.textContent.trim()).join(' | '));
+
+/* wrong count typed — must do nothing */
+dom.window.prompt=()=>'1';
+const beforeCount=globalThis.__LEADS__.length;
+await click(wipe); await settle(120);
+const rowsAfterBad=[...document.querySelectorAll('tbody tr')].length;
+ok('a wrong confirmation deletes nothing', rowsAfterBad===2, rowsAfterBad+' rows left');
+
+/* correct count */
+let asked='';
+dom.window.prompt=(msg)=>{asked=String(msg);return '2';};
+await click(document.querySelector('.rb.wipe')); await settle(200);
+ok('it names how many and demands the number', /Delete all 2 leads/.test(asked)&&/Type 2 to confirm/.test(asked),
+   asked.slice(0,120));
+ok('the imported leads are gone', [...document.querySelectorAll('tbody tr')].length===0,
+   [...document.querySelectorAll('tbody tr')].map(r=>r.textContent.slice(0,12)).join(' | '));
+
+console.log('\nthe old lead is untouched');
+/* with the batch deleted there is nothing recent left, so the whole bar
+   unmounts and Clear goes with it — that's correct, not a missing element */
+const clr=document.querySelector('.rb.clear');
+if(clr){ await click(clr); await settle(); }
+else { setRecentCleared: { ok('the recent bar disappears once nothing is recent',
+  !document.querySelector('.recentbar'), 'bar still shown'); } }
+const names=[...document.querySelectorAll('tbody tr td:first-child')].map(e=>e.textContent.trim());
+/* Assert on the DATA, not the table — the table is scoped to "Mine" and this
+   fixture's owner doesn't match the signed-in user, which is a separate
+   concern from whether the wipe respected its batch. What matters is that
+   nothing deleted the pre-existing lead. */
+const deleted=globalThis.__DELETED__||[];
+ok('the wipe deleted only the two imported leads', deleted.length===2, JSON.stringify(deleted));
+ok('the hand-typed lead was never touched', !deleted.includes('old1'), JSON.stringify(deleted));
+
+console.log('\nthe control is scoped');
+const chips=[...document.querySelectorAll('.rb')].map(b=>b.textContent.trim());
+ok('no delete offered on Today / Last 7 days', !document.querySelector('.rb.wipe'),
+   chips.join(' | '));
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);

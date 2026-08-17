@@ -1,3 +1,4 @@
+import { guard, sweep } from './_guard.js';
 // Monday Huddle — reads a pre-computed digest of the last 7 days and writes
 // the interpretation: what happened, what it means, what to do about it.
 //
@@ -10,6 +11,12 @@
 // difference is a rounding error.
 
 export default async function handler(req, res) {
+  // Signed-in users only, plus per-IP and a global daily ceiling. These
+  // endpoints cost money, so an open one is a direct line to the card.
+  const gate = await guard(req, res, { name: 'huddle', perIp: 6, perDay: 300, requireAuth: true });
+  if (!gate.ok) return;
+  sweep();
+
   if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'POST only' }); return; }
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) { res.status(200).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' }); return; }

@@ -21,7 +21,10 @@ export const db = {
   getLeads: async () => JSON.parse(JSON.stringify(globalThis.__LEADS__ || [])),
   upsertLead: async (l) => { globalThis.__WRITES__.push(l); },
   upsertMany: async (a) => { globalThis.__MANY__ = globalThis.__MANY__||[]; globalThis.__MANY__.push(JSON.parse(JSON.stringify(a))); a.forEach(l=>globalThis.__WRITES__.push(l)); },
-  deleteLead: async () => {}, deleteAll: async () => {},
+  getMeetingLogs: async () => globalThis.__MLOGS__ || [],
+  upsertMeetingLog: async (l) => { (globalThis.__MLOG_WRITES__ = globalThis.__MLOG_WRITES__ || []).push(l); },
+  deleteMeetingLog: async () => {},
+  deleteLead: async (id) => { (globalThis.__DELETED__ = globalThis.__DELETED__ || []).push(id); }, deleteAll: async () => {},
   getEvents: async () => JSON.parse(JSON.stringify(globalThis.__EVENTS__ || [])),
   upsertEvent: async (e) => { globalThis.__EVENT_WRITES__.push(JSON.parse(JSON.stringify(e)));
     const a=globalThis.__EVENTS__||[]; const i=a.findIndex(x=>x.id===e.id); if(i>=0) a[i]=e; else a.unshift(e); },

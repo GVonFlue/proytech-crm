@@ -172,3 +172,21 @@ update leads l set owner_id = u.id
  where l.owner_id is null
    and u.name is not null
    and l.data->>'owner' = u.name;
+
+-- ---------------------------------------------------------------------------
+-- api_hits: the counter behind api/_guard.js rate limiting.
+-- Vercel functions are stateless, so the limiter needs shared storage; an
+-- in-memory counter resets on every cold start — precisely when you're being
+-- hit hardest.
+-- ---------------------------------------------------------------------------
+create table if not exists api_hits (
+  id     bigserial primary key,
+  bucket text        not null,
+  at     timestamptz not null default now()
+);
+create index if not exists api_hits_bucket_at on api_hits (bucket, at desc);
+
+-- Written only by the service key from serverless functions. RLS on with NO
+-- policy means no anon or authenticated client can touch it; the service key
+-- bypasses RLS by design.
+alter table api_hits enable row level security;

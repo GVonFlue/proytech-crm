@@ -1,3 +1,4 @@
+import { guard, sweep } from './_guard.js';
 // Conversation capture — turn a pasted thread into structured notes.
 //
 // Sonnet, not Haiku. This is judgement, not extraction: who said what, what was
@@ -66,6 +67,12 @@ Return ONLY valid JSON, no markdown fences, no preamble:
 }`;
 
 export default async function handler(req, res) {
+  // Signed-in users only, plus per-IP and a global daily ceiling. These
+  // endpoints cost money, so an open one is a direct line to the card.
+  const gate = await guard(req, res, { name: 'conversation', perIp: 20, perDay: 600, requireAuth: true });
+  if (!gate.ok) return;
+  sweep();
+
   if (req.method !== 'POST') { res.status(405).json({ ok: false, error: 'POST only' }); return; }
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) { res.status(200).json({ ok: false, error: 'ANTHROPIC_API_KEY not set' }); return; }
