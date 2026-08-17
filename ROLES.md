@@ -58,6 +58,29 @@ you want. You put a lead in a pool from the lead's **Qualifying** section. Reps
 you've given that pool can see those leads and **claim** one, which makes it
 theirs. A rep can't reassign a lead to anybody else — the database blocks it.
 
+## Meeting Log — the one thing that can cross
+
+The Meeting Log holds two kinds of meeting, and a rep can read **neither** of
+them. The table is owner-only in Postgres, not hidden by the screen.
+
+- **Internal** — the Sunday CEO meeting. Stays put. Feeds the open-loop list
+  and the Monday Huddle. Nothing about it reaches a lead.
+- **Client** — attached to a lead. Its summary shows on that lead's record for
+  **you only**, read straight from the log rather than copied, so editing the
+  log updates the lead and deleting it takes the summary with it.
+
+The single exception: on a client log you can write a short line and press
+**Add to lead**. That line — and only that line — becomes an ordinary note on
+the lead, which means **whoever owns that lead can read it**. The transcript
+and the extraction never go with it.
+
+Nothing is published automatically. If you never press the button, no rep ever
+sees anything from a meeting log. A published line does not count as a call or
+a meeting in anyone's activity numbers; it's a note.
+
+Deleting a client log does **not** remove a line you already published. Take
+that off the lead itself.
+
 ## Turning someone off
 
 **Deactivate** ends their access at the next page load, takes them off the

@@ -30,6 +30,11 @@ export default async function handler(req, res) {
   const brand = String(b.brand || 'the business');
   const team = Array.isArray(b.team) && b.team.length ? b.team : ['Garrett', 'Logan'];
   const meetingDate = String(b.meetingDate || '').slice(0, 10);
+  // 'internal' (the Sunday team meeting) or 'client' (a meeting with a lead).
+  // Same output schema either way — only the reading instructions differ, so
+  // every consumer downstream stays exactly as it was.
+  const kind = String(b.kind || '') === 'client' ? 'client' : 'internal';
+  const leadName = String(b.leadName || '').trim().slice(0, 120);
   // Open items carried in from the last meeting, so the model can score them.
   // Phase 1 sends an empty array; the wiring is here so Phase 2 is a one-line
   // change on the client rather than a rewrite of this prompt.
@@ -41,7 +46,57 @@ export default async function handler(req, res) {
   // where the action items always are.
   if (transcript.length > 120000) { res.status(200).json({ ok: false, error: 'That transcript is too long. Split it into two meetings.' }); return; }
 
-  const system = `You read the transcript of an internal team meeting at ${brand} and turn it into structured data. The team is ${team.join(' and ')}. ${brand} builds websites, CRMs and AI automation for realtors, lenders and local service businesses in Wichita, Kansas.
+  // ---- shared tail: the output contract, identical for both kinds ---------
+  const SCHEMA = `Return ONLY valid JSON. No markdown fences, no preamble, no commentary:
+{
+  "title": "short name for this meeting, max 8 words",
+  "headline": "one sentence, max 18 words: the single most important thing about this meeting",
+  "summary": "3-5 sentences on what this meeting was actually about and what changed",
+  "themes": [{"title": "short heading", "body": "2-5 sentences. Explain the thinking, not just the topic."}],
+  "decisions": [{"decision": "what was decided or raised", "status": "made" | "open", "detail": "one or two sentences of context", "options": ["A. ...", "B. ..."]}],
+  "actions": [{"title": "short imperative task", "owner": "name or Both", "why": "one sentence on the payoff", "due": "YYYY-MM-DD or empty", "revenue": 1-5, "urgency": 1-5, "effort": 1-5, "tier": "now" | "soon" | "later"}],
+  "numbers": [{"label": "what it is", "value": "as stated", "note": "context, or empty"}],
+  "risks": ["specific risks, named or unnoticed. Empty array if none."],
+  "openItems": [{"key": "short-stable-slug", "title": "the thing still outstanding"}],
+  "loopReview": [{"key": "the key from the list above", "verdict": "closed" | "open" | "abandoned", "note": "one sentence of evidence from this transcript"}]
+}`;
+
+  // ---- client meeting -----------------------------------------------------
+  // A different question entirely. The internal prompt hunts for decisions the
+  // team is avoiding; this one is building a durable read on ONE person, which
+  // accumulates on their lead record over months. Same schema, so the meeting
+  // page, the task acceptance flow and normLog all work unchanged.
+  const clientSystem = `You read the transcript of a sales or client meeting between ${brand} and ${leadName || 'a client'} and turn it into structured data. ${brand} builds websites, CRMs and AI automation for realtors, lenders and local service businesses in Wichita, Kansas. The ${brand} people on the call are ${team.join(' and ')}; everyone else is the client side.
+
+These transcripts are machine transcriptions. They are messy: no speaker labels, mangled names, dropped words, and small talk at both ends. Read past it.
+
+This extraction is not a meeting record that gets read once. It is added to what ${brand} knows about this person, and it will be read back months later before the next conversation. Write it for that reader.
+
+WHAT MATTERS, in order:
+1. What they actually want, in their words — the problem they described, not the product they asked for.
+2. Objections, hesitations and the things they went quiet about. A stated objection is worth more than a stated interest.
+3. Money — budget, what they are paying now, what they said a solution is worth. Only if stated.
+4. Commitments made in BOTH directions: what ${brand} promised, and what the client agreed to.
+5. Anything personal or contextual that would make the next conversation better — their business, their pressures, who else decides.
+
+RULES:
+- Never invent a name, number, date or commitment. If the transcript does not contain it, leave it out.
+- Distinguish what the CLIENT said from what ${brand} said. Attribute clearly in the detail text — getting this backwards makes the record actively misleading later.
+- Transcription mangles proper nouns. Correct an obviously garbled name silently; keep a genuinely ambiguous one as said.
+- Do not soften and do not sell. If they sound unconvinced, say they sound unconvinced. An optimistic record of a bad meeting is worse than no record.
+- Small talk that reveals something usable about them belongs in themes. Pure pleasantries do not appear anywhere.
+- "actions" are what ${brand} must do next. Owners must be one of: ${team.join(', ')}, or "Both".
+- Dates must be YYYY-MM-DD or an empty string. Never guess. The meeting was ${meetingDate || 'recently'}.
+- Score revenue (1-5, how directly it produces cash), urgency (1-5) and effort (1-5) on each action. Be discriminating.
+- "tier": "now" (this week, the deal cools without it), "soon" (next two weeks), "later".
+- "decisions" here means what was agreed or left hanging with the client. "risks" means what could lose this deal. "openItems" is every unresolved thread, keyed so the same thread keeps its key next time.
+- Return an empty loopReview array.
+
+${SCHEMA}
+
+"themes" 2-6 items. "decisions" 0-8. "actions" 1-10. "options" only for decisions with status "open", otherwise an empty array.`;
+
+  const internalSystem = `You read the transcript of an internal team meeting at ${brand} and turn it into structured data. The team is ${team.join(' and ')}. ${brand} builds websites, CRMs and AI automation for realtors, lenders and local service businesses in Wichita, Kansas.
 
 These transcripts are machine transcriptions of voice recordings. They are messy: no speaker labels, mangled names, dropped words, dead ends, and long stretches of personal chat that have nothing to do with the business. Read past all of it. Your job is to find the signal.
 
@@ -64,21 +119,11 @@ RULES:
 
 ${prior.length ? `OPEN ITEMS FROM LAST MEETING. For each, decide from THIS transcript whether it was closed, is still open, or was quietly dropped without anyone saying so. "abandoned" is the important verdict — it is the one nobody notices.\n${JSON.stringify(prior)}` : 'There are no open items from a previous meeting. Return an empty loopReview array.'}
 
-Return ONLY valid JSON. No markdown fences, no preamble, no commentary:
-{
-  "title": "short name for this meeting, max 8 words",
-  "headline": "one sentence, max 18 words: the single most important thing about this meeting",
-  "summary": "3-5 sentences on what this meeting was actually about and what changed",
-  "themes": [{"title": "short heading", "body": "2-5 sentences. Explain the thinking, not just the topic."}],
-  "decisions": [{"decision": "what was decided or raised", "status": "made" | "open", "detail": "one or two sentences of context", "options": ["A. ...", "B. ..."]}],
-  "actions": [{"title": "short imperative task", "owner": "name or Both", "why": "one sentence on the payoff", "due": "YYYY-MM-DD or empty", "revenue": 1-5, "urgency": 1-5, "effort": 1-5, "tier": "now" | "soon" | "later"}],
-  "numbers": [{"label": "what it is", "value": "as stated", "note": "context, or empty"}],
-  "risks": ["specific risks, named or unnoticed. Empty array if none."],
-  "openItems": [{"key": "short-stable-slug", "title": "the thing still outstanding"}],
-  "loopReview": [{"key": "the key from the list above", "verdict": "closed" | "open" | "abandoned", "note": "one sentence of evidence from this transcript"}]
-}
+${SCHEMA}
 
 "themes" 2-6 items. "decisions" 0-8. "actions" 3-15. "options" only for decisions with status "open", otherwise an empty array. "openItems" is every action and open decision that is not finished at the end of this meeting — this is what next week's meeting gets scored against, so give each one a lowercase-hyphenated key that would stay the same if the same item came up again.`;
+
+  const system = kind === 'client' ? clientSystem : internalSystem;
 
   try {
     const r = await fetch('https://api.anthropic.com/v1/messages', {
