@@ -27,104 +27,192 @@ import {
    ========================================================================== */
 
 const CSS = `
-.jv{--arc:#4FD8FF;--arc2:#8BE9FF;--hot:#C1352B;--gold:#E0A22B;--plate:#12162E;--plate2:#0A0D1F;
+/* JARVIS — the CRM's own hardware, not a chat widget bolted on.
+   Same vocabulary as the sidebar: the deep navy plate, the 26px circuit grid,
+   right-angle traces in cobalt-to-cyan, and an active state that is a LIT EDGE
+   rather than a solid slab. The Iron Man part is the arc reactor, the HUD
+   brackets, and hot-rod red + gold carrying anything that needs a human. */
+.jv{--arc:#38BDF8;--arc2:#7FD8FF;--arc3:#EAFBFF;--cob:#2B4DE0;
+  --gold:#E0A22B;--gold2:#F2C55C;--hot:#C1352B;
+  --plate:#0F1433;--plate2:#0A0E27;--plate3:#05071A;
   display:flex;flex-direction:column;height:calc(100vh - 168px);min-height:440px;
-  border-radius:20px;overflow:hidden;position:relative;
-  background:radial-gradient(1100px 460px at 50% -12%,rgba(79,216,255,.14),transparent 62%),linear-gradient(168deg,var(--plate) 0%,var(--plate2) 100%);
-  border:1px solid rgba(79,216,255,.2);box-shadow:0 26px 70px -34px rgba(0,0,0,.85),inset 0 1px 0 rgba(139,233,255,.1)}
+  border-radius:18px;overflow:hidden;position:relative;color:#DCF3FB;
+  background:radial-gradient(1200px 460px at 50% -14%,rgba(56,189,248,.17),transparent 64%),
+             linear-gradient(180deg,var(--plate) 0%,var(--plate2) 55%,var(--plate3) 100%);
+  border:1px solid rgba(56,189,248,.22);
+  box-shadow:0 26px 70px -34px rgba(0,0,0,.9),inset 0 1px 0 rgba(127,216,255,.12)}
 .jv *{box-sizing:border-box}
-.jv-scan{position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.3;
-  background:repeating-linear-gradient(0deg,rgba(79,216,255,.05) 0 1px,transparent 1px 3px)}
-.jv>*:not(.jv-scan){position:relative;z-index:1}
 
-.jv-top{display:flex;align-items:center;gap:13px;padding:15px 18px;
-  border-bottom:1px solid rgba(79,216,255,.16);background:rgba(6,9,22,.5)}
-.jv-arc{width:34px;height:34px;flex:none;border-radius:50%;position:relative;
-  background:radial-gradient(circle,#EAFBFF 0%,var(--arc2) 26%,var(--arc) 46%,rgba(79,216,255,.12) 68%,transparent 74%);
-  box-shadow:0 0 18px rgba(79,216,255,.75),0 0 40px rgba(79,216,255,.28)}
-.jv-arc:before,.jv-arc:after{content:'';position:absolute;border-radius:50%;border:1px solid rgba(139,233,255,.6)}
-.jv-arc:before{inset:6px}
-.jv-arc:after{inset:11px;border-color:rgba(234,251,255,.9)}
+/* backdrop layers: circuit traces, then scanlines, then HUD brackets */
+.jv-art{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:.85}
+.jv-scan{position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.2;
+  background:repeating-linear-gradient(0deg,rgba(56,189,248,.06) 0 1px,transparent 1px 3px)}
+.jv-hud{position:absolute;inset:0;pointer-events:none;z-index:3}
+.jv-hud i{position:absolute;width:15px;height:15px;border:1px solid rgba(127,216,255,.45)}
+.jv-hud i:nth-child(1){top:9px;left:9px;border-right:0;border-bottom:0}
+.jv-hud i:nth-child(2){top:9px;right:9px;border-left:0;border-bottom:0}
+.jv-hud i:nth-child(3){bottom:9px;left:9px;border-right:0;border-top:0}
+.jv-hud i:nth-child(4){bottom:9px;right:9px;border-left:0;border-top:0}
+.jv>*:not(.jv-art):not(.jv-scan):not(.jv-hud){position:relative;z-index:1}
+
+/* ---------------------------------------------------------------- the head */
+.jv-top{display:flex;align-items:center;gap:14px;padding:15px 20px;
+  border-bottom:1px solid rgba(56,189,248,.16);background:linear-gradient(180deg,rgba(5,7,26,.62),rgba(5,7,26,.3))}
+/* the arc reactor: white-hot core, cobalt bloom, two rings */
+.jv-arc{width:36px;height:36px;flex:none;border-radius:50%;position:relative;
+  background:radial-gradient(circle,var(--arc3) 0%,var(--arc2) 20%,var(--arc) 40%,rgba(43,77,224,.34) 62%,transparent 75%);
+  box-shadow:0 0 20px rgba(56,189,248,.8),0 0 48px rgba(56,189,248,.28),inset 0 0 9px rgba(234,251,255,.55)}
+.jv-arc:before,.jv-arc:after{content:'';position:absolute;border-radius:50%;border:1px solid rgba(127,216,255,.6)}
+.jv-arc:before{inset:5px}
+.jv-arc:after{inset:11px;border-color:rgba(234,251,255,.95);box-shadow:0 0 11px rgba(127,216,255,.85)}
 .jv[data-busy="1"] .jv-arc{animation:jvspin 1.15s linear infinite}
 @keyframes jvspin{to{transform:rotate(360deg)}}
-.jv-name{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;color:#EAF9FF;letter-spacing:.14em;text-transform:uppercase;line-height:1.15}
-.jv-sub{font-family:'Space Mono',ui-monospace,monospace;font-size:9.5px;color:rgba(139,233,255,.62);letter-spacing:.2em;text-transform:uppercase;margin-top:2px}
-.jv-meter{margin-left:auto;text-align:right;font-family:'Space Mono',ui-monospace,monospace;font-size:9.5px;color:rgba(139,233,255,.6);letter-spacing:.1em}
-.jv-bar{width:96px;height:3px;border-radius:2px;background:rgba(79,216,255,.16);margin-top:5px;overflow:hidden}
-.jv-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--arc),var(--arc2))}
-.jv-bar.warn i{background:linear-gradient(90deg,var(--gold),#F2C55C)}
-.jv-bar.over i{background:linear-gradient(90deg,var(--hot),#E4695E)}
+.jv-name{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16.5px;color:#F2FCFF;
+  letter-spacing:.2em;text-transform:uppercase;line-height:1.12;text-shadow:0 0 16px rgba(56,189,248,.5)}
+.jv-sub{font-family:'Space Mono',ui-monospace,monospace;font-size:9.5px;color:rgba(127,216,255,.6);
+  letter-spacing:.22em;text-transform:uppercase;margin-top:3px}
+.jv-meter{margin-left:auto;text-align:right;font-family:'Space Mono',ui-monospace,monospace;
+  font-size:9.5px;color:rgba(127,216,255,.62);letter-spacing:.12em;text-transform:uppercase}
+.jv-bar{width:104px;height:3px;border-radius:2px;background:rgba(56,189,248,.15);margin-top:6px;overflow:hidden;
+  box-shadow:inset 0 0 0 1px rgba(56,189,248,.12)}
+.jv-bar i{display:block;height:100%;background:linear-gradient(90deg,var(--cob),var(--arc),var(--arc2));
+  box-shadow:0 0 10px rgba(56,189,248,.85)}
+.jv-bar.warn i{background:linear-gradient(90deg,var(--gold),var(--gold2));box-shadow:0 0 10px rgba(224,162,43,.85)}
+.jv-bar.over i{background:linear-gradient(90deg,var(--hot),#E4695E);box-shadow:0 0 10px rgba(193,53,43,.9)}
 
-.jv-feed{flex:1;overflow-y:auto;padding:20px 18px 8px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin}
-.jv-feed::-webkit-scrollbar{width:7px}
-.jv-feed::-webkit-scrollbar-thumb{background:rgba(79,216,255,.22);border-radius:4px}
+/* ---------------------------------------------------------------- the feed */
+.jv-feed{flex:1;overflow-y:auto;padding:22px 20px 10px;display:flex;flex-direction:column;gap:16px;
+  scrollbar-width:thin;scrollbar-color:rgba(56,189,248,.22) transparent}
+.jv-feed::-webkit-scrollbar{width:6px}
+.jv-feed::-webkit-scrollbar-thumb{background:rgba(56,189,248,.22);border-radius:3px}
+.jv-feed::-webkit-scrollbar-thumb:hover{background:rgba(56,189,248,.36)}
 
 .jv-hello{margin:auto 0;text-align:center;padding:16px 8px}
-.jv-hello h3{font-family:'Space Grotesk',sans-serif;color:#EAF9FF;font-size:19px;margin:0 0 6px;font-weight:600}
-.jv-hello p{color:rgba(200,229,242,.62);font-size:13px;margin:0 0 20px;line-height:1.6}
+.jv-hello h3{font-family:'Space Grotesk',sans-serif;color:#F2FCFF;font-size:20px;margin:0 0 7px;font-weight:600;
+  letter-spacing:.02em;text-shadow:0 0 22px rgba(56,189,248,.4)}
+.jv-hello p{color:rgba(200,229,242,.6);font-size:13px;margin:0 0 20px;line-height:1.65}
 .jv-seeds{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:560px;margin:0 auto}
-.jv-seed{background:rgba(79,216,255,.07);border:1px solid rgba(79,216,255,.24);color:#B9E9FA;
-  border-radius:999px;padding:8px 15px;font-size:12.5px;cursor:pointer;font-family:inherit;transition:.15s;text-align:left}
-.jv-seed:hover{background:rgba(79,216,255,.16);border-color:rgba(79,216,255,.5);color:#EAF9FF}
+/* seeds echo .nav-i: quiet plate, lit edge on hover */
+.jv-seed{background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.22);color:#B9E9FA;
+  border-radius:9px;padding:9px 15px;font-size:12.5px;cursor:pointer;font-family:inherit;
+  transition:.16s;text-align:left;position:relative}
+.jv-seed:hover{background:linear-gradient(90deg,rgba(43,77,224,.4),rgba(43,77,224,.13));color:#fff;
+  border-color:rgba(56,189,248,.45);box-shadow:inset 2px 0 0 var(--arc),0 0 22px -8px rgba(56,189,248,.6)}
 
 .jv-msg{display:flex;flex-direction:column;gap:5px;max-width:88%}
 .jv-msg.me{align-self:flex-end;align-items:flex-end}
-.jv-tag{font-family:'Space Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:rgba(139,233,255,.5)}
-.jv-msg.me .jv-tag{color:rgba(224,162,43,.72)}
-.jv-body{padding:12px 15px;border-radius:14px;font-size:14px;line-height:1.68;white-space:pre-wrap;word-break:break-word}
-.jv-msg.them .jv-body{background:rgba(79,216,255,.07);border:1px solid rgba(79,216,255,.2);color:#DCF3FB;border-top-left-radius:4px}
-.jv-msg.me .jv-body{background:rgba(224,162,43,.12);border:1px solid rgba(224,162,43,.3);color:#F6E7C8;border-top-right-radius:4px}
-.jv-err .jv-body{background:rgba(193,53,43,.14);border-color:rgba(193,53,43,.44);color:#FFC9C2}
+.jv-tag{font-family:'Space Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.22em;
+  text-transform:uppercase;color:rgba(127,216,255,.5)}
+.jv-msg.me .jv-tag{color:rgba(224,162,43,.7)}
+.jv-body{padding:12px 15px;border-radius:11px;font-size:14px;line-height:1.68;white-space:pre-wrap;word-break:break-word}
+/* the assistant speaks from the machine: cobalt plate, lit cyan edge */
+.jv-msg.them .jv-body{background:linear-gradient(90deg,rgba(43,77,224,.2),rgba(43,77,224,.06));
+  border:1px solid rgba(56,189,248,.2);color:#DCF3FB;
+  box-shadow:inset 2px 0 0 var(--arc),0 0 26px -12px rgba(56,189,248,.6)}
+/* the human speaks in gold */
+.jv-msg.me .jv-body{background:linear-gradient(270deg,rgba(224,162,43,.16),rgba(224,162,43,.05));
+  border:1px solid rgba(224,162,43,.3);color:#F6E7C8;box-shadow:inset -2px 0 0 var(--gold)}
+.jv-err .jv-body{background:linear-gradient(90deg,rgba(193,53,43,.2),rgba(193,53,43,.06));
+  border-color:rgba(193,53,43,.45);color:#FFC9C2;box-shadow:inset 2px 0 0 var(--hot)}
 
-.jv-acts{display:flex;flex-direction:column;gap:7px;margin-top:9px;width:100%}
-.jv-alab{font-family:'Space Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.18em;text-transform:uppercase;color:rgba(224,162,43,.8)}
-.jv-act{display:flex;align-items:center;gap:10px;background:rgba(224,162,43,.08);
-  border:1px solid rgba(224,162,43,.32);border-radius:11px;padding:10px 12px}
+/* ------------------------------------------------------------- the actions */
+.jv-acts{display:flex;flex-direction:column;gap:7px;margin-top:10px;width:100%}
+.jv-alab{font-family:'Space Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.2em;
+  text-transform:uppercase;color:rgba(224,162,43,.8)}
+.jv-act{display:flex;align-items:center;gap:10px;
+  background:linear-gradient(90deg,rgba(224,162,43,.11),rgba(224,162,43,.03));
+  border:1px solid rgba(224,162,43,.3);border-radius:10px;padding:10px 12px;
+  box-shadow:inset 2px 0 0 var(--gold)}
 .jv-act svg{flex:none;color:var(--gold)}
 .jv-act span{flex:1;font-size:12.5px;color:#F1DFBB;line-height:1.45;word-break:break-word}
-.jv-act button{border:0;border-radius:8px;padding:6px 11px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit;flex:none}
-.jv-run{background:var(--gold);color:#241B06}
-.jv-run:hover{background:#F0B23C}
-.jv-skip{background:transparent;color:rgba(241,223,187,.55)}
+.jv-act button{border:0;border-radius:7px;padding:6px 12px;font-size:11.5px;font-weight:600;
+  cursor:pointer;font-family:inherit;flex:none;letter-spacing:.02em}
+.jv-run{background:linear-gradient(180deg,var(--gold2),var(--gold));color:#241B06;
+  box-shadow:0 0 16px -4px rgba(224,162,43,.8)}
+.jv-run:hover{background:var(--gold2)}
+.jv-skip{background:transparent;color:rgba(241,223,187,.5)}
 .jv-skip:hover{color:#F1DFBB}
-.jv-act.done{border-color:rgba(63,185,120,.45);background:rgba(63,185,120,.1)}
+.jv-act.done{border-color:rgba(63,185,120,.42);background:linear-gradient(90deg,rgba(63,185,120,.13),rgba(63,185,120,.03));
+  box-shadow:inset 2px 0 0 #3FB978}
 .jv-act.done svg,.jv-act.done span{color:#A8E9C4}
 
-.jv-foot{border-top:1px solid rgba(79,216,255,.16);background:rgba(6,9,22,.6);padding:12px 14px}
+/* ---------------------------------------------------------------- the foot */
+.jv-foot{border-top:1px solid rgba(56,189,248,.16);background:linear-gradient(0deg,rgba(5,7,26,.7),rgba(5,7,26,.34));padding:12px 16px}
 .jv-pins{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:9px}
-.jv-pin{display:inline-flex;align-items:center;gap:6px;background:rgba(79,216,255,.12);
-  border:1px solid rgba(79,216,255,.34);border-radius:999px;padding:4px 6px 4px 11px;font-size:11.5px;color:#BDEAFA}
-.jv-pin button{background:none;border:0;color:rgba(189,234,250,.6);cursor:pointer;display:flex;padding:1px}
+.jv-pin{display:inline-flex;align-items:center;gap:6px;background:rgba(56,189,248,.11);
+  border:1px solid rgba(56,189,248,.3);border-radius:7px;padding:4px 6px 4px 11px;font-size:11.5px;color:#BDEAFA;
+  box-shadow:inset 2px 0 0 rgba(56,189,248,.7)}
+.jv-pin button{background:none;border:0;color:rgba(189,234,250,.55);cursor:pointer;display:flex;padding:1px}
 .jv-pin button:hover{color:#fff}
 .jv-row{display:flex;align-items:flex-end;gap:8px}
-.jv-in{flex:1;background:rgba(79,216,255,.06);border:1px solid rgba(79,216,255,.26);border-radius:13px;
-  padding:11px 13px;color:#EAF9FF;font-size:14px;font-family:inherit;resize:none;max-height:132px;line-height:1.5}
-.jv-in:focus{outline:none;border-color:rgba(79,216,255,.62);box-shadow:0 0 0 3px rgba(79,216,255,.13)}
-.jv-in::placeholder{color:rgba(139,233,255,.36)}
-.jv-ico{width:40px;height:40px;flex:none;border-radius:11px;border:1px solid rgba(79,216,255,.26);
-  background:rgba(79,216,255,.06);color:#8BE9FF;display:flex;align-items:center;justify-content:center;cursor:pointer}
-.jv-ico:hover{background:rgba(79,216,255,.15)}
-.jv-ico.on{background:rgba(224,162,43,.18);border-color:rgba(224,162,43,.5);color:var(--gold)}
-.jv-send{width:40px;height:40px;flex:none;border-radius:11px;border:0;cursor:pointer;
-  background:linear-gradient(150deg,var(--arc2),var(--arc));color:#04121A;display:flex;align-items:center;justify-content:center}
-.jv-send:disabled{opacity:.35;cursor:default}
-.jv-hint{font-family:'Space Mono',ui-monospace,monospace;font-size:9px;color:rgba(139,233,255,.4);
-  letter-spacing:.1em;margin-top:8px;display:flex;gap:14px;flex-wrap:wrap}
+.jv-in{flex:1;background:rgba(56,189,248,.05);border:1px solid rgba(56,189,248,.24);border-radius:10px;
+  padding:11px 13px;color:#F2FCFF;font-size:14px;font-family:inherit;resize:none;max-height:132px;line-height:1.5}
+.jv-in:focus{outline:none;border-color:rgba(56,189,248,.6);box-shadow:0 0 0 3px rgba(56,189,248,.12),0 0 26px -10px rgba(56,189,248,.8)}
+.jv-in::placeholder{color:rgba(127,216,255,.34)}
+.jv-ico{width:40px;height:40px;flex:none;border-radius:10px;border:1px solid rgba(56,189,248,.24);
+  background:rgba(56,189,248,.05);color:var(--arc2);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:.16s}
+.jv-ico:hover{background:rgba(56,189,248,.14);border-color:rgba(56,189,248,.45)}
+.jv-ico.on{background:linear-gradient(180deg,rgba(224,162,43,.24),rgba(224,162,43,.1));
+  border-color:rgba(224,162,43,.5);color:var(--gold);box-shadow:0 0 18px -6px rgba(224,162,43,.9)}
+.jv-send{width:40px;height:40px;flex:none;border-radius:10px;border:0;cursor:pointer;
+  background:linear-gradient(150deg,var(--arc2),var(--arc) 55%,var(--cob));color:#04121A;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 0 20px -6px rgba(56,189,248,.95)}
+.jv-send:disabled{opacity:.3;cursor:default;box-shadow:none}
+.jv-hint{font-family:'Space Mono',ui-monospace,monospace;font-size:9px;color:rgba(127,216,255,.38);
+  letter-spacing:.12em;margin-top:9px;display:flex;gap:14px;flex-wrap:wrap;text-transform:uppercase}
 
-.jv-picker{position:absolute;left:14px;right:14px;bottom:72px;max-height:260px;overflow-y:auto;z-index:5;
-  background:#0B0F22;border:1px solid rgba(79,216,255,.34);border-radius:14px;padding:9px;box-shadow:0 20px 50px -18px rgba(0,0,0,.9)}
-.jv-psearch{width:100%;background:rgba(79,216,255,.07);border:1px solid rgba(79,216,255,.24);border-radius:9px;
-  padding:8px 11px;color:#EAF9FF;font-size:13px;font-family:inherit;margin-bottom:7px}
-.jv-psearch:focus{outline:none;border-color:rgba(79,216,255,.6)}
+/* -------------------------------------------------------------- the picker */
+.jv-picker{position:absolute;left:16px;right:16px;bottom:74px;max-height:260px;overflow-y:auto;z-index:5;
+  background:linear-gradient(180deg,#0F1433,#080B20);border:1px solid rgba(56,189,248,.32);border-radius:12px;
+  padding:9px;box-shadow:0 20px 50px -18px rgba(0,0,0,.95),inset 0 1px 0 rgba(127,216,255,.1)}
+.jv-psearch{width:100%;background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.22);border-radius:8px;
+  padding:8px 11px;color:#F2FCFF;font-size:13px;font-family:inherit;margin-bottom:7px}
+.jv-psearch:focus{outline:none;border-color:rgba(56,189,248,.55)}
 .jv-prow{display:block;width:100%;text-align:left;background:none;border:0;color:#CDEBF8;padding:8px 10px;
-  border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit}
-.jv-prow:hover{background:rgba(79,216,255,.13)}
-.jv-prow i{display:block;font-style:normal;font-size:11px;color:rgba(139,233,255,.5);margin-top:1px}
-.jv-pempty{padding:12px;text-align:center;color:rgba(139,233,255,.45);font-size:12.5px}
+  border-radius:8px;cursor:pointer;font-size:13px;font-family:inherit;transition:.14s}
+.jv-prow:hover{background:linear-gradient(90deg,rgba(43,77,224,.42),rgba(43,77,224,.12));color:#fff;
+  box-shadow:inset 2px 0 0 var(--arc)}
+.jv-prow i{display:block;font-style:normal;font-size:11px;color:rgba(127,216,255,.48);margin-top:1px}
+.jv-pempty{padding:12px;text-align:center;color:rgba(127,216,255,.42);font-size:12.5px}
 
 @media(prefers-reduced-motion:reduce){.jv[data-busy="1"] .jv-arc{animation:none}}
-@media(max-width:720px){.jv{height:calc(100vh - 210px)}.jv-msg{max-width:96%}.jv-meter{display:none}}
+@media(max-width:720px){.jv{height:calc(100vh - 210px)}.jv-msg{max-width:96%}.jv-meter{display:none}
+  .jv-hud i{width:11px;height:11px}}
 `;
+
+/* The circuit backdrop. Same grammar as SidebarArt in App.jsx — a faint 26px
+   grid, traces that turn at right angles the way real ones do, and nodes where
+   they terminate — so the assistant reads as part of the same machine. */
+const JarvisArt = () => (
+  <svg className="jv-art" viewBox="0 0 900 600" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="jvtr" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stopColor="#38BDF8" stopOpacity=".5"/>
+        <stop offset="55%" stopColor="#2B4DE0" stopOpacity=".28"/>
+        <stop offset="100%" stopColor="#2B4DE0" stopOpacity=".07"/>
+      </linearGradient>
+      <radialGradient id="jvnd"><stop offset="0%" stopColor="#7FD8FF"/><stop offset="100%" stopColor="#38BDF8" stopOpacity="0"/></radialGradient>
+      <pattern id="jvgr" width="26" height="26" patternUnits="userSpaceOnUse">
+        <path d="M26 0H0V26" fill="none" stroke="#5B8DEF" strokeOpacity=".05" strokeWidth="1"/>
+      </pattern>
+    </defs>
+    <rect width="900" height="600" fill="url(#jvgr)"/>
+    <g fill="none" stroke="url(#jvtr)" strokeWidth="1" strokeLinecap="square">
+      <path d="M40 70 L40 180 L64 204 L64 360 L44 380 L44 540"/>
+      <path d="M64 240 L120 240 L136 256 L136 330"/>
+      <path d="M860 50 L860 170 L832 198 L832 330 L852 350 L852 546"/>
+      <path d="M832 230 L770 230 L752 248 L752 320"/>
+      <path d="M136 470 L136 512 L158 534 L240 534"/>
+      <path d="M752 430 L752 486 L730 508 L648 508"/>
+    </g>
+    <g fill="url(#jvnd)">
+      <circle cx="64" cy="204" r="7"/><circle cx="136" cy="330" r="6"/>
+      <circle cx="832" cy="198" r="7"/><circle cx="752" cy="320" r="6"/>
+      <circle cx="240" cy="534" r="5"/><circle cx="648" cy="508" r="5"/>
+    </g>
+  </svg>
+);
 
 const ICONS = { note: StickyNote, task: ListTodo, followup: CalendarClock, tag: AtSign };
 
@@ -303,7 +391,9 @@ export default function Jarvis({
     <>
       <style>{CSS}</style>
       <div className="jv" data-busy={busy ? '1' : '0'}>
+        <JarvisArt />
         <div className="jv-scan" />
+        <div className="jv-hud"><i /><i /><i /><i /></div>
 
         <div className="jv-top">
           <div className="jv-arc" />
