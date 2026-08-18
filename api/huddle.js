@@ -13,7 +13,10 @@ import { guard, sweep } from './_guard.js';
 export default async function handler(req, res) {
   // Signed-in users only, plus per-IP and a global daily ceiling. These
   // endpoints cost money, so an open one is a direct line to the card.
-  const gate = await guard(req, res, { name: 'huddle', perIp: 6, perDay: 300, requireAuth: true });
+  // The digest is assembled by the app, not typed by a human, so its size is
+  // bounded by the install. 60k leaves room for a big one and still stops a
+  // hand-rolled body from turning into a $2 call.
+  const gate = await guard(req, res, { name: 'huddle', perIp: 6, perDay: 300, maxChars: 60000, requireAuth: true });
   if (!gate.ok) return;
   sweep();
 

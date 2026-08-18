@@ -27,15 +27,47 @@ export const MEETING_KINDS = ['internal', 'client'];
 
 const S = v => String(v == null ? '' : v);
 const A = v => (Array.isArray(v) ? v : []);
+/* an object field read off a stored row, which may be null, a string, or an
+   array if something upstream went wrong */
+const O = v => (v && typeof v === 'object' && !Array.isArray(v) ? v : {});
 const isoOf = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export const todayISO = () => isoOf(new Date());
 export const mlUid = () => 'ml' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
-/* An empty extraction. Every consumer can read every field without guarding. */
+/* An empty extraction. Every consumer can read every field without guarding.
+
+   The last seven are asked for on client meetings only (api/meeting-log.js),
+   but they are empty rather than absent on an internal one, so every reader
+   treats both kinds identically instead of branching on `kind`. */
 export const emptyExtraction = () => ({
   title: '', headline: '', summary: '', themes: [], decisions: [],
   actions: [], numbers: [], risks: [], openItems: [], loopReview: [],
+  wants: [], objections: [], budget: { stated: '', paying: '', note: '' },
+  commitments: [], people: [],
+  temperature: { read: '', why: '' },
+  nextStep: { what: '', who: '', when: '' },
 });
+
+/* WHICH OF THE SEVEN CAN BE OFFERED TO A REP.
+
+   Not a UI preference — the reason each field is on one list and not the
+   other:
+
+   SHAREABLE   wants, commitments, people, nextStep. Facts, and facts the
+     client would recognise as their own. A rep walking into the next call is
+     worse at their job without them.
+   OWNER ONLY  objections, budget, temperature. `temperature` is a judgement
+     the prompt is explicitly told not to soften. `objections` is a fact, but
+     it is the sentence most likely to be misread once it is stripped of the
+     tone that made it fine in the room — "pushed back on price" reads as a
+     problem when it was a shrug. `budget` is the owner's conversation.
+
+   This list only decides what the publish box is SEEDED with. Nothing here
+   publishes anything: the seed is a draft in a textarea, and it reaches a lead
+   only when an owner edits it and presses the button. See Detail in
+   src/MeetingLog.jsx. */
+export const SHAREABLE_FIELDS = ['wants', 'commitments', 'people', 'nextStep'];
+export const OWNER_ONLY_FIELDS = ['objections', 'budget', 'temperature'];
 
 /* Nothing has been published to the lead until an owner presses the button,
    so an empty `shared` is the correct state for every new log. */
@@ -88,6 +120,14 @@ export const normLog = (r) => {
       title: S(e.title), headline: S(e.headline), summary: S(e.summary),
       themes: A(e.themes), decisions: A(e.decisions), actions: A(e.actions),
       numbers: A(e.numbers), risks: A(e.risks), openItems: A(e.openItems), loopReview: A(e.loopReview),
+      /* the seven client fields. Named here for the same reason as everything
+         above: a field the extraction writes and normLog does not read saves
+         fine and vanishes on the next refresh. */
+      wants: A(e.wants), objections: A(e.objections),
+      budget: { stated: S(O(e.budget).stated), paying: S(O(e.budget).paying), note: S(O(e.budget).note) },
+      commitments: A(e.commitments), people: A(e.people),
+      temperature: { read: S(O(e.temperature).read), why: S(O(e.temperature).why) },
+      nextStep: { what: S(O(e.nextStep).what), who: S(O(e.nextStep).who), when: S(O(e.nextStep).when) },
     },
   };
 };
@@ -138,8 +178,70 @@ export const meetingLogsOf = (lead, logs) => {
     attendees: A(l.attendees),
     published: !!(l.shared && l.shared.text),
     sharedText: (l.shared && l.shared.text) || '',
+    /* The structured block. All seven, INCLUDING the three that are never
+       seeded into the publish box — this row is rendered from meeting_logs,
+       which no rep can read a single row of (MEETING-MIGRATION.sql), so it is
+       the owner looking at their own record. The shareable/owner-only split
+       governs what gets OFFERED for publishing, not what an owner may see on
+       a lead they own. */
+    wants: A(l.extraction && l.extraction.wants),
+    objections: A(l.extraction && l.extraction.objections),
+    budget: { ...emptyExtraction().budget, ...O(l.extraction && l.extraction.budget) },
+    commitments: A(l.extraction && l.extraction.commitments),
+    people: A(l.extraction && l.extraction.people),
+    temperature: { ...emptyExtraction().temperature, ...O(l.extraction && l.extraction.temperature) },
+    nextStep: { ...emptyExtraction().nextStep, ...O(l.extraction && l.extraction.nextStep) },
     derived: true,
   }));
+};
+
+/* The DRAFT line the publish box opens with.
+
+   Built from the four shareable fields and nothing else. Every sentence here
+   is something the client themselves said or agreed to, so a rep reading it
+   back learns what they need for the next call and learns nothing about how
+   the meeting was read.
+
+   It is a DRAFT. It is put in a textarea the owner edits, and it becomes
+   something a rep can see only when they press the button — so this function
+   choosing well is a convenience, not the control. The control is that
+   publishing is a human action.
+
+   Falls back to the headline when there is nothing shareable, which is what
+   every log written before these fields existed looks like. */
+export const shareSeed = (log) => {
+  const e = (log && log.extraction) || {};
+  const lines = [];
+
+  const wants = A(e.wants).map(w => S(w && w.want).trim()).filter(Boolean);
+  if (wants.length) lines.push('They want: ' + wants.join('; ') + '.');
+
+  /* the two sides read as different sentences on purpose. "We agreed to send a
+     quote" and "they agreed to send a quote" are the same words with the work
+     pointing the other way, and a rep skimming a feed will not catch which is
+     which from a shared list. */
+  const ours = A(e.commitments).filter(c => c && S(c.side) !== 'client');
+  const theirs = A(e.commitments).filter(c => c && S(c.side) === 'client');
+  const one = c => S(c.what).trim() + (S(c.due) ? ' (by ' + S(c.due) + ')' : '');
+  if (ours.length) lines.push('We said we would: ' + ours.map(one).filter(Boolean).join('; ') + '.');
+  if (theirs.length) lines.push('They said they would: ' + theirs.map(one).filter(Boolean).join('; ') + '.');
+
+  const people = A(e.people).map(x => {
+    const n = S(x && x.name).trim();
+    if (!n) return '';
+    const bits = [S(x.role).trim(), S(x.influence) === 'decides' ? 'decides' : ''].filter(Boolean);
+    return n + (bits.length ? ' (' + bits.join(', ') + ')' : '');
+  }).filter(Boolean);
+  if (people.length) lines.push('Also involved: ' + people.join('; ') + '.');
+
+  const ns = O(e.nextStep);
+  const what = S(ns.what).trim();
+  if (what) {
+    const bits = [S(ns.who).trim(), S(ns.when).trim()].filter(Boolean);
+    lines.push('Next: ' + what + (bits.length ? ' — ' + bits.join(', ') : '') + '.');
+  }
+
+  return lines.length ? lines.join('\n') : S(e.headline);
 };
 
 /* One extracted action -> one CRM task, in the exact shape newTask() makes in

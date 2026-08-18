@@ -6698,6 +6698,63 @@ function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
     {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
   </div>);
 }
+/* The structured read on a client, rendered inside their own lead's feed.
+
+   Everything here comes from meeting_logs through meetingLogsOf, so it is on
+   screen only for someone Postgres let read that table — an owner. That is why
+   the candid three (objections, budget, the temperature read) can be shown
+   here while being deliberately absent from the draft the publish box offers.
+   The rule is about what is OFFERED for publishing to a rep, not about what an
+   owner may see on a lead they own.
+
+   Renders nothing at all when the log predates these fields, which is every
+   log written before this shipped — an empty scaffold of headings would make
+   an old meeting look like a meeting where nobody said anything. */
+const MTEMP={warm:{label:'Warm',fg:'#1F9D55',bg:'rgba(31,157,85,.10)'},
+  neutral:{label:'Neutral',fg:'#8b88a0',bg:'#F1F2F8'},
+  cool:{label:'Cooling',fg:'#b4322e',bg:'rgba(209,67,67,.10)'}};
+function MLogRow({label,children}){
+  return (<div style={{display:'flex',gap:8,marginTop:5,alignItems:'baseline'}}>
+    <span style={{flex:'none',width:86,fontSize:10.5,fontWeight:800,letterSpacing:'.04em',
+      textTransform:'uppercase',color:'#A6A2BC'}}>{label}</span>
+    <span style={{flex:1,minWidth:0,fontSize:12.5,lineHeight:1.5,color:'#56527a'}}>{children}</span>
+  </div>);
+}
+function MeetingBlock({r}){
+  const wants=r.wants||[],objections=r.objections||[],people=r.people||[];
+  const commits=r.commitments||[];
+  const ours=commits.filter(c=>c&&c.side!=='client'),theirs=commits.filter(c=>c&&c.side==='client');
+  const ns=r.nextStep||{},bud=r.budget||{},tmp=r.temperature||{};
+  const money=[bud.stated&&'budget '+bud.stated,bud.paying&&'paying '+bud.paying,bud.note].filter(Boolean).join(' · ');
+  const t=MTEMP[tmp.read]||null;
+  if(!wants.length&&!objections.length&&!people.length&&!ours.length&&!theirs.length
+     &&!ns.what&&!money&&!t) return null;
+  const commitText=c=>String(c.what||'')+(c.due?' (by '+c.due+')':'');
+  return (<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid rgba(43,77,224,.14)'}}>
+    {wants.length>0&&<MLogRow label="Wants">
+      {wants.map((w,i)=>(<span key={i}>{i?'  ·  ':''}{w.want}
+        {w.quote?<i style={{opacity:.8}}> &ldquo;{w.quote}&rdquo;</i>:null}</span>))}
+    </MLogRow>}
+    {objections.length>0&&<MLogRow label="Held back">
+      {objections.map((o,i)=>(<span key={i}>{i?'  ·  ':''}<b style={{color:'#3a3658'}}>{o.objection}</b>
+        {o.detail?' — '+o.detail:''}</span>))}
+    </MLogRow>}
+    {!!money&&<MLogRow label="Money">{money}</MLogRow>}
+    {ours.length>0&&<MLogRow label="We owe">{ours.map(commitText).join('  ·  ')}</MLogRow>}
+    {theirs.length>0&&<MLogRow label="They owe">{theirs.map(commitText).join('  ·  ')}</MLogRow>}
+    {people.length>0&&<MLogRow label="Who else">
+      {people.map(x=>x.name+(x.role?' ('+x.role+')':'')+(x.influence==='decides'?' · decides':'')).join('  ·  ')}
+    </MLogRow>}
+    {!!ns.what&&<MLogRow label="Next">
+      <b style={{color:'#3a3658'}}>{ns.what}</b>{ns.who?' — '+ns.who:''}{ns.when?' · '+ns.when:''}
+    </MLogRow>}
+    {t&&<MLogRow label="Read">
+      <span className="pill" style={{background:t.bg,color:t.fg,marginRight:6}}>{t.label}</span>
+      {tmp.why||''}
+    </MLogRow>}
+  </div>);
+}
+
 function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,events,mlogs,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
@@ -7608,7 +7665,8 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   <div style={{minWidth:0}}>
                     <div className="ftxt"><b>{a.title}</b>{a.headline?' — '+a.headline:''}</div>
                     {a.summary&&<div className="fmeta" style={{marginTop:4,lineHeight:1.55,whiteSpace:'normal'}}>{a.summary}</div>}
-                    <div className="fmeta" style={{marginTop:4}}>
+                    <MeetingBlock r={a}/>
+                    <div className="fmeta" style={{marginTop:6}}>
                       Meeting log · {a.source}{a.attendees.length?' · '+a.attendees.join(', '):''} · {fmtStamp(a.ts)}
                       {' · '}<span style={{color:a.published?'#2B4DE0':'#8b88a0',fontWeight:600}}>
                         {a.published?'a line is on this lead':'owner only'}</span>

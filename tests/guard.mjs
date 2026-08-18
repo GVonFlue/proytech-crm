@@ -74,6 +74,28 @@ console.log('\noversized input');
   ok('before any counter is touched', !store.some(r=>r.bucket.includes('t3')),
      JSON.stringify(store.map(r=>r.bucket))); }
 
+console.log('\nthe size limit is per endpoint, and says so');
+{ /* the same body against two endpoints: one that takes a pasted transcript
+     and one that takes a sheet link. A single shared default cannot be right
+     for both, which is the whole point of setting it per call site. */
+  const body={transcript:'x'.repeat(150000)};
+  const big=mkRes(); const gb=await guard(mkReq('6.6.6.6',body),big,{name:'t7a',maxChars:260000});
+  ok('a 150k transcript gets through an endpoint sized for one', gb.ok===true, 'code '+big.code);
+  const small=mkRes(); const gs=await guard(mkReq('6.6.6.6',body),small,{name:'t7b',maxChars:4000});
+  ok('and is refused by one that is not', gs.ok===false&&small.code===413, 'code '+small.code); }
+{ const res=mkRes();
+  await guard(mkReq('7.7.7.7',{q:'x'.repeat(9000)}),res,{name:'t8',maxChars:5000});
+  const b=res.body||{};
+  const hint=String(b.hint||'');
+  /* the sender's actual question is "how much has to come out", and it cannot
+     be answered from the limit alone */
+  ok('the message states the actual size', /9,0\d\d/.test(hint), hint);
+  ok('and the limit for THIS endpoint', /5,000/.test(hint), hint);
+  ok('and the machine-readable pair is there too', b.chars>9000&&b.limit===5000,
+     JSON.stringify({chars:b.chars,limit:b.limit}));
+  ok('over = how much to trim', b.over===b.chars-b.limit, JSON.stringify({over:b.over}));
+  ok('the size reported is the whole body, not one field', b.chars>9000&&b.chars<9100, String(b.chars)); }
+
 console.log('\nauth');
 store.length=0;
 { const res=mkRes();

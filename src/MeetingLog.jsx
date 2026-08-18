@@ -7,7 +7,7 @@ import {
 import { BRAND } from './lib/brand';
 import {
   MEETING_SOURCES, newMeetingLog, normLog, sortLogs, taskFromAction,
-  pendingActions, openLoops, todayISO, internalLogs,
+  pendingActions, openLoops, todayISO, internalLogs, shareSeed,
 } from './lib/meetinglog';
 
 /* ============================================================
@@ -171,9 +171,13 @@ function Composer({ me, leads, onCancel, onSaved, saveLog }) {
   }, [q, leads]);
 
   const chars = text.trim().length;
+  /* Kept in step with the server's own cap in api/meeting-log.js. This one is
+     the courtesy — it greys the button out before a long paste is uploaded
+     only to bounce. The server's is the actual limit. */
+  const MAX = 200000;
   /* A client meeting with no lead attached has nowhere to go, so it is not a
      valid record — block it here rather than saving an orphan. */
-  const ready = chars >= 200 && chars <= 120000 && (!client || !!lead);
+  const ready = chars >= 200 && chars <= MAX && (!client || !!lead);
 
   const run = async () => {
     setBusy(true); setErr('');
@@ -185,7 +189,14 @@ function Composer({ me, leads, onCancel, onSaved, saveLog }) {
           kind, leadName: lead ? (lead.name || lead.company || '') : '', priorOpen: [],
         }),
       });
-      const j = await r.json();
+      const j = await r.json().catch(() => ({}));
+      /* 413 comes from the guard, before the handler runs, so it has no `ok`
+         field and its `hint` carries the two numbers that answer the only
+         question worth asking here — how much has to come out. Losing that and
+         showing the bare "too long" leaves the sender trimming blind. */
+      if (r.status === 413) {
+        throw new Error([j.error || 'That is too long to process in one go.', j.hint].filter(Boolean).join(' '));
+      }
       if (!j.ok) throw new Error(j.error || 'Could not read that transcript.');
       const rec = {
         ...newMeetingLog(me, kind),
@@ -283,7 +294,7 @@ function Composer({ me, leads, onCancel, onSaved, saveLog }) {
       <div className="sec-hint" style={{ marginTop: 8 }}>
         {chars.toLocaleString()} characters
         {chars > 0 && chars < 200 ? ' · too short to read' : ''}
-        {chars > 120000 ? ' · too long, split it into two meetings' : ''}
+        {chars > MAX ? ` · ${(chars - MAX).toLocaleString()} over the ${MAX.toLocaleString()} limit, split it into two meetings` : ''}
         {client && !lead ? ' · pick a lead before reading it' : ''}
       </div>
 
@@ -302,10 +313,15 @@ function Detail({ log, tasks, saveTasks, leadName, publishToLead, me, deleteLog,
   const pending = useMemo(() => pendingActions(log, tasks), [log, tasks]);
   const [picked, setPicked] = useState(() => new Set(pending.filter(a => a.tier === 'now').map(a => a.title)));
   const [added, setAdded] = useState(0);
-  /* Seeded from the headline because that is the one line already written to
-     be read on its own. It is a starting point, not the thing that gets
-     published — the owner edits it before it goes anywhere. */
-  const [share, setShare] = useState(log.shared.text || e.headline || '');
+  /* Seeded from the four shareable fields — what they want, what each side
+     committed to, who else is involved, what happens next (shareSeed, and the
+     reasoning next to SHAREABLE_FIELDS in lib/meetinglog.js). The read on the
+     person, their objections and anything about money are NOT in here.
+
+     A DRAFT, not a decision. It sits in a textarea the owner edits, and it
+     reaches the lead only when they press the button below. Nothing on this
+     screen publishes on its own. */
+  const [share, setShare] = useState(log.shared.text || shareSeed(log) || '');
   const [pubBusy, setPubBusy] = useState(false);
   const [pubErr, setPubErr] = useState('');
 
@@ -404,8 +420,14 @@ function Detail({ log, tasks, saveTasks, leadName, publishToLead, me, deleteLog,
 
         <div className="field" style={{ marginTop: 12 }}>
           <label>Line for the lead&rsquo;s activity feed</label>
-          <textarea rows={3} value={share} onChange={ev => setShare(ev.target.value)}
+          <textarea rows={6} value={share} onChange={ev => setShare(ev.target.value)}
             placeholder="One or two sentences a rep can act on. Nothing candid." />
+          <div className="sec-hint" style={{ marginTop: 6 }}>
+            Drafted from what they want, what each of you committed to, who else is involved and
+            what happens next. Your read on them, their objections and anything about money are
+            deliberately not in it. Edit it however you like — nothing goes anywhere until you
+            press the button.
+          </div>
         </div>
 
         <div className="mtg-warn" style={{ marginTop: 10 }}>

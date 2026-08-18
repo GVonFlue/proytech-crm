@@ -49,7 +49,9 @@ function explain(status, body) {
 export default async function handler(req, res) {
   // Signed-in users only, plus per-IP and a global daily ceiling. These
   // endpoints cost money, so an open one is a direct line to the card.
-  const gate = await guard(req, res, { name: 'sheet-read', perIp: 40, perDay: 1500, requireAuth: true });
+  // A sheet link and a tab name. Nothing legitimate is anywhere near this, so
+  // the tightest limit in the app belongs here.
+  const gate = await guard(req, res, { name: 'sheet-read', perIp: 40, perDay: 1500, maxChars: 4000, requireAuth: true });
   if (!gate.ok) return;
   sweep();
 

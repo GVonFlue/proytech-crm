@@ -69,7 +69,11 @@ Return ONLY valid JSON, no markdown fences, no preamble:
 export default async function handler(req, res) {
   // Signed-in users only, plus per-IP and a global daily ceiling. These
   // endpoints cost money, so an open one is a direct line to the card.
-  const gate = await guard(req, res, { name: 'conversation', perIp: 20, perDay: 600, requireAuth: true });
+  // 210k, not the 12k default: this endpoint takes a pasted email thread and
+  // already refuses one over 200k itself (below). On the default that check was
+  // dead code — every thread over 12k was rejected up here instead, with a
+  // message about a limit the product never advertised.
+  const gate = await guard(req, res, { name: 'conversation', perIp: 20, perDay: 600, maxChars: 210000, requireAuth: true });
   if (!gate.ok) return;
   sweep();
 

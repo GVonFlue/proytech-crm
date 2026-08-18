@@ -87,6 +87,11 @@ async function bump(bucket, limit, windowMin) {
  *   windowMin window length in minutes         (default 10)
  *   perDay    GLOBAL cap across all callers    (default 2000)
  *   maxChars  reject bodies larger than this   (default 12000)
+ *             ALWAYS set this per endpoint. The default is sized for a chat
+ *             box; an endpoint that takes a pasted transcript needs twenty
+ *             times it, and one that takes a lead id needs a fiftieth. A
+ *             shared default is either a paste that fails for no visible
+ *             reason or a hole big enough to run the bill up through.
  *   requireAuth  verify a Supabase JWT         (default false)
  */
 export async function guard(req, res, opts = {}) {
@@ -108,9 +113,18 @@ export async function guard(req, res, opts = {}) {
   // --- 3. input size, checked before anything expensive ---------------------
   const raw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body || {});
   if (raw.length > maxChars) {
+    // State BOTH numbers. "Limit is about 12k" leaves the one question the
+    // sender actually has unanswered — how much of what they pasted has to
+    // go — and they find out by trimming blind and trying again. The raw
+    // counts go alongside the prose so a client can render its own hint
+    // without parsing English.
+    const n = v => v.toLocaleString('en-US');
     res.status(413).json({
       error: 'That is too long to process in one go.',
-      hint: `Limit is about ${Math.floor(maxChars / 1000)}k characters.`,
+      hint: `That request was ${n(raw.length)} characters and the limit here is ${n(maxChars)}. Trim about ${n(raw.length - maxChars)}.`,
+      chars: raw.length,
+      limit: maxChars,
+      over: raw.length - maxChars,
     });
     return { ok: false };
   }

@@ -48,12 +48,25 @@ globalThis.__LEADS__=[
 /* one client meeting on l1, one internal Sunday meeting. The transcript is
    the thing that must never appear anywhere near the leads table. */
 const SECRET='CANDID READ: she is bluffing about the other agency';
+/* the three that must never be drafted into the publish box, kept as distinct
+   strings so a leak is a substring match rather than a reading of the text */
+const OBJECTION='thinks the price is high for what it is';
+const PAYING='900 a month to Boomtown';
+const READ_WHY='she stopped asking questions after the price came up';
 globalThis.__MLOGS__=[
   {id:'ml_client',kind:'client',leadId:'l1',meetingDate:dayISO(3),source:'Notes',attendees:['Garrett','Rita'],
    transcript:SECRET,createdAt:ago(3),createdBy:'Garrett',shared:{text:'',at:'',by:'',activityId:''},
    extraction:{title:'Alvarez discovery',headline:'She wants the CRM before listing season',
      summary:'Rita runs eleven agents and is drowning in spreadsheet handoffs.',
-     themes:[],decisions:[],actions:[],numbers:[],risks:[],openItems:[{key:'send-quote',title:'Send the quote'}],loopReview:[]}},
+     themes:[],decisions:[],actions:[],numbers:[],risks:[],openItems:[{key:'send-quote',title:'Send the quote'}],loopReview:[],
+     wants:[{want:'stop rekeying listings by hand',quote:'I retype everything twice'}],
+     objections:[{objection:OBJECTION,detail:'went quiet after the number'}],
+     budget:{stated:'4000 dollars',paying:PAYING,note:''},
+     commitments:[{side:'us',what:'send the quote',due:'2026-08-22'},
+                  {side:'client',what:'loop in her broker',due:''}],
+     people:[{name:'Dana Ruiz',role:'office manager',influence:'decides'}],
+     temperature:{read:'cool',why:READ_WHY},
+     nextStep:{what:'demo the pipeline board',who:'Garrett',when:'2026-08-24'}}},
   {id:'ml_internal',kind:'internal',meetingDate:dayISO(5),source:'Voice memo',attendees:['Garrett','Logan'],
    transcript:'internal talk',createdAt:ago(5),createdBy:'Garrett',
    extraction:{title:'Sunday CEO',headline:'Pricing needs to move',summary:'.',
@@ -96,6 +109,19 @@ ok('the meeting shows on the lead', /Alvarez discovery/.test(modalTxt()), modalT
 ok('its summary is there to read', /drowning in spreadsheet handoffs/.test(modalTxt()));
 ok('it is marked owner only', /owner only/i.test(modalTxt()));
 ok('the transcript is NOT on the lead', !modalTxt().includes('bluffing'));
+
+console.log('\nthe derived row shows the structured read, not one line');
+ok('what she wants', /stop rekeying listings by hand/.test(modalTxt()));
+ok('in her own words', /I retype everything twice/.test(modalTxt()));
+ok('what we owe her', /send the quote/.test(modalTxt()));
+ok('what she owes us', /loop in her broker/.test(modalTxt()));
+ok('who else is involved', /Dana Ruiz/.test(modalTxt()));
+ok('what happens next', /demo the pipeline board/.test(modalTxt()));
+/* the candid three DO belong here — this block is rendered from meeting_logs,
+   which a rep cannot read a row of, so this is the owner on their own lead */
+ok('the objection, for the owner reading their own lead', modalTxt().includes(OBJECTION));
+ok('the budget, for the owner', /4000 dollars/.test(modalTxt()));
+ok('the read on the meeting, for the owner', /Cooling/.test(modalTxt()));
 ok('opening the lead wrote nothing', globalThis.__WRITES__.length===0,
    JSON.stringify(globalThis.__WRITES__.map(w=>w.id)));
 
@@ -122,8 +148,19 @@ const logRow=[...document.querySelectorAll('.hli')].find(e=>/Alvarez discovery/.
 if(logRow) await click(logRow); await settle(110);
 ok('the client log opened', /What Rita Alvarez/.test(document.body.textContent||'')||/On the lead/.test(document.body.textContent||''));
 const ta=[...document.querySelectorAll('textarea')].pop();
-ok('a line is offered, seeded from the headline', !!ta&&/listing season/.test(ta.value||''), ta&&ta.value);
+const draft=(ta&&ta.value)||'';
+ok('a draft line is offered', !!draft, draft);
+ok('it carries what she wants', /stop rekeying listings by hand/.test(draft), draft);
+ok('what each side committed to', /send the quote/.test(draft)&&/loop in her broker/.test(draft), draft);
+ok('who else is involved', /Dana Ruiz/.test(draft));
+ok('and what happens next', /demo the pipeline board/.test(draft));
+/* the point of the split: this box is the one thing on the screen that can put
+   text somewhere a rep reads, so the candid three are not drafted into it */
+ok('NOT her objection', !draft.includes(OBJECTION), draft);
+ok('NOT what she pays today', !draft.includes(PAYING)&&!/4000/.test(draft), draft);
+ok('NOT the read on the meeting', !/cool/i.test(draft)&&!draft.includes(READ_WHY), draft);
 ok('still nothing written to the lead', L1().length===beforeW, 'l1 writes='+L1().length);
+ok('and the draft is editable, not fixed', !!ta&&!ta.readOnly&&!ta.disabled);
 
 console.log('\npublishing writes exactly one activity, and only what was typed');
 await setV(ta,'She wants this live before listing season. Get the quote out.');
