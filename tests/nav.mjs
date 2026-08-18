@@ -93,7 +93,7 @@ ok('the new order held', tabs()[0]==='Dashboard'&&tabs()[1]==='Tasks', tabs().sl
 await click(btn(/^Reorder tabs$/)); await settle();
 await click(btn(/Reset to default/)); await settle();
 const w2=globalThis.__USER_WRITES__.at(-1);
-ok('reset writes the default order', w2 && w2.nav_order[0]==='dash' && w2.nav_order[1]==='board',
+ok('reset writes the default order', w2 && w2.nav_order[0]==='dash' && w2.nav_order[1]==='jarvis' && w2.nav_order[2]==='board',
    JSON.stringify(w2&&w2.nav_order.slice(0,3)));
 
 console.log('\nit degrades if the column was never added');

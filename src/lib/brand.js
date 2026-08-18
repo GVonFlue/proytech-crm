@@ -59,6 +59,13 @@ export const BRAND = {
   },
 };
 
+/* The in-CRM assistant's name. Per-tenant on purpose: the internal ProyTech
+   install calls it something we would not ship to a client, and this is a one
+   env var difference rather than a fork. Set VITE_AI_NAME per Vercel project.
+   Default is deliberately neutral so a client install can never inherit an
+   internal name by forgetting to set it. */
+export const AI_NAME = val(import.meta.env.VITE_AI_NAME, 'Assistant');
+
 export const icon = f => `/brands/${BRAND.id}/${f}`;
 
 /* Supabase creds are REQUIRED — no fallback on purpose. */

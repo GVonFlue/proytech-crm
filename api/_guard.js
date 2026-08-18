@@ -158,5 +158,7 @@ export async function guard(req, res, opts = {}) {
 export async function sweep() {
   if (Math.random() > 0.01) return;
   const cutoff = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
-  await sb(`api_hits?at=lt.${cutoff}`, { method: 'DELETE' }).catch(() => {});
+  // Spend rows live in this same table and the monthly ledger must survive the
+  // 48h sweep, so only rate-limit rows (cost is null) are deleted.
+  await sb(`api_hits?at=lt.${cutoff}&cost=is.null`, { method: 'DELETE' }).catch(() => {});
 }

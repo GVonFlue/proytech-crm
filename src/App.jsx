@@ -13,13 +13,14 @@ import {
   BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
-  Ticket,
+  Ticket, Bot,
   Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2
 } from 'lucide-react';
 import JSZip from 'jszip';
 import MeetingLog from './MeetingLog';
+import Jarvis from './Jarvis';
 import { auth, db, configured } from './lib/supabase';
-import { BRAND } from './lib/brand';
+import { BRAND, AI_NAME } from './lib/brand';
 
 /* ===================== brand ===================== */
 const COBALT=BRAND.colors.cobalt, INDIGO=BRAND.colors.indigo, INK=BRAND.colors.ink, GOLD=BRAND.colors.gold, GREEN=BRAND.colors.green, RED=BRAND.colors.red;
@@ -315,7 +316,7 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
+const ALL_MODULES=[['jarvis',AI_NAME],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -2547,6 +2548,13 @@ export default function App(){
         st={...st,modules:st.modules.includes('sponsors')?st.modules:[...st.modules,'sponsors'],modulesV:5};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
+      /* Without this the tab ships INVISIBLE: any install that has ever opened
+         the modules screen has a saved settings.modules array that predates it,
+         and nothing looks broken. ENGINEERING.md §1. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<6){
+        st={...st,modules:st.modules.includes('jarvis')?st.modules:[...st.modules,'jarvis'],modulesV:6};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
@@ -2581,6 +2589,23 @@ export default function App(){
   const teamNames=users.length?users.filter(u=>u.active!==false).map(u=>u.name):BRAND.team;
   /* relationships are people, not deals — keep them out of the sales views */
   const bizLeads=useMemo(()=>leads.filter(l=>!l.isRelationship),[leads]);
+
+  /* Lifted from below the auth early-returns so the Jarvis metrics hook can sit
+     with every other hook. Same predicate as before, still the only one. */
+  /* a rep with no readable row (signed in, never added) is still a rep —
+     never fall back to "not a rep", which would hand them every tab. */
+  const repUser=rep?(myUser||{id:myUid,name:me,role:'rep',pools:[],tabs:[],commission_pct:0,active:true}):null;
+  /* a rep's world: their own leads, and the pools they've been given */
+  const myPools=(repUser&&repUser.pools)||(myUser&&myUser.pools)||[];
+  const inMyWorld=l=>!rep||l.owner_id===myUid||l.owner===me||(l.pool&&myPools.includes(l.pool));
+  const scoped=leads.filter(inMyWorld);
+  const scopedBiz=bizLeads.filter(inMyWorld);
+  /* Jarvis is a second screen, and ENGINEERING.md §2 says two screens must never
+     disagree — so every dollar it reports comes out of useMetrics, the SAME hook
+     the Dashboard uses, over the SAME scopedBiz list. Jarvis derives no money of
+     its own. A rep gets null: the figures never enter the request at all. */
+  const jvMetrics=useMetrics(scopedBiz,stages,settings);
+  const jvMoney=rep?null:{mrr:jvMetrics.mrr,openPipeline:jvMetrics.pipelineValue,revenueMonth:jvMetrics.revenueMonth,collectedMonth:jvMetrics.collectedMonth,outstanding:jvMetrics.outstanding,wonValue:jvMetrics.wonValue,avgDeal:jvMetrics.avgDeal,retainers:jvMetrics.retainers,winRate:jvMetrics.winRate};
   /* leaderboard: a rep cannot read other reps' leads, so the ranking comes
      from a security-definer DB function (names + counts, never dollars). */
   useEffect(()=>{ let dead=false;
@@ -3045,21 +3070,16 @@ export default function App(){
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
      early-returns above. */
-  /* a rep with no readable row (signed in, never added) is still a rep —
-     never fall back to "not a rep", which would hand them every tab. */
-  const repUser=rep?(myUser||{id:myUid,name:me,role:'rep',pools:[],tabs:[],commission_pct:0,active:true}):null;
+  /* repUser / myPools / inMyWorld / scoped / scopedBiz are declared with the
+     hooks at the top of App — Jarvis needs useMetrics over scopedBiz, and a
+     hook cannot live down here after the auth early-returns. */
   const canSee=k=>canOpen(settings,repUser,k);
   const view=canSee(page)?page:'dash';
-  /* a rep's world: their own leads, and the pools they've been given */
-  const myPools=(repUser&&repUser.pools)||(myUser&&myUser.pools)||[];
-  const inMyWorld=l=>!rep||l.owner_id===myUid||l.owner===me||(l.pool&&myPools.includes(l.pool));
-  const scoped=leads.filter(inMyWorld);
-  const scopedBiz=bizLeads.filter(inMyWorld);
   /* A rep sees only tasks addressed to them by name. "Both" is the owners'
      shared list and is none of their business. (UI filter over a shared blob —
      see BUILD-NOTES; the blob itself is not splittable by RLS.) */
@@ -3073,8 +3093,8 @@ export default function App(){
     const others=tasks.filter(t=>t.owner!==me);
     saveTasks([...(next||[]).filter(t=>t.owner===me),...others]);
   };
-  const titles={dash:['Dashboard','The whole board at a glance'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],mlog:['Meeting Log','Paste a transcript · Claude pulls out what matters'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
-  if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; }
+  const titles={dash:['Dashboard','The whole board at a glance'],jarvis:[AI_NAME,'Ask the CRM anything'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],mlog:['Meeting Log','Paste a transcript · Claude pulls out what matters'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; titles.jarvis=[AI_NAME,'Ask about your leads · flag anything to the owner']; }
   /* the leaderboard the DB gave us; pre-migration an owner can still see one
      computed locally (an owner can read every lead, a rep never could). */
   const localBoard=()=>reps.filter(u=>u.active!==false).map(u=>{ const mine=leads.filter(l=>l.isClient&&l.convertedAt&&l.owner_id===u.id);
@@ -3141,6 +3161,7 @@ export default function App(){
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
+          view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead}/>:
           view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
