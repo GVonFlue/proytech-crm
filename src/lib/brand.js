@@ -59,6 +59,19 @@ export const BRAND = {
   },
 };
 
+/* The in-CRM assistant's name. Per-tenant on purpose: the internal ProyTech
+   install calls it something we would not ship to a client, and this is a one
+   env var difference rather than a fork. Set VITE_AI_NAME per Vercel project.
+
+   The default is keyed off BRAND.id rather than hardcoded, so OUR install is
+   JARVIS out of the box while a client project — which sets its own
+   VITE_BRAND_ID — still falls back to the neutral name. Forgetting to set a
+   var must never leak an internal name into somebody else's CRM. */
+export const AI_NAME = val(
+  import.meta.env.VITE_AI_NAME,
+  BRAND.id === 'proytech' ? 'JARVIS' : 'Assistant',
+);
+
 export const icon = f => `/brands/${BRAND.id}/${f}`;
 
 /* Supabase creds are REQUIRED — no fallback on purpose. */
