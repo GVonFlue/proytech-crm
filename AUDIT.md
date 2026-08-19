@@ -7,9 +7,9 @@ Read against `ENGINEERING.md` §2 ("two screens must never disagree") and §4
 
 **Fixed**, tests in `tests/moneyaudit.mjs`, each written to fail against the old
 code — verified by stashing the fix and re-running:
-**#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**.
+**#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**, **#6**.
 
-**Still open:** #6, #7, #9, #10, #11, #12, #16, #20.
+**Still open:** #7, #9, #10, #11, #12, #16, #20.
 
 **Found while fixing** — added below as #19 and #20.
 
@@ -191,7 +191,7 @@ cheapest credibility win in this list.
 
 ---
 
-## 6. The pipeline drilldown double-counts upsells and has no total
+## 6. The pipeline drilldown double-counts upsells and has no total — **FIXED**
 
 **Where:** 3927–3939.
 
@@ -209,9 +209,16 @@ total. The tile shows a dollar figure the panel never restates, so the §2 rule
 "a drilldown's total must equal the sum of its own rows" cannot even be checked
 by eye.
 
-**Fix:** restrict `ups` to won leads to match `useMetrics`, and put
-`usd(m.pipelineValue)` in the header. Two hours with a test that the rows sum to
-the tile.
+**Fixed.** `ups` is now `won && upsellValueOf(l) > 0`, matching `useMetrics`,
+and the header states the value as well as the row count.
+
+Measured before the fix, with an open lead carrying a $700 upsell inside its
+$2,200 `dealValue`: the panel listed it twice and its rows summed to **$3,800**
+against a tile of **$3,100**. The test asserts the rows sum to the header and
+the header equals the tile.
+
+Note the panel survives the Pipeline tab being switched off (#17) — it hangs off
+the dashboard tile, not the board.
 
 ---
 

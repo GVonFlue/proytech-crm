@@ -102,7 +102,29 @@ const FREEBIE = {
   retainerActive:false, retainer:0,
 };
 
-globalThis.__LEADS__=[ALVAREZ, KAUFMANN, PENDING, LOST, THISMONTH, FREEBIE];
+/* OPEN + UPSELL — the #6 case. An open lead whose deal rows include an
+   upsell-stamped one. dealValue (2,200) already contains that 700, so counting
+   it again as an upsell row made the panel sum to more than the tile. */
+const OPENUPSELL = {
+  id:'l_openups', name:'Both Ways', company:'Both Ltd', stage:'proposal', owner:'Garrett',
+  createdAt:'2026-08-03T10:00:00.000Z', dealValue:2200, meetings:[], activities:[],
+  deals:[{ id:'d1', label:'Site', setup:1500 },
+         { id:'d2', label:'Extra module', setup:700, upsell:true }],
+  closedDeals:[], payments:[], retainerActive:false, retainer:0,
+};
+
+/* A WON client with an upsell — this one SHOULD appear as an upsell row, because
+   useMetrics counts it in upsellValue and its dealValue is not in openValue. */
+const WONUPSELL = {
+  id:'l_wonups', name:'Repeat Custom', company:'Repeat Ltd', stage:'signed',
+  isClient:true, owner:'Garrett', createdAt:'2026-06-05T10:00:00.000Z',
+  convertedAt:'2026-07-05', closedAt:'2026-07-05',
+  dealValue:900, meetings:[], activities:[],
+  deals:[{ id:'d3', label:'Phase two', setup:900, upsell:true }],
+  closedDeals:[], payments:[], retainerActive:false, retainer:0,
+};
+
+globalThis.__LEADS__=[ALVAREZ, KAUFMANN, PENDING, LOST, THISMONTH, FREEBIE, OPENUPSELL, WONUPSELL];
 
 /* A hand-entered income row and an owner contribution, both this month.
    The #1 case: the old dashboard ignored both, the old Money page counted both. */
@@ -228,17 +250,68 @@ console.log('\n#4 avg deal size divides by the deals in its own total');
 console.log('\n#5 the win rate prints the sample that its own percentage used');
 {
   const a = norm();
-  /* Won: Alvarez, Kaufmann, Dana(pending) = 3. Lost: 1. Rate = 75%.
+  /* Won: Alvarez, Kaufmann, ThisMonth, Freebie, Repeat Custom, and Dana who is
+     awaiting payment = 6. Lost: 1. 6/7 = 86%.
      The old caption printed wonCount — cash-confirmed only — which is 2, and
      "(2W · 1L)" is 67%, so the card contradicted itself. */
-  ok('the rate is 83%', /83%/.test(a), a.match(/Win Rate.{0,90}/)?.[0]);
-  ok('  and the sample says 5W · 1L', /5W\s*·\s*1L/.test(a), a.match(/decided deals.{0,60}/)?.[0]);
+  ok('the rate is 86%', /86%/.test(a), a.match(/Win Rate.{0,90}/)?.[0]);
+  ok('  and the sample says 6W · 1L', /6W\s*·\s*1L/.test(a), a.match(/decided deals.{0,60}/)?.[0]);
   ok('  and it says one is awaiting payment', /1 awaiting payment, counted as won/.test(a), a.match(/awaiting payment.{0,40}/)?.[0]);
   const m = a.match(/of decided deals \((\d+)W · (\d+)L\)/);
   if (m) {
     const rate = Math.round(Number(m[1]) / (Number(m[1]) + Number(m[2])) * 100);
     ok('  the printed sample actually produces the printed rate', new RegExp(rate + '%').test(a), `${m[1]}W/${m[2]}L → ${rate}%`);
   } else ok('  the caption is parseable', false, a.match(/decided deals.{0,60}/)?.[0]);
+}
+
+/* ================== #6 — the pipeline panel must sum to the pipeline tile */
+
+console.log('\n#6 the pipeline drilldown sums to the tile it opened from');
+{
+  await nav('Dashboard'); await settle(220);
+  const tile=[...document.querySelectorAll('[class*=kpi]')].find(e=>/Open Pipeline/.test(e.textContent||''));
+  ok('the tile is on screen', !!tile);
+  /* Read the VALUE node, not the tile's concatenated text — "$3,100" followed
+     by the caption "1 lead" makes a greedy $[\d,]+ match "$3,1001". */
+  const tileVal=((tile&&tile.querySelector('.kv')||{}).textContent||'').trim();
+  /* openValue = Both Ltd 2,200 (its 700 upsell is already inside that) +
+     Dana 4,000, an open... no — Dana is signed. Open leads: Both Ltd only.
+     upsellValue = won leads' upsells = Repeat Ltd 900.
+     So pipelineValue = 2,200 + 900 = 3,100. */
+  ok('the tile reads $3,100', tileVal==='$3,100', tileVal);
+
+  if (tile) await click(tile); await settle(220);
+  const d=norm();
+  ok('the drilldown opened', /Open pipeline/.test(d));
+
+  /* THE ASSERTION THIS EXISTS FOR: the panel now states a total, and it is the
+     tile's total. Before, the header was a row COUNT and there was nothing to
+     compare. */
+  const hdr=d.match(/Open pipeline\s*(\$[\d,]+)/);
+  ok('the header states a dollar total, not just a row count', !!hdr, d.match(/Open pipeline.{0,60}/)?.[0]);
+  ok('  and it equals the tile', hdr && hdr[1]===tileVal, `tile ${tileVal} vs panel ${hdr&&hdr[1]}`);
+
+  /* The open lead with an upsell must appear ONCE. Its 700 upsell is already
+     inside its 2,200 dealValue. */
+  const rows=[...document.querySelectorAll('.drow')].map(r=>(r.textContent||'').replace(/\s+/g,' '));
+  const bothRows=rows.filter(r=>/Both Ways|Both Ltd/.test(r));
+  ok('the open lead with an upsell appears exactly once', bothRows.length===1,
+     bothRows.join(' || '));
+  ok('  at its full deal value', bothRows[0]&&/\$2,200/.test(bothRows[0]), bothRows[0]);
+  ok('  and NOT also as a $700 upsell row', !rows.some(r=>/Both/.test(r)&&/\$700/.test(r)),
+     rows.join(' || '));
+
+  /* The won client's upsell SHOULD be a row — it is what upsellValue counts. */
+  const repeatRows=rows.filter(r=>/Repeat/.test(r));
+  ok('a won client\'s upsell is still listed', repeatRows.length===1, repeatRows.join(' || '));
+  ok('  at its upsell value', repeatRows[0]&&/\$900/.test(repeatRows[0]), repeatRows[0]);
+
+  /* And the rows really do add up to the header. */
+  const sum=rows.map(r=>{ const m2=r.match(/\$([\d,]+)/); return m2?Number(m2[1].replace(/,/g,'')):0; })
+    .reduce((a,b2)=>a+b2,0);
+  ok('the rows sum to the header', hdr && sum===Number(hdr[1].slice(1).replace(/,/g,'')),
+     `rows ${sum} vs header ${hdr&&hdr[1]}`);
+  if (tile) await click(tile); await settle(150);
 }
 
 /* ============================ #8 — tile, subtitle and drilldown, one basis */
