@@ -58,6 +58,18 @@ export const db = {
   async getTasks() { return clone(S().tasks); },
   async saveTasks(list) { rec('saveTasks', { count: list.length, list: clone(list) }); S().tasks = clone(list); },
 
+  /* Playbook. Two tables, kept separate here for the same reason they are
+     separate in Postgres: kbAiContext must read the PUBLISHED surface and must
+     never be able to reach kbNotes. */
+  async getKbNotes() { return clone(S().kbNotes || []); },
+  async upsertKbNote(n) { rec('upsertKbNote', { id: n.id, note: clone(n) }); },
+  async deleteKbNote(id) { rec('deleteKbNote', { id }); },
+  async getKbPublished() { return clone(S().kbPub || []); },
+  async kbPreview(id) { rec('kbPreview', { id }); return null; },
+  async kbPublish(id) { rec('kbPublish', { id }); },
+  async kbUnpublish(id) { rec('kbUnpublish', { id }); },
+  async kbAiContext() { return clone(S().kbPub || []); },
+
   async getUsers() { return clone(S().users); },
   async whoami() { return clone(S().whoami); },
   async upsertUser(u) { rec('upsertUser', { user: clone(u) }); },

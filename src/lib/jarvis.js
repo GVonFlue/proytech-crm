@@ -39,6 +39,11 @@
    something is not a control.
    ========================================================================== */
 
+/* Extension is required. tests/jarvis.test.mjs imports THIS file directly
+   under plain Node ESM, which does not do extensionless resolution — only the
+   bundler does. Dropping the '.js' builds green and fails the suite. */
+import { kbBlock } from './kb.js';
+
 /* ------------------------------------------------------------------ basics */
 /* Declared before every use. `const` does not hoist and this file is imported
    into a module graph that renders immediately — see ENGINEERING.md §1. */
@@ -330,7 +335,7 @@ export function buildPayload(opts) {
   const {
     leads = [], question = '', pinned = [], history = [],
     rep = false, me = '', role = 'owner', stages = [], money = null,
-    tasks = [], teamNames = [],
+    tasks = [], teamNames = [], kb = [],
   } = opts || {};
 
   const detailLeads = pickDetail(leads, question, pinned);
@@ -353,6 +358,15 @@ export function buildPayload(opts) {
       role: m && m.role === 'assistant' ? 'assistant' : 'user',
       content: str(m && m.content, 2000),
     })),
+    /* PUBLISHED Playbook notes. The caller passes the result of
+       db.kbAiContext() -> kb_ai_context(), which reads kb_published and does
+       not name kb_notes, so an OWNER building this payload gets published rows
+       only, exactly like a rep.
+
+       There is deliberately NO draft filter here. A filter would imply drafts
+       can arrive and be removed, and a control one call site away from being
+       forgotten is not a control. Drafts do not arrive. */
+    kb: kbBlock(kb, question),
   };
 
   const json = JSON.stringify(payload);

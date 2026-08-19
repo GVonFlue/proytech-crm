@@ -74,6 +74,15 @@ export const auth = {
    have no such columns, so every call falls back to plain (id,data). */
 const SENTINEL = '00000000-0000-0000-0000-000000000000';
 let COLS = null;   // null = unknown, true = migrated, false = legacy schema
+/* 42P01 = table does not exist, 42883 = function does not exist. Either means
+   KB-MIGRATION.sql has not been run on this install. PGRST202 is PostgREST
+   failing to find the rpc in its schema cache, which looks the same to a user. */
+const kbMissing = e =>
+  e?.code === '42P01' || e?.code === '42883' || e?.code === 'PGRST202' ||
+  /kb_notes|kb_published|kb_preview|kb_publish|kb_unpublish|kb_ai_context/.test(
+    `${e?.message || ''} ${e?.details || ''} ${e?.hint || ''}`) && /does not exist|not find/i.test(
+    `${e?.message || ''} ${e?.details || ''} ${e?.hint || ''}`);
+
 const missingCol = e => {
   const s = `${e?.message || ''} ${e?.details || ''} ${e?.hint || ''}`.toLowerCase();
   return e?.code === '42703' || s.includes('owner_id') || s.includes('pool') || s.includes('column');
@@ -154,6 +163,78 @@ export const db = {
   async deleteMeetingLog(id) {
     const { error } = await supabase.from('meeting_logs').delete().eq('id', id);
     if (error) throw error;
+  },
+
+  /* ---- Playbook (KB-MIGRATION.sql) ----------------------------------------
+     TWO tables, and the split is the security model rather than a schema
+     preference. RLS is ROW-level and an owner and a rep are the same Postgres
+     role, so a rep allowed to read a published ROW would be allowed to read
+     every COLUMN of it — including the owner's working text. So drafts live in
+     kb_notes (owner-only) and the rep-readable surface is kb_published, which
+     has no INSERT/UPDATE/DELETE policy at all: the ONLY writer is kb_publish().
+     That is why publishing below is an rpc and not an upsert.
+
+     Every call degrades to empty on an install that has not run
+     KB-MIGRATION.sql yet — 42P01 is a missing table, 42883 a missing function.
+     Same posture as getMeetingLogs: a missing migration must not take the app
+     down, it must take the tab down. */
+  async getKbNotes() {
+    const { data, error } = await supabase.from('kb_notes')
+      .select('id,data,status,created_at,updated_at').order('updated_at', { ascending: false });
+    if (error) { if (kbMissing(error)) return []; throw error; }
+    return (data || []).map(r => ({
+      ...(r.data || {}), id: r.id, status: r.status,
+      createdAt: (r.data && r.data.createdAt) || r.created_at, updatedAt: r.updated_at,
+    }));
+  },
+  /* status is NOT written here. It is a real column that only kb_publish() and
+     kb_unpublish() move, so an ordinary save can never publish something by
+     writing the wrong field. */
+  async upsertKbNote(note) {
+    if (!note || !note.id) return;
+    const { id, status, createdAt, updatedAt, ...rest } = note;
+    const { error } = await supabase.from('kb_notes')
+      .upsert({ id, data: { ...rest, createdAt }, updated_at: new Date().toISOString() });
+    if (error) throw error;
+  },
+  async deleteKbNote(id) {
+    const { error } = await supabase.from('kb_notes').delete().eq('id', id);
+    if (error) throw error;
+  },
+  /* The rep-readable surface, read directly. Six named columns — if this ever
+     needs a seventh field, the COLUMN has to exist first, which is the whole
+     reason that table is not a jsonb blob. */
+  async getKbPublished() {
+    const { data, error } = await supabase.from('kb_published')
+      .select('id,title,category,tags,body,published_at').order('published_at', { ascending: false });
+    if (error) { if (kbMissing(error)) return []; throw error; }
+    return data || [];
+  },
+  /* The preview. This is the same function kb_publish() inserts FROM, so what
+     it returns and what a rep ends up seeing cannot disagree. The screen must
+     render THIS, never a client-side re-render of the editor's state — that
+     would be a mockup of the truth, and mockups drift. */
+  async kbPreview(id) {
+    const { data, error } = await supabase.rpc('kb_preview', { p_id: id });
+    if (error) { if (kbMissing(error)) return null; throw error; }
+    const row = Array.isArray(data) ? data[0] : data;
+    return row || null;
+  },
+  async kbPublish(id) {
+    const { error } = await supabase.rpc('kb_publish', { p_id: id });
+    if (error) throw error;
+  },
+  async kbUnpublish(id) {
+    const { error } = await supabase.rpc('kb_unpublish', { p_id: id });
+    if (error) throw error;
+  },
+  /* What JARVIS may be given. Reads kb_published and does not name kb_notes,
+     so an OWNER calling it gets published rows only, exactly like a rep. There
+     is no argument to pass to widen it. */
+  async kbAiContext() {
+    const { data, error } = await supabase.rpc('kb_ai_context');
+    if (error) { if (kbMissing(error)) return []; throw error; }
+    return data || [];
   },
   async getSettings() {
     const { data, error } = await supabase.from('app_settings').select('data').eq('id', 'main').maybeSingle();

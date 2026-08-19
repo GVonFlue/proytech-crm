@@ -1,6 +1,34 @@
-# KB-PLAN.md — internal knowledge base, plan only
+# KB-PLAN.md — internal knowledge base
 
-Status: **plan agreed, nothing built.** Written so this does not have to be
+Status: **built.** Migration run and VERIFY-RLS.md §6 passed against the real
+database before any UI existed (rep: `kb_notes` 0 rows, `kb_published` 1,
+`kb_ai_context()` 1, both leak counts 0; all three refusals raised, including
+the direct write as owner).
+
+## What changed between this plan and the build
+
+Three things. Everything else was built as written.
+
+1. **`api/kb-draft.js` instead of `kind: 'kb'` on `api/meeting-log.js`.** That
+   file's stated invariant is that every `kind` returns the SAME output schema,
+   which is what keeps its downstream consumers unchanged. A Playbook draft is
+   prose, not that extraction object, so a third kind would have broken the one
+   promise the file makes about itself. Own endpoint, own prompt, own limit.
+2. **Reps get the Playbook tab by default** (`REP_DEFAULT_TABS`). The plan only
+   covered `settings.modules`; there is a second, per-rep version of the
+   "new tabs ship invisible" trap, and without this an owner publishes a note
+   no rep can reach. Reps with a custom tab list still need it switched on.
+3. **`saveKbNote` returns the stamped note** and the editor adopts it. Without
+   that the editor kept its pre-save `updatedAt`, so the "published version is
+   behind" indicator stayed dark until the screen was re-entered — the exact
+   invisible drift the indicator exists to prevent. Caught by `tests/kb.mjs`,
+   not by the build.
+
+---
+
+Original plan follows, unchanged.
+
+Status when written: **plan agreed, nothing built.** Written so this does not have to be
 re-explained. Read `ENGINEERING.md` and `ROLES.md` first; this file assumes both.
 
 Module name in the UI: **Playbook**. Table prefix: `kb_`.

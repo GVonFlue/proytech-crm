@@ -22,6 +22,7 @@ own commission, and a leaderboard. No company money, anywhere.
 | Company revenue / MRR / forecast | **Never** |
 | Another rep's commission | **Never** |
 | Their own commission | Yes — the amount and whether it's Pending, Earned or Voided |
+| Playbook | **Published notes only.** Never a draft — a draft returns them zero rows from Postgres, same as a meeting log |
 | Settings, Clients, Invoices, The Books, Money, Relationships, Monday Huddle | Off. You can switch individual tabs on per rep; the money ones are flagged ⚠ |
 
 A rep can never see a tab you've turned off for the whole install in
@@ -81,6 +82,42 @@ a meeting in anyone's activity numbers; it's a note.
 Deleting a client log does **not** remove a line you already published. Take
 that off the lead itself.
 
+## Playbook — the one thing meant to cross
+
+The Meeting Log is owner-only and the crossing is an exception. The Playbook is
+the opposite: it exists in order to be read by reps. That makes it the first
+deliberate you-to-them channel in this system, so it is worth knowing exactly
+how it works.
+
+Every note is one of two things:
+
+- **Draft** — yours alone. A rep's login gets **zero rows**, the same way it
+  gets zero meeting logs. Not a hidden screen; Postgres refuses.
+- **Published** — every active rep can read it, and the assistant answers rep
+  questions from it.
+
+A new note is always a draft. **Publishing is a button you press**, on a screen
+that first shows you exactly what a rep will see — read back from the database,
+not re-rendered from what you typed. Nothing publishes itself and nothing
+imports wholesale.
+
+Once published, your later edits are **not** live. Reps keep reading the last
+version you approved, and the note is flagged **"Published version is behind"**
+until you publish again. That is deliberate: you should be able to half-rewrite
+something without the sales team reading it mid-thought.
+
+**Unpublish** takes a note back immediately; your draft is untouched.
+**Deleting** a published note removes it from reps at the same moment.
+
+You can start a note from a meeting recording. The recording is read once to
+draft the text and is **never stored on the note** — what saves is what you
+leave in the box after editing it. There is no transcript column on either
+Playbook table, so pay talk and pricing in a recording cannot travel with a
+note: the text simply is not kept.
+
+Reps get the Playbook tab by default. A rep who already has a custom tab list
+keeps it, so switch it on for them in **Settings → Team**.
+
 ## Turning someone off
 
 **Deactivate** ends their access at the next page load, takes them off the
@@ -98,6 +135,15 @@ Two things are **not** enforced by the database, only by the screen:
    shared blob, so they can't be split per person. Reps don't get those tabs,
    which is why it doesn't bite — but a hidden tab is not a locked door.
 
+3. **Your own Playbook drafts, in your own assistant.** A rep can never be
+   given a draft: their browser cannot obtain the text at all, so it does not
+   exist in their session to send anywhere. But Postgres cannot stop **your**
+   browser from putting **your** draft into a request to **your** assistant —
+   you are allowed to read that text, and the database cannot tell showing it
+   to you from sending it. What keeps that from happening is a test asserting
+   on what actually goes out over the network (`tests/kb.mjs`), not a policy.
+   The rep side of it is a real boundary; this side is a tested promise.
+
 Everything else — which leads a rep can read, edit, or claim; who can manage
-people; who can approve commission — is enforced in the database, and
-VERIFY-RLS.md shows you how to prove it.
+people; who can approve commission; which Playbook notes a rep can read — is
+enforced in the database, and VERIFY-RLS.md shows you how to prove it.

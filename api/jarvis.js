@@ -48,6 +48,7 @@ WHAT YOU ARE GIVEN, and what each part means:
     tier=relationship tier · via=who introduced them · v=deal value · ret=monthly retainer
   Absent keys mean empty or zero, not unknown.
 - "detail" — the full record, including recent activity history, for the few leads this question appears to be about. Only these have history.
+- "kb" — the PLAYBOOK: notes the owner has written about how the business runs. Process, how to handle an objection, how to onboard a client, vendor quirks. "full" are complete notes; "lines" are notes that exist but were not sent whole — name one and offer to go deeper if it looks like the answer. This is the house's own guidance, so prefer it over your general knowledge when a question is about how THIS business does something, and quote its actual wording where that wording is the point.
 - "openTasks" — the open task list.
 - "history" — earlier turns of this same conversation.
 
@@ -122,10 +123,17 @@ export default async function handler(req, res) {
   /* The index is the same block for every question in a session, so it is
      cached separately from the question. That is the single biggest lever on
      the bill: cache reads bill at 10% of input. */
+  /* The Playbook rides in the CACHED block: it is the same text for every
+     question in a session, and cache reads bill at 10% of input. Only the
+     ranking of which notes arrive whole varies, which is a cheap miss.
+
+     Everything here is published Playbook text — kb_ai_context() reads
+     kb_published and cannot reach a draft (KB-MIGRATION.sql). Nothing in this
+     file filters it, because nothing here needs to. */
   const stable = JSON.stringify({
     today: payload.totals && payload.totals.today,
     who: payload.who, team: payload.team,
-    totals: payload.totals, index: payload.index,
+    totals: payload.totals, index: payload.index, kb: payload.kb,
   });
   const variable = JSON.stringify({
     detail: payload.detail, openTasks: payload.openTasks,
