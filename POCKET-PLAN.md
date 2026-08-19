@@ -506,6 +506,40 @@ Nothing existing changes. No policy, table or column is altered.
 
 ---
 
+## 9b. Build log — deviations as they happened
+
+Steps 1–6 are built. Recorded here so a lost session does not lose the reasons.
+
+- **Step 2, `recording.deleted` MARKS rather than deletes.** r2 said drop the
+  row. That is wrong: an inbound webhook destroying the only stored copy of a
+  transcript is irreversible, triggered by a system we do not control, and
+  outputs may already exist. It is flagged `deletedInPocket` and moved out of
+  the queue; deleting stays an owner action in the app.
+- **Step 2, optimistic concurrency.** Not in the plan. Two deliveries for one
+  recording can land together and a plain read-then-write loses one, so the
+  merge does a conditional PATCH on `updated_at` and retries. After three misses
+  it writes unconditionally — a possibly-lost FIELD beats a definitely-lost
+  DELIVERY.
+- **Step 2, two size limits.** The raw ceiling cannot truncate (a partial body
+  can never verify), so it is a hard 413, and guard's `maxChars` is set to the
+  same number so the two cannot disagree. Transcript clamping is separate and
+  after parsing.
+- **Step 4, corroborating signals break a tie.** The plan said one strong match
+  pre-selects and equal strength never does. That made "Mark Kaufmann at Delta
+  Freight" ambiguous, which is wrong — both Marks match the name, only one also
+  matches the company, and that is EVIDENCE. So leads tying on their strongest
+  signal are separated by how much else corroborates them. Equal corroboration
+  is still a tie, and recency, alphabet and record order still decide nothing.
+- **Step 5, the UI had the same bug as the library.** `internalLogs` was
+  `!== 'client'` and so was `MeetingLog.jsx`'s internal filter chip. Both are now
+  explicit kind matches, and notes get their own chip, icon and Detail label —
+  otherwise a business note files itself under Internal and looks like it was
+  said in a meeting.
+- **Step 6, an unrecognised destination becomes `note`.** Not dropped: the
+  content still reaches a human who can refile it. Not `playbook`: that is the
+  only destination whose text other people eventually see, so the fallback is the
+  safest of the five rather than the most useful.
+
 ## 10. Build order
 
 1. `POCKET-MIGRATION.sql` + `VERIFY-RLS.md` §7 proving a rep gets zero rows from
