@@ -7,7 +7,7 @@ import {
 import { BRAND } from './lib/brand';
 import {
   MEETING_SOURCES, newMeetingLog, normLog, sortLogs, taskFromAction,
-  pendingActions, openLoops, todayISO, internalLogs, shareSeed,
+  pendingActions, openLoops, todayISO, internalLogs, noteLogs, shareSeed,
 } from './lib/meetinglog';
 
 /* ============================================================
@@ -67,9 +67,14 @@ export default function MeetingLog({ logs, tasks, leads, saveLog, deleteLog, sav
   const [kindFilter, setKindFilter] = useState('all');
   const current = all.find(l => l.id === openId) || null;
 
-  const shown = kindFilter === 'all' ? all : all.filter(l => (kindFilter === 'client' ? l.kind === 'client' : l.kind !== 'client'));
+  /* Filter on the kind EXPLICITLY. This was `l.kind !== 'client'` for the
+     internal chip, which quietly filed every business note under Internal the
+     moment a third kind existed — the same bug `internalLogs` had, in the UI.
+     A new kind must appear somewhere on purpose or not at all. */
+  const shown = kindFilter === 'all' ? all : all.filter(l => (l.kind || 'internal') === kindFilter);
   const nInternal = internalLogs(all).length;
-  const nClient = all.length - nInternal;
+  const nNote = noteLogs(all).length;
+  const nClient = all.length - nInternal - nNote;
 
   if (adding) return <Composer me={me} leads={leads} onCancel={() => setAdding(false)} onSaved={id => { setAdding(false); setOpenId(id); }} saveLog={saveLog} />;
   if (current) return <Detail log={current} tasks={tasks} saveTasks={saveTasks} leadName={leadName.get(current.leadId) || ''}
@@ -84,13 +89,16 @@ export default function MeetingLog({ logs, tasks, leads, saveLog, deleteLog, sav
       <button className="btn btn-p" onClick={() => setAdding(true)}><Plus size={15} />Log a meeting</button>
     </div>
 
-    {/* Only worth showing once both kinds exist — a filter row over one kind
-        of thing is noise. Counts sit on the chips so this doubles as the tally. */}
-    {nClient > 0 && nInternal > 0 && (
+    {/* Shown once more than one kind exists — a filter row over one kind of
+        thing is noise. Counts sit on the chips so this doubles as the tally, and
+        a chip is hidden when its kind has nothing in it rather than offering an
+        empty list. */}
+    {[nInternal, nClient, nNote].filter(n => n > 0).length > 1 && (
       <div className="afilter" style={{ marginBottom: 14 }}>
         <button className={kindFilter === 'all' ? 'on' : ''} onClick={() => setKindFilter('all')}>All ({all.length})</button>
-        <button className={kindFilter === 'internal' ? 'on' : ''} onClick={() => setKindFilter('internal')}>Internal ({nInternal})</button>
-        <button className={kindFilter === 'client' ? 'on' : ''} onClick={() => setKindFilter('client')}>Client ({nClient})</button>
+        {nInternal > 0 && <button className={kindFilter === 'internal' ? 'on' : ''} onClick={() => setKindFilter('internal')}>Internal ({nInternal})</button>}
+        {nClient > 0 && <button className={kindFilter === 'client' ? 'on' : ''} onClick={() => setKindFilter('client')}>Client ({nClient})</button>}
+        {nNote > 0 && <button className={kindFilter === 'note' ? 'on' : ''} onClick={() => setKindFilter('note')}>Notes ({nNote})</button>}
       </div>
     )}
 
@@ -120,9 +128,9 @@ export default function MeetingLog({ logs, tasks, leads, saveLog, deleteLog, sav
       <div className="kgroup">Every meeting</div>
       <div className="card">
         <div className="hlist" style={{ maxHeight: 'none' }}>
-          {shown.map(l => { const cl = l.kind === 'client'; return (
+          {shown.map(l => { const cl = l.kind === 'client', nt = l.kind === 'note'; return (
             <div className="hli" key={l.id} style={{ cursor: 'pointer', alignItems: 'flex-start' }} onClick={() => setOpenId(l.id)}>
-              {cl ? <User size={13} style={{ marginTop: 2 }} /> : <Users size={13} style={{ marginTop: 2 }} />}
+              {cl ? <User size={13} style={{ marginTop: 2 }} /> : nt ? <FileText size={13} style={{ marginTop: 2 }} /> : <Users size={13} style={{ marginTop: 2 }} />}
               <span style={{ flex: 1 }}>
                 <b style={{ display: 'block', color: '#181530' }}>{l.extraction.title || 'Untitled meeting'}</b>
                 {cl && <span style={{ display: 'block', marginTop: 2, fontWeight: 600, color: '#2B4DE0' }}>
@@ -137,7 +145,8 @@ export default function MeetingLog({ logs, tasks, leads, saveLog, deleteLog, sav
               <ChevronRight size={14} />
             </div>
           ); })}
-          {!shown.length && <div className="empty" style={{ padding: '18px 0' }}>No {kindFilter} meetings logged yet.</div>}
+          {!shown.length && <div className="empty" style={{ padding: '18px 0' }}>
+            {kindFilter === 'note' ? 'No business notes yet.' : `No ${kindFilter} meetings logged yet.`}</div>}
         </div>
       </div>
     </>)}
@@ -157,6 +166,7 @@ function Composer({ me, leads, onCancel, onSaved, saveLog }) {
   const [err, setErr] = useState('');
 
   const client = kind === 'client';
+  const note = kind === 'note';
   const lead = (leads || []).find(l => l.id === leadId) || null;
 
   /* Capped at eight. A picker that renders every lead in the install is slow
@@ -186,6 +196,10 @@ function Composer({ me, leads, onCancel, onSaved, saveLog }) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           transcript: text, brand: BRAND.name, team: BRAND.team, meetingDate: date,
+          /* A business note is read with the INTERNAL prompt: it is about the
+             business, not about a person. api/meeting-log.js maps anything that
+             is not 'client' to internal, so 'note' needs no change there and
+             that file keeps its one promise — every kind, one output schema. */
           kind, leadName: lead ? (lead.name || lead.company || '') : '', priorOpen: [],
         }),
       });
@@ -227,18 +241,23 @@ function Composer({ me, leads, onCancel, onSaved, saveLog }) {
           where the result can end up. Everything below reads differently
           depending on this one choice, so it cannot be buried. */}
       <div className="field" style={{ marginBottom: 14 }}>
-        <label>What kind of meeting</label>
+        <label>What kind of record</label>
         <div className="afilter" style={{ marginTop: 6 }}>
-          <button type="button" className={!client ? 'on' : ''} onClick={() => setKind('internal')}>
+          <button type="button" className={kind === 'internal' ? 'on' : ''} onClick={() => setKind('internal')}>
             <Users size={13} style={{ verticalAlign: '-2px', marginRight: 6 }} />Internal
           </button>
           <button type="button" className={client ? 'on' : ''} onClick={() => setKind('client')}>
             <User size={13} style={{ verticalAlign: '-2px', marginRight: 6 }} />Client
           </button>
+          <button type="button" className={note ? 'on' : ''} onClick={() => setKind('note')}>
+            <FileText size={13} style={{ verticalAlign: '-2px', marginRight: 6 }} />Business note
+          </button>
         </div>
         <div className="sec-hint" style={{ marginTop: 8 }}>
           {client
             ? <><Lock size={12} style={{ verticalAlign: '-2px', marginRight: 5 }} />Attached to a lead and read back on their record. The transcript still never leaves this table, and nothing reaches a rep until you publish a line yourself.</>
+            : note
+            ? <><Lock size={12} style={{ verticalAlign: '-2px', marginRight: 5 }} />Something worth keeping with no person attached — a vendor quirk, a decision, how something works. Owner-only, and deliberately kept OUT of the open-loop ladder and the Monday huddle so a fortnight of notes cannot bury a loop that has been open four weeks.</>
             : <><Lock size={12} style={{ verticalAlign: '-2px', marginRight: 5 }} />Owner-only, exactly as it is now. Feeds the open-loop ladder and the Monday huddle. Nothing leaves this table.</>}
         </div>
       </div>
@@ -310,6 +329,7 @@ function Composer({ me, leads, onCancel, onSaved, saveLog }) {
 function Detail({ log, tasks, saveTasks, leadName, publishToLead, me, deleteLog, onBack }) {
   const e = log.extraction;
   const client = log.kind === 'client';
+  const note = log.kind === 'note';
   const pending = useMemo(() => pendingActions(log, tasks), [log, tasks]);
   const [picked, setPicked] = useState(() => new Set(pending.filter(a => a.tier === 'now').map(a => a.title)));
   const [added, setAdded] = useState(0);
@@ -363,9 +383,13 @@ function Detail({ log, tasks, saveTasks, leadName, publishToLead, me, deleteLog,
   return (<>
     <div className="hud-top">
       <div>
-        <div className="hud-t">{e.title || 'Meeting'}</div>
+        <div className="hud-t">{e.title || (note ? 'Business note' : 'Meeting')}</div>
         <div className="hud-d">
           {client && <b style={{ color: '#2B4DE0' }}>{leadName || 'Lead no longer on file'} · </b>}
+          {/* Labelled, because everything else on this screen reads like a
+              meeting and a note is not one. It is also the visible half of the
+              rule that keeps notes out of the Sunday cadence. */}
+          {note && <span className="pill" style={{ background: '#F1F2F8', color: '#5A6178', marginRight: 8 }}>Business note · not in the huddle</span>}
           {fmtDate(log.meetingDate)} · {log.source}{log.attendees.length ? ' · ' + log.attendees.join(', ') : ''}
         </div>
       </div>

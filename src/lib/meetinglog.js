@@ -23,7 +23,13 @@
    ============================================================ */
 
 export const MEETING_SOURCES = ['Voice memo', 'Pocket AI', 'Notes', 'Other'];
-export const MEETING_KINDS = ['internal', 'client'];
+/* 'note' is an internal business note: something worth keeping that has no
+   person attached and is not a meeting — a vendor quirk, a decision, a read on
+   how something works. It exists because Pocket recordings produce them and a
+   fourth near-identical table would be the ENGINEERING §5 mistake. It is NOT a
+   Playbook draft: kb_notes is a publication queue whose whole shape is about
+   being published to reps, and it deliberately has no transcript column. */
+export const MEETING_KINDS = ['internal', 'client', 'note'];
 
 const S = v => String(v == null ? '' : v);
 const A = v => (Array.isArray(v) ? v : []);
@@ -138,12 +144,21 @@ export const sortLogs = (logs) =>
   A(logs).slice().sort((a, b) =>
     S(b.meetingDate).localeCompare(S(a.meetingDate)) || S(b.createdAt).localeCompare(S(a.createdAt)));
 
-/* The two kinds, split. `internalLogs` is what the Sunday cadence is made of:
-   the open-loop ladder and the huddle digest both run on it ALONE. Letting
-   client meetings in would bury "the LLC has been open four weeks running"
-   under a fortnight of client chatter, which is the one thing this module
-   exists to notice. */
-export const internalLogs = (logs) => A(logs).filter(l => (l && l.kind) !== 'client');
+/* The kinds, split. `internalLogs` is what the Sunday cadence is made of: the
+   open-loop ladder and the huddle digest both run on it ALONE. Letting client
+   meetings in would bury "the LLC has been open four weeks running" under a
+   fortnight of client chatter, which is the one thing this module exists to
+   notice.
+
+   THIS TESTS FOR 'internal' RATHER THAN 'NOT client', and that is not a
+   stylistic choice. It used to be `!== 'client'`, which was correct while there
+   were exactly two kinds and became a silent bug the moment a third arrived:
+   every business note would have been swept into the Sunday cadence, appearing
+   in the huddle and the open-loop ladder as though it had been said in a
+   meeting. An allow-list of one is the only version of this that survives a new
+   kind being added. */
+export const internalLogs = (logs) => A(logs).filter(l => (l && l.kind) === 'internal');
+export const noteLogs = (logs) => A(logs).filter(l => (l && l.kind) === 'note');
 export const clientLogs = (logs) => A(logs).filter(l => l && l.kind === 'client');
 
 /* Every client meeting logged against one lead, newest first.
