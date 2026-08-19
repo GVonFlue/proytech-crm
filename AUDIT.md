@@ -7,9 +7,9 @@ Read against `ENGINEERING.md` §2 ("two screens must never disagree") and §4
 
 **Fixed**, tests in `tests/moneyaudit.mjs`, each written to fail against the old
 code — verified by stashing the fix and re-running:
-**#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**, **#6**.
+**#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**, **#6**, **#7**.
 
-**Still open:** #7, #9, #10, #11, #12, #16, #20.
+**Still open:** #9, #10, #11, #12, #16, #20.
 
 **Found while fixing** — added below as #19 and #20.
 
@@ -222,7 +222,7 @@ the dashboard tile, not the board.
 
 ---
 
-## 7. Rates shown with no sample size
+## 7. Rates shown with no sample size — **FIXED**
 
 Three of these, in order of how misleading they are:
 
@@ -240,9 +240,23 @@ Three of these, in order of how misleading they are:
 the model to copy — both print their own denominators and name what they
 exclude.
 
-**Fix:** a shared `<Rate value n>` that refuses to render a percentage below
-n=5 and shows "3 of 7" instead. Half a day, and it should replace all of them at
-once so they cannot drift apart again.
+**Fixed** with a shared `<Rate part whole warnBelow goodAbove>`. Below
+`RATE_MIN_N` (5) it renders the raw figure — `3/4` — with **no percentage and no
+colour**, and explains why on hover.
+
+**Nine** sites, not the four this finding listed. The audit missed **Lead source
+ROI**, which had its own hand-rolled floor of `s.total >= 3` — so one source
+could be judged red on three leads while an identical rate elsewhere was not.
+It was found by the pattern guard, not by reading.
+
+**The pattern is enforced by a test, not by convention.** `tests/moneyaudit.mjs`
+greps the source for `Math.round(…Rate*100)` outside the component and fails if
+any exists, so a new rate cannot be written the old way without the suite
+saying so. Run against the pre-fix code it lists all nine.
+
+Also gated: the Pipeline Moving **card's** own `warn` class, which would
+otherwise have coloured the card red while the rate inside it refused to
+judge — the alarm coming back by the side door.
 
 ---
 

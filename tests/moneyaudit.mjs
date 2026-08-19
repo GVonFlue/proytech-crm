@@ -362,6 +362,79 @@ console.log('\n#8 a close worth $0 is still listed, not silently dropped');
   if (tile) await click(tile); await settle(150);
 }
 
+/* ============================== #7 — every rate goes through one component */
+
+console.log('\n#7 no rate is rendered by hand any more');
+{
+  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  /* THE PATTERN GUARD. This is the assertion that stops #7 coming back: not
+     "the current sites are fixed" but "a new site cannot be written the old
+     way without failing the suite". */
+  const body=src.split('function Rate(')[1] || '';
+  const outside=src.replace(body, '');
+  const handRolled=[...outside.matchAll(/Math\.round\(\s*[\w.]*(?:[Rr]ate|Pct)\s*\*\s*100\s*\)/g)].map(x=>x[0]);
+  ok('no hand-rolled rate percentages outside <Rate>', handRolled.length===0, handRolled.join(', '));
+  ok('the floor is defined once, as a constant', /const RATE_MIN_N=\d+/.test(src));
+  ok('and <Rate> exists to enforce it', /function Rate\(\{/.test(src));
+}
+
+console.log('\n#7 a thin sample gets a figure, never a percentage and never a colour');
+{
+  await nav('Dashboard'); await settle(260);
+  const rates=[...document.querySelectorAll('.rate')];
+  ok('rates are rendering through the component', rates.length>0, String(rates.length));
+
+  /* The rule, asserted on every rate on the page at once rather than on a
+     chosen one — so a new rate added later is covered by this too. */
+  const thin=rates.filter(e=>e.classList.contains('rate-thin'));
+  ok('at least one rate is below the floor in this fixture', thin.length>0,
+     rates.map(e=>e.textContent).join(' | '));
+  ok('NO thin rate shows a percentage',
+     thin.every(e=>!/%/.test(e.textContent||'')), thin.map(e=>e.textContent).join(' | '));
+  ok('NO thin rate carries a colour judgement',
+     thin.every(e=>!e.classList.contains('warn')&&!e.classList.contains('good')),
+     thin.map(e=>e.className+':'+e.textContent).join(' | '));
+  ok('a thin rate shows the raw figure instead',
+     thin.every(e=>/^\d+\/\d+$/.test((e.textContent||'').trim())), thin.map(e=>e.textContent).join(' | '));
+  ok('and says why, on hover', thin.every(e=>/too few to read as a rate/.test(e.getAttribute('title')||'')),
+     thin[0]&&thin[0].getAttribute('title'));
+
+  const coloured=rates.filter(e=>e.classList.contains('warn')||e.classList.contains('good'));
+  ok('every COLOURED rate is a real percentage',
+     coloured.every(e=>/%/.test(e.textContent||'')), coloured.map(e=>e.textContent).join(' | '));
+}
+
+console.log('\n#7 the funnel close rate no longer alarms on three leads');
+{
+  const closeCells=[...document.querySelectorAll('.fn-r.close')];
+  ok('the funnel is on screen', closeCells.length>0);
+  /* This is the specific case from the audit: a stage reached by a handful of
+     leads used to render a red percentage. */
+  const redOnThin=closeCells.filter(c=>{
+    const r=c.querySelector('.rate');
+    return r && r.classList.contains('warn') && !/%/.test(r.textContent||'');
+  });
+  ok('no close rate is red without a percentage behind it', redOnThin.length===0);
+  const anyRed=closeCells.filter(c=>{ const r=c.querySelector('.rate'); return r&&r.classList.contains('warn'); });
+  ok('and any red one has a sample at or above the floor',
+     anyRed.every(c=>{ const r=c.querySelector('.rate'); return /%/.test(r.textContent||''); }),
+     anyRed.map(c=>c.textContent).join(' | '));
+}
+
+console.log('\n#7 the Pipeline Moving CARD cannot alarm while its rate refuses to');
+{
+  const card=[...document.querySelectorAll('.an-card')].find(e=>/Pipeline Moving/.test(e.textContent||''));
+  ok('the card is on screen', !!card);
+  const r=card&&card.querySelector('.rate');
+  if (card && r && r.classList.contains('rate-thin')) {
+    ok('a thin sample leaves the card uncoloured too — no alarm by the side door',
+       !card.classList.contains('warn'), card.className+' :: '+r.textContent);
+  } else {
+    ok('the sample is above the floor, so the card may colour normally', true);
+  }
+  ok('and the card states its sample', /still moving/.test(card&&card.textContent||''), card&&card.textContent);
+}
+
 /* ======================================== #19 — the dead screen is gone */
 
 console.log('\n#19 the duplicate Money screen no longer exists');
