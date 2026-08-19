@@ -3480,7 +3480,6 @@ function useMetrics(leads,stages,settings,txns){
       if(h==null){ if(!(l.activities||[]).some(REAL_TOUCH)) untouched++; } else touchHrs.push(h);
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
-    let closedMonth=0;
     /* a won lead only counts once the money is confirmed — see cashConfirmed */
     let awaitingCash=0,awaitingValue=0;
     /* A lead that BOTH reached a won stage this month AND has a deal archived
@@ -3488,13 +3487,29 @@ function useMetrics(leads,stages,settings,txns){
        which is why the tile said 3 over a list of 2. The drilldown dedupes by
        lead, so the two never agreed. One lead closing is one close, however its
        money is recorded. Only a SECOND closed deal on the same lead adds again,
-       because that genuinely is another close. */
+       because that genuinely is another close.
+
+       AUDIT #8. That fixed the COUNT, and left three answers to one question:
+       the tile showed a count, its subtitle showed cash collected, and the
+       drilldown header showed the value of what closed. A deal closed this
+       month and paid next month was in one and not the others. The drilldown
+       also dropped any row worth $0, so a free close made the tile read 3 over
+       a list of 2 — the same symptom, a different cause.
+
+       So this is ONE ARRAY now and everything reads it: closedMonth is its
+       closes, closedMonthValue is its value, and the drilldown renders its
+       rows. They cannot disagree because there is nothing left to disagree
+       with. ENGINEERING §2 — make them share one function. */
+    const closedRows=[];
     leads.forEach(l=>{ const cmCount=closedDealsCountInMonth(l,mKey);
       const wonHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey;
-      if(wonHere&&!cashConfirmed(l)){ awaitingCash++; awaitingValue+=num(l.dealValue); }
-      if(cmCount>0) closedMonth+=cmCount;                    // each archived deal is a close
-      else if(wonHere&&cashConfirmed(l)) closedMonth++;      // no archived deal — the lead itself
+      const confirmed=cashConfirmed(l);
+      if(wonHere&&!confirmed){ awaitingCash++; awaitingValue+=num(l.dealValue); }
+      if(cmCount>0) closedRows.push({id:l.id,closes:cmCount,value:closedDealsInMonth(l,mKey)});
+      else if(wonHere&&confirmed) closedRows.push({id:l.id,closes:1,value:num(l.dealValue)});
     });
+    const closedMonth=closedRows.reduce((a,r)=>a+r.closes,0);
+    const closedMonthValue=closedRows.reduce((a,r)=>a+r.value,0);
 
     /* Revenue = money that actually arrived this month, from the payment dates.
        LEGACY FALLBACK: a lead closed this month with cash confirmed but NO
@@ -3593,7 +3608,7 @@ function useMetrics(leads,stages,settings,txns){
     }).filter(c=>c.lifetime>0||c.mrr>0||c.pending>0).sort((a,b)=>b.lifetime-a.lifetime);
     return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,onbNeeded,onbMonthlyOnly,
-      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,clientRevenueMonth,otherIncomeMonth,contribMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
+      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,closedMonthValue,closedRows,revenueMonth,clientRevenueMonth,otherIncomeMonth,contribMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
       meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,wonDealCount,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages,settings,txns]);
 }
@@ -3793,17 +3808,29 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
   const wonRowValue=(l,scoped)=>scoped
     ? ((l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l)?num(l.dealValue):0)+closedDealsInMonth(l,mKey))
     : ((cashConfirmed(l)?num(l.dealValue):0)+closedDealsTotal(l));
-  const wonLeads=(()=>{ const scoped=wonScope==='month';
+  /* AUDIT #8. In MONTH view the rows come straight from m.closedRows — the same
+     array the tile's count and its value are made of — so the panel renders the
+     tile rather than offering a second opinion about it. Nothing is filtered:
+     a close worth $0 is still a close, and dropping it is what made the tile
+     read 3 over a list of 2.
+     ALL TIME is a genuinely different question (every lead ever won, not this
+     month's closes) and keeps its own shape. */
+  const wonLeads=(()=>{
+    if(wonScope==='month'){
+      const byId=new Map(leads.map(l=>[l.id,l]));
+      return (m.closedRows||[]).map(r=>({l:byId.get(r.id),v:r.value,setup:r.value,deals:r.closes}))
+        .filter(r=>r.l)
+        .sort((a,b)=>(b.l.closedAt||'').localeCompare(a.l.closedAt||''));
+    }
     return leads
       .filter(l=>sOf(l.stage,stages).won||closedDealsTotal(l)>0)
-      .map(l=>({l,v:wonRowValue(l,scoped),
-        setup:(scoped?(l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l)?num(l.dealValue):0):(cashConfirmed(l)?num(l.dealValue):0)),
-        deals:(scoped?closedDealsInMonth(l,mKey):closedDealsTotal(l))}))
-      /* in month view, a lead with nothing closed THIS month isn't a row —
-         that's why July's Agent Kidd was showing under a this-month tile */
-      .filter(r=>scoped?r.v>0:(r.v>0||sOf(r.l.stage,stages).won))
+      .map(l=>({l,v:wonRowValue(l,false),
+        setup:(cashConfirmed(l)?num(l.dealValue):0),
+        deals:closedDealsTotal(l)}))
+      .filter(r=>r.v>0||sOf(r.l.stage,stages).won)
       .sort((a,b)=>(b.l.closedAt||'').localeCompare(a.l.closedAt||'')); })();
   const wonShownTotal=wonLeads.reduce((a,r)=>a+r.v,0);
+  const wonShownCloses=wonScope==='month'?wonLeads.reduce((a,r)=>a+r.deals,0):wonLeads.length;
   const retLeads=leads.filter(l=>l.retainerActive).sort((a,b)=>num(b.retainer)-num(a.retainer));
   const onboardedLeads=leads.filter(l=>l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey);
   const cold=coldList(rels||[]);
@@ -3992,7 +4019,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     <div className="kgrid">
       <Kpi variant="accent" label="Open Pipeline" value={usd(m.pipelineValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} lead${m.openCount===1?'':'s'}${m.upsellCount>0?` · ${m.upsellCount} client upsell${m.upsellCount===1?'':'s'}`:''}${G.revenue>0?` · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:''}`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
       <Kpi label="Revenue Collected" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?revenueSplit(m):'weighted forecast')+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={m.revenueMonth}/>
-      <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.clientRevenueMonth)} collected from clients`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
+      <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.closedMonthValue)} closed`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
     {drill==='pipeline'&&(()=>{ const ups=leads.filter(l=>upsellValueOf(l)>0).sort((a,b)=>upsellValueOf(b)-upsellValueOf(a));
@@ -4039,7 +4066,10 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         {!rows.length&&!legacyRows.length&&!otherRows.length&&<Empty t="Nothing collected this month yet."/>}
       </Drill>); })()}
 
-    {drill==='won'&&<Drill title="Deals closed" sub={usd(wonShownTotal)+(wonScope==='month'?' this month':' all time')} onClose={()=>setDrill(null)}>
+    {/* The header states BOTH numbers the tile shows — the count and the value —
+        so tile and panel can be checked against each other by eye, which is the
+        entire job of a drilldown (ENGINEERING §2). */}
+    {drill==='won'&&<Drill title="Deals closed" sub={`${wonShownCloses} close${wonShownCloses===1?'':'s'} · ${usd(wonShownTotal)}${wonScope==='month'?' this month':' all time'}`} onClose={()=>setDrill(null)}>
       {/* the header total is the sum of the rows below it, always — it used to
           show all-time next to a this-month tile, so the two never agreed */}
       <div className="mtab-time" style={{marginBottom:10}}>
@@ -5639,59 +5669,6 @@ function CustomPhaseAdd({settings,onAdd}){
     <button className="btn btn-p btn-sm" onClick={submit}>Add</button>
     <button className="btn btn-g btn-sm" onClick={()=>setOpenF(false)}>Cancel</button>
   </div>);
-}
-
-/* ===================== MONEY ===================== */
-function Money({leads,stages,settings,txns}){
-  const m=useMetrics(leads,stages,settings,txns);const won=leads.filter(l=>sOf(l.stage,stages).won);
-  const opt=DEFAULT_OPTIONS; const months=lastNMonths(6);
-  const setupByMonth=months.map(k=>({name:monthLabel(k),Setup:won.filter(l=>l.closedAt&&monthKey(l.closedAt)===k).reduce((a,l)=>a+num(l.dealValue),0)}));
-  const mrrByMonth=months.map(k=>{const end=k+'-31';const v=leads.filter(l=>l.retainerActive&&l.retainerStart&&l.retainerStart<=end).reduce((a,l)=>a+num(l.retainer),0);return {name:monthLabel(k),MRR:v};});
-  const sources=[...new Set(leads.map(l=>l.source).filter(Boolean))];
-  const bySource=sources.map(s=>({name:s,Value:won.filter(l=>l.source===s).reduce((a,l)=>a+num(l.dealValue)+num(l.retainer)*12,0)})).filter(d=>d.Value>0);
-  const services=[...new Set(leads.flatMap(l=>l.serviceInterest||[]))];
-  const byService=services.map(s=>({name:s.replace(' / ','/'),Deals:leads.filter(l=>(l.serviceInterest||[]).includes(s)).length})).filter(d=>d.Deals>0);
-  const funnel=stages.filter(s=>!s.lost).map((s,i,arr)=>({name:s.label,Leads:leads.filter(l=>sIdx(l.stage,stages)>=sIdx(s.key,stages)&&!sOf(l.stage,stages).lost).length}));
-  const anyMoney=m.wonValue>0||m.mrr>0;
-  return (<>
-    <div className="kgrid">
-      <Kpi variant="green" label="Closed Setup Rev" value={usd(m.wonValue)} icon={<CheckCircle2 size={14}/>} d={`${m.wonDealCount} deal${m.wonDealCount===1?'':'s'}`}/>
-      <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${usd(m.mrr*12)}/yr`}/>
-      <Kpi variant="accent" label="Weighted Pipeline" value={usd(m.weighted)} icon={<Target size={14}/>} d={`${usd(m.openValue)} unweighted`}/>
-      <Kpi label="Win Rate" value={pct(m.winRate)} icon={<Percent size={14}/>} d={`avg deal ${usdK(m.avgDeal)}`}/>
-      <Kpi label="Avg Retainer" value={usd(m.avgRet)} icon={<Repeat size={14}/>} d={`${m.retainers} active`}/>
-    </div>
-    {!anyMoney&&<div className="note" style={{marginBottom:18}}><b>These charts fill in as you close deals and turn on retainers.</b> Move a lead to a Won stage and set its Deal value + Monthly Retainer, and every number here updates automatically.</div>}
-    <div className="row r2">
-      <ChartCard title="MRR Growth" sub="Recurring revenue, last 6 months" empty={mrrByMonth.some(d=>d.MRR>0)?null:'No retainers yet.'}>
-        <div className="chart-sm"><ResponsiveContainer width="100%" height="100%"><AreaChart data={mrrByMonth} margin={{top:6,right:10,left:-8,bottom:0}}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F6"/><XAxis dataKey="name" tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false}/><YAxis tickFormatter={usdK} tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false}/>
-          <Tooltip contentStyle={tipStyle} formatter={v=>usd(v)}/><Area type="monotone" dataKey="MRR" stroke={COBALT} fill={COBALT} fillOpacity={.18} strokeWidth={3}/></AreaChart></ResponsiveContainer></div>
-      </ChartCard>
-      <ChartCard title="Setup Revenue by Month" sub="One-time cash from closes" empty={setupByMonth.some(d=>d.Setup>0)?null:'No closed setup revenue yet.'}>
-        <div className="chart-sm"><ResponsiveContainer width="100%" height="100%"><BarChart data={setupByMonth} margin={{top:6,right:10,left:-8,bottom:0}}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F6"/><XAxis dataKey="name" tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false}/><YAxis tickFormatter={usdK} tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false}/>
-          <Tooltip contentStyle={tipStyle} formatter={v=>usd(v)} cursor={{fill:'#F4F6FB'}}/><Bar dataKey="Setup" fill={INDIGO} radius={[6,6,0,0]}/></BarChart></ResponsiveContainer></div>
-      </ChartCard>
-    </div>
-    <div className="row r2">
-      <ChartCard title="Revenue by Lead Source" sub="Setup + annual recurring" empty={bySource.length?null:'No revenue attributed yet.'}>
-        <div className="chart-sm"><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={bySource} margin={{top:4,right:14,left:30,bottom:0}}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F6"/><XAxis type="number" tickFormatter={usdK} tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false}/><YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false} width={90}/>
-          <Tooltip contentStyle={tipStyle} formatter={v=>usd(v)} cursor={{fill:'#F4F6FB'}}/><Bar dataKey="Value" radius={[0,6,6,0]}>{bySource.map((e,i)=><Cell key={i} fill={PIE[i%PIE.length]}/>)}</Bar></BarChart></ResponsiveContainer></div>
-      </ChartCard>
-      <ChartCard title="Conversion Funnel" sub="How far leads get" empty={leads.length?null:'No leads yet.'}>
-        <div className="chart-sm"><ResponsiveContainer width="100%" height="100%"><BarChart layout="vertical" data={funnel} margin={{top:4,right:14,left:14,bottom:0}}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F6"/><XAxis type="number" allowDecimals={false} tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false}/><YAxis type="category" dataKey="name" tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false} width={80}/>
-          <Tooltip contentStyle={tipStyle} cursor={{fill:'#F4F6FB'}}/><Bar dataKey="Leads" fill={COBALT} radius={[0,6,6,0]}/></BarChart></ResponsiveContainer></div>
-      </ChartCard>
-    </div>
-    <ChartCard title="Service Interest" sub="Across all leads & clients" empty={byService.length?null:'No services tagged yet.'}>
-      <div className="chart-sm"><ResponsiveContainer width="100%" height="100%"><BarChart data={byService} margin={{top:6,right:10,left:-12,bottom:0}}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F6"/><XAxis dataKey="name" tick={{fontSize:10,fill:'#8E89A8'}} axisLine={false} tickLine={false} interval={0} angle={-12} textAnchor="end" height={50}/><YAxis allowDecimals={false} tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false}/>
-        <Tooltip contentStyle={tipStyle} cursor={{fill:'#F4F6FB'}}/><Bar dataKey="Deals" fill={GOLD} radius={[6,6,0,0]}/></BarChart></ResponsiveContainer></div>
-    </ChartCard>
-  </>);
 }
 
 /* ===================== SETTINGS ===================== */

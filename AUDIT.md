@@ -5,11 +5,11 @@ Read against `ENGINEERING.md` §2 ("two screens must never disagree") and §4
 
 ## Status
 
-**Fixed** (branch `fix/audit-money`, tests in `tests/moneyaudit.mjs`, each written
-to fail against the old code — verified by stashing the fix and re-running):
-**#1**, **#2**, **#3**, **#4**, **#5**, and **#17** (Pipeline switched off).
+**Fixed**, tests in `tests/moneyaudit.mjs`, each written to fail against the old
+code — verified by stashing the fix and re-running:
+**#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**.
 
-**Still open:** #6, #7, #8, #9, #10, #11, #12, and #16.
+**Still open:** #6, #7, #9, #10, #11, #12, #16, #20.
 
 **Found while fixing** — added below as #19 and #20.
 
@@ -239,7 +239,7 @@ once so they cannot drift apart again.
 
 ---
 
-## 8. "Deals Closed" tile, its subtitle and its drilldown are three different numbers
+## 8. "Deals Closed" tile, its subtitle and its drilldown are three different numbers — **FIXED**
 
 **Where:** tile 3924, drilldown 3962.
 
@@ -258,8 +258,17 @@ There is also a **count-vs-list** gap: `closedMonth` counts a lead that closed
 this month even at $0 value, but the drilldown filters rows to `r.v > 0` (3733).
 A $0 close makes the tile say 3 over a list of 2.
 
-**Fix:** subtitle should read `usd(wonShownTotal)`, and the drilldown should
-show $0 rows rather than dropping them. Half a day including the test.
+**Fixed** by making it one array. `useMetrics` now builds `closedRows`, and
+`closedMonth` (the count), `closedMonthValue` (the tile subtitle) and the
+drilldown's month rows are all read from it — so there is nothing left to
+disagree with. The drilldown header states both numbers, so tile and panel can
+be checked against each other by eye. $0 closes are listed.
+
+In the `money.mjs` fixture the closed value and the collected value happen to be
+the same $5,299, which is exactly why this survived: Paid Co and Level Up both
+closed AND were collected in the same month. A deal closed in one month and paid
+in the next is what pulls them apart, and `tests/moneyaudit.mjs` now has that
+case.
 
 ---
 
@@ -433,7 +442,7 @@ feel untrustworthy.
 
 ---
 
-## 19. `Money()` at 5609 is dead code, and I nearly fixed a bug in it
+## 19. `Money()` at 5609 is dead code, and I nearly fixed a bug in it — **DELETED**
 
 Found while fixing #4. `function Money({leads,stages,settings})` renders
 "Closed Setup Rev", a Win Rate KPI, "Avg Retainer" and several charts — and has

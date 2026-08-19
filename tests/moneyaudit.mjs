@@ -37,7 +37,7 @@ globalThis.__KB_NOTES__=[]; globalThis.__KB_PUB__=[]; globalThis.__KB_WRITES__=[
 globalThis.__USERS__=[{ id:'u_owner', name:'Garrett', email:'garrett@getproytech.com', role:'owner', pools:[], commission_pct:0, active:true, tabs:[], goal_conversions:0, nav_order:[] }];
 
 /* A revenue goal must be set or the dashboard tile shows the forecast instead. */
-globalThis.__SETTINGS__={ goals:{ revenue: 10000 } };
+globalThis.__SETTINGS__={ goals:{ revenue: 10000, closed: 5 } };
 
 /* --- the cast, built so each fix has a case that distinguishes it ---------- */
 
@@ -81,7 +81,28 @@ const LOST = {
   closedDeals:[], payments:[],
 };
 
-globalThis.__LEADS__=[ALVAREZ, KAUFMANN, PENDING, LOST];
+/* THIS MONTH — a real close, this month, cash confirmed by skipping the deposit
+   step. Gives #8 something to count. */
+const THISMONTH = {
+  id:'l_thismonth', name:'Fresh Signing', company:'Fresh Co', stage:'signed',
+  isClient:true, owner:'Garrett', createdAt:'2026-08-01T10:00:00.000Z',
+  convertedAt:D('12'), closedAt:D('12'), onbSkip:['deposit_paid'], onboarding:{},
+  dealValue:1500, deals:[], meetings:[], activities:[], closedDeals:[],
+  payments:[{ id:'p9', amount:1500, date:D('12'), note:'paid on signing' }],
+  retainerActive:false, retainer:0,
+};
+
+/* FREEBIE — a close worth $0. The tile counts it; the old drilldown filtered it
+   out with `v > 0`, so the tile read one more than the list. */
+const FREEBIE = {
+  id:'l_freebie', name:'Favour Job', company:'Favour Ltd', stage:'signed',
+  isClient:true, owner:'Garrett', createdAt:'2026-08-02T10:00:00.000Z',
+  convertedAt:D('13'), closedAt:D('13'), onbSkip:['deposit_paid'], onboarding:{},
+  dealValue:0, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
+  retainerActive:false, retainer:0,
+};
+
+globalThis.__LEADS__=[ALVAREZ, KAUFMANN, PENDING, LOST, THISMONTH, FREEBIE];
 
 /* A hand-entered income row and an owner contribution, both this month.
    The #1 case: the old dashboard ignored both, the old Money page counted both. */
@@ -122,23 +143,23 @@ console.log('\n#1 the dashboard and the Money page agree on what was collected')
   /* $2,000 in client payments + $500 hand-entered income = $2,500.
      The $9,000 owner contribution is cash, but it is NOT revenue. */
   const dash = norm();
-  ok('the dashboard says $2,500 collected', /\$2,500/.test(dash), dash.match(/Revenue Collected.{0,120}/)?.[0]);
-  ok('  broken out: from clients', /\$2,000 from clients/.test(dash), dash.match(/from clients.{0,60}/)?.[0]);
+  ok('the dashboard says $4,000 collected', /\$4,000/.test(dash), dash.match(/Revenue Collected.{0,120}/)?.[0]);
+  ok('  broken out: from clients', /\$3,500 from clients/.test(dash), dash.match(/from clients.{0,60}/)?.[0]);
   ok('  broken out: other', /\$500 other/.test(dash));
   ok('  the owner contribution is named and excluded', /\$9,000 owner contribution, not counted/.test(dash));
-  ok('  it is NOT counted in the headline', !/\$11,500/.test(dash));
+  ok('  it is NOT counted in the headline', !/\$13,000/.test(dash));
 
   await nav('Money'); await settle(220);
   const money = norm();
-  ok('the Money page says the SAME $2,500', /\$2,500/.test(money), money.match(/Collected this month.{0,140}/)?.[0]);
-  ok('  with the same breakout', /\$2,000 from clients/.test(money) && /\$500 other/.test(money));
-  /* The old Money tile summed every 'in' row: 2,000 + 500 + 9,000 = 11,500.
+  ok('the Money page says the SAME $4,000', /\$4,000/.test(money), money.match(/Collected this month.{0,140}/)?.[0]);
+  ok('  with the same breakout', /\$3,500 from clients/.test(money) && /\$500 other/.test(money));
+  /* The old Money tile summed every 'in' row: 3,500 + 500 + 9,000 = 13,000.
      Scoped to the TILE — the ledger legitimately shows total cash in elsewhere,
      including the owner contribution, and that is a cash-flow figure not a
      revenue one. */
   const tileEl=[...document.querySelectorAll('[class*=kpi]')].find(e=>/Collected this month/.test(e.textContent||''));
   ok('  the tile exists', !!tileEl);
-  ok('  and it is NOT the old all-inclusive total', !!tileEl && !/\$11,500/.test(tileEl.textContent||''),
+  ok('  and it is NOT the old all-inclusive total', !!tileEl && !/\$13,000/.test(tileEl.textContent||''),
      tileEl && tileEl.textContent);
 }
 
@@ -200,8 +221,8 @@ console.log('\n#4 avg deal size divides by the deals in its own total');
   const card=[...document.querySelectorAll('.an-card')].find(e=>/Avg Deal Size/.test(e.textContent||''));
   ok('the Avg Deal Size card is on screen', !!card, a.slice(0,160));
   const ct=(card&&card.textContent)||'';
-  ok('it reads $4,000, not $8,000', /\$4,000/.test(ct) && !/\$8,000/.test(ct), ct);
-  ok('  and says it is across 2 DEALS', /across 2 deals/.test(ct), ct);
+  ok('it reads $3,167 — 9,500 over three deals', /\$3,167/.test(ct), ct);
+  ok('  and says it is across 3 DEALS, not 2 leads', /across 3 deals/.test(ct), ct);
 }
 
 console.log('\n#5 the win rate prints the sample that its own percentage used');
@@ -210,14 +231,75 @@ console.log('\n#5 the win rate prints the sample that its own percentage used');
   /* Won: Alvarez, Kaufmann, Dana(pending) = 3. Lost: 1. Rate = 75%.
      The old caption printed wonCount — cash-confirmed only — which is 2, and
      "(2W · 1L)" is 67%, so the card contradicted itself. */
-  ok('the rate is 75%', /75%/.test(a), a.match(/Win Rate.{0,90}/)?.[0]);
-  ok('  and the sample says 3W · 1L', /3W\s*·\s*1L/.test(a), a.match(/decided deals.{0,60}/)?.[0]);
+  ok('the rate is 83%', /83%/.test(a), a.match(/Win Rate.{0,90}/)?.[0]);
+  ok('  and the sample says 5W · 1L', /5W\s*·\s*1L/.test(a), a.match(/decided deals.{0,60}/)?.[0]);
   ok('  and it says one is awaiting payment', /1 awaiting payment, counted as won/.test(a), a.match(/awaiting payment.{0,40}/)?.[0]);
   const m = a.match(/of decided deals \((\d+)W · (\d+)L\)/);
   if (m) {
     const rate = Math.round(Number(m[1]) / (Number(m[1]) + Number(m[2])) * 100);
     ok('  the printed sample actually produces the printed rate', new RegExp(rate + '%').test(a), `${m[1]}W/${m[2]}L → ${rate}%`);
   } else ok('  the caption is parseable', false, a.match(/decided deals.{0,60}/)?.[0]);
+}
+
+/* ============================ #8 — tile, subtitle and drilldown, one basis */
+
+console.log('\n#8 the Deals Closed tile and its drilldown answer the same question');
+{
+  await nav('Dashboard'); await settle(220);
+  const tile=[...document.querySelectorAll('[class*=kpi]')].find(e=>/Deals Closed/.test(e.textContent||''));
+  ok('the tile is on screen', !!tile, norm().slice(0,140));
+  const tt=(tile&&tile.textContent||'').replace(/ /g,' ');
+
+  /* Alvarez closed a $5,000 deal in JULY. Dana closed $4,000 THIS month but her
+     cash is not confirmed, so she is awaiting payment and not a close. Kaufmann
+     closed in July too. So this month has ZERO closes — and the old subtitle
+     showed cash COLLECTED ($2,500 of it, from Alvarez's payment and the
+     hand-entered income), which is a completely different question. */
+  ok('the subtitle talks about what CLOSED, not what was collected',
+     /closed/.test(tt) && !/collected/.test(tt), tt);
+  ok('  and it does not report the revenue figure', !/\$2,500/.test(tt), tt);
+
+  if (tile) await click(tile); await settle(220);
+  const d=norm();
+  ok('the drilldown opened', /Deals closed/.test(d));
+  /* The header now states BOTH numbers the tile shows, so they can be checked
+     against each other by eye. */
+  ok('the header states a close count', /\d+ close/.test(d), d.match(/Deals closed.{0,80}/)?.[0]);
+  const hdr=d.match(/(\d+) close(?:s)? · (\$[\d,]+) this month/);
+  ok('  and a value, both scoped to this month', !!hdr, d.match(/Deals closed.{0,80}/)?.[0]);
+  if (hdr) {
+    const tileCount=(tt.match(/Deals Closed(\d+)/)||[])[1];
+    ok('  the drilldown close count EQUALS the tile', hdr[1]===tileCount, `tile ${tileCount} vs panel ${hdr[1]}`);
+    ok('  and the tile subtitle carries the same value', tt.includes(hdr[2]), `${hdr[2]} not in "${tt}"`);
+  }
+  if (tile) await click(tile); await settle(150);
+}
+
+console.log('\n#8 a close worth $0 is still listed, not silently dropped');
+{
+  /* The count and the list must agree. The old drilldown filtered month rows to
+     v > 0, so a free close made the tile read one more than the list. */
+  const before=(globalThis.__LEADS__||[]).length;
+  ok('the fixture has a lead that closed this month at $0', true);
+  const tile=[...document.querySelectorAll('[class*=kpi]')].find(e=>/Deals Closed/.test(e.textContent||''));
+  const tileCount=Number(((tile&&tile.textContent||'').match(/Deals Closed(\d+)/)||[])[1]);
+  if (tile) await click(tile); await settle(220);
+  const rows=[...document.querySelectorAll('.drow')].length;
+  ok('every close the tile counted has a row', rows>=tileCount, `tile ${tileCount}, rows ${rows}`);
+  if (tile) await click(tile); await settle(150);
+}
+
+/* ======================================== #19 — the dead screen is gone */
+
+console.log('\n#19 the duplicate Money screen no longer exists');
+{
+  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  ok('function Money() is deleted', !/^function Money\(/m.test(src));
+  ok('MoneyPage — the live one — is untouched', /^function MoneyPage\(/m.test(src));
+  /* It carried its own Closed Setup Rev, Win Rate and Avg Retainer tiles. A
+     duplicate nobody can reach is still one the next person fixes in the wrong
+     place — which is exactly what happened while fixing #4. */
+  ok('its duplicate Closed Setup Rev tile went with it', !/Closed Setup Rev/.test(src));
 }
 
 /* ================================================== #17 — pipeline off */
