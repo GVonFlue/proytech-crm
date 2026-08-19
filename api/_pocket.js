@@ -104,6 +104,76 @@ export function readTranscript(t) {
 
 export const asList = v => (Array.isArray(v) ? v : []);
 
+/* Find a transcript anywhere plausible in a response object.
+ *
+ * WHY THIS EXISTS: Pocket's docs give the response ENVELOPE
+ * ({data, error, pagination, success}) and have never named the fields inside
+ * `data`. The webhook payload's shape is now known-good in the wild; the REST
+ * detail response is NOT the same shape, and a direct `rec.transcript` read
+ * came back empty against real data.
+ *
+ * So rather than guess one more key name and wait another round trip, this
+ * looks for any of the plausible names at any of the plausible depths and
+ * takes the first that yields actual text. Bounded to depth 3 and to arrays
+ * and strings — it is a search over a small object, not a crawler.
+ *
+ * Returns { value, path } so the caller can log WHERE it found one, which is
+ * how this stops being a search and becomes a known field name. */
+const TRANSCRIPT_KEYS = [
+  'transcript', 'transcription', 'transcriptSegments', 'transcript_segments',
+  'segments', 'utterances', 'turns', 'lines', 'text', 'content', 'body', 'fullText', 'full_text',
+];
+
+export function findTranscriptIn(root, maxDepth = 3) {
+  const seen = new Set();
+  let best = null;
+
+  const consider = (v, path) => {
+    if (best) return;
+    const t = readTranscript(v);
+    /* A short string is a title, not a transcript. Arrays are trusted at any
+       length because an array of speaker segments is unambiguous. */
+    if (t.text && (Array.isArray(v) || t.text.length >= 40)) best = { value: v, path, text: t.text };
+  };
+
+  const walk = (node, path, depth) => {
+    if (best || !node || typeof node !== 'object' || depth > maxDepth) return;
+    if (seen.has(node)) return;
+    seen.add(node);
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      const here = path ? `${path}.${k}` : k;
+      if (TRANSCRIPT_KEYS.includes(k) && (typeof v === 'string' || Array.isArray(v))) consider(v, here);
+      if (best) return;
+    }
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      if (v && typeof v === 'object') walk(v, path ? `${path}.${k}` : k, depth + 1);
+      if (best) return;
+    }
+  };
+
+  walk(root, '', 0);
+  return best;
+}
+
+/* Key NAMES only, to depth 2 — never values, which are transcripts. Surfaced
+   when no transcript was found, so the shape is diagnosable from the screen
+   instead of from a log nobody can reach. */
+export function keyShape(node, depth = 2, path = '') {
+  if (!node || typeof node !== 'object' || depth < 0) return [];
+  const out = [];
+  for (const k of Object.keys(node)) {
+    const v = node[k];
+    const here = path ? `${path}.${k}` : k;
+    const kind = Array.isArray(v) ? `array[${v.length}]` : v === null ? 'null' : typeof v;
+    out.push(`${here}:${kind}`);
+    if (v && typeof v === 'object' && !Array.isArray(v) && depth > 0) out.push(...keyShape(v, depth - 1, here));
+    else if (Array.isArray(v) && v.length && typeof v[0] === 'object' && depth > 0) out.push(...keyShape(v[0], depth - 1, `${here}[0]`));
+  }
+  return out.slice(0, 80);
+}
+
 /** Everything this delivery tells us about the recording. Fields it does not
  *  mention come back empty and are dropped by the merge, never written as
  *  blanks over something a previous delivery already established. */

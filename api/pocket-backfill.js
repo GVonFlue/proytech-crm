@@ -1,5 +1,5 @@
 import { guard, sweep } from './_guard.js';
-import { str, asList, readTranscript, recordingIdOf, upsertMerge, TRANSCRIPT_MAX } from './_pocket.js';
+import { str, asList, readTranscript, recordingIdOf, upsertMerge, findTranscriptIn, keyShape, TRANSCRIPT_MAX } from './_pocket.js';
 
 // api/pocket-backfill.js — pull recordings that predate the webhook.
 //
@@ -91,7 +91,15 @@ async function pocket(path) {
 function fromRest(rec) {
   const r = (rec && rec.recording) || rec || {};
   const sums = (rec && (rec.summarizations || rec.summarization)) || r.summarizations || {};
-  const t = readTranscript(rec && (rec.transcript ?? r.transcript));
+
+  /* A direct `rec.transcript` read came back empty against real data, and the
+     docs have never named the field. So this searches the plausible names at
+     the plausible depths and reports WHERE it found one — which is how the
+     next version of this file gets to be a plain property access again.
+     Falls back to the direct read so the known-good webhook shape still wins
+     if it is present. */
+  const found = findTranscriptIn(rec);
+  const t = found ? readTranscript(found.value) : readTranscript(rec && (rec.transcript ?? r.transcript));
   const full = t.text;
   const clamped = full.length > TRANSCRIPT_MAX;
 
@@ -110,6 +118,7 @@ function fromRest(rec) {
     /* Visible provenance: this row came in through the back door, not the
        webhook. Worth knowing when a field looks wrong. */
     importedAt:  new Date().toISOString(),
+    transcriptPath: found ? found.path : undefined,
   };
 }
 
@@ -187,10 +196,23 @@ export default async function handler(req, res) {
     const rec = (r.body && r.body.data) || null;
     if (!rec) { res.status(200).json({ ok: false, id, error: 'Pocket returned nothing for that recording.' }); return; }
 
-    const out = await upsertMerge(id, fromRest(rec), { event: 'backfill', at: new Date().toISOString() });
+    const patch = fromRest(rec);
+    const out = await upsertMerge(id, patch, { event: 'backfill', at: new Date().toISOString() });
     if (!out.ok) { res.status(500).json({ ok: false, id, error: 'Could not store that recording.' }); return; }
 
-    res.status(200).json({ ok: true, id, created: !!out.created });
+    /* If no transcript was found, say SO and say WHAT WAS THERE — key names and
+       types only, never values. A shape mismatch that reports itself on the
+       screen is a one-round-trip fix; one that only whispers into a log
+       somebody has to go and find is several. */
+    const shape = patch.transcript ? null : keyShape(rec);
+    if (shape) console.error('[pocket-backfill] no transcript for', id, 'shape:', JSON.stringify(shape));
+
+    res.status(200).json({
+      ok: true, id, created: !!out.created,
+      transcript: !!patch.transcript,
+      transcriptPath: patch.transcriptPath || null,
+      shape,
+    });
     return;
   }
 

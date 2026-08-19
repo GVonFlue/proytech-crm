@@ -186,6 +186,63 @@ console.log('\nimporting something the webhook already delivered makes ONE row, 
   ok('the backfill refreshed the summary', /Alvarez/.test(row.data.summary), row.data.summary);
 }
 
+console.log('\nthe transcript is found wherever Pocket actually puts it');
+{
+  /* Pocket's docs have never named the fields inside `data`, and a direct
+     rec.transcript read came back EMPTY against the real API — titles and
+     durations mapped, the transcript did not. So the finder searches the
+     plausible names at the plausible depths, and reports the path it used. */
+  const shapes = [
+    ['webhook shape (known good)',     { recording:{id:'r'}, transcript:[{speaker:'G',text:'hello there this is the recording'}] }, 'transcript'],
+    ['nested under recording',         { recording:{id:'r', transcript:[{speaker:'G',text:'hello there this is the recording'}]} }, 'recording.transcript'],
+    ['named transcription',            { recording:{id:'r'}, transcription:[{speaker:'G',text:'hello there this is the recording'}] }, 'transcription'],
+    ['an object with segments',        { recording:{id:'r'}, transcript:{ segments:[{speaker:'G',text:'hello there this is the recording'}] } }, 'transcript.segments'],
+    ['called utterances',              { recording:{id:'r'}, utterances:[{speaker:'G',text:'hello there this is the recording'}] }, 'utterances'],
+    ['a plain string',                 { recording:{id:'r'}, transcript:'a long plain string transcript that is definitely long enough' }, 'transcript'],
+  ];
+  for (const [name, detail, path] of shapes) {
+    reset();
+    POCKET_DETAIL = { ...detail, recording: { ...detail.recording, id: 'rec_sunday', title: 'T' } };
+    const res = await call({ action: 'import', id: 'rec_sunday' });
+    const row = DB.get('rec_sunday');
+    ok(name + ' → transcript stored', !!(row && row.data.transcript && row.data.transcript.length > 10),
+       row && JSON.stringify(row.data.transcript).slice(0, 60));
+    ok('  found at ' + path, res.body.transcriptPath === path, res.body.transcriptPath);
+  }
+}
+
+console.log('\na title is not mistaken for a transcript');
+{
+  reset();
+  POCKET_DETAIL = { recording: { id: 'rec_sunday', title: 'Short', text: 'tiny' } };
+  const res = await call({ action: 'import', id: 'rec_sunday' });
+  ok('a four-character string is not treated as a transcript', res.body.transcript === false, res.body.transcriptPath);
+}
+
+console.log('\nwhen no transcript is found, the SHAPE is reported — names only');
+{
+  reset();
+  POCKET_DETAIL = { recording: { id: 'rec_sunday', title: 'Sunday with Logan' },
+                    mystery: { deeplyNested: { audioUrl: 'https://x/y.mp3' } } };
+  const res = await call({ action: 'import', id: 'rec_sunday' });
+  ok('the import still succeeds — a recording without a transcript is worth having',
+     res.code === 200 && res.body.ok === true);
+  ok('it says there is no transcript', res.body.transcript === false);
+  ok('and reports the shape it DID get', Array.isArray(res.body.shape) && res.body.shape.length > 0,
+     JSON.stringify(res.body.shape));
+  ok('  as key names and types', res.body.shape.some(x => /^recording:object$/.test(x)), JSON.stringify(res.body.shape));
+  ok('  reaching nested keys', res.body.shape.some(x => /mystery\.deeplyNested/.test(x)), JSON.stringify(res.body.shape));
+  const dump = JSON.stringify(res.body.shape);
+  ok('  and NO VALUES — a shape report must never carry transcript text',
+     !dump.includes('Sunday with Logan') && !dump.includes('audioUrl.*mp3') && !dump.includes('https://'), dump);
+  reset();
+  POCKET_DETAIL = { recording: { id: 'rec_sunday', title: 'T' },
+                    transcript: [{ speaker: 'G', text: 'a real transcript with plenty of words in it' }] };
+  const good = await call({ action: 'import', id: 'rec_sunday' });
+  ok('no shape is reported when a transcript WAS found', good.body.shape === null, JSON.stringify(good.body.shape));
+  ok('  and the path it used is reported instead', good.body.transcriptPath === 'transcript');
+}
+
 console.log('\nre-importing does not resurrect something you finished with');
 {
   reset();

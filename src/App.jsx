@@ -6551,7 +6551,8 @@ function PocketImport({pockets,onDone}){
         const already=have.has(rec.id);
         setRows([...out,{...rec,state:'working'}]);
         const res=await post({action:'import',id:rec.id});
-        out.push({...rec,state:res.ok?(already?'refreshed':(res.created?'imported':'refreshed')):'failed',error:res.error||''});
+        out.push({...rec,state:res.ok?(already?'refreshed':(res.created?'imported':'refreshed')):'failed',
+          error:res.error||'',noTranscript:res.ok&&res.transcript===false,shape:res.shape||null});
         setRows([...out]);
       }
       setRows(out);
@@ -6585,6 +6586,21 @@ function PocketImport({pockets,onDone}){
     </div>}
     {rows&&rows.some(r=>r.state==='failed')&&<div className="subcell" style={{marginTop:8}}>
       {rows.filter(r=>r.state==='failed').map(r=>r.error).filter(Boolean)[0]}
+    </div>}
+    {/* Pocket has never documented the fields inside its response, so when a
+        transcript is not where we look, the screen reports the shape that came
+        back — key names and types only, never values. Diagnosable from here
+        instead of from a log you would have to go and find. */}
+    {rows&&rows.some(r=>r.noTranscript)&&<div className="mtg-warn" style={{marginTop:12}}>
+      <AlertTriangle size={15}/>
+      <div>
+        <b>{rows.filter(r=>r.noTranscript).length} imported without a transcript.</b> The recording
+        is saved and Deep extract will be unavailable on it until this is sorted. Pocket returned
+        these fields — send them over and it is a one-line fix:
+        <div style={{marginTop:6,fontFamily:'monospace',fontSize:11,whiteSpace:'pre-wrap',wordBreak:'break-all'}}>
+          {(rows.find(r=>r.noTranscript)||{}).shape?.join('\n')||'(nothing)'}
+        </div>
+      </div>
     </div>}
   </div>);
 }
