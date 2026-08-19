@@ -540,6 +540,28 @@ Steps 1–6 are built. Recorded here so a lost session does not lose the reasons
   only destination whose text other people eventually see, so the fallback is the
   safest of the five rather than the most useful.
 
+### Steps 7 and 8, built together
+
+Step 7 has no entry point without step 8 — the recording screen opens from the
+"Your day" group and from nowhere else — so shipping 7 alone would have been a
+screen no one could reach. They went in together.
+
+- **`sourcePocketId` and `sourceSegment` had to be added to `normLog` AND
+  `normKbNote` first.** Both functions name every key explicitly and drop
+  anything they do not, which is the bug they each carry a warning about. Missed
+  here, outputs would have saved fine and lost their source on the next reload.
+- **A real bug the suite caught with a green build:** `create` removed a filed
+  proposal by object identity, but the card hands back an EDITED COPY — different
+  title, body, destination. The filter never matched, so a proposal that had
+  already been filed stayed on screen and could be filed twice. The caller now
+  supplies the removal holding the original object.
+- **The recording list does not carry transcripts.** `getPocketRecordings`
+  selects named jsonb keys; the transcript arrives only when one recording is
+  opened. Fifty recordings at a few hundred KB each is tens of megabytes into the
+  browser otherwise, and ENGINEERING §7 already warns about exactly that.
+- **`total` in the "Your day" section now counts open recordings**, or its own
+  early return renders "Nothing waiting on you" over a queue of five.
+
 ## 10. Build order
 
 1. `POCKET-MIGRATION.sql` + `VERIFY-RLS.md` §7 proving a rep gets zero rows from

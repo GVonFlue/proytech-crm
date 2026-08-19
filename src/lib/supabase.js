@@ -77,6 +77,12 @@ let COLS = null;   // null = unknown, true = migrated, false = legacy schema
 /* 42P01 = table does not exist, 42883 = function does not exist. Either means
    KB-MIGRATION.sql has not been run on this install. PGRST202 is PostgREST
    failing to find the rpc in its schema cache, which looks the same to a user. */
+/* Same shape as kbMissing: POCKET-MIGRATION.sql has not been run on this
+   install, so the feature degrades to absent rather than taking the app down. */
+const pocketMissing = e =>
+  e?.code === '42P01' || e?.code === 'PGRST205' ||
+  /pocket_recordings/.test(`${e?.message || ''} ${e?.details || ''} ${e?.hint || ''}`);
+
 const kbMissing = e =>
   e?.code === '42P01' || e?.code === '42883' || e?.code === 'PGRST202' ||
   /kb_notes|kb_published|kb_preview|kb_publish|kb_unpublish|kb_ai_context/.test(
@@ -162,6 +168,59 @@ export const db = {
   },
   async deleteMeetingLog(id) {
     const { error } = await supabase.from('meeting_logs').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  /* ---- Pocket recordings (POCKET-MIGRATION.sql) ---------------------------
+     Owner-only, same policy as meeting_logs — a rep gets zero rows, proved in
+     VERIFY-RLS.md §7. Written by the service key from api/pocket-hook.js; the
+     browser reads them and moves their status.
+
+     TWO READS ON PURPOSE. The list must not carry transcripts: fifty
+     recordings at a few hundred KB each is tens of megabytes into the browser,
+     and ENGINEERING §7 already warns about loading everything into memory. So
+     the list selects named jsonb keys only, and the transcript arrives when one
+     recording is opened. */
+  async getPocketRecordings() {
+    const cols = [
+      'id', 'status', 'received_at', 'updated_at',
+      'title:data->>title', 'summary:data->>summary', 'createdAt:data->>createdAt',
+      'duration:data->>duration', 'language:data->>language',
+      'actionItems:data->actionItems', 'proposals:data->proposals',
+      'truncated:data->>truncated', 'idGuessed:data->>idGuessed',
+      'deletedInPocket:data->>deletedInPocket', 'events:data->events',
+    ].join(',');
+    const { data, error } = await supabase.from('pocket_recordings')
+      .select(cols).order('received_at', { ascending: false });
+    if (error) { if (pocketMissing(error)) return []; throw error; }
+    return (data || []).map(r => ({ ...r, duration: Number(r.duration) || 0 }));
+  },
+  /* The whole row, transcript included. Called when a recording is opened. */
+  async getPocketRecording(id) {
+    const { data, error } = await supabase.from('pocket_recordings')
+      .select('id,data,status,received_at,updated_at').eq('id', id).maybeSingle();
+    if (error) { if (pocketMissing(error)) return null; throw error; }
+    return data ? { ...(data.data || {}), id: data.id, status: data.status, received_at: data.received_at } : null;
+  },
+  async setPocketStatus(id, status) {
+    const { error } = await supabase.from('pocket_recordings')
+      .update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+  },
+  /* Caches the last segmentation so reopening the screen does not re-spend.
+     Reads the row first rather than patching blind: `data` is one jsonb column
+     and writing a bare object would drop the transcript. */
+  async savePocketProposals(id, proposals) {
+    const { data, error } = await supabase.from('pocket_recordings')
+      .select('data').eq('id', id).maybeSingle();
+    if (error) throw error;
+    const next = { ...((data && data.data) || {}), proposals };
+    const { error: e2 } = await supabase.from('pocket_recordings')
+      .update({ data: next, updated_at: new Date().toISOString() }).eq('id', id);
+    if (e2) throw e2;
+  },
+  async deletePocketRecording(id) {
+    const { error } = await supabase.from('pocket_recordings').delete().eq('id', id);
     if (error) throw error;
   },
 

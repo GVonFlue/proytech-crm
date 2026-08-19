@@ -13,7 +13,7 @@ import {
   BookText, BookOpen, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
-  Ticket, Bot,
+  Ticket, Bot, Mic,
   Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2
 } from 'lucide-react';
 import JSZip from 'jszip';
@@ -21,6 +21,7 @@ import MeetingLog from './MeetingLog';
 import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
+import Pocket from './Pocket';
 import { auth, db, configured } from './lib/supabase';
 import { BRAND, AI_NAME } from './lib/brand';
 
@@ -2566,6 +2567,11 @@ export default function App(){
   const [kbNotes,setKbNotes]=useState([]);
   const [kbPub,setKbPub]=useState([]);
   const [kbAi,setKbAi]=useState([]);
+  /* Pocket recordings. The LIST only — no transcripts, which is why
+     db.getPocketRecordings selects named jsonb keys. The transcript arrives
+     when one recording is opened. */
+  const [pockets,setPockets]=useState([]);
+  const [pocketId,setPocketId]=useState(null);
   const [importOpen,setImportOpen]=useState(false);
   const [navEdit,setNavEdit]=useState(false);   // sidebar reorder mode
   useEffect(()=>{ if(!session) return; let dead=false;
@@ -2579,6 +2585,7 @@ export default function App(){
     db.getKbNotes().then(r=>{ if(!dead) setKbNotes(r||[]); }).catch(console.error);
     db.getKbPublished().then(r=>{ if(!dead) setKbPub(r||[]); }).catch(console.error);
     db.kbAiContext().then(r=>{ if(!dead) setKbAi(r||[]); }).catch(console.error);
+    db.getPocketRecordings().then(r=>{ if(!dead) setPockets(r||[]); }).catch(console.error);
     return ()=>{dead=true;}; },[session]);
   const [navDrag,setNavDrag]=useState(null);
   const [navLocal,setNavLocal]=useState(null);  // keeps the order on screen if the save fails
@@ -2768,6 +2775,13 @@ export default function App(){
   const kbRefresh=async()=>{ const [n,p,a]=await Promise.all([db.getKbNotes(),db.getKbPublished(),db.kbAiContext()]); setKbNotes(n||[]); setKbPub(p||[]); setKbAi(a||[]); };
   const kbPublishNote=async id=>{ await db.kbPublish(id); await kbRefresh(); };
   const kbUnpublishNote=async id=>{ await db.kbUnpublish(id); await kbRefresh(); };
+
+  /* Pocket. Nothing here writes an output — outputs go through saveMlog and
+     saveKbNote, the same mutators every other screen uses, so an output made
+     from a recording is indistinguishable from one typed by hand. */
+  const pocketRefresh=async()=>{ try{ setPockets(await db.getPocketRecordings()||[]); }catch(err){ console.error(err); } };
+  const pocketStatus=async(id,status)=>{ await db.setPocketStatus(id,status); setPockets(p=>p.map(r=>r.id===id?{...r,status}:r)); if(status!=='open') setPocketId(null); };
+  const pocketDelete=async id=>{ await db.deletePocketRecording(id); setPockets(p=>p.filter(r=>r.id!==id)); };
   const delMlog=async id=>{ await db.deleteMeetingLog(id); setMlogs(p=>p.filter(x=>x.id!==id)); };
   /* THE ONE PLACE anything from a meeting log crosses into rep-readable data.
      meeting_logs is owner-only; lead activities are read by whoever owns the
@@ -3308,7 +3322,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
+          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -3332,6 +3346,14 @@ export default function App(){
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
     {celebrate&&<Celebration data={celebrate} onDone={()=>setCelebrate(null)}/>}
+    {pocketId&&(()=>{ const rec=pockets.find(r=>r.id===pocketId); if(!rec) return null;
+      return <div className="m-back" onClick={e=>{ if(e.target===e.currentTarget) setPocketId(null); }}>
+        <div className="m-wrap" style={{maxWidth:900}}><div className="m-body" style={{padding:22}}>
+          <Pocket rec={rec} leads={leads} mlogs={mlogs} kbNotes={kbNotes} me={me}
+            onClose={()=>setPocketId(null)} loadRecording={db.getPocketRecording}
+            saveLog={saveMlog} saveKbNote={saveKbNote} setStatus={pocketStatus}
+            deleteRecording={pocketDelete} saveProposals={db.savePocketProposals}/>
+        </div></div></div>; })()}
     {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
@@ -3597,7 +3619,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve}){
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings);
   const [drill,setDrill]=useState(null);
@@ -3811,7 +3833,11 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         &&String(r.m.start||'').slice(0,10)===today)
         .sort((a,b)=>(a.m.start||'').localeCompare(b.m.start||''));
       const dates=upcomingDates(leads);
-      const total=tags.length+due.length+mtgs.length+dates.length;
+      /* Recordings waiting to be worked through. Counted into `total` or the
+         early-exit below renders "Nothing waiting on you" over a queue of five
+         — the section's own emptiness check would be lying. */
+      const recs=(pockets||[]).filter(r=>r.status==='open');
+      const total=tags.length+due.length+mtgs.length+dates.length+recs.length;
       if(!total) return (<>
         <div className="kgroup" style={{marginTop:4}}>Your day</div>
         <div className="card today-clear"><CheckCircle2 size={16} color={GREEN}/>
@@ -3821,6 +3847,16 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         <div className="kgroup" style={{marginTop:4}}>Your day
           <span className="td-n">{total} thing{total===1?'':'s'}</span></div>
         <div className="card today">
+          {recs.length>0&&<div className="td-grp">
+            <div className="td-h"><Mic size={13}/>Recordings to work through · {recs.length}</div>
+            {recs.slice(0,6).map(r=>{ const n=(r.title||'Untitled recording');
+              return (<div className="td-row" key={r.id}>
+                <button className="td-name" onClick={()=>openPocket&&openPocket(r.id)}>{n}</button>
+                <span className="td-txt">{r.summary?String(r.summary).slice(0,90):'Waiting for Pocket to finish processing'}</span>
+                <span className="td-who">{r.duration?`${Math.round(r.duration/60)} min`:''}</span>
+              </div>); })}
+            {recs.length>6&&<div className="subcell">+ {recs.length-6} more</div>}
+          </div>}
           {tags.length>0&&<div className="td-grp">
             <div className="td-h"><AtSign size={13}/>Tagged you · {tags.length}</div>
             {tags.slice(0,6).map(({lead,a})=>(<div className="td-row" key={a.id}>
