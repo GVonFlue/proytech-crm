@@ -221,9 +221,17 @@ ok('a deal closed via closedDeals shows its real amount, not $0',
 ok('a deal closed in a previous month is not listed',
    !dRows.some(r=>/July Co/.test(r)), dRows.join(' || '));
 ok('the header total equals the rows shown', /\$5,299 this month/.test(sub), sub);
-/* AUDIT #1: the subtitle says "collected from clients" now, because revenue
-   can also include hand-entered income and this figure deliberately does not. */
-ok('and that is exactly what the tile says', dcTile && /\$5,299 collected from clients/.test(dcTile.d), dcTile&&dcTile.d);
+/* AUDIT #8: the subtitle reports what CLOSED, which is the question the tile
+   asks. It briefly said "collected from clients" (AUDIT #1) — still the wrong
+   question for this tile, just a more honestly labelled one. In this fixture
+   the two happen to be the same $5,299, which is exactly why the mismatch
+   survived so long: Paid Co's 4,000 and Level Up's 1,299 both closed AND were
+   collected in the same month. A deal closed in one month and paid in the next
+   is what pulls them apart. */
+ok('and that is exactly what the tile says', dcTile && /\$5,299 closed/.test(dcTile.d), dcTile&&dcTile.d);
+/* Count and list must agree — the drilldown header now carries both numbers. */
+ok('the drilldown header states the close count too', /\d+ close/.test(document.body.textContent||''),
+   (document.body.textContent||'').match(/Deals closed.{0,60}/)?.[0]);
 
 console.log('\nAll time widens it');
 const allBtn=[...document.querySelectorAll('.mtab-time button')].find(b=>/All time/.test(b.textContent||''));
