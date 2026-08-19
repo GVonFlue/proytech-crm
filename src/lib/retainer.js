@@ -21,6 +21,17 @@
    so "how many months have they paid" is unanswerable from a date alone the
    moment somebody pays two at once, pays late, or skips one.
 
+   ONE PAYMENT CAN BE BOTH. Justus's $1,498.50 is $1,249.50 of package plus
+   $249 for the first month of retainer, billed up front — not an edge case,
+   it is how the invoicing works. So a payment that spans both categories is
+   stored as TWO ROWS SHARING A `receipt` id: each row is unambiguously one
+   thing, `setupPaid` and `retainerPaid` stay honest sums, and the screen can
+   still show the one $1,498.50 that actually hit the bank.
+
+   The alternative — one row carrying {setup, retainer} amounts — was rejected
+   because it leaves `sum(p.amount)` available as an answer to a BALANCE
+   question, and that expression being available is exactly AUDIT #23.
+
    WHAT DOES *NOT* SPLIT: REVENUE. Cash is cash — a retainer payment arriving is
    money in, exactly like a deposit. allPaid() exists for that question and is
    the ONLY reader that should ever see both. Everything else asks one of the
@@ -30,6 +41,7 @@
 const num = v => { const n = Number(String(v == null ? '' : v).replace(/[^0-9.-]/g, '')); return isNaN(n) ? 0 : n; };
 const A = v => (Array.isArray(v) ? v : []);
 const S = (v, cap = 300) => String(v == null ? '' : v).slice(0, cap);
+const fmt = n => '$' + num(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /* ------------------------------------------------------------------ readers */
 
@@ -51,6 +63,21 @@ export const allPaid = l => setupPaid(l) + retainerPaid(l);
 export const allPayments = l =>
   setupPayments(l).map(p => ({ ...p, kind: 'setup' }))
     .concat(retainerPayments(l).map(p => ({ ...p, kind: 'retainer' })));
+
+/** Rows that arrived as ONE payment, grouped by their receipt id. Lets a screen
+ *  show "$1,498.50 — $1,249.50 setup · $249 retainer" instead of two entries
+ *  the owner cannot reconcile against a bank line. */
+export function receipts(l) {
+  const out = new Map();
+  for (const p of allPayments(l)) {
+    const key = S(p.receipt, 60) || ('solo:' + S(p.id, 60));
+    if (!out.has(key)) out.set(key, { receipt: key, date: S(p.date, 10), total: 0, parts: [] });
+    const g = out.get(key);
+    g.total = Math.round((g.total + num(p.amount)) * 100) / 100;
+    g.parts.push(p);
+  }
+  return [...out.values()].sort((a, b) => S(b.date).localeCompare(S(a.date)));
+}
 
 /* --------------------------------------------------------------- the months */
 
@@ -177,7 +204,9 @@ export const isReviewed = l => !!(l && l.paymentsReviewed);
 /**
  * Propose a class for every payment on a lead, WITH ITS REASON.
  *
- * Returns [{id, kind, why, certain}] where kind is 'setup' | 'retainer' | ''.
+ * Returns [{id, kind, why, certain, split?}] where kind is
+ * 'setup' | 'retainer' | 'split' | ''. A 'split' carries {setup, retainer}
+ * amounts, because one payment really can be both.
  *
  * An empty kind means NOTHING DISTINGUISHES IT and a human has to say. That is
  * deliberate and it is the whole point: the tempting default is "assume setup",
@@ -198,7 +227,7 @@ export function proposeAll(lead) {
   const counts = {};
   rows.forEach(p => { const k = String(num(p.amount)); counts[k] = (counts[k] || 0) + 1; });
 
-  return rows.map(p => {
+  const first = rows.map(p => {
     const amt = num(p.amount);
     const note = S(p.note, 200);
     const when = monthKeyOf(p.date);
@@ -206,6 +235,31 @@ export function proposeAll(lead) {
     if (!hasRetainer) return { id: p.id, kind: 'setup', why: 'this lead has never had a retainer', certain: true };
     if (start && when && when < start) return { id: p.id, kind: 'setup', why: `dated before the retainer started (${start})`, certain: true };
 
+    /* A PAYMENT THAT IS BOTH. Billing the first month of retainer on top of a
+       package deposit is normal practice, not an edge case, and it leaves a
+       signal: take the retainer off and what remains matches another payment on
+       the same lead — the two halves of the package.
+
+           1,498.50 − 249 = 1,249.50, and 1,249.50 is the second payment
+
+       Checked BEFORE the note rules on purpose. A split payment usually
+       carries a setup-shaped note — Justus's reads "square deposit", because
+       most of it is one — so a keyword would claim it first and the retainer
+       inside would stay hidden. The arithmetic is the stronger signal: it needs
+       another payment on the same lead to match to the cent, which a word in a
+       note does not.
+
+       Proposed, never assumed: offered with its arithmetic shown, and the owner
+       confirms it. */
+    if (rate > 0 && amt > rate) {
+      const rest = Math.round((amt - rate) * 100) / 100;
+      if (counts[String(rest)]) {
+        return { id: p.id, kind: 'split',
+          split: { setup: rest, retainer: rate },
+          why: `${fmt(amt)} − ${fmt(rate)} retainer = ${fmt(rest)}, which matches another payment on this lead`,
+          certain: false };
+      }
+    }
     if (RETAINER_WORDS.test(note)) return { id: p.id, kind: 'retainer', why: `the note says “${note}”`, certain: false };
     if (SETUP_WORDS.test(note))    return { id: p.id, kind: 'setup',    why: `the note says “${note}”`, certain: false };
 
@@ -216,7 +270,23 @@ export function proposeAll(lead) {
                     : 'matches the retainer amount exactly',
         certain: false };
     }
+
     return { id: p.id, kind: '', why: 'nothing distinguishes it — needs a decision', certain: false };
+  });
+
+  /* SECOND PASS. If a split was proposed, the amount left over after the
+     retainer is a package instalment — so another payment of that same amount
+     is the OTHER instalment, not a mystery. Justus's second $1,249.50 is the
+     back half of the $2,499 package, and saying so is the difference between
+     one thing to confirm and two. */
+  const halves = new Set(first.filter(x => x.kind === 'split' && x.split)
+    .map(x => String(num(x.split.setup))));
+  if (!halves.size) return first;
+  return first.map((x, i) => {
+    if (x.kind !== '' || !halves.has(String(num(rows[i].amount)))) return x;
+    return { ...x, kind: 'setup',
+      why: `matches the package instalment in the split above (${fmt(rows[i].amount)})`,
+      certain: false };
   });
 }
 
@@ -237,14 +307,31 @@ export const needsReview = lead =>
 export function applyProposals(lead, decisions) {
   const by = {};
   A(decisions).forEach(d => { if (d && d.id) by[d.id] = S(d.kind, 20); });
+  const amounts = {};
+  A(decisions).forEach(d => { if (d && d.id && d.split) amounts[d.id] = d.split; });
+
   const setup = [], retainer = [];
   setupPayments(lead).forEach(p => {
-    if (by[p.id] === 'retainer') {
-      /* The period a payment COVERS defaults to the month it arrived. Late or
-         bulk payments are corrected on the review screen; this is the sane
-         starting point, not an assertion. */
-      retainer.push({ ...p, period: monthKeyOf(p.period || p.date) });
-    } else setup.push(p);
+    const kind = by[p.id];
+    /* The period a payment COVERS defaults to the month it arrived. Late or
+       bulk payments are corrected on the review screen; this is the sane
+       starting point, not an assertion. */
+    const period = monthKeyOf(p.period || p.date);
+
+    if (kind === 'split') {
+      /* TWO ROWS, ONE RECEIPT. Each row is unambiguously one thing, and the
+         receipt id keeps them reconcilable against the single amount that
+         actually hit the bank. */
+      const sp = amounts[p.id] || {};
+      const rAmt = num(sp.retainer);
+      const sAmt = num(sp.setup) || Math.round((num(p.amount) - rAmt) * 100) / 100;
+      const rc = S(p.receipt, 60) || ('rc_' + S(p.id, 40));
+      setup.push({ ...p, id: p.id, amount: sAmt, receipt: rc });
+      retainer.push({ ...p, id: p.id + '_r', amount: rAmt, period: S(sp.period, 7) || period, receipt: rc });
+      return;
+    }
+    if (kind === 'retainer') { retainer.push({ ...p, period }); return; }
+    setup.push(p);
   });
   return {
     payments: setup,

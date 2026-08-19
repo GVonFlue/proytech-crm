@@ -540,7 +540,38 @@ sides. Both now read one predicate, `legacySettled()`.
 The money moves into **owed**, and the Revenue tile now says *"N closed this
 month with no payment logged"* so the gap is visible rather than silent.
 
-## 23. Payments are not categorised as setup vs retainer — **OPEN**
+## 23. Payments are not categorised as setup vs retainer — **OPEN, live instance confirmed**
+
+**Justus, from the live record.** A $2,499 package (closed) plus a $1,011.75
+automations deal (open), and a $249/mo retainer with the first month billed up
+front:
+
+```
+payment 1  $1,498.50  =  $1,249.50 package  +  $249 retainer
+payment 2  $1,249.50  =  $1,249.50 package
+
+TRUE owed   3,510.75 − 2,499.00 = $1,011.75   the automations, untouched
+APP SHOWS   3,510.75 − 2,748.00 =   $762.75
+UNDERSTATED BY $249 — one month of retainer, paying down a build.
+```
+
+**And one payment spans both categories.** Billing the first month on top of a
+package deposit is how the invoicing works, not an edge case, so a split payment
+is a first-class shape: two rows sharing a `receipt` id, so each row is
+unambiguously one thing while the screen can still show the single $1,498.50
+that hit the bank.
+
+The alternative — one row carrying `{setup, retainer}` amounts — was rejected
+because it leaves `sum(p.amount)` available as an answer to a **balance**
+question, and that expression being available is exactly this finding.
+
+The split is **detectable and explainable**: take the retainer off and what
+remains matches another payment on the same lead to the cent
+(`1,498.50 − 249 = 1,249.50`). It is checked *before* the note rules, because a
+split payment usually carries a setup-shaped note — Justus's reads "square
+deposit" — and a keyword would claim it first and hide the retainer inside.
+
+
 
 Surfaced by #21. Retainer payments land in the same `payments` array as deposits
 and balances, so on a retainer client `paidTotal` climbs past the one-off

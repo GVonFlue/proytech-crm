@@ -11,7 +11,7 @@ import {
   setupPaid, retainerPaid, allPaid, allPayments,
   monthsFrom, monthsDue, monthsPaid, arrears, retainerStartOf, monthKeyOf,
   proposeAll, applyProposals, needsReview, isReviewed,
-  retainerState, billsMrr, isQuoted,
+  retainerState, billsMrr, isQuoted, receipts,
 } from '../src/lib/retainer.js';
 
 let pass = 0, fail = 0;
@@ -19,110 +19,115 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); } els
 
 /* ------------------------------------------------------- THE REPORTED SHAPE */
 
-/* JUSTUS, corrected to the true record.
-   A $2,499 build already closed, a NEW $1,011.75 deal open, and two setup
-   payments: $1,498.50 and $1,249.50. A $249/mo rate is SET on the record but
-   nothing has ever been billed and no retainer payment has been made.
-
-       contracted  2,499.00 + 1,011.75 = 3,510.75
-       paid        1,498.50 + 1,249.50 = 2,748.00
-       owed                              762.75      <- correct
-
-   THE $762.75 IS RIGHT, and there is no retainer money involved in it. That it
-   also equals 1,011.75 − 249 is a COINCIDENCE, and a convincing one — it is
-   what made both of us read a retainer payment into a number that never had
-   one. The suite carries the arithmetic so nobody re-derives the wrong story.
-
-   What Justus DOES demonstrate is the other thing: a rate set on a client who
-   has never been billed. */
+/* JUSTUS — the live record, and the fixture for BOTH findings.
+ *
+ *   $2,499 package (closed) + $1,011.75 automations (open) = $3,510.75 contracted
+ *   $249/mo retainer, first month billed UP FRONT
+ *
+ *   payment 1   $1,498.50  =  $1,249.50 package  +  $249 retainer
+ *   payment 2   $1,249.50  =  $1,249.50 package
+ *
+ *   setup paid     $2,499.00   the package is fully paid
+ *   retainer paid     $249.00   one month
+ *   cash in        $2,748.00
+ *
+ *   TRUE owed   3,510.75 − 2,499.00 = $1,011.75   (the automations, untouched)
+ *   APP SHOWS   3,510.75 − 2,748.00 =   $762.75
+ *   UNDERSTATED BY $249 — one month of retainer, paying down a build.
+ *
+ * That is AUDIT #23 with a live instance and a dollar figure. It also proves
+ * a single payment can span BOTH categories, which is how the invoicing works
+ * rather than an edge case to design around.
+ */
 const JUSTUS = {
   id: 'l_justus', name: 'Justus',
-  closedDeals: [{ id: 'cd', label: 'Build', amount: 2499, closedAt: '2026-07-21' }],
-  deals: [{ id: 'd2', label: 'New build', setup: 1011.75 }],
+  closedDeals: [{ id: 'cd', label: 'Package', amount: 2499, closedAt: '2026-07-21' }],
+  deals: [{ id: 'd2', label: 'Automations', setup: 1011.75 }],
   dealValue: 1011.75,
   payments: [
     { id: 'p1', amount: 1498.50, date: '2026-07-21', note: 'square deposit' },
-    { id: 'p2', amount: 1249.50, date: '2026-08-07', note: 'balance' },
+    { id: 'p2', amount: 1249.50, date: '2026-08-07', note: '' },
   ],
-  /* the rate is set; the clock has never started */
   retainer: 249, retainerActive: true, retainerStart: '2026-07-21',
   retainerPayments: [],
 };
+const CONTRACTED = 2499 + 1011.75;
 
-console.log('\nJustus: the $762.75 is correct, and no retainer touched it');
+console.log('\nJustus today: a retainer payment is paying down a build');
 {
-  const contracted = 2499 + 1011.75;
-  ok('both payments are setup money', setupPaid(JUSTUS) === 2748, setupPaid(JUSTUS));
-  ok('no retainer money exists at all', retainerPaid(JUSTUS) === 0);
-  ok('owed is contracted minus paid', contracted - setupPaid(JUSTUS) === 762.75,
-     contracted - setupPaid(JUSTUS));
-  /* The coincidence, pinned so the wrong story cannot be re-derived from it. */
-  ok('1,011.75 − 249 lands on the same number by chance', 1011.75 - 249 === 762.75);
-  ok('  but the real subtraction is 3,510.75 − 2,748', contracted - 2748 === 762.75);
+  ok('everything sits in the setup array', setupPaid(JUSTUS) === 2748, setupPaid(JUSTUS));
+  ok('so the app understates what he owes', CONTRACTED - setupPaid(JUSTUS) === 762.75,
+     CONTRACTED - setupPaid(JUSTUS));
+  ok('  by exactly one month of retainer',
+     (CONTRACTED - 2499) - (CONTRACTED - setupPaid(JUSTUS)) === 249);
+  ok('AUDIT #23, with a live instance and a dollar figure', true);
 }
 
-console.log('\nJustus: a rate is set, so nothing has been billed');
-{
-  ok('the state is QUOTED, not active', retainerState(JUSTUS) === 'quoted', retainerState(JUSTUS));
-  ok('  even though retainerActive is on', JUSTUS.retainerActive === true);
-  ok('  and retainerStart was auto-stamped by the toggle', !!JUSTUS.retainerStart);
-  ok('it does NOT count toward MRR', billsMrr(JUSTUS) === false);
-  ok('it is visible as quoted rather than silently dropped', isQuoted(JUSTUS) === true);
-  ok('no months are due', monthsDue(JUSTUS, '2026-08').length === 0);
-  ok('  so no arrears are invented', arrears(JUSTUS, '2026-08').months === 0);
-  ok('  and he reads as current, because nothing was owed', arrears(JUSTUS, '2026-08').current === true);
-}
-
-console.log('\nand nothing on Justus needs reclassifying');
+console.log('\none payment, two categories — proposed with its arithmetic');
 {
   const p = proposeAll(JUSTUS);
-  ok('both payments are proposed as setup', p.every(r => r.kind === 'setup'), JSON.stringify(p));
-  /* The note carries it: "square deposit" and "balance" are setup words. An
-     exact-amount rule would not have fired here anyway — neither is $249. */
-  ok('  on the strength of their notes', p.every(r => /the note says/.test(r.why)), p.map(r => r.why).join(' | '));
-  ok('setup paid is unchanged by classifying', (() => {
-    const fixed = { ...JUSTUS, ...applyProposals(JUSTUS, p) };
-    return setupPaid(fixed) === 2748 && retainerPaid(fixed) === 0; })());
+  const by = Object.fromEntries(p.map(x => [x.id, x]));
+
+  ok('the $1,498.50 is proposed as a SPLIT', by.p1.kind === 'split', JSON.stringify(by.p1));
+  ok('  $1,249.50 of package', !!by.p1.split && by.p1.split.setup === 1249.50, JSON.stringify(by.p1));
+  ok('  and $249 of retainer', !!by.p1.split && by.p1.split.retainer === 249, JSON.stringify(by.p1));
+  ok('  showing the arithmetic rather than asserting it',
+     /1,498\.50 − \$249\.00 retainer = \$1,249\.50/.test(by.p1.why), by.p1.why);
+  ok('  and never certain — a human confirms a split', by.p1.certain === false);
+
+  /* The second payment falls out of the first: it is the other instalment. */
+  ok('the second $1,249.50 is inferred as package money', by.p2.kind === 'setup', JSON.stringify(by.p2));
+  ok('  because it matches the instalment in the split', /package instalment/.test(by.p2.why), by.p2.why);
 }
 
-console.log('\nonce a retainer actually starts, the clock does too');
+console.log('\nJustus classified: the numbers become true');
 {
-  /* Confirming the start is the explicit act that turns a price into billing. */
-  const started = { ...JUSTUS, retainerConfirmed: true, retainerStart: '2026-07-01' };
-  ok('the state becomes active', retainerState(started) === 'active');
-  ok('it counts toward MRR', billsMrr(started) === true);
-  ok('two months are due', monthsDue(started, '2026-08').join(',') === '2026-07,2026-08');
-  ok('  and both are behind, because nothing has been paid',
-     arrears(started, '2026-08').months === 2);
-  ok('  worth two months at the real rate', arrears(started, '2026-08').amount === 498);
+  const fixed = { ...JUSTUS, ...applyProposals(JUSTUS, proposeAll(JUSTUS)) };
 
-  /* Logging a retainer payment is evidence of billing on its own — no flag
-     needed, because the money is the evidence. */
-  const paid1 = { ...JUSTUS, retainerStart: '2026-07-01',
-    retainerPayments: [{ id: 'r1', amount: 249, date: '2026-07-05', period: '2026-07' }] };
-  ok('a logged retainer payment alone makes it active', retainerState(paid1) === 'active');
-  ok('  July is covered, August is behind',
-     arrears(paid1, '2026-08').periods.join(',') === '2026-08');
+  ok('the package is fully paid', setupPaid(fixed) === 2499, setupPaid(fixed));
+  ok('one month of retainer arrived', retainerPaid(fixed) === 249, retainerPaid(fixed));
+  /* THE ASSERTION THIS FILE EXISTS FOR. */
+  ok('he owes the automations deal in full — $1,011.75, not $762.75',
+     CONTRACTED - setupPaid(fixed) === 1011.75, CONTRACTED - setupPaid(fixed));
+  ok('CASH IS UNCHANGED, to the cent', allPaid(fixed) === allPaid(JUSTUS) && allPaid(fixed) === 2748,
+     `${allPaid(JUSTUS)} -> ${allPaid(fixed)}`);
+  ok('nothing was created or lost', fixed.payments.length + fixed.retainerPayments.length === 3);
 }
 
-console.log('\na stopped retainer stops accruing, and keeps what it owed');
+console.log('\nthe split stays reconcilable against the bank');
 {
-  const ended = { retainer: 100, retainerActive: true, retainerConfirmed: true,
-    retainerStart: '2026-05-01', retainerEnd: '2026-06-30', payments: [],
-    retainerPayments: [{ id: 'r', amount: 100, date: '2026-05-04', period: '2026-05' }] };
-  ok('the state is ended', retainerState(ended) === 'ended');
-  ok('it leaves MRR', billsMrr(ended) === false);
-  ok('no months accrue past the end date', monthsDue(ended, '2026-08').length === 0);
-
-  /* And while it was running, the months it was billed for are still owed —
-     which is the half a bare on/off toggle could never express. */
-  const paused = { ...ended, retainerEnd: '' , retainerActive: true };
-  ok('the same client, still running, owes the months it missed',
-     arrears(paused, '2026-08').periods.join(',') === '2026-06,2026-07,2026-08',
-     arrears(paused, '2026-08').periods.join(','));
+  const fixed = { ...JUSTUS, ...applyProposals(JUSTUS, proposeAll(JUSTUS)) };
+  const rs = receipts(fixed);
+  const one = rs.find(r => r.total === 1498.50);
+  ok('the two rows regroup into the one payment that hit the account', !!one,
+     rs.map(r => r.total).join(', '));
+  ok('  as two parts', one && one.parts.length === 2);
+  ok('  one setup, one retainer',
+     one && one.parts.filter(x => x.kind === 'setup').length === 1
+        && one.parts.filter(x => x.kind === 'retainer').length === 1);
+  ok('the other payment stands alone', rs.some(r => r.total === 1249.50 && r.parts.length === 1));
+  ok('and the receipts add up to the cash', rs.reduce((a, r) => a + r.total, 0) === 2748);
 }
 
-/* A fuller client, for the two questions answering independently. */
+console.log('\nand the retainer is ACTIVE, because a month was actually paid');
+{
+  const fixed = { ...JUSTUS, ...applyProposals(JUSTUS, proposeAll(JUSTUS)) };
+  ok('a logged retainer payment is evidence of billing', retainerState(fixed) === 'active');
+  ok('  so it counts toward MRR', billsMrr(fixed) === true);
+  ok('  and is not merely quoted', isQuoted(fixed) === false);
+  ok('July is covered', monthsPaid(fixed).has('2026-07'));
+  ok('August is behind', arrears(fixed, '2026-08').periods.join(',') === '2026-08',
+     arrears(fixed, '2026-08').periods.join(','));
+  ok('  one month, $249', arrears(fixed, '2026-08').amount === 249);
+
+  /* BEFORE classifying, the same record reads as quoted — a rate set and never
+     billed — which is the #25/#26 shape. The split is what tells them apart. */
+  ok('before classifying it looked like a rate that never started',
+     retainerState(JUSTUS) === 'quoted');
+  ok('  and contributed nothing to MRR', billsMrr(JUSTUS) === false);
+}
+
+/* A second client, so the two questions can be seen answering independently. */
 const RETAINED = {
   id: 'l_retained', retainer: 249, retainerActive: true, retainerConfirmed: true,
   retainerStart: '2026-06-10',
