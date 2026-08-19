@@ -215,6 +215,73 @@ console.log('\nthe two Mark Kaufmanns, on a real proposal card');
   ok('nothing was filed by the ambiguity', globalThis.__MLOG_WRITES__.length === 1);
 }
 
+console.log('\nnon-client outputs call api/meeting-log ZERO times');
+{
+  /* THE COST ASSERTION. The seven-field deep read is the only thing in this
+     feature that spends Anthropic tokens, and it exists to describe a PERSON.
+     A business note, a Sunday meeting and a Playbook draft have no person, so
+     they must not trigger it — and the failure mode is invisible: everything
+     still works, it just quietly bills on every output.
+
+     Asserted on the outbound fetch, not on rows written. Asserting rows would
+     pass even if the call fired and its result was thrown away, which is
+     exactly the bug worth catching. */
+  const extractCalls = () => globalThis.__FETCHES__.filter(f => f.url.includes('/api/meeting-log')).length;
+  const before = extractCalls();
+  ok('the client output earlier DID spend once', before === 1, before);
+
+  const setInput = async (el, v) => {
+    const st = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+    await act(async () => { st.call(el, v); el.dispatchEvent(new dom.window.Event('input', { bubbles:true })); });
+  };
+  const setArea = async (el, v) => {
+    const st = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set;
+    await act(async () => { st.call(el, v); el.dispatchEvent(new dom.window.Event('input', { bubbles:true })); });
+  };
+
+  const makeOne = async (destLabel, title, body) => {
+    const fresh = btn(/New output, by hand/);
+    if (fresh) await click(fresh); await settle(120);
+    const d = btn(new RegExp('^\\s*' + destLabel + '\\s*$'));
+    if (d) await click(d); await settle(120);
+    const ti = [...document.querySelectorAll('input[placeholder="Title"]')].pop();
+    if (ti) await setInput(ti, title);
+    const bx = [...document.querySelectorAll('textarea')].pop();
+    if (bx) await setArea(bx, body);
+    await settle(120);
+    const go = btns(/Create it/).pop();
+    ok('  ' + destLabel + ': Create is available', !!go && !go.disabled);
+    if (go) await click(go); await settle(200);
+  };
+
+  await makeOne('Business note', 'Vendor quirk', 'The title company will not send the CD before noon.');
+  ok('a business note was written', globalThis.__MLOG_WRITES__.some(w => w.kind === 'note'),
+     globalThis.__MLOG_WRITES__.map(w => w.kind).join(','));
+  ok('  and it spent NOTHING', extractCalls() === before, extractCalls());
+
+  await makeOne('Sunday meeting', 'Sunday cadence', 'We decided to move the huddle to Monday morning.');
+  ok('a Sunday meeting was written', globalThis.__MLOG_WRITES__.some(w => w.kind === 'internal'),
+     globalThis.__MLOG_WRITES__.map(w => w.kind).join(','));
+  ok('  and it spent NOTHING', extractCalls() === before, extractCalls());
+
+  const kbBefore = globalThis.__KB_WRITES__.length;
+  await makeOne('Playbook draft', 'Rate lock, second pass', 'Ask what the lock expiry is before you answer.');
+  ok('a Playbook draft was written', globalThis.__KB_WRITES__.length === kbBefore + 1);
+  ok('  and it spent NOTHING', extractCalls() === before, extractCalls());
+
+  /* This block plus the two outputs created earlier is the plan's "one
+     recording, several outputs" case: five outputs, four tables' worth of
+     shapes, one source. */
+  ok('one recording now has five outputs', globalThis.__MLOG_WRITES__.length + globalThis.__KB_WRITES__.length === 5,
+     `${globalThis.__MLOG_WRITES__.length} logs + ${globalThis.__KB_WRITES__.length} kb`);
+  ok('every one of them names the source recording',
+     [...globalThis.__MLOG_WRITES__, ...globalThis.__KB_WRITES__].every(w => w.sourcePocketId === 'rec_sunday'));
+  ok('and NOT ONE of them carries the transcript',
+     [...globalThis.__MLOG_WRITES__, ...globalThis.__KB_WRITES__].every(w => !JSON.stringify(w).includes(TRANSCRIPT_SENTINEL)));
+  ok('total spend across five outputs is one call, for the one with a person on it',
+     extractCalls() === 1, extractCalls());
+}
+
 console.log('\nmarking it done takes it out of the queue');
 {
   const done = btn(/Done with it/);
@@ -240,6 +307,11 @@ console.log('\nthe Pocket import panel in Settings');
 
   const before = globalThis.__FETCHES__.filter(f => f.url.includes('pocket-backfill')).length;
   ok('nothing was called just by opening Settings', before === 0);
+  /* A DELTA, not a fixed count. Asserting "exactly one log and one note"
+     couples this to how many outputs earlier blocks happened to make, and it
+     broke the moment another one was added. What matters is that importing
+     writes no outputs, whatever exists already. */
+  const outsBefore = globalThis.__MLOG_WRITES__.length + globalThis.__KB_WRITES__.length;
 
   const go = btn(/Import recent recordings/);
   ok('the button is there', !!go);
@@ -255,7 +327,8 @@ console.log('\nthe Pocket import panel in Settings');
   ok('the new one reports as imported', /Imported/.test(txt()));
   ok('both are named', /Sunday with Logan/.test(txt()) && /Older call/.test(txt()));
   ok('importing wrote no outputs of any kind',
-     globalThis.__MLOG_WRITES__.length === 1 && globalThis.__KB_WRITES__.length === 1);
+     globalThis.__MLOG_WRITES__.length + globalThis.__KB_WRITES__.length === outsBefore,
+     `${outsBefore} before, ${globalThis.__MLOG_WRITES__.length + globalThis.__KB_WRITES__.length} after`);
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
