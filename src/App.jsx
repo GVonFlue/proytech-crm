@@ -10,7 +10,7 @@ import {
   CheckCircle2, Circle, AlertTriangle, ArrowUpDown, Percent, Target, Award, Rocket, UserCheck,
   Image as ImageIcon, GripVertical, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, List, SlidersHorizontal,
   Layers, FileText, Tag, LogOut, Receipt, Printer, Send, Bell, Sparkles,
-  BookText, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
+  BookText, BookOpen, Wallet, ArrowDownLeft, ArrowUpRight, Paperclip, FileDown, Loader2, ListTodo,
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket, Bot,
@@ -20,6 +20,7 @@ import JSZip from 'jszip';
 import MeetingLog from './MeetingLog';
 import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
+import Playbook from './Playbook';
 import { auth, db, configured } from './lib/supabase';
 import { BRAND, AI_NAME } from './lib/brand';
 
@@ -317,7 +318,7 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['jarvis',AI_NAME],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
+const ALL_MODULES=[['jarvis',AI_NAME],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -332,7 +333,14 @@ const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
    An install with an EMPTY crm_users table behaves exactly as it did before:
    whoever is signed in is treated as an owner and nothing is scoped.
    ========================================================================== */
-const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','pipeline'];
+/* 'playbook' is on by default, unlike every other addition to this list. The
+   module exists SO THAT reps read it, and a published note no rep can reach is
+   the per-rep form of "new tabs ship invisible" (ENGINEERING.md §1) — the owner
+   publishes, nothing happens, and nothing looks broken. It carries no company
+   money: kb_published has six named columns and none of them is a figure.
+   A rep who already has a CUSTOM tab list keeps it (see tabsOf), so those reps
+   still need it switched on in Settings -> Team. */
+const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','pipeline','playbook'];
 /* a rep can never be given these by accident — they expose company money.
    An owner CAN still switch them on deliberately (see Team settings). */
 const MONEY_TABS=['invoices','books','money','huddle','mlog'];
@@ -2551,11 +2559,26 @@ export default function App(){
   const [navIds,setNavIds]=useState(null);
   const [events,setEvents]=useState([]);
   const [mlogs,setMlogs]=useState([]);
+  /* Playbook: drafts, the published surface, and what the assistant may read.
+     Three separate pieces of state because they are three separate reads with
+     three different audiences — collapsing them would be the first step back
+     towards filtering in the app. */
+  const [kbNotes,setKbNotes]=useState([]);
+  const [kbPub,setKbPub]=useState([]);
+  const [kbAi,setKbAi]=useState([]);
   const [importOpen,setImportOpen]=useState(false);
   const [navEdit,setNavEdit]=useState(false);   // sidebar reorder mode
   useEffect(()=>{ if(!session) return; let dead=false;
     db.getEvents().then(r=>{ if(!dead) setEvents(r||[]); }).catch(console.error);
     db.getMeetingLogs().then(r=>{ if(!dead) setMlogs(r||[]); }).catch(console.error);
+    /* Playbook. TWO reads, because there are two tables and the split IS the
+       security model: kb_notes is owner-only (a rep gets [] back from Postgres,
+       not from a filter here), kb_published is what reps and JARVIS may read.
+       kbAi is kb_ai_context() — published rows only, even for an owner. Every
+       one degrades to [] if KB-MIGRATION.sql has not been run. */
+    db.getKbNotes().then(r=>{ if(!dead) setKbNotes(r||[]); }).catch(console.error);
+    db.getKbPublished().then(r=>{ if(!dead) setKbPub(r||[]); }).catch(console.error);
+    db.kbAiContext().then(r=>{ if(!dead) setKbAi(r||[]); }).catch(console.error);
     return ()=>{dead=true;}; },[session]);
   const [navDrag,setNavDrag]=useState(null);
   const [navLocal,setNavLocal]=useState(null);  // keeps the order on screen if the save fails
@@ -2628,6 +2651,14 @@ export default function App(){
          and nothing looks broken. ENGINEERING.md §1. */
       if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<6){
         st={...st,modules:st.modules.includes('jarvis')?st.modules:[...st.modules,'jarvis'],modulesV:6};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
+      /* ENGINEERING.md §1 — new tabs ship invisible. Any install that has ever
+         opened the modules screen has a saved settings.modules array that
+         predates Playbook, so without this backfill the tab simply never
+         appears and nothing looks broken. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<7){
+        st={...st,modules:st.modules.includes('playbook')?st.modules:[...st.modules,'playbook'],modulesV:7};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
       /* migrate the sales pipeline (idempotent) */
@@ -2722,6 +2753,21 @@ export default function App(){
   /* meeting logs: own table, newest first — the write is awaited so the page can
      show a failure instead of pretending a transcript was saved. */
   const saveMlog=async l=>{ await db.upsertMeetingLog(l); setMlogs(p=>[l,...p.filter(x=>x.id!==l.id)]); };
+  /* Playbook mutators. Save NEVER publishes: db.upsertKbNote deliberately does
+     not write the status column, which only kb_publish/kb_unpublish move. After
+     publishing, kb_published and kb_ai_context are re-read rather than patched
+     locally — the database is the thing the owner is being shown, so guessing
+     what it now holds is the one thing this screen must not do. */
+  /* RETURNS the stamped note. The editor holds its own copy of the draft, and
+     if that copy keeps the old updatedAt after a save, the "published version
+     is behind" indicator stays dark until the screen is re-entered — which is
+     precisely the invisible drift the indicator exists to prevent. */
+  const saveKbNote=async n=>{ await db.upsertKbNote(n); const saved={...n,updatedAt:new Date().toISOString()};
+    setKbNotes(p=>[saved,...p.filter(x=>x.id!==n.id)]); return saved; };
+  const delKbNote=async id=>{ await db.deleteKbNote(id); setKbNotes(p=>p.filter(x=>x.id!==id)); setKbPub(p=>p.filter(x=>x.id!==id)); setKbAi(p=>p.filter(x=>x.id!==id)); };
+  const kbRefresh=async()=>{ const [n,p,a]=await Promise.all([db.getKbNotes(),db.getKbPublished(),db.kbAiContext()]); setKbNotes(n||[]); setKbPub(p||[]); setKbAi(a||[]); };
+  const kbPublishNote=async id=>{ await db.kbPublish(id); await kbRefresh(); };
+  const kbUnpublishNote=async id=>{ await db.kbUnpublish(id); await kbRefresh(); };
   const delMlog=async id=>{ await db.deleteMeetingLog(id); setMlogs(p=>p.filter(x=>x.id!==id)); };
   /* THE ONE PLACE anything from a meeting log crosses into rep-readable data.
      meeting_logs is owner-only; lead activities are read by whoever owns the
@@ -3170,7 +3216,7 @@ export default function App(){
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -3261,7 +3307,7 @@ export default function App(){
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
-          view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead}/>:
+          view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
           view==='dash'?<Dashboard leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
@@ -3274,6 +3320,8 @@ export default function App(){
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings}/>:
+          view==='playbook'?<Playbook notes={kbNotes} pub={kbPub} mlogs={mlogs} rep={rep} me={me}
+            saveNote={saveKbNote} deleteNote={delKbNote} previewNote={db.kbPreview} publishNote={kbPublishNote} unpublishNote={kbUnpublishNote}/>:
           view==='mlog'?<MeetingLog logs={mlogs} tasks={tasks} leads={scoped} saveLog={saveMlog} deleteLog={delMlog} saveTasks={saveTasks} publishToLead={publishLogToLead} me={me}/>:
           view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:

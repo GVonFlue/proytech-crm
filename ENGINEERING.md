@@ -29,6 +29,13 @@ that matters.
 **If you add behaviour, add a test.** If a bug is found, add the test that would
 have caught it before fixing it.
 
+Some promises cannot be reached from SQL at all. An owner is *allowed* to read
+their own Playbook drafts, so no policy can stop their browser putting one in a
+request to the assistant — the database cannot tell displaying text from
+sending it. `tests/kb.mjs` asserts on the outbound `/api/jarvis` body directly
+for exactly that reason. When a guarantee ends at the edge of the database, say
+so and test the edge; do not describe it as a policy.
+
 ### The four that keep recurring
 
 **Temporal dead zone.** `const` does not hoist. A helper declared below its first
@@ -54,6 +61,11 @@ saved array. Any install that has ever opened the modules screen has a list that
 predates your tab, so it simply never appears — and nothing looks broken. Bump
 `modulesV` and backfill. Same for `settings.stages`, which overrides
 `DEFAULT_STAGES` entirely.
+
+> There is a **second, per-rep** version of this. `REP_DEFAULT_TABS` only
+> applies to a rep whose `tabs` array is empty; anyone with a custom list keeps
+> it and never sees the new tab. Playbook shipped on by default and still needs
+> switching on by hand for those reps.
 
 ---
 
@@ -115,6 +127,28 @@ Supabase**, because these mutators push a whole rebuilt lead.
   it's won. They are different questions.
 
 ---
+
+## 4b. Two tables are sometimes the only way to hide a column
+
+RLS is **row**-level, and an owner and a rep are the **same Postgres role**
+(`authenticated`) — Supabase tells them apart only inside policy predicates. So
+column-level `GRANT`s cannot separate them, and a rep allowed to read a row is
+allowed to read every column of it.
+
+That is why `dealValue` is an honest-limits entry rather than a boundary, and
+it is why the Playbook is two tables rather than one with a `status` column.
+Drafts live in `kb_notes` (owner-only); the rep-readable surface is
+`kb_published`, which has **named columns, not jsonb** — reading the DDL is the
+complete answer to "what can a rep see". A field that is not a column there
+cannot be published by accident.
+
+`kb_published` also has **no INSERT/UPDATE/DELETE policy and revoked write
+privileges**. That is not an oversight. The only writer is `kb_publish()`,
+which reaches the table by owning it as a `security definer` function. Adding
+`force row level security` would break publishing.
+
+If you need a new "some of this is shareable" feature, this is the shape.
+Filtering in the app is not, and neither is a `shared` flag on a blob.
 
 ## 5. Things that look like settings and aren't
 

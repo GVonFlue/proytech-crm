@@ -231,7 +231,7 @@ const REP_SEEDS = [
 
 export default function Jarvis({
   leads, stages, settings, tasks, me, myUid, rep, myPools, teamNames,
-  money, addActivity, upsertTask, updateLead, openLead,
+  money, addActivity, upsertTask, updateLead, openLead, kb,
 }) {
   const [msgs, setMsgs] = useState([]);
   const [q, setQ] = useState('');
@@ -292,7 +292,7 @@ export default function Jarvis({
     try {
       const { payload, stats } = buildPayload({
         leads: mine, question, pinned: pins.map(p => p.id), history,
-        rep, me, stages, money, tasks, teamNames,
+        rep, me, stages, money, tasks, teamNames, kb,
       });
 
       let tok = '';
