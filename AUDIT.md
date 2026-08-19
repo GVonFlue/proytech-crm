@@ -9,7 +9,7 @@ Read against `ENGINEERING.md` §2 ("two screens must never disagree") and §4
 code — verified by stashing the fix and re-running:
 **#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**, **#6**, **#7**, **#21**, **#22**.
 
-**Still open:** #9, #10, #11, #12, #16, #20, and the new **#23**.
+**Still open:** #9, #10, #11, #12, #16, #20, #23, #24, #25, #26.
 
 **Found while fixing** — added below as #19 and #20.
 
@@ -540,7 +540,38 @@ sides. Both now read one predicate, `legacySettled()`.
 The money moves into **owed**, and the Revenue tile now says *"N closed this
 month with no payment logged"* so the gap is visible rather than silent.
 
-## 23. Payments are not categorised as setup vs retainer — **OPEN**
+## 23. Payments are not categorised as setup vs retainer — **OPEN, live instance confirmed**
+
+**Justus, from the live record.** A $2,499 package (closed) plus a $1,011.75
+automations deal (open), and a $249/mo retainer with the first month billed up
+front:
+
+```
+payment 1  $1,498.50  =  $1,249.50 package  +  $249 retainer
+payment 2  $1,249.50  =  $1,249.50 package
+
+TRUE owed   3,510.75 − 2,499.00 = $1,011.75   the automations, untouched
+APP SHOWS   3,510.75 − 2,748.00 =   $762.75
+UNDERSTATED BY $249 — one month of retainer, paying down a build.
+```
+
+**And one payment spans both categories.** Billing the first month on top of a
+package deposit is how the invoicing works, not an edge case, so a split payment
+is a first-class shape: two rows sharing a `receipt` id, so each row is
+unambiguously one thing while the screen can still show the single $1,498.50
+that hit the bank.
+
+The alternative — one row carrying `{setup, retainer}` amounts — was rejected
+because it leaves `sum(p.amount)` available as an answer to a **balance**
+question, and that expression being available is exactly this finding.
+
+The split is **detectable and explainable**: take the retainer off and what
+remains matches another payment on the same lead to the cent
+(`1,498.50 − 249 = 1,249.50`). It is checked *before* the note rules, because a
+split payment usually carries a setup-shaped note — Justus's reads "square
+deposit" — and a keyword would claim it first and hide the retainer inside.
+
+
 
 Surfaced by #21. Retainer payments land in the same `payments` array as deposits
 and balances, so on a retainer client `paidTotal` climbs past the one-off
@@ -555,6 +586,67 @@ contracted total every month. Two consequences:
 **Fix:** a `kind` on each payment row (`setup` | `retainer`), and `owedBy()`
 counting only setup payments against one-off work. Half a day, plus a migration
 defaulting existing rows to `setup`.
+
+## 25. A retainer RATE and a retainer BEING BILLED are the same flag — **OPEN**
+
+`retainerActive` means both "I have decided what to charge" and "I am charging
+it", and `src/App.jsx:3018` **auto-stamps `retainerStart` the moment the toggle
+flips**. So setting a price on a client who has not started invents a billing
+history for them.
+
+Justus is the live case: a $249 rate is set, `retainerActive` is on, nothing has
+ever been billed, and no retainer payment exists.
+
+Two consequences, and they are the same gap from opposite ends:
+
+- **MRR counts money that was never billed** (#26).
+- **Arrears would count months that were never owed** — which the step-1 library
+  would have done, and did, until this was corrected.
+
+There is also no `retainerEnd`, so a stopped or paused retainer has nowhere to
+live: it either accrues forever or reads as settled, and neither is true.
+
+**Confirmed live: all four retainers are quoted, none active.** Jeff Schnell
+$79, Poppell $99, Level Up $99, Justus $249 — every toggle on, every one a rate
+to start charging after delivery. **So the reported $526 MRR is entirely
+fictional.** Quoted is the normal case, not the exception.
+
+The actual workflow: *sell a package and set the rate* → **quoted**; *deliver*;
+*agree a start date and begin billing* → **active**.
+
+**Fix (built in `src/lib/retainer.js`, not yet wired):** a state rather than a
+flag — `none` / `quoted` / `active` / `ended`. **The start date is the flip** —
+a date the owner states when billing begins, not the toggle, not a payment, not
+a derived guess. `retainerEnd` bounds the far side.
+
+**A prepaid month does not make it active.** Justus paid his first month up
+front inside the sale and still has not been delivered to. Inferring a start
+from a payment is the auto-stamp mistake in a new costume, and it would put him
+in MRR and then immediately chase the one client who has paid *ahead*. The money
+is tracked as a **credit** and consumed by the first billed months
+(`prepaidMonths`).
+
+**The migration must CLEAR every auto-stamped `retainerStart`.** A date nobody
+chose is not a start date, and it is the direct cause of the fictional $526.
+
+That default under-counts rather than over-counts, deliberately: an
+under-counted MRR is a number you can go and confirm, an over-counted one is a
+number you plan on and then miss.
+
+## 26. MRR counts unstarted retainers — **OPEN**
+
+Reported live: the tile reads **$526 across 4 retainers**, and it is not known
+how many are real. MRR sums `retainer` for every lead with `retainerActive`,
+which after #25 is the wrong population — it includes quoted rates.
+
+**Fix:** MRR counts `billsMrr()` only, with the quoted total **beside** it —
+`$0 · quoted $526 across 4 clients`. Same shape as AUDIT #1's split, and better
+than a number that cannot be collected.
+
+**MRR goes to $0 and that is correct.** Confirmed against all four. No
+confirmation pass is needed for the *rates* — clearing the auto-stamped start
+dates is enough, because none of them has actually started. Setting a real start
+date is then an ordinary act on the record, not a migration.
 
 # Suggested order
 
