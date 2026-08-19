@@ -651,7 +651,15 @@ const owedBy=(l,stages)=>{
      nothing either. */
   const won=!!(l&&(l.isClient||(stages&&sOf(l.stage,stages).won)));
   if(!won) return 0;
-  if(!paymentsOf(l).length) return cashConfirmed(l)?0:contractedTotal(l);
+  /* AUDIT #21 + #22. This read `cashConfirmed(l) ? 0 : ...`, treating ANY
+     deposit-ticked client with no payment rows as settled — the mirror of the
+     revenue fallback, wrong the same way and for the same reason. Both read
+     legacySettled() now, so a lead closed since payment tracking began is "not
+     collected" AND "still owed": one coherent answer instead of two that
+     contradict each other.
+
+     RETAINERS ARE DELIBERATELY NOT IN HERE — see the note on the lead panel. */
+  if(!paymentsOf(l).length) return legacySettled(l)?0:contractedTotal(l);
   return Math.max(0,contractedTotal(l)-paidTotal(l));
 };
 const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.closedAt&&String(d.closedAt).slice(0,7)===mKey)?num(d.amount):0),0);
@@ -854,6 +862,32 @@ const depositPaidAt=l=>normEntry((l&&l.onboarding||{}).deposit_paid).done||'';
 /* legacy: clients converted before this rule existed have no deposit tick, and
    silently zeroing their revenue would rewrite history. They keep counting. */
 const CASH_RULE_FROM='2026-08-01';
+
+/* ---- AUDIT #22 -------------------------------------------------------------
+   WHEN THE LEGACY FALLBACK IS ALLOWED TO FIRE.
+
+   The fallback exists so deals closed BEFORE payment rows existed still count
+   at their close date — otherwise switching payment tracking on would have
+   silently deleted every historical month (ENGINEERING §4).
+
+   It was never date-bound, so it kept firing forever: a deal closed last week
+   with the deposit box ticked and no payment logged was reported as COLLECTED.
+   That is the opposite of the rule it sits inside — revenue is cash, and
+   nothing is cash until a payment is logged against it.
+
+   Bounded here. A lead closed on or after this date needs a real payment row to
+   count as collected; before it, the fallback still protects history. Moving
+   this date FORWARD restates past revenue downward, which §4 calls worse than
+   the bug — so only move it once those months are genuinely backfilled. */
+const PAYMENTS_FROM='2026-08-01';
+/* Closed before payment tracking, so missing payment rows are an artefact of
+   WHEN it happened rather than money that has not arrived. */
+const preDatesPayments=l=>{ const c=String((l&&l.closedAt)||'').slice(0,10);
+  return !!c && c < PAYMENTS_FROM; };
+/* The one predicate BOTH revenue and owedBy read, so "we counted this as
+   collected" and "they still owe it" can never both be true of one lead — which
+   is the contradictory pair the unbounded fallback used to produce. */
+const legacySettled=l=>!paymentsOf(l).length && cashConfirmed(l) && preDatesPayments(l);
 const cashConfirmed=l=>{ if(!l) return false;
   if(depositPaidAt(l)) return true;
   /* deposit switched off for this client — monthly-only, no setup fee to
@@ -1829,6 +1863,7 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .an-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:11px;margin-bottom:18px}
 .an-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:14px 16px}
 .an-card.warn{border-color:#FFD59E;background:color-mix(in srgb,#FFA500 6%,#fff)}
+.pay-mrr{font-size:11.5px;color:#8b88a0;margin:-2px 0 8px}
 .rate{font-variant-numeric:tabular-nums}
 .rate.warn{color:#B45309;font-weight:800}
 .rate.good{color:#2C7A4B;font-weight:800}
@@ -3487,7 +3522,7 @@ function useMetrics(leads,stages,settings,txns){
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
     /* a won lead only counts once the money is confirmed — see cashConfirmed */
-    let awaitingCash=0,awaitingValue=0;
+    let awaitingCash=0,awaitingValue=0,awaitingLog=0,awaitingLogValue=0;
     /* A lead that BOTH reached a won stage this month AND has a deal archived
        into closedDeals this month used to fire both branches and count twice —
        which is why the tile said 3 over a list of 2. The drilldown dedupes by
@@ -3526,10 +3561,20 @@ function useMetrics(leads,stages,settings,txns){
     leads.forEach(l=>{
       const pays=paidInMonth(l,mKey);
       if(pays>0){ collectedMonth+=pays; clientRevenueMonth+=pays; }
-      if(!paymentsOf(l).length){
+      /* AUDIT #22. preDatesPayments is the new half of this condition. Without
+         it the fallback fired on brand-new closes and reported money that had
+         not arrived — Poppell closed on the 17th with no payment logged and
+         appeared under "Collected this month". */
+      if(!paymentsOf(l).length&&preDatesPayments(l)){
         const closedHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l);
         const legacy=(closedHere?num(l.dealValue):0)+closedDealsInMonth(l,mKey);
         if(legacy>0){ legacyMonth+=legacy; clientRevenueMonth+=legacy; }
+      }
+      /* Closed since payment tracking began, deposit ticked, no payment row —
+         it is not collected and it IS owed. Counted so the screen can say so
+         instead of the money simply disappearing from both sides. */
+      else if(!paymentsOf(l).length&&sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){
+        awaitingLog++; awaitingLogValue+=num(l.dealValue)+closedDealsInMonth(l,mKey);
       }
       outstanding+=owedBy(l,stages);
     });
@@ -3614,7 +3659,7 @@ function useMetrics(leads,stages,settings,txns){
     }).filter(c=>c.lifetime>0||c.mrr>0||c.pending>0).sort((a,b)=>b.lifetime-a.lifetime);
     return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,onbNeeded,onbMonthlyOnly,
-      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,closedMonthValue,closedRows,revenueMonth,clientRevenueMonth,otherIncomeMonth,contribMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
+      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,closedMonthValue,closedRows,awaitingLog,awaitingLogValue,revenueMonth,clientRevenueMonth,otherIncomeMonth,contribMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
       meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,wonDealCount,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages,settings,txns]);
 }
@@ -4024,7 +4069,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Open Pipeline" value={usd(m.pipelineValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} lead${m.openCount===1?'':'s'}${m.upsellCount>0?` · ${m.upsellCount} client upsell${m.upsellCount===1?'':'s'}`:''}${G.revenue>0?` · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:''}`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
-      <Kpi label="Revenue Collected" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?revenueSplit(m):'weighted forecast')+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={m.revenueMonth}/>
+      <Kpi label="Revenue Collected" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?revenueSplit(m):'weighted forecast')+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')+(m.awaitingLog>0?` · ${m.awaitingLog} closed this month with no payment logged`:'')} onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={m.revenueMonth}/>
       <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.closedMonthValue)} closed`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
@@ -4059,7 +4104,11 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     {drill==='rev'&&(()=>{ const rows=leads.flatMap(l=>paymentsOf(l)
         .filter(p=>p.date&&String(p.date).slice(0,7)===mKey)
         .map(p=>({l,p}))).sort((a,b)=>(b.p.date||'').localeCompare(a.p.date||''));
-      const legacyRows=leads.filter(l=>!paymentsOf(l).length)
+      /* AUDIT #22. The panel builds these rows ITSELF, so bounding the metric
+         without bounding this listed Poppell under a total that excluded it —
+         the drilldown contradicting its own header. Same predicate as
+         useMetrics, which is the only way these two stay equal. */
+      const legacyRows=leads.filter(l=>!paymentsOf(l).length&&preDatesPayments(l))
         .map(l=>({l,amt:((sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l))?num(l.dealValue):0)+closedDealsInMonth(l,mKey)}))
         .filter(r=>r.amt>0);
       const otherRows=(txns||[]).filter(t=>t&&t.type==='income'&&String(t.date||'').slice(0,7)===mKey);
@@ -7882,15 +7931,36 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                 {(()=>{
                   const pays=Array.isArray(draft.payments)?draft.payments:[];
                   const paid=pays.reduce((a,p)=>a+num(p.amount),0);
-                  /* owed = one-time deal work + the first month of retainer (option 3:
-                     the client's deal total IS the amount owed) */
+                  /* AUDIT #21. This computed its own total — open deals + closed
+                     deals + ONE MONTH OF RETAINER — while the dashboard and the
+                     Money page used owedBy(), which has no retainer in it. Same
+                     word, two numbers: Justus read $763 on one screen and
+                     $1,011.75 on the other.
+
+                     owedBy() wins, and the retainer stays OUT of it, for three
+                     reasons:
+
+                     1. A debt figure has to be able to reach zero and stay
+                        there. A retainer recurs forever by design, so folding a
+                        month of it into "owed" makes the number permanently
+                        non-zero — which stops it meaning anything.
+                     2. owedBy() is summed across every client into `outstanding`
+                        and shown as "Owed to you" and "Invoiced, not yet paid".
+                        A month of retainer per client would drift that total
+                        upward every month no matter how well you collected.
+                     3. Retainer PAYMENTS already land in paidTotal and reduce
+                        owed. Adding the retainer to the owed side as well means
+                        the same recurring money moves the number in both
+                        directions — see AUDIT #23.
+
+                     MRR already answers "what recurs". It is shown beside this
+                     rather than folded into it, so nothing is hidden. */
                   const firstMonth=draft.retainerActive?num(draft.retainer):0;
-                  /* Closing a deal moves it out of openDeals — but the client
-                     still owes it. Counting only open work made a $2,499 closed
-                     deal read "of $249" and call a part-paid client PAID IN
-                     FULL. What they owe is everything sold, open or closed. */
-                  const owed=openDealsTotal+closedDealsTotal(draft)+firstMonth;
-                  const remaining=Math.max(0,owed-paid);
+                  /* GROSS for the bar ("$X paid of $Y"), NET from owedBy for the
+                     figure. owedBy already subtracts payments, so reusing it as
+                     the gross and subtracting again would net them off twice. */
+                  const owed=openDealsTotal+closedDealsTotal(draft);
+                  const remaining=owedBy(draft,stages);
                   const over=paid-owed;
                   const logPayment=()=>{
                     const raw=window.prompt('Payment amount received ($):', remaining>0?String(remaining):'');
@@ -7909,6 +7979,10 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                   };
                   return (<div className="pay-panel">
                     <div className="pay-head"><span>Payments</span>{owed>0&&<b className={remaining>0?'due':'clear'}>{remaining>0?`${usdc(remaining)} remaining`:'paid in full'}</b>}</div>
+                    {/* The retainer is shown BESIDE the balance, never inside it —
+                        it recurs, so it can never be paid off, and a debt figure
+                        that cannot reach zero stops meaning anything. */}
+                    {firstMonth>0&&<div className="pay-mrr">plus {usdc(firstMonth)}/mo recurring — not counted in the balance</div>}
                     {owed>0&&<div className="pay-bars">
                       <div className="pay-bar"><div style={{width:Math.min(100,Math.round(paid/owed*100))+'%'}}/></div>
                       <div className="pay-nums"><span>{usdc(paid)} paid</span><span>of {usdc(owed)}</span></div>
@@ -7922,7 +7996,13 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
                           {p.note?` · ${p.note}`:''}</span></div>
                         <button className="ex-del" title="Remove payment" onClick={()=>{ if(window.confirm('Remove this payment?')) set({payments:pays.filter(x=>x.id!==p.id)}); }}><X size={13}/></button>
                       </div>))}</div>}
-                    {over>0&&<div className="pay-over">{usdc(over)} paid over the deal total (extra / tip / adjust the deal)</div>}
+                    {/* AUDIT #23. Retainer payments land in this same array, so on a
+                        retainer client `paid` legitimately climbs past the one-off
+                        total every month. Warning about that would cry wolf forever.
+                        The real fix is categorising payments as setup vs retainer;
+                        until then this stays quiet where it would be wrong. */}
+                    {over>0&&!draft.retainerActive&&<div className="pay-over">{usdc(over)} paid over the deal total (extra / tip / adjust the deal)</div>}
+                    {over>0&&draft.retainerActive&&<div className="pay-mrr">{usdc(paid)} received in total — more than the {usdc(owed)} of one-off work, because retainer payments are logged here too</div>}
                     <button className="pay-add" onClick={logPayment}><Plus size={14}/>Log a payment</button>
                   </div>);
                 })()}

@@ -7,9 +7,9 @@ Read against `ENGINEERING.md` §2 ("two screens must never disagree") and §4
 
 **Fixed**, tests in `tests/moneyaudit.mjs`, each written to fail against the old
 code — verified by stashing the fix and re-running:
-**#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**, **#6**, **#7**.
+**#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**, **#6**, **#7**, **#21**, **#22**.
 
-**Still open:** #9, #10, #11, #12, #16, #20.
+**Still open:** #9, #10, #11, #12, #16, #20, and the new **#23**.
 
 **Found while fixing** — added below as #19 and #20.
 
@@ -495,6 +495,66 @@ The number is small and the direction is harmless, but the word is wrong.
 explicitly rather than inferring it by subtraction. An hour.
 
 ---
+
+## 21. "Owed" was computed two ways — **FIXED**
+
+Reported from live data: `owedBy()` gave Justus **$763**; the lead's payments
+panel gave **$1,011.75**. The panel added one month of retainer.
+
+**`owedBy()` wins, and the retainer stays out of it.** Three reasons:
+
+1. **A debt figure has to be able to reach zero and stay there.** A retainer
+   recurs forever by design, so folding a month of it into "owed" makes the
+   number permanently non-zero — which stops it meaning anything.
+2. `owedBy()` is summed across every client into `outstanding` and shown as
+   "Owed to you" and "Invoiced, not yet paid". A month of retainer per client
+   would drift that total upward every month regardless of collection.
+3. Retainer **payments** already land in `paidTotal` and reduce owed. Adding the
+   retainer to the owed side as well moves the same recurring money in both
+   directions — see #23.
+
+MRR already answers "what recurs". The panel now shows it beside the balance —
+*"plus $248.75/mo recurring — not counted in the balance"* — so nothing is lost,
+and if you still want it inside, it is now a one-line change in **one** place.
+
+## 22. The legacy fallback counted unpaid closes as collected — **FIXED**
+
+Reported from live data: Poppell Insurance closed 17 Aug with no payment logged
+and appeared in "Collected this month" for **$1,199**. Des Moines and Level Up
+too.
+
+The v21 fallback was meant to preserve pre-payment-tracking history
+(ENGINEERING §4) but was never **date-bound**, so it kept firing forever: a
+deposit tick with no payment row read as cash.
+
+**Date-bounded, not dropped**, via `PAYMENTS_FROM = '2026-08-01'`. Dropping it
+would restate past months downward, which §4 calls worse than the bug it fixes;
+bounding it stops today's overstatement while leaving history intact, and you
+can move the constant forward later once old months are backfilled.
+
+**The coupling that made this one change, not two:** `owedBy()`'s "settled"
+shortcut deliberately mirrored the fallback, so bounding revenue alone would
+have made Poppell neither *collected* nor *owed* — money vanishing from both
+sides. Both now read one predicate, `legacySettled()`.
+
+The money moves into **owed**, and the Revenue tile now says *"N closed this
+month with no payment logged"* so the gap is visible rather than silent.
+
+## 23. Payments are not categorised as setup vs retainer — **OPEN**
+
+Surfaced by #21. Retainer payments land in the same `payments` array as deposits
+and balances, so on a retainer client `paidTotal` climbs past the one-off
+contracted total every month. Two consequences:
+
+- `owedBy()` clamps at zero, so **retainer payments can mask an unpaid setup
+  fee**.
+- The lead panel's "paid over the deal total" warning fired on every retainer
+  client. Suppressed for them now, with an explanation, rather than left crying
+  wolf — but that is a patch, not the fix.
+
+**Fix:** a `kind` on each payment row (`setup` | `retainer`), and `owedBy()`
+counting only setup payments against one-off work. Half a day, plus a migration
+defaulting existing rows to `setup`.
 
 # Suggested order
 

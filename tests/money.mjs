@@ -41,6 +41,11 @@ globalThis.__LEADS__=[
   {id:'p5',name:'Level Up',company:'Level Up',stage:'signed',owner:'Logan',isClient:true,
    convertedAt:today,closedAt:today,createdAt:ago(25),activities:[],meetings:[],deals:[],dealValue:0,
    onboarding:{deposit_paid:{done:today,due:null}},
+   /* AUDIT #22. Closed TODAY, so the legacy fallback no longer counts it — a
+      deposit tick is not a payment. The suite's subject is that a closedDeals
+      row shows its real amount instead of $0, which is unchanged; the money
+      just has to be logged like money now. */
+   payments:[{id:'plu',amount:1299,date:today,note:'build'}],
    closedDeals:[{id:'cd1',label:'Build',amount:1299,closedAt:today}]},
   /* closed in a PREVIOUS month — must not appear under a this-month tile */
   {id:'p6',name:'July Co',company:'July Co',stage:'signed',owner:'Garrett',isClient:true,

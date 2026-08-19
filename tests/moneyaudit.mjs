@@ -124,7 +124,40 @@ const WONUPSELL = {
   closedDeals:[], payments:[], retainerActive:false, retainer:0,
 };
 
-globalThis.__LEADS__=[ALVAREZ, KAUFMANN, PENDING, LOST, THISMONTH, FREEBIE, OPENUPSELL, WONUPSELL];
+/* POPPELL — the #22 case, from live data. Closed this month, deposit box
+   ticked, NO payment logged. The fallback used to report it as collected. */
+const POPPELL = {
+  id:'l_poppell', name:'Poppell Insurance', company:'Poppell', stage:'signed',
+  isClient:true, owner:'Garrett', createdAt:'2026-08-05T10:00:00.000Z',
+  convertedAt:D('17'), closedAt:D('17'), onbSkip:['deposit_paid'], onboarding:{},
+  dealValue:1199, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
+  retainerActive:false, retainer:0,
+};
+
+/* OLDCLOSE — closed BEFORE payment tracking. The fallback must still protect
+   this one, or switching the rule on deletes historical revenue. */
+const OLDCLOSE = {
+  id:'l_oldclose', name:'Last Year Co', company:'Last Year', stage:'signed',
+  isClient:true, owner:'Garrett', createdAt:'2026-06-01T10:00:00.000Z',
+  convertedAt:'2026-07-20', closedAt:'2026-07-20',
+  dealValue:800, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
+  retainerActive:false, retainer:0,
+};
+
+/* JUSTUS — the #21 case, from live data. A retainer client with an unpaid
+   balance. owedBy said $763, the lead panel said $1,011.75 — the panel was
+   adding one month of retainer. */
+const JUSTUS = {
+  id:'l_justus', name:'Justus', company:'Justus Co', stage:'signed',
+  isClient:true, owner:'Garrett', createdAt:'2026-06-10T10:00:00.000Z',
+  convertedAt:'2026-07-10', closedAt:'2026-07-10',
+  dealValue:1000, deals:[{ id:'dj', label:'Build', setup:1000 }],
+  meetings:[], activities:[], closedDeals:[],
+  payments:[{ id:'pj', amount:237, date:'2026-07-15', note:'deposit' }],
+  retainerActive:true, retainer:248.75,
+};
+
+globalThis.__LEADS__=[ALVAREZ, KAUFMANN, PENDING, LOST, THISMONTH, FREEBIE, OPENUPSELL, WONUPSELL, POPPELL, OLDCLOSE, JUSTUS];
 
 /* A hand-entered income row and an owner contribution, both this month.
    The #1 case: the old dashboard ignored both, the old Money page counted both. */
@@ -243,8 +276,8 @@ console.log('\n#4 avg deal size divides by the deals in its own total');
   const card=[...document.querySelectorAll('.an-card')].find(e=>/Avg Deal Size/.test(e.textContent||''));
   ok('the Avg Deal Size card is on screen', !!card, a.slice(0,160));
   const ct=(card&&card.textContent)||'';
-  ok('it reads $3,167 — 9,500 over three deals', /\$3,167/.test(ct), ct);
-  ok('  and says it is across 3 DEALS, not 2 leads', /across 3 deals/.test(ct), ct);
+  ok('it reads $2,083 — 12,499 over six deals', /\$2,083/.test(ct), ct);
+  ok('  and says it is across 6 DEALS, not the 3 leads with a live setup', /across 6 deals/.test(ct), ct);
 }
 
 console.log('\n#5 the win rate prints the sample that its own percentage used');
@@ -254,14 +287,94 @@ console.log('\n#5 the win rate prints the sample that its own percentage used');
      awaiting payment = 6. Lost: 1. 6/7 = 86%.
      The old caption printed wonCount — cash-confirmed only — which is 2, and
      "(2W · 1L)" is 67%, so the card contradicted itself. */
-  ok('the rate is 86%', /86%/.test(a), a.match(/Win Rate.{0,90}/)?.[0]);
-  ok('  and the sample says 6W · 1L', /6W\s*·\s*1L/.test(a), a.match(/decided deals.{0,60}/)?.[0]);
+  ok('the rate is 90%', /90%/.test(a), a.match(/Win Rate.{0,90}/)?.[0]);
+  ok('  and the sample says 9W · 1L', /9W\s*·\s*1L/.test(a), a.match(/decided deals.{0,60}/)?.[0]);
   ok('  and it says one is awaiting payment', /1 awaiting payment, counted as won/.test(a), a.match(/awaiting payment.{0,40}/)?.[0]);
   const m = a.match(/of decided deals \((\d+)W · (\d+)L\)/);
   if (m) {
     const rate = Math.round(Number(m[1]) / (Number(m[1]) + Number(m[2])) * 100);
     ok('  the printed sample actually produces the printed rate', new RegExp(rate + '%').test(a), `${m[1]}W/${m[2]}L → ${rate}%`);
   } else ok('  the caption is parseable', false, a.match(/decided deals.{0,60}/)?.[0]);
+}
+
+/* ============ #22 — the legacy fallback must not report unpaid closes as cash */
+
+console.log('\n#22 a close with no payment logged is NOT collected');
+{
+  await nav('Dashboard'); await settle(240);
+  const tile=[...document.querySelectorAll('[class*=kpi]')].find(e=>/Revenue Collected/.test(e.textContent||''));
+  const tt=(tile&&tile.textContent||'').replace(/ /g,' ');
+
+  /* Poppell closed this month, deposit ticked, no payment row. Its $1,199 must
+     not be in the collected figure. */
+  ok('Poppell\'s $1,199 is not counted as collected', !/\$1,199/.test(tt), tt);
+  ok('  and the tile says how many are waiting on a logged payment',
+     /closed this month with no payment logged/.test(tt), tt);
+
+  if (tile) await click(tile); await settle(240);
+  /* Scoped to the PANEL — "Poppell" appears elsewhere on the dashboard, and a
+     page-wide match would pass or fail for the wrong reason. */
+  const panel=document.querySelector('.drill');
+  const dt=(panel&&panel.textContent||'').replace(/ /g,' ');
+  ok('the drilldown opened', /Collected this month/.test(dt), dt.slice(0,80));
+  ok('the drilldown does not list it as collected', !/Poppell/.test(dt), dt.slice(0,400));
+  ok('  and its rows still sum to its own header', (()=>{
+    const rows=[...(panel?panel.querySelectorAll('.drow-v'):[])]
+      .map(e=>Number((e.textContent||'').replace(/[^0-9.]/g,''))||0);
+    const sum=Math.round(rows.reduce((a,b)=>a+b,0));
+    const hdr=Number(((dt.match(/\$([\d,]+)/)||[])[1]||'0').replace(/,/g,''));
+    return sum===hdr; })(), dt.slice(0,120));
+  if (tile) await click(tile); await settle(150);
+}
+
+console.log('\n#22 but a close from BEFORE payment tracking still counts');
+{
+  /* The whole reason the fallback exists (ENGINEERING §4): switching payment
+     tracking on must not delete history. Last Year Co closed in July, before
+     PAYMENTS_FROM, so it keeps counting at its close date. */
+  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  ok('the cutoff is a named, documented constant', /const PAYMENTS_FROM='\d{4}-\d{2}-\d{2}'/.test(src));
+  ok('the fallback is gated on it', /!paymentsOf\(l\)\.length&&preDatesPayments\(l\)/.test(src));
+  /* Its close month is July, so it does not show in THIS month's figure — what
+     matters is that the gate is by DATE, not that the fallback is gone. */
+  ok('and owedBy reads the same predicate, so the two cannot disagree',
+     /legacySettled\(l\)\?0:contractedTotal\(l\)/.test(src));
+}
+
+console.log('\n#22 an unpaid close is owed, not vanished');
+{
+  /* The trap this pairs with: bounding revenue WITHOUT bounding owedBy would
+     make Poppell neither collected nor owed — the money disappearing from both
+     sides at once. */
+  await nav('Money'); await settle(240);
+  const owedTile=[...document.querySelectorAll('[class*=kpi]')].find(e=>/Owed to you/.test(e.textContent||''));
+  const ot=(owedTile&&owedTile.textContent||'').replace(/ /g,' ');
+  ok('the Owed to you tile is on screen', !!owedTile);
+  const owedNum=Number(((ot.match(/\$([\d,]+)/)||[])[1]||'0').replace(/,/g,''));
+  ok('Poppell\'s $1,199 moved INTO owed rather than vanishing', owedNum>=1199,
+     `owed reads ${owedNum}`);
+}
+
+/* ==================== #21 — one definition of owed, on both screens */
+
+console.log('\n#21 the lead panel and the dashboard agree on what is owed');
+{
+  await nav('Clients'); await settle(280);
+  const c=norm();
+  ok('the clients screen rendered', /Justus/.test(c), c.slice(0,160));
+  /* Justus: contracted 1,000, paid 237 -> owed 763. The panel used to add one
+     month of retainer (248.75) and show 1,011.75. */
+  ok('the client card shows $763 due', /\$763 due/.test(c), c.match(/Justus[\s\S]{0,140}/)?.[0]);
+  ok('  and NOT the retainer-inflated $1,011.75', !/1,011/.test(c), c.match(/Justus[\s\S]{0,140}/)?.[0]);
+}
+
+console.log('\n#21 the retainer is shown beside the balance, never inside it');
+{
+  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  ok('the panel reads owedBy() rather than summing its own', /const remaining=owedBy\(draft,stages\)/.test(src));
+  ok('no firstMonth in the balance', !/const owed=openDealsTotal\+closedDealsTotal\(draft\)\+firstMonth/.test(src));
+  ok('the retainer is still surfaced, so nothing is hidden', /plus \{usdc\(firstMonth\)\}\/mo recurring/.test(src));
+  ok('  and labelled as excluded', /not counted in the balance/.test(src));
 }
 
 /* ================== #6 — the pipeline panel must sum to the pipeline tile */

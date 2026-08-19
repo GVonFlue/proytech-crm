@@ -24,7 +24,18 @@ globalThis.__LEADS__=[
    createdAt:ago(20),activities:[],meetings:[],deals:[],dealValue:2000},
   /* a client converted long before the cash rule existed — must keep counting */
   {id:'l2',name:'Legacy Client',company:'Legacy Client',stage:'signed',owner:'Garrett',isClient:true,
-   convertedAt:'2026-05-10',closedAt:today,createdAt:ago(90),activities:[],meetings:[],deals:[],dealValue:5000},
+   /* AUDIT #22. closedAt was `today` while convertedAt was May — a "legacy
+      client" that closed this morning. The legacy fallback is date-bound now,
+      so the close date has to match what this fixture claims the lead IS.
+      Its subject — a pre-payment-tracking client still counting — is unchanged
+      and still asserted below. */
+   convertedAt:'2026-05-10',closedAt:'2026-05-10',createdAt:ago(90),activities:[],meetings:[],deals:[],dealValue:5000,
+   /* AUDIT #22. This lead used to reach the revenue tile through the legacy
+      fallback while closing TODAY — which is the bug the fallback now excludes.
+      What the suite is checking (a converted client's money counts, an
+      unconverted one's does not) is unchanged; it just has to arrive the way
+      money now arrives. */
+   payments:[{id:'pl',amount:5000,date:today,note:'balance'}]},
 ];
 
 const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:false,format:'esm',jsx:'automatic',
