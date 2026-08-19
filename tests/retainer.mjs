@@ -16,30 +16,82 @@ import {
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); } else { fail++; console.log('  FAIL ' + n + (x ? ' — ' + String(x).slice(0, 200) : '')); } };
 
-/* ------------------------------------------------------- the reported shape */
+/* ------------------------------------------------------- THE REPORTED SHAPE */
 
-/* Justus, from the report: a $1,000 build with $237 paid against it, and a
-   $248.75 retainer running since July. Under the old single array, $237 + three
-   retainer payments read as $983 "paid" against a $1,000 balance. */
+/* JUSTUS, from the live data — not an invented fixture.
+   A $1,011.75 build and a $249/mo retainer. ONE $249 retainer payment has been
+   logged, and because it sits in the same array as setup money it has paid down
+   the build: the screen reads $762.75 owed.
+
+       1,011.75 − 249 = 762.75
+
+   That subtraction is AUDIT #23 happening in production. The build has not been
+   paid at all; a month of retainer arrived and was applied to it. */
+const JUSTUS_BUILD = 1011.75;
+const JUSTUS_RATE  = 249;
+
+/* How the record looks TODAY: one array, retainer money inside it. */
+const JUSTUS_NOW = {
+  id: 'l_justus', retainer: JUSTUS_RATE, retainerActive: true, retainerStart: '2026-07-10',
+  payments: [{ id: 'p1', amount: JUSTUS_RATE, date: '2026-08-16', note: '' }],
+};
+
+console.log('\nJustus, as the record reads today — the reported bug');
+{
+  /* Reproducing the wrong number first, so the fix has something to be a fix
+     OF rather than an assertion in a vacuum. */
+  const wrong = JUSTUS_BUILD - setupPaid(JUSTUS_NOW);
+  ok('a retainer payment is currently paying down the build', wrong === 762.75, wrong);
+  ok('  which is the number on the screen', wrong.toFixed(2) === '762.75');
+  ok('the build looks part-paid when nothing has been paid for it',
+     setupPaid(JUSTUS_NOW) === 249, setupPaid(JUSTUS_NOW));
+}
+
+console.log('\nJustus, classified — the fix');
+{
+  const p = proposeAll(JUSTUS_NOW);
+  ok('one payment to classify', p.length === 1);
+  ok('it is proposed as RETAINER', p[0].kind === 'retainer', JSON.stringify(p[0]));
+  ok('  because it matches the rate exactly', /matches the retainer amount exactly/.test(p[0].why), p[0].why);
+  ok('  and it is not certain, so you confirm it', p[0].certain === false);
+  ok('the lead is flagged as needing a look', needsReview(JUSTUS_NOW) === true);
+
+  const fixed = { ...JUSTUS_NOW, ...applyProposals(JUSTUS_NOW, p) };
+
+  /* THE ASSERTION THIS WHOLE FILE EXISTS FOR. */
+  ok('NOTHING has been paid toward the build', setupPaid(fixed) === 0, setupPaid(fixed));
+  ok('so the balance is the full $1,011.75, not $762.75',
+     JUSTUS_BUILD - setupPaid(fixed) === JUSTUS_BUILD, JUSTUS_BUILD - setupPaid(fixed));
+  ok('the $249 is still money that arrived', retainerPaid(fixed) === 249);
+  ok('  and cash in is unchanged by the reclassification',
+     allPaid(fixed) === allPaid(JUSTUS_NOW), `${allPaid(JUSTUS_NOW)} -> ${allPaid(fixed)}`);
+  ok('it covers the month it arrived in', monthsPaid(fixed).has('2026-08'));
+  ok('and July is what is behind', arrears(fixed, '2026-08').periods.join(',') === '2026-07',
+     arrears(fixed, '2026-08').periods.join(','));
+  ok('  one month, at the real rate', arrears(fixed, '2026-08').amount === 249);
+}
+
+/* A fuller version of the same client, once a few months have run, so the two
+   questions can be seen answering independently rather than one at a time. */
 const JUSTUS = {
-  id: 'l_justus', retainer: 248.75, retainerActive: true, retainerStart: '2026-06-10',
+  id: 'l_justus', retainer: JUSTUS_RATE, retainerActive: true, retainerStart: '2026-06-10',
   payments: [{ id: 's1', amount: 237, date: '2026-06-15', note: 'deposit' }],
   retainerPayments: [
-    { id: 'r1', amount: 248.75, date: '2026-06-20', period: '2026-06' },
-    { id: 'r2', amount: 248.75, date: '2026-07-18', period: '2026-07' },
-    { id: 'r3', amount: 248.75, date: '2026-08-16', period: '2026-08' },
+    { id: 'r1', amount: JUSTUS_RATE, date: '2026-06-20', period: '2026-06' },
+    { id: 'r2', amount: JUSTUS_RATE, date: '2026-07-18', period: '2026-07' },
+    { id: 'r3', amount: JUSTUS_RATE, date: '2026-08-16', period: '2026-08' },
   ],
 };
 
 console.log('\nthe two questions are answerable independently');
 {
   ok('paid against the WORK is the setup array only', setupPaid(JUSTUS) === 237, setupPaid(JUSTUS));
-  ok('paid against the RETAINER is the other array only', retainerPaid(JUSTUS) === 746.25, retainerPaid(JUSTUS));
-  ok('and cash in is both, because cash is cash', allPaid(JUSTUS) === 983.25, allPaid(JUSTUS));
-  /* THE BUG, stated as a test: three retainer payments must not move the
-     balance on a $1,000 build. */
-  ok('retainer money does NOT settle the build', setupPaid(JUSTUS) < 1000);
-  ok('  and the shortfall is the real one', 1000 - setupPaid(JUSTUS) === 763, 1000 - setupPaid(JUSTUS));
+  ok('paid against the RETAINER is the other array only', retainerPaid(JUSTUS) === 747, retainerPaid(JUSTUS));
+  ok('and cash in is both, because cash is cash', allPaid(JUSTUS) === 984, allPaid(JUSTUS));
+  ok('retainer money does NOT settle the build', setupPaid(JUSTUS) < JUSTUS_BUILD);
+  ok('  and the shortfall is the real one',
+     Math.round((JUSTUS_BUILD - setupPaid(JUSTUS)) * 100) / 100 === 774.75,
+     JUSTUS_BUILD - setupPaid(JUSTUS));
 }
 
 console.log('\nrevenue sees every dollar, tagged, and can sum neither by accident');
@@ -47,7 +99,8 @@ console.log('\nrevenue sees every dollar, tagged, and can sum neither by acciden
   const all = allPayments(JUSTUS);
   ok('four payments in total', all.length === 4, all.length);
   ok('each is tagged', all.every(p => p.kind === 'setup' || p.kind === 'retainer'));
-  ok('they add up to the cash that arrived', all.reduce((a, p) => a + p.amount, 0) === 983.25);
+  ok('they add up to the cash that arrived', all.reduce((a, p) => a + p.amount, 0) === 984,
+     all.reduce((a, p) => a + p.amount, 0));
 }
 
 /* -------------------------------------------------------------- the months */
