@@ -60,6 +60,9 @@ export const newKbNote = (by) => ({
   /* The meeting log a draft was STARTED from. An id, never any text — see
      "starting from a recording" below. */
   sourceLogId: '',
+  /* Same reasoning as newMeetingLog: an id and a locator, never transcript. */
+  sourcePocketId: '',
+  sourceSegment: null,
   status: 'draft',
   createdAt: new Date().toISOString(),
   createdBy: S(by, 60),
@@ -81,6 +84,10 @@ export const normKbNote = (r) => ({
   tags: A(r && r.tags).map(t => S(t, 40)).filter(Boolean).slice(0, 12),
   body: S(r && r.body, 8000),
   sourceLogId: S(r && r.sourceLogId, 60),
+  sourcePocketId: S(r && r.sourcePocketId, 60),
+  sourceSegment: (r && r.sourceSegment) ? {
+    start: S(r.sourceSegment.start, 12), end: S(r.sourceSegment.end, 12), quote: S(r.sourceSegment.quote, 300),
+  } : null,
   status: S(r && r.status, 20) === 'published' ? 'published' : 'draft',
   createdAt: S(r && r.createdAt, 40) || new Date().toISOString(),
   createdBy: S(r && r.createdBy, 60),

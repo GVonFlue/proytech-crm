@@ -83,6 +83,13 @@ export const newMeetingLog = (by, kind) => ({
   id: mlUid(),
   kind: MEETING_KINDS.includes(kind) ? kind : 'internal',
   leadId: '',
+  /* Where this came from, when it was made from a Pocket recording. An ID and a
+     LOCATOR, never any transcript text — the recording keeps the only copy of
+     that (POCKET-PLAN.md §5). sourceSegment is provenance, a historical fact
+     about how this was made, so unlike an offset into a live transcript it
+     cannot go stale when Pocket sends transcript.edited. */
+  sourcePocketId: '',
+  sourceSegment: null,
   meetingDate: todayISO(),
   source: 'Voice memo',
   attendees: [],
@@ -111,6 +118,12 @@ export const normLog = (r) => {
        the default backfills the whole table without a migration */
     kind: MEETING_KINDS.includes(S(r && r.kind)) ? S(r.kind) : 'internal',
     leadId: S(r && r.leadId),
+    /* Named here or they vanish on reload — this function's whole warning. */
+    sourcePocketId: S(r && r.sourcePocketId),
+    sourceSegment: (r && r.sourceSegment) ? {
+      start: S(O(r.sourceSegment).start, 12), end: S(O(r.sourceSegment).end, 12),
+      quote: S(O(r.sourceSegment).quote, 300),
+    } : null,
     shared: {
       text: S(sh.text), at: S(sh.at), by: S(sh.by), activityId: S(sh.activityId),
     },

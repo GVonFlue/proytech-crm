@@ -118,6 +118,31 @@ note: the text simply is not kept.
 Reps get the Playbook tab by default. A rep who already has a custom tab list
 keeps it, so switch it on for them in **Settings → Team**.
 
+## Pocket recordings
+
+Every recording you make arrives in the CRM by itself and waits in **Your day**
+on the dashboard. Nothing about it is automatic beyond arriving.
+
+A recording is a **source**, not a note. One Sunday call is ten minutes about a
+client, five about internal decisions and two of process worth publishing, so
+you make **as many outputs from it as it deserves** — a note on a lead, a note
+on a relationship, an internal business note, a Sunday meeting, a Playbook
+draft. The recording stays, so you can come back next month and make another.
+
+**Deep extract** proposes those outputs and drafts each one; you edit the text
+and press Create on the ones you want. It is the only button here that costs
+anything. Making an output by hand costs nothing.
+
+**No rep can see any of it.** The recordings table is owner-only in Postgres,
+the same as the Meeting Log — a rep's login gets zero rows, proved in
+VERIFY-RLS.md §7. And no output ever carries the transcript: what gets filed is
+the prose you edited, so a lead's record has never held one. The only two ways
+anything reaches a rep are the two that already existed: the line you write and
+publish on a client log, and publishing a Playbook draft through its preview.
+
+If Pocket deletes a recording their end, we mark ours and take it out of the
+queue — we do not delete your copy. That is your button, on the recording.
+
 ## Turning someone off
 
 **Deactivate** ends their access at the next page load, takes them off the

@@ -47,6 +47,19 @@ export const db = {
     const n=(globalThis.__KB_NOTES__||[]).find(x=>x.id===id); if(n) n.status='draft';
     globalThis.__KB_PUB__=(globalThis.__KB_PUB__||[]).filter(x=>x.id!==id); },
   kbAiContext: async () => JSON.parse(JSON.stringify(globalThis.__KB_PUB__ || [])),
+  /* Pocket recordings. The list deliberately omits the transcript, exactly as
+     the real getPocketRecordings does — a test that hands the list a transcript
+     would hide the bug where a screen reads it from the wrong place. */
+  getPocketRecordings: async () => (globalThis.__POCKETS__ || []).map(r => {
+    const { transcript, ...rest } = r; return JSON.parse(JSON.stringify(rest));
+  }),
+  getPocketRecording: async (id) => { (globalThis.__POCKET_LOADS__ = globalThis.__POCKET_LOADS__ || []).push(id);
+    const r = (globalThis.__POCKETS__ || []).find(x => x.id === id); return r ? JSON.parse(JSON.stringify(r)) : null; },
+  setPocketStatus: async (id, status) => { (globalThis.__POCKET_STATUS__ = globalThis.__POCKET_STATUS__ || []).push({ id, status });
+    const r = (globalThis.__POCKETS__ || []).find(x => x.id === id); if (r) r.status = status; },
+  savePocketProposals: async (id, proposals) => { (globalThis.__POCKET_PROPOSALS__ = globalThis.__POCKET_PROPOSALS__ || []).push({ id, proposals }); },
+  deletePocketRecording: async (id) => { (globalThis.__POCKET_DELETED__ = globalThis.__POCKET_DELETED__ || []).push(id);
+    globalThis.__POCKETS__ = (globalThis.__POCKETS__ || []).filter(x => x.id !== id); },
   upsertMeetingLog: async (l) => { (globalThis.__MLOG_WRITES__ = globalThis.__MLOG_WRITES__ || []).push(l); },
   deleteMeetingLog: async () => {},
   deleteLead: async (id) => { (globalThis.__DELETED__ = globalThis.__DELETED__ || []).push(id); }, deleteAll: async () => {},

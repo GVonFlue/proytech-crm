@@ -70,6 +70,12 @@ export const db = {
   async kbUnpublish(id) { rec('kbUnpublish', { id }); },
   async kbAiContext() { return clone(S().kbPub || []); },
 
+  async getPocketRecordings() { return clone(S().pockets || []); },
+  async getPocketRecording(id) { return clone((S().pockets || []).find(r => r.id === id) || null); },
+  async setPocketStatus(id, status) { rec('setPocketStatus', { id, status }); },
+  async savePocketProposals(id) { rec('savePocketProposals', { id }); },
+  async deletePocketRecording(id) { rec('deletePocketRecording', { id }); },
+
   async getUsers() { return clone(S().users); },
   async whoami() { return clone(S().whoami); },
   async upsertUser(u) { rec('upsertUser', { user: clone(u) }); },
