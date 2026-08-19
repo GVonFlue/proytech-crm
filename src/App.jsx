@@ -4022,9 +4022,23 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.closedMonthValue)} closed`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
-    {drill==='pipeline'&&(()=>{ const ups=leads.filter(l=>upsellValueOf(l)>0).sort((a,b)=>upsellValueOf(b)-upsellValueOf(a));
+    {drill==='pipeline'&&(()=>{
+      /* AUDIT #6. This filtered on upsellValueOf(l)>0 alone, while useMetrics
+         only accumulates upsellValue inside `if(s.won)`. An OPEN lead carrying
+         an upsell-stamped deal therefore appeared TWICE — once at its full
+         dealValue, which already includes that deal, and once again as an
+         upsell row — so the panel's rows summed to more than the tile.
+         Won only, to match the metric. An open lead's upsell is already inside
+         its dealValue and is counted there. */
+      const ups=leads.filter(l=>sOf(l.stage,stages).won&&upsellValueOf(l)>0)
+        .sort((a,b)=>upsellValueOf(b)-upsellValueOf(a));
       const rows=openLeads.length+ups.length;
-      return (<Drill title="Open pipeline" sub={`${rows} open${ups.length?` · ${ups.length} with a client`:''}`} onClose={()=>setDrill(null)}>
+      /* And the header states the VALUE, not just a row count. The tile shows a
+         dollar figure the panel never restated, so "a drilldown's total must
+         equal the sum of its own rows" (ENGINEERING §2) could not be checked by
+         eye at all — there was no total to check. */
+      const shown=openLeads.reduce((a,l)=>a+num(l.dealValue),0)+ups.reduce((a,l)=>a+upsellValueOf(l),0);
+      return (<Drill title="Open pipeline" sub={`${usd(shown)} · ${rows} open${ups.length?` · ${ups.length} client upsell${ups.length===1?'':'s'}`:''}`} onClose={()=>setDrill(null)}>
       {openLeads.map(l=>(<div className="drow" key={l.id}>
         <div className="drow-m"><Name l={l}/><div className="subcell">{sOf(l.stage,stages).label}{l.followUp?` · follow-up ${fmtDate(l.followUp)}`:''}</div></div>
         <span className="drow-v">{num(l.dealValue)>0?usd(l.dealValue):'—'}</span>
