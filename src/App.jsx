@@ -961,11 +961,78 @@ const CSS=`
 .body{padding:26px 30px 60px;width:100%;max-width:1320px}
 .hamb{display:none;background:none;border:none;color:${INDIGO};cursor:pointer}
 .kgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(176px,1fr));gap:16px;margin-bottom:22px}
+
+/* ---- intake panel: what came in, and when --------------------------------
+   Built from the JARVIS vocabulary on purpose — navy plate, 26px circuit grid,
+   arc reactor, lit cyan edges, monospace telemetry. This is the loud tile. */
+.intake{position:relative;overflow:hidden;border-radius:16px;padding:17px 19px 15px;margin-bottom:22px;
+  background:radial-gradient(820px 300px at 10% -45%,rgba(56,189,248,.18),transparent 62%),
+             linear-gradient(160deg,#12173A 0%,#0A0E27 58%,#05071A 100%);
+  border:1px solid rgba(56,189,248,.24);
+  box-shadow:0 22px 54px -34px rgba(10,14,39,.95),inset 0 1px 0 rgba(127,216,255,.13)}
+.intake::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.55;
+  background:repeating-linear-gradient(0deg,rgba(91,141,239,.075) 0 1px,transparent 1px 26px),
+             repeating-linear-gradient(90deg,rgba(91,141,239,.075) 0 1px,transparent 1px 26px)}
+.intake>*{position:relative;z-index:1}
+.ik-head{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:15px}
+.ik-arc{width:22px;height:22px;flex:none;border-radius:50%;position:relative;
+  background:radial-gradient(circle,#EAFBFF 0%,#7FD8FF 20%,#38BDF8 42%,rgba(43,77,224,.34) 64%,transparent 76%);
+  box-shadow:0 0 14px rgba(56,189,248,.8),inset 0 0 6px rgba(234,251,255,.5)}
+.ik-arc::after{content:'';position:absolute;inset:6px;border-radius:50%;border:1px solid rgba(234,251,255,.9)}
+.ik-ttl{font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:700;color:#F2FCFF;letter-spacing:.13em;text-transform:uppercase;line-height:1.1}
+.ik-ttl i{display:block;font-family:'Space Mono',ui-monospace,monospace;font-style:normal;font-size:9.5px;
+  font-weight:400;letter-spacing:.2em;color:rgba(127,216,255,.6);margin-top:3px}
+.ik-ranges{margin-left:auto;display:flex;gap:5px;flex-wrap:wrap}
+.ik-r{font-family:'Space Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+  background:rgba(56,189,248,.06);border:1px solid rgba(56,189,248,.2);color:#9FC4E8;
+  border-radius:7px;padding:6px 10px;cursor:pointer;transition:.15s}
+.ik-r:hover{background:rgba(56,189,248,.14);color:#EAF9FF;border-color:rgba(56,189,248,.4)}
+.ik-r.on{background:linear-gradient(90deg,rgba(43,77,224,.55),rgba(43,77,224,.2));color:#fff;
+  border-color:rgba(56,189,248,.5);box-shadow:inset 2px 0 0 #38BDF8,0 0 20px -8px rgba(56,189,248,.8)}
+.ik-nums{display:flex;align-items:center;gap:22px;flex-wrap:wrap}
+.ik-n{display:flex;flex-direction:column;gap:5px;min-width:118px}
+.ik-n b{font-family:'Space Grotesk',sans-serif;font-size:40px;font-weight:700;color:#F2FCFF;line-height:1;
+  text-shadow:0 0 26px rgba(56,189,248,.5)}
+.ik-n span{font-family:'Space Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.18em;
+  text-transform:uppercase;color:rgba(127,216,255,.6)}
+.ik-n.rel b{color:#F6E7C8;text-shadow:0 0 26px rgba(224,162,43,.5)}
+.ik-n.rel span{color:rgba(224,162,43,.72)}
+.ik-sep{width:1px;align-self:stretch;min-height:44px;background:linear-gradient(180deg,transparent,rgba(56,189,248,.32),transparent)}
+.ik-list{margin-top:15px;border-top:1px solid rgba(56,189,248,.14);padding-top:9px;display:flex;flex-direction:column;gap:1px}
+.ik-row{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:0;
+  padding:7px 9px;border-radius:8px;cursor:pointer;font-family:inherit;transition:.14s}
+.ik-row:hover{background:linear-gradient(90deg,rgba(43,77,224,.4),rgba(43,77,224,.1));box-shadow:inset 2px 0 0 #38BDF8}
+.ik-dot{width:6px;height:6px;flex:none;border-radius:50%;background:#38BDF8;box-shadow:0 0 8px rgba(56,189,248,.9)}
+.ik-dot.rel{background:#E0A22B;box-shadow:0 0 8px rgba(224,162,43,.9)}
+.ik-nm{font-size:13px;color:#EAF9FF;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ik-meta{font-family:'Space Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:rgba(127,216,255,.45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ik-when{margin-left:auto;font-family:'Space Mono',ui-monospace,monospace;font-size:10px;color:rgba(127,216,255,.55);flex:none}
+.ik-more{font-family:'Space Mono',ui-monospace,monospace;font-size:10px;color:rgba(127,216,255,.45);padding:6px 9px;letter-spacing:.1em}
+.ik-empty{margin-top:14px;border-top:1px solid rgba(56,189,248,.14);padding-top:13px;
+  font-size:12.5px;color:rgba(159,196,232,.6)}
+@media(max-width:640px){.ik-ranges{margin-left:0;width:100%}.ik-n b{font-size:32px}.ik-sep{display:none}
+  .ik-nums{gap:16px}.ik-meta{display:none}}
 .kpi{background:#fff;border:1px solid #E8E9F2;border-radius:16px;padding:18px;box-shadow:0 12px 30px -26px rgba(24,21,48,.5)}
 .kpi .kl{font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8E89A8;display:flex;align-items:center;gap:7px}
 .kpi .kv{font-family:'Space Grotesk';font-size:26px;font-weight:600;margin-top:9px;color:${INK};line-height:1}
 .kpi .kd{font-size:12.5px;font-weight:600;margin-top:8px;color:#8E89A8}
-.kpi.accent{background:linear-gradient(135deg,${COBALT},#2540c0);border:none}.kpi.accent .kl,.kpi.accent .kd{color:#D5DCFB}.kpi.accent .kv{color:#fff}
+/* The headline tiles are the JARVIS plate: deep navy, a faint circuit grid, a
+   lit cyan top edge and a cyan glow on the number. Everything dense and
+   tabular below stays light — a spreadsheet on a dark plate is harder to read,
+   and "exciting" is not worth paying for with legibility. */
+.kpi.accent{position:relative;overflow:hidden;border:1px solid rgba(56,189,248,.26);
+  background:radial-gradient(420px 180px at 12% -30%,rgba(56,189,248,.2),transparent 62%),
+             linear-gradient(160deg,#12173A 0%,#0A0E27 60%,#05071A 100%);
+  box-shadow:0 16px 38px -26px rgba(10,14,39,.95),inset 0 1px 0 rgba(127,216,255,.14)}
+.kpi.accent::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.5;
+  background:repeating-linear-gradient(0deg,rgba(91,141,239,.075) 0 1px,transparent 1px 26px),
+             repeating-linear-gradient(90deg,rgba(91,141,239,.075) 0 1px,transparent 1px 26px)}
+.kpi.accent>*{position:relative;z-index:1}
+.kpi.accent .kl,.kpi.accent .kd{color:#9FC4E8}
+.kpi.accent .kl{font-family:'Space Mono',ui-monospace,monospace;letter-spacing:.16em}
+.kpi.accent .kv{color:#F2FCFF;text-shadow:0 0 24px rgba(56,189,248,.5)}
+.kpi.accent svg{color:#7FD8FF}
 .kpi.gold{background:linear-gradient(135deg,${GOLD},#B0862F);border:none}.kpi.gold .kl,.kpi.gold .kd{color:#fff5e0}.kpi.gold .kv{color:#fff}
 .kpi.green{background:linear-gradient(135deg,${GREEN},#178047);border:none}.kpi.green .kl,.kpi.green .kd{color:#dafce8}.kpi.green .kv{color:#fff}
 .row{display:grid;gap:18px;margin-bottom:18px}.r2{grid-template-columns:1fr 1fr}.r3{grid-template-columns:2fr 1fr}
@@ -1377,8 +1444,10 @@ const CSS=`
 .mtb{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:#56527a;font-weight:600;background:#F5F6FB;border-radius:20px;padding:3px 11px}
 .mtb b{font-size:14px;color:${INK};font-family:'Space Grotesk',sans-serif}
 .kpi.clickable{cursor:pointer;transition:.14s}
-.kpi.clickable:hover{transform:translateY(-1px);box-shadow:0 12px 26px -14px rgba(19,56,222,.28)}
+.kpi.clickable:hover{transform:translateY(-1px);box-shadow:0 12px 26px -14px rgba(19,56,222,.28),inset 2px 0 0 #38BDF8}
+.kpi.accent.clickable:hover{box-shadow:0 18px 40px -22px rgba(10,14,39,.95),inset 2px 0 0 #38BDF8,0 0 26px -10px rgba(56,189,248,.7)}
 .kpi.active{outline:2px solid ${COBALT};outline-offset:-2px}
+.kpi.accent.active{outline-color:#38BDF8}
 .kpi.active .kpi-ch{color:#FFA500}
 .kpi-ch{margin-left:auto;opacity:.5;transition:transform .16s}
 .kpi-ch.on{transform:rotate(180deg);opacity:1}
@@ -1396,9 +1465,14 @@ const CSS=`
 .drow-t:hover{color:${COBALT};text-decoration:underline}
 .drow-v{font-size:13px;font-weight:700;color:${INK};white-space:nowrap;flex:none}
 .mtg-type{border:1px solid #E4E5EF;border-radius:20px;padding:4px 9px;font-size:11.5px;font-weight:700;color:#6A4CB8;background:color-mix(in srgb,#7A5CC8 8%,#fff);cursor:pointer;flex:none}
-".mtg-type.unset{color:#C05A1E;background:color-mix(in srgb,#E0662B 9%,#fff);border-color:#F0C09B}
-.kgroup{font-size:10.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:${COBALT};margin:2px 0 9px;display:flex;align-items:center;gap:8px}
-.kgroup::before{content:'';width:14px;height:2px;border-radius:2px;background:#FFA500}
+.mtg-type.unset{color:#C05A1E;background:color-mix(in srgb,#E0662B 9%,#fff);border-color:#F0C09B}
+/* Section headings read as instrument labels: monospace, widely tracked, with
+   a lit arc-cyan rule instead of a flat orange dash. Same family as the JARVIS
+   panel and the sidebar, so the dashboard looks like the same machine. */
+.kgroup{font-family:'Space Mono',ui-monospace,monospace;font-size:10px;font-weight:700;letter-spacing:.19em;
+  text-transform:uppercase;color:${COBALT};margin:2px 0 10px;display:flex;align-items:center;gap:9px}
+.kgroup::before{content:'';width:16px;height:2px;border-radius:2px;
+  background:linear-gradient(90deg,#38BDF8,#2B4DE0);box-shadow:0 0 9px rgba(56,189,248,.75)}
 .hud-top{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px}
 .hud-t{font-size:21px;font-weight:800;color:${INK};font-family:'Space Grotesk',sans-serif}
 .hud-d{font-size:12.5px;color:#8b88a0;font-weight:600;margin-top:3px}
@@ -3454,6 +3528,10 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
   const m=useMetrics(leads,stages,settings);
   const [drill,setDrill]=useState(null);
   const [scope,setScope]=useState('month');   // time filter across meeting tabs
+  /* Defaults to today every load on purpose: the question this answers is
+     "what came in today", and a range that silently persisted from last week
+     would answer a different one without saying so. */
+  const [addedRange,setAddedRange]=useState('today');
   const [mtab,setMtab]=useState('upcoming'); // upcoming | completed | noshow | needs
   const [arrange,setArrange]=useState(false);   // dashboard layout edit mode
   const [dragSec,setDragSec]=useState(null);
@@ -3601,6 +3679,51 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     ? dashHidden.filter(k=>k!==key) : [...dashHidden,key]);
 
   const BLOCKS={
+    /* What came in, and when. Defaults to today; the range buttons widen it.
+       Counts come from countAdded so this tile and anything that counts intake
+       later cannot drift apart. */
+    intake:(()=>{
+      const days=(ADDED_RANGES.find(r=>r[0]===addedRange)||ADDED_RANGES[0])[1];
+      const newLeads=addedWithin(leads,days);
+      const newRels=addedWithin(rels,days);
+      const label=(ADDED_RANGES.find(r=>r[0]===addedRange)||ADDED_RANGES[0])[2];
+      const recent=[...newLeads.map(l=>({l,rel:false})),...newRels.map(l=>({l,rel:true}))]
+        .sort((a,b)=>String(b.l.createdAt||'').localeCompare(String(a.l.createdAt||''))).slice(0,6);
+      return (<>
+        <div className="kgroup" style={{marginTop:4}}>New leads &amp; relationships</div>
+        <div className="intake">
+          <div className="ik-head">
+            <span className="ik-arc"/>
+            <div className="ik-ttl">Intake<i>{label==='Today'?'Today':`Last ${label}`}</i></div>
+            <div className="ik-ranges">
+              {ADDED_RANGES.map(([k,,lab])=>(
+                <button key={k} className={'ik-r'+(addedRange===k?' on':'')}
+                  onClick={()=>setAddedRange(k)}>{lab}</button>
+              ))}
+            </div>
+          </div>
+          <div className="ik-nums">
+            <div className="ik-n"><b>{newLeads.length}</b><span>New lead{newLeads.length===1?'':'s'}</span></div>
+            <div className="ik-sep"/>
+            <div className="ik-n rel"><b>{newRels.length}</b><span>New relationship{newRels.length===1?'':'s'}</span></div>
+          </div>
+          {recent.length>0
+            ? (<div className="ik-list">
+                {recent.map(({l,rel})=>(
+                  <button key={l.id} className="ik-row" onClick={()=>open(l.id)}>
+                    <span className={'ik-dot'+(rel?' rel':'')}/>
+                    <span className="ik-nm">{l.name||l.company||'Unnamed'}</span>
+                    <span className="ik-meta">{rel?'Relationship':(l.source||'Lead')}</span>
+                    <span className="ik-when">{fmtDate(addedOn(l))}</span>
+                  </button>
+                ))}
+                {(newLeads.length+newRels.length)>recent.length
+                  && <div className="ik-more">+ {newLeads.length+newRels.length-recent.length} more</div>}
+              </div>)
+            : (<div className="ik-empty">Nothing added {label==='Today'?'today':`in the last ${label.toLowerCase()}`} yet.</div>)}
+        </div>
+      </>);
+    })(),
     today:(()=>{
       /* Everything waiting on YOU, in one place, before the numbers. Tags other
          people left, follow-ups due, tasks due, and meetings today — each
@@ -3999,8 +4122,39 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
    settings change instead of a fork: reorder, hide what doesn't apply, ship.
    Alerts are deliberately NOT in here — an onboarding queue or an unacknowledged
    commission is not decoration and shouldn't be reorderable or hideable. */
+/* ---- intake: how many leads and relationships arrived, and when -------------
+   "Added" means createdAt, counted on CALENDAR DAY boundaries rather than a
+   rolling 24h window, because "added today" has to mean today's date — a lead
+   entered at 9am must not stop counting at 9am tomorrow.
+
+   A range of N days is the last N calendar days INCLUDING today, so 'Today' is
+   simply N=1 and there is one code path rather than a special case.
+
+   Module level and pure on purpose: the tile, and anything that counts these
+   later, share one definition. ENGINEERING.md §2 — two screens must never
+   disagree about a number. */
+const ADDED_RANGES=[
+  ['today',   1,  'Today'],
+  ['d7',      7,  '7 days'],
+  ['d14',     14, '14 days'],
+  ['d30',     30, '30 days'],
+  ['d90',     90, '90 days'],
+  ['d365',    365,'12 months'],
+];
+/* The date a record was added, as YYYY-MM-DD, or '' if it has no usable one.
+   An unparseable createdAt must return '' rather than a NaN date: "NaN-aN-aN"
+   sorts ABOVE any real date as a string and would count in every range. */
+const addedOn=r=>{ if(!r||!r.createdAt) return ''; const d=new Date(r.createdAt); return isNaN(d)?'':isoOf(d); };
+const addedFrom=days=>{ const d=new Date(); d.setDate(d.getDate()-(Math.max(1,num(days))-1)); return isoOf(d); };
+/* Records added within the last `days` calendar days, newest first. */
+const addedWithin=(rows,days)=>{ const from=addedFrom(days);
+  return (Array.isArray(rows)?rows:[]).filter(r=>{ const d=addedOn(r); return d&&d>=from; })
+    .sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||''))); };
+const countAdded=(rows,days)=>addedWithin(rows,days).length;
+
 const DASH_SECTIONS=[
   ['today',    'Your day'],
+  ['intake',   'New leads & relationships'],
   ['scorecard','Team scorecard'],
   ['revenue',  'Pipeline & revenue'],
   ['activity', 'Activity & health'],
@@ -4023,9 +4177,19 @@ const dashLabel=k=>(DASH_SECTIONS.find(x=>x[0]===k)||[k,k])[1];
    anyone who already saved a layout. */
 const dashOrderOf=settings=>{
   const saved=Array.isArray(settings&&settings.dashOrder)?settings.dashOrder.filter(k=>DASH_DEFAULT.includes(k)):[];
-  const missing=DASH_DEFAULT.filter(k=>!saved.includes(k));
-  const merged=[...saved,...missing];
-  if(saved.length&&!saved.includes(dashPinFirst))
+  if(!saved.length) return [...DASH_DEFAULT];
+  /* Insert anything new at its DEFAULT position relative to a section they
+     already have, rather than appending it. Appending is the dashboard's
+     version of "new tabs ship invisible": the section is technically there,
+     it is just at the bottom of a long page and nobody scrolls to find a
+     feature they were never told about. ENGINEERING.md §1. */
+  const merged=[...saved];
+  DASH_DEFAULT.forEach((k,i)=>{
+    if(merged.includes(k)) return;
+    const prev=DASH_DEFAULT.slice(0,i).filter(x=>merged.includes(x)).pop();
+    merged.splice(prev?merged.indexOf(prev)+1:0,0,k);
+  });
+  if(!saved.includes(dashPinFirst))
     return [dashPinFirst,...merged.filter(k=>k!==dashPinFirst)];
   return merged;
 };

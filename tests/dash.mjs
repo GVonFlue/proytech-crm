@@ -42,12 +42,19 @@ const settle=async(ms=820)=>{await act(async()=>{await new Promise(r=>setTimeout
 const btn=re=>[...document.querySelectorAll('button')].find(b=>re.test((b.textContent||'').trim()));
 const secTitles=()=>[...document.querySelectorAll('.dsec-t')].map(e=>(e.textContent||'').trim());
 const groups=()=>[...document.querySelectorAll('.kgroup')].map(e=>(e.textContent||'').trim());
+/* Assert RELATIVE order, not absolute indexes. Every index in this file used to
+   shift by one the moment a section was added, which made six assertions fail
+   for a change that was entirely correct. Order is what these tests mean. */
+const before=(list,a,b)=>{const i=list.indexOf(a),j=list.indexOf(b);return i>=0&&j>=0&&i<j;};
 
 console.log('\nnormal mode is untouched');
 ok('no arrange chrome on screen', document.querySelectorAll('.dsec').length===0);
 /* "Your day" leads — it's what you're meant to read first */
 ok('sections render in default order',
-   JSON.stringify(groups().slice(0,3))===JSON.stringify(['Your day','Pipeline & revenue','Activity & health']),
+   groups()[0]==='Your day'
+   && before(groups(),'Your day','New leads & relationships')
+   && before(groups(),'New leads & relationships','Pipeline & revenue')
+   && before(groups(),'Pipeline & revenue','Activity & health'),
    groups().join(' | '));
 ok('KPI tiles still clickable', !!document.querySelector('.kpi'));
 const tile=[...document.querySelectorAll('.kpi')].find(e=>/Open Pipeline/.test(e.textContent||''));
@@ -60,8 +67,9 @@ const rearrange=btn(/^Rearrange$/);
 ok('Rearrange button exists', !!rearrange);
 await click(rearrange);
 const titles=secTitles();
-ok('every section is listed', titles.length===11, titles.length+': '+titles.join(' | '));
-ok('in default order', titles[0]==='Your day'&&titles[1]==='Team scorecard'&&titles[10]==='Next event', titles.join(' | '));
+ok('every section is listed', titles.length===12, titles.length+': '+titles.join(' | '));
+ok('in default order', titles[0]==='Your day'&&titles[1]==='New leads & relationships'
+   &&titles[2]==='Team scorecard'&&titles[titles.length-1]==='Next event', titles.join(' | '));
 ok('the alerts area is NOT reorderable', !titles.some(t=>/onboard|commission/i.test(t)), titles.join(' | '));
 
 console.log('\nmove a section');
@@ -70,9 +78,9 @@ const downOn=name=>{const s=secs().find(x=>((x.querySelector('.dsec-t')||{}).tex
   return s?[...s.querySelectorAll('.dsec-b')][1]:null;};
 await click(downOn('Team scorecard'));
 await settle();
-ok('it moved down one', secTitles()[1]==='Pipeline & revenue'&&secTitles()[2]==='Team scorecard', secTitles().slice(0,4).join(' | '));
+ok('it moved down one', before(secTitles(),'Pipeline & revenue','Team scorecard'), secTitles().slice(0,5).join(' | '));
 const sw=globalThis.__SETTINGS_WRITES__.at(-1);
-ok('the new order was saved', sw && Array.isArray(sw.dashOrder) && sw.dashOrder[1]==='revenue' && sw.dashOrder[2]==='scorecard',
+ok('the new order was saved', sw && Array.isArray(sw.dashOrder) && before(sw.dashOrder,'revenue','scorecard'),
    JSON.stringify(sw&&sw.dashOrder));
 
 console.log('\nhide a section');
@@ -90,7 +98,7 @@ await click(btn(/^Done$/));
 await settle(60);
 ok('arrange chrome gone', document.querySelectorAll('.dsec').length===0);
 ok('the hidden section is actually gone', !/Revenue by client/i.test(document.body.textContent||''));
-ok('the reorder held', groups()[1]==='Pipeline & revenue', groups().join(' | '));
+ok('the reorder held', before(groups(),'Pipeline & revenue','Activity & health'), groups().join(' | '));
 ok('tiles are clickable again', !!document.querySelector('.kpi'));
 
 console.log('\nreset');
