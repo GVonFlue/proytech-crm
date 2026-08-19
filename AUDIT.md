@@ -9,7 +9,7 @@ Read against `ENGINEERING.md` §2 ("two screens must never disagree") and §4
 code — verified by stashing the fix and re-running:
 **#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**, **#6**, **#7**, **#21**, **#22**.
 
-**Still open:** #9, #10, #11, #12, #16, #20, and the new **#23**.
+**Still open:** #9, #10, #11, #12, #16, #20, #23, #24, #25, #26.
 
 **Found while fixing** — added below as #19 and #20.
 
@@ -555,6 +555,48 @@ contracted total every month. Two consequences:
 **Fix:** a `kind` on each payment row (`setup` | `retainer`), and `owedBy()`
 counting only setup payments against one-off work. Half a day, plus a migration
 defaulting existing rows to `setup`.
+
+## 25. A retainer RATE and a retainer BEING BILLED are the same flag — **OPEN**
+
+`retainerActive` means both "I have decided what to charge" and "I am charging
+it", and `src/App.jsx:3018` **auto-stamps `retainerStart` the moment the toggle
+flips**. So setting a price on a client who has not started invents a billing
+history for them.
+
+Justus is the live case: a $249 rate is set, `retainerActive` is on, nothing has
+ever been billed, and no retainer payment exists.
+
+Two consequences, and they are the same gap from opposite ends:
+
+- **MRR counts money that was never billed** (#26).
+- **Arrears would count months that were never owed** — which the step-1 library
+  would have done, and did, until this was corrected.
+
+There is also no `retainerEnd`, so a stopped or paused retainer has nowhere to
+live: it either accrues forever or reads as settled, and neither is true.
+
+**Fix (built in `src/lib/retainer.js`, not yet wired):** a state rather than a
+flag — `none` / `quoted` / `active` / `off` / `ended`. A retainer is **billing**
+only on evidence of billing: a retainer payment exists, or the owner confirmed
+the start. Until then the rate is *quoted*. `retainerEnd` bounds the far side.
+
+That default under-counts rather than over-counts, deliberately: an
+under-counted MRR is a number you can go and confirm, an over-counted one is a
+number you plan on and then miss.
+
+## 26. MRR counts unstarted retainers — **OPEN**
+
+Reported live: the tile reads **$526 across 4 retainers**, and it is not known
+how many are real. MRR sums `retainer` for every lead with `retainerActive`,
+which after #25 is the wrong population — it includes quoted rates.
+
+**Fix:** MRR counts `billsMrr()` only, with *"N quoted, not counted"* beside it
+so nothing is hidden. Same shape as AUDIT #1's split. Needs a one-off
+confirmation pass over the existing four, since the data cannot distinguish a
+confirmed start from an auto-stamped one.
+
+**Expect MRR to fall** when this lands. That is the point, and it should be
+announced on the screen the first time rather than discovered.
 
 # Suggested order
 

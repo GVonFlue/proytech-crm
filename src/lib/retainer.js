@@ -74,6 +74,40 @@ export function monthsFrom(a, b) {
   return out;
 }
 
+/* ---------------------------------------------------- rate vs actually billing
+
+   A PRICE IS NOT A COMMITMENT. `retainerActive` currently means both "I have
+   decided what to charge" and "I am charging it", and App.jsx auto-stamps
+   retainerStart the moment the toggle flips — so setting a rate on a client who
+   has not started invents a billing history for them.
+
+   Two things follow, and they are the same gap from opposite ends:
+     - MRR counts money that was never billed.
+     - Arrears would count months that were never owed.
+
+   So a retainer is only BILLING when there is evidence of billing: either a
+   retainer payment exists, or the owner has confirmed the start explicitly.
+   Until then the rate is QUOTED — set, but the clock has not started.
+
+   That default is deliberately the cautious one. Under-counting MRR is a number
+   you can go and confirm; over-counting is a number you plan on and then miss.
+
+   `retainerEnd` gives a stopped retainer somewhere to live, which is the other
+   half of the same problem: without it, a paused client reads as settled rather
+   than as owing the months they were billed for. */
+export function retainerState(l) {
+  if (!l || num(l.retainer) <= 0) return 'none';
+  if (S(l.retainerEnd, 10)) return 'ended';
+  if (!l.retainerActive) return 'off';
+  if (l.retainerConfirmed || retainerPayments(l).length) return 'active';
+  return 'quoted';
+}
+
+/** Only a retainer that is actually being billed belongs in MRR. */
+export const billsMrr = l => retainerState(l) === 'active';
+/** Rate set, clock not started — counted separately so it is visible, not lost. */
+export const isQuoted = l => retainerState(l) === 'quoted';
+
 /** When the retainer began. retainerStart is auto-stamped when the toggle is
  *  flipped (App.jsx), but leads that predate that stamp fall back to when they
  *  converted rather than reading as having no history. */
@@ -88,10 +122,15 @@ export const retainerStartOf = l =>
  *  months owed. If pausing turns out to be a real thing you do, the fix is a
  *  skipped-period list, not a new concept. */
 export function monthsDue(l, nowKey) {
-  if (!l || !l.retainerActive || num(l.retainer) <= 0) return [];
+  /* Gated on BILLING, not on the toggle. A quoted rate owes nothing — that is
+     the whole point of the distinction above. */
+  if (!billsMrr(l)) return [];
   const start = retainerStartOf(l);
   if (!start) return [];
-  return monthsFrom(start, S(nowKey, 7));
+  /* Stops at retainerEnd, so a finished or paused retainer accrues nothing new
+     while the months it WAS billed for stay owed. */
+  const end = monthKeyOf(l.retainerEnd) || S(nowKey, 7);
+  return monthsFrom(start, end < S(nowKey, 7) ? end : S(nowKey, 7));
 }
 
 /** DISTINCT periods covered — so paying two months at once credits two months,

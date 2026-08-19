@@ -11,6 +11,7 @@ import {
   setupPaid, retainerPaid, allPaid, allPayments,
   monthsFrom, monthsDue, monthsPaid, arrears, retainerStartOf, monthKeyOf,
   proposeAll, applyProposals, needsReview, isReviewed,
+  retainerState, billsMrr, isQuoted,
 } from '../src/lib/retainer.js';
 
 let pass = 0, fail = 0;
@@ -18,85 +19,133 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); } els
 
 /* ------------------------------------------------------- THE REPORTED SHAPE */
 
-/* JUSTUS, from the live data — not an invented fixture.
-   A $1,011.75 build and a $249/mo retainer. ONE $249 retainer payment has been
-   logged, and because it sits in the same array as setup money it has paid down
-   the build: the screen reads $762.75 owed.
+/* JUSTUS, corrected to the true record.
+   A $2,499 build already closed, a NEW $1,011.75 deal open, and two setup
+   payments: $1,498.50 and $1,249.50. A $249/mo rate is SET on the record but
+   nothing has ever been billed and no retainer payment has been made.
 
-       1,011.75 − 249 = 762.75
+       contracted  2,499.00 + 1,011.75 = 3,510.75
+       paid        1,498.50 + 1,249.50 = 2,748.00
+       owed                              762.75      <- correct
 
-   That subtraction is AUDIT #23 happening in production. The build has not been
-   paid at all; a month of retainer arrived and was applied to it. */
-const JUSTUS_BUILD = 1011.75;
-const JUSTUS_RATE  = 249;
+   THE $762.75 IS RIGHT, and there is no retainer money involved in it. That it
+   also equals 1,011.75 − 249 is a COINCIDENCE, and a convincing one — it is
+   what made both of us read a retainer payment into a number that never had
+   one. The suite carries the arithmetic so nobody re-derives the wrong story.
 
-/* How the record looks TODAY: one array, retainer money inside it. */
-const JUSTUS_NOW = {
-  id: 'l_justus', retainer: JUSTUS_RATE, retainerActive: true, retainerStart: '2026-07-10',
-  payments: [{ id: 'p1', amount: JUSTUS_RATE, date: '2026-08-16', note: '' }],
+   What Justus DOES demonstrate is the other thing: a rate set on a client who
+   has never been billed. */
+const JUSTUS = {
+  id: 'l_justus', name: 'Justus',
+  closedDeals: [{ id: 'cd', label: 'Build', amount: 2499, closedAt: '2026-07-21' }],
+  deals: [{ id: 'd2', label: 'New build', setup: 1011.75 }],
+  dealValue: 1011.75,
+  payments: [
+    { id: 'p1', amount: 1498.50, date: '2026-07-21', note: 'square deposit' },
+    { id: 'p2', amount: 1249.50, date: '2026-08-07', note: 'balance' },
+  ],
+  /* the rate is set; the clock has never started */
+  retainer: 249, retainerActive: true, retainerStart: '2026-07-21',
+  retainerPayments: [],
 };
 
-console.log('\nJustus, as the record reads today — the reported bug');
+console.log('\nJustus: the $762.75 is correct, and no retainer touched it');
 {
-  /* Reproducing the wrong number first, so the fix has something to be a fix
-     OF rather than an assertion in a vacuum. */
-  const wrong = JUSTUS_BUILD - setupPaid(JUSTUS_NOW);
-  ok('a retainer payment is currently paying down the build', wrong === 762.75, wrong);
-  ok('  which is the number on the screen', wrong.toFixed(2) === '762.75');
-  ok('the build looks part-paid when nothing has been paid for it',
-     setupPaid(JUSTUS_NOW) === 249, setupPaid(JUSTUS_NOW));
+  const contracted = 2499 + 1011.75;
+  ok('both payments are setup money', setupPaid(JUSTUS) === 2748, setupPaid(JUSTUS));
+  ok('no retainer money exists at all', retainerPaid(JUSTUS) === 0);
+  ok('owed is contracted minus paid', contracted - setupPaid(JUSTUS) === 762.75,
+     contracted - setupPaid(JUSTUS));
+  /* The coincidence, pinned so the wrong story cannot be re-derived from it. */
+  ok('1,011.75 − 249 lands on the same number by chance', 1011.75 - 249 === 762.75);
+  ok('  but the real subtraction is 3,510.75 − 2,748', contracted - 2748 === 762.75);
 }
 
-console.log('\nJustus, classified — the fix');
+console.log('\nJustus: a rate is set, so nothing has been billed');
 {
-  const p = proposeAll(JUSTUS_NOW);
-  ok('one payment to classify', p.length === 1);
-  ok('it is proposed as RETAINER', p[0].kind === 'retainer', JSON.stringify(p[0]));
-  ok('  because it matches the rate exactly', /matches the retainer amount exactly/.test(p[0].why), p[0].why);
-  ok('  and it is not certain, so you confirm it', p[0].certain === false);
-  ok('the lead is flagged as needing a look', needsReview(JUSTUS_NOW) === true);
-
-  const fixed = { ...JUSTUS_NOW, ...applyProposals(JUSTUS_NOW, p) };
-
-  /* THE ASSERTION THIS WHOLE FILE EXISTS FOR. */
-  ok('NOTHING has been paid toward the build', setupPaid(fixed) === 0, setupPaid(fixed));
-  ok('so the balance is the full $1,011.75, not $762.75',
-     JUSTUS_BUILD - setupPaid(fixed) === JUSTUS_BUILD, JUSTUS_BUILD - setupPaid(fixed));
-  ok('the $249 is still money that arrived', retainerPaid(fixed) === 249);
-  ok('  and cash in is unchanged by the reclassification',
-     allPaid(fixed) === allPaid(JUSTUS_NOW), `${allPaid(JUSTUS_NOW)} -> ${allPaid(fixed)}`);
-  ok('it covers the month it arrived in', monthsPaid(fixed).has('2026-08'));
-  ok('and July is what is behind', arrears(fixed, '2026-08').periods.join(',') === '2026-07',
-     arrears(fixed, '2026-08').periods.join(','));
-  ok('  one month, at the real rate', arrears(fixed, '2026-08').amount === 249);
+  ok('the state is QUOTED, not active', retainerState(JUSTUS) === 'quoted', retainerState(JUSTUS));
+  ok('  even though retainerActive is on', JUSTUS.retainerActive === true);
+  ok('  and retainerStart was auto-stamped by the toggle', !!JUSTUS.retainerStart);
+  ok('it does NOT count toward MRR', billsMrr(JUSTUS) === false);
+  ok('it is visible as quoted rather than silently dropped', isQuoted(JUSTUS) === true);
+  ok('no months are due', monthsDue(JUSTUS, '2026-08').length === 0);
+  ok('  so no arrears are invented', arrears(JUSTUS, '2026-08').months === 0);
+  ok('  and he reads as current, because nothing was owed', arrears(JUSTUS, '2026-08').current === true);
 }
 
-/* A fuller version of the same client, once a few months have run, so the two
-   questions can be seen answering independently rather than one at a time. */
-const JUSTUS = {
-  id: 'l_justus', retainer: JUSTUS_RATE, retainerActive: true, retainerStart: '2026-06-10',
+console.log('\nand nothing on Justus needs reclassifying');
+{
+  const p = proposeAll(JUSTUS);
+  ok('both payments are proposed as setup', p.every(r => r.kind === 'setup'), JSON.stringify(p));
+  /* The note carries it: "square deposit" and "balance" are setup words. An
+     exact-amount rule would not have fired here anyway — neither is $249. */
+  ok('  on the strength of their notes', p.every(r => /the note says/.test(r.why)), p.map(r => r.why).join(' | '));
+  ok('setup paid is unchanged by classifying', (() => {
+    const fixed = { ...JUSTUS, ...applyProposals(JUSTUS, p) };
+    return setupPaid(fixed) === 2748 && retainerPaid(fixed) === 0; })());
+}
+
+console.log('\nonce a retainer actually starts, the clock does too');
+{
+  /* Confirming the start is the explicit act that turns a price into billing. */
+  const started = { ...JUSTUS, retainerConfirmed: true, retainerStart: '2026-07-01' };
+  ok('the state becomes active', retainerState(started) === 'active');
+  ok('it counts toward MRR', billsMrr(started) === true);
+  ok('two months are due', monthsDue(started, '2026-08').join(',') === '2026-07,2026-08');
+  ok('  and both are behind, because nothing has been paid',
+     arrears(started, '2026-08').months === 2);
+  ok('  worth two months at the real rate', arrears(started, '2026-08').amount === 498);
+
+  /* Logging a retainer payment is evidence of billing on its own — no flag
+     needed, because the money is the evidence. */
+  const paid1 = { ...JUSTUS, retainerStart: '2026-07-01',
+    retainerPayments: [{ id: 'r1', amount: 249, date: '2026-07-05', period: '2026-07' }] };
+  ok('a logged retainer payment alone makes it active', retainerState(paid1) === 'active');
+  ok('  July is covered, August is behind',
+     arrears(paid1, '2026-08').periods.join(',') === '2026-08');
+}
+
+console.log('\na stopped retainer stops accruing, and keeps what it owed');
+{
+  const ended = { retainer: 100, retainerActive: true, retainerConfirmed: true,
+    retainerStart: '2026-05-01', retainerEnd: '2026-06-30', payments: [],
+    retainerPayments: [{ id: 'r', amount: 100, date: '2026-05-04', period: '2026-05' }] };
+  ok('the state is ended', retainerState(ended) === 'ended');
+  ok('it leaves MRR', billsMrr(ended) === false);
+  ok('no months accrue past the end date', monthsDue(ended, '2026-08').length === 0);
+
+  /* And while it was running, the months it was billed for are still owed —
+     which is the half a bare on/off toggle could never express. */
+  const paused = { ...ended, retainerEnd: '' , retainerActive: true };
+  ok('the same client, still running, owes the months it missed',
+     arrears(paused, '2026-08').periods.join(',') === '2026-06,2026-07,2026-08',
+     arrears(paused, '2026-08').periods.join(','));
+}
+
+/* A fuller client, for the two questions answering independently. */
+const RETAINED = {
+  id: 'l_retained', retainer: 249, retainerActive: true, retainerConfirmed: true,
+  retainerStart: '2026-06-10',
   payments: [{ id: 's1', amount: 237, date: '2026-06-15', note: 'deposit' }],
   retainerPayments: [
-    { id: 'r1', amount: JUSTUS_RATE, date: '2026-06-20', period: '2026-06' },
-    { id: 'r2', amount: JUSTUS_RATE, date: '2026-07-18', period: '2026-07' },
-    { id: 'r3', amount: JUSTUS_RATE, date: '2026-08-16', period: '2026-08' },
+    { id: 'r1', amount: 249, date: '2026-06-20', period: '2026-06' },
+    { id: 'r2', amount: 249, date: '2026-07-18', period: '2026-07' },
+    { id: 'r3', amount: 249, date: '2026-08-16', period: '2026-08' },
   ],
 };
 
 console.log('\nthe two questions are answerable independently');
 {
-  ok('paid against the WORK is the setup array only', setupPaid(JUSTUS) === 237, setupPaid(JUSTUS));
-  ok('paid against the RETAINER is the other array only', retainerPaid(JUSTUS) === 747, retainerPaid(JUSTUS));
-  ok('and cash in is both, because cash is cash', allPaid(JUSTUS) === 984, allPaid(JUSTUS));
-  ok('retainer money does NOT settle the build', setupPaid(JUSTUS) < JUSTUS_BUILD);
-  ok('  and the shortfall is the real one',
-     Math.round((JUSTUS_BUILD - setupPaid(JUSTUS)) * 100) / 100 === 774.75,
-     JUSTUS_BUILD - setupPaid(JUSTUS));
+  ok('paid against the WORK is the setup array only', setupPaid(RETAINED) === 237, setupPaid(RETAINED));
+  ok('paid against the RETAINER is the other array only', retainerPaid(RETAINED) === 747, retainerPaid(RETAINED));
+  ok('and cash in is both, because cash is cash', allPaid(RETAINED) === 984, allPaid(RETAINED));
+  ok('a $1,000 build would still read fully unpaid', 1000 - setupPaid(RETAINED) === 763);
+  ok('and they are current on the retainer', arrears(RETAINED, '2026-08').current === true);
 }
 
 console.log('\nrevenue sees every dollar, tagged, and can sum neither by accident');
 {
-  const all = allPayments(JUSTUS);
+  const all = allPayments(RETAINED);
   ok('four payments in total', all.length === 4, all.length);
   ok('each is tagged', all.every(p => p.kind === 'setup' || p.kind === 'retainer'));
   ok('they add up to the cash that arrived', all.reduce((a, p) => a + p.amount, 0) === 984,
@@ -114,13 +163,13 @@ console.log('\nmonths are counted on periods, not on dates');
   ok('it crosses a year end', monthsFrom('2025-11', '2026-02').join(',') === '2025-11,2025-12,2026-01,2026-02');
   ok('a wild start does not hang the render', monthsFrom('1026-01', '2026-08').length <= 600);
 
-  ok('the start comes from retainerStart', retainerStartOf(JUSTUS) === '2026-06');
+  ok('the start comes from retainerStart', retainerStartOf(RETAINED) === '2026-06');
   ok('  falling back to convertedAt when it was never stamped',
      retainerStartOf({ convertedAt: '2026-03-04' }) === '2026-03');
 
   ok('due counts from the start, inclusive of this month',
-     monthsDue(JUSTUS, '2026-08').join(',') === '2026-06,2026-07,2026-08');
-  ok('paid is the DISTINCT periods covered', monthsPaid(JUSTUS).size === 3);
+     monthsDue(RETAINED, '2026-08').join(',') === '2026-06,2026-07,2026-08');
+  ok('paid is the DISTINCT periods covered', monthsPaid(RETAINED).size === 3);
 }
 
 console.log('\npaying late, in bulk, or not at all');
@@ -145,8 +194,8 @@ console.log('\npaying late, in bulk, or not at all');
   ok('a late payment credits the month it was FOR', monthsPaid(late).has('2026-07'));
   ok('  and August is still behind', arrears(late, '2026-08').periods.join(',') === '2026-08');
 
-  ok('a fully current client is current', arrears(JUSTUS, '2026-08').current === true);
-  ok('  with nothing outstanding', arrears(JUSTUS, '2026-08').amount === 0);
+  ok('a fully current client is current', arrears(RETAINED, '2026-08').current === true);
+  ok('  with nothing outstanding', arrears(RETAINED, '2026-08').amount === 0);
 }
 
 console.log('\na retainer that is switched off stops accruing');
