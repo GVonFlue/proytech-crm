@@ -123,17 +123,29 @@ export function monthsFrom(a, b) {
    half of the same problem: without it, a paused client reads as settled rather
    than as owing the months they were billed for. */
 export function retainerState(l) {
-  if (!l || num(l.retainer) <= 0) return 'none';
+  if (!l || num(l.retainer) <= 0 || !l.retainerActive) return 'none';
   if (S(l.retainerEnd, 10)) return 'ended';
-  if (!l.retainerActive) return 'off';
-  if (l.retainerConfirmed || retainerPayments(l).length) return 'active';
-  return 'quoted';
+  /* THE START DATE IS THE FLIP. Not the toggle, not a payment, not a flag — a
+     date the owner states when billing actually begins. Everything else is a
+     price sitting on a record.
+
+     A PREPAID MONTH DOES NOT MAKE IT ACTIVE. Justus paid his first month up
+     front inside the sale and still has not been delivered to. Treating that as
+     the start would infer a billing date from a payment, which is the auto-stamp
+     mistake in a new costume — and it would put him in MRR and then immediately
+     claim he was a month behind, chasing the one client who has paid ahead. The
+     money is not lost: it is a credit, consumed by the first billed months. */
+  if (!S(l.retainerStart, 10)) return 'quoted';
+  return 'active';
 }
 
 /** Only a retainer that is actually being billed belongs in MRR. */
 export const billsMrr = l => retainerState(l) === 'active';
 /** Rate set, clock not started — counted separately so it is visible, not lost. */
 export const isQuoted = l => retainerState(l) === 'quoted';
+/** The rate on a quoted retainer, so it can be shown BESIDE MRR rather than
+ *  inside it — "$0 · quoted $526 across 4 clients" is honest; $526 is not. */
+export const quotedRate = l => (retainerState(l) === 'quoted' ? num(l.retainer) : 0);
 
 /** When the retainer began. retainerStart is auto-stamped when the toggle is
  *  flipped (App.jsx), but leads that predate that stamp fall back to when they
@@ -177,18 +189,35 @@ export function monthsPaid(l) {
  *  price changed mid-term will be slightly off in dollars; the month COUNT is
  *  exact either way. Storing a rate per expected period would fix it and costs
  *  more than it is worth until a price actually changes. */
+/** Retainer money paid for a period OUTSIDE the billed range — the first month
+ *  taken up front at sale time, before any start date existed. Not lost and not
+ *  arrears: a credit against the first months billed. */
+export function prepaidMonths(l) {
+  const start = S(l && l.retainerStart, 10) ? retainerStartOf(l) : '';
+  if (!start) return retainerPayments(l).length;   // nothing billed yet, so all of it is ahead
+  return retainerPayments(l).filter(p => {
+    const k = monthKeyOf(p && (p.period || p.date));
+    return !k || k < start;
+  }).length;
+}
+
 export function arrears(l, nowKey) {
   const due = monthsDue(l, nowKey);
-  if (!due.length) return { periods: [], months: 0, amount: 0, current: true, due: [], paid: 0 };
+  const prepaid = prepaidMonths(l);
+  if (!due.length) return { periods: [], months: 0, amount: 0, current: true, due: [], paid: 0, prepaid };
   const paid = monthsPaid(l);
   const missing = due.filter(k => !paid.has(k));
+  /* Months paid ahead cover the earliest gaps, oldest first — so the client who
+     prepaid is not chased for the month they prepaid. */
+  const owed = missing.slice(Math.min(prepaid, missing.length));
   return {
-    periods: missing,
-    months: missing.length,
-    amount: missing.length * num(l.retainer),
-    current: missing.length === 0,
+    periods: owed,
+    months: owed.length,
+    amount: owed.length * num(l.retainer),
+    current: owed.length === 0,
     due,
     paid: due.length - missing.length,
+    prepaid,
   };
 }
 

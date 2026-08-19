@@ -11,7 +11,7 @@ import {
   setupPaid, retainerPaid, allPaid, allPayments,
   monthsFrom, monthsDue, monthsPaid, arrears, retainerStartOf, monthKeyOf,
   proposeAll, applyProposals, needsReview, isReviewed,
-  retainerState, billsMrr, isQuoted, receipts,
+  retainerState, billsMrr, isQuoted, quotedRate, receipts, prepaidMonths,
 } from '../src/lib/retainer.js';
 
 let pass = 0, fail = 0;
@@ -109,28 +109,82 @@ console.log('\nthe split stays reconcilable against the bank');
   ok('and the receipts add up to the cash', rs.reduce((a, r) => a + r.total, 0) === 2748);
 }
 
-console.log('\nand the retainer is ACTIVE, because a month was actually paid');
+console.log('\nthe auto-stamped start date is itself the bug');
 {
   const fixed = { ...JUSTUS, ...applyProposals(JUSTUS, proposeAll(JUSTUS)) };
-  ok('a logged retainer payment is evidence of billing', retainerState(fixed) === 'active');
-  ok('  so it counts toward MRR', billsMrr(fixed) === true);
-  ok('  and is not merely quoted', isQuoted(fixed) === false);
-  ok('July is covered', monthsPaid(fixed).has('2026-07'));
-  ok('August is behind', arrears(fixed, '2026-08').periods.join(',') === '2026-08',
-     arrears(fixed, '2026-08').periods.join(','));
-  ok('  one month, $249', arrears(fixed, '2026-08').amount === 249);
+  /* Justus's record carries retainerStart '2026-07-21' — stamped by App.jsx
+     when the toggle was flipped, not by anyone deciding to bill him. Under a
+     model where the START DATE is the flip, that stamp reads as active, which
+     is exactly how $526 of fictional MRR came to exist. */
+  ok('an auto-stamped date makes a quoted retainer read as active',
+     retainerState(fixed) === 'active', retainerState(fixed));
+  ok('  which is where the fictional MRR came from', billsMrr(fixed) === true);
+  ok('SO THE MIGRATION MUST CLEAR IT — a date nobody chose is not a start date', true);
+}
 
-  /* BEFORE classifying, the same record reads as quoted — a rate set and never
-     billed — which is the #25/#26 shape. The split is what tells them apart. */
-  ok('before classifying it looked like a rate that never started',
-     retainerState(JUSTUS) === 'quoted');
-  ok('  and contributed nothing to MRR', billsMrr(JUSTUS) === false);
+console.log('\nJustus is QUOTED with a prepayment, not active');
+{
+  /* Post-migration: the auto-stamped date is gone, and nobody has set one. */
+  const fixed = { ...JUSTUS, ...applyProposals(JUSTUS, proposeAll(JUSTUS)), retainerStart: '' };
+  /* He has paid a month of retainer and still has not been delivered to. The
+     start date is the flip, and there is not one. Treating the payment as the
+     start would infer a billing date from money — the auto-stamp mistake again
+     — and would then chase the one client who has paid AHEAD. */
+  ok('a prepaid month does not start the clock', retainerState(fixed) === 'quoted',
+     retainerState(fixed));
+  ok('  so it contributes nothing to MRR', billsMrr(fixed) === false);
+  ok('  and shows as quoted instead', quotedRate(fixed) === 249);
+  ok('no months are due', monthsDue(fixed, '2026-08').length === 0);
+  ok('  so he is not chased for a month nobody billed', arrears(fixed, '2026-08').months === 0);
+  ok('the money is not lost — it is a credit', prepaidMonths(fixed) === 1);
+  ok('  and it is still cash that arrived', retainerPaid(fixed) === 249);
+}
+
+console.log('\nand when billing actually starts, the prepayment is consumed');
+{
+  const fixed = { ...JUSTUS, ...applyProposals(JUSTUS, proposeAll(JUSTUS)) };
+  /* The owner delivers, agrees a date, and sets it. THAT is the flip. */
+  const live = { ...fixed, retainerStart: '2026-09-01' };
+  ok('it becomes active', retainerState(live) === 'active');
+  ok('  and joins MRR', billsMrr(live) === true);
+  ok('September is the first month due', monthsDue(live, '2026-09').join(',') === '2026-09');
+  ok('  and it is covered by the prepayment', arrears(live, '2026-09').current === true);
+  ok('  with the credit named', arrears(live, '2026-09').prepaid === 1);
+  ok('October is the first month he actually owes',
+     arrears(live, '2026-10').periods.join(',') === '2026-10',
+     arrears(live, '2026-10').periods.join(','));
+  ok('  one month, $249', arrears(live, '2026-10').amount === 249);
+}
+
+console.log('\nthe four live retainers: MRR is $0, and that is correct');
+{
+  /* Every one of these is a rate agreed at sale, to start after delivery.
+     retainerActive is on and retainerStart was auto-stamped by the toggle —
+     which is why the tile reads $526 for money that cannot be collected. */
+  const quotedFour = [
+    { name: 'Jeff Schnell', retainer: 79,  retainerActive: true, retainerStart: '' },
+    { name: 'Poppell',      retainer: 99,  retainerActive: true, retainerStart: '' },
+    { name: 'Level Up',     retainer: 99,  retainerActive: true, retainerStart: '' },
+    { name: 'Justus',       retainer: 249, retainerActive: true, retainerStart: '' },
+  ];
+  ok('none of them is active', quotedFour.every(l => retainerState(l) === 'quoted'),
+     quotedFour.map(l => `${l.name}:${retainerState(l)}`).join(' '));
+  ok('MRR is $0', quotedFour.filter(billsMrr).reduce((a, l) => a + l.retainer, 0) === 0);
+  ok('  and the quoted total is the $526 that was being reported as MRR',
+     quotedFour.reduce((a, l) => a + quotedRate(l), 0) === 526);
+  ok('  across four clients', quotedFour.filter(isQuoted).length === 4);
+  ok('none of them accrues arrears', quotedFour.every(l => arrears(l, '2026-08').months === 0));
+
+  /* One starts. MRR becomes exactly that one. */
+  const started = quotedFour.map(l => (l.name === 'Poppell' ? { ...l, retainerStart: '2026-09-01' } : l));
+  ok('starting one moves only that one', started.filter(billsMrr).reduce((a, l) => a + l.retainer, 0) === 99);
+  ok('  and the quoted line drops by the same amount',
+     started.reduce((a, l) => a + quotedRate(l), 0) === 427);
 }
 
 /* A second client, so the two questions can be seen answering independently. */
 const RETAINED = {
-  id: 'l_retained', retainer: 249, retainerActive: true, retainerConfirmed: true,
-  retainerStart: '2026-06-10',
+  id: 'l_retained', retainer: 249, retainerActive: true, retainerStart: '2026-06-10',
   payments: [{ id: 's1', amount: 237, date: '2026-06-15', note: 'deposit' }],
   retainerPayments: [
     { id: 'r1', amount: 249, date: '2026-06-20', period: '2026-06' },

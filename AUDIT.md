@@ -606,10 +606,28 @@ Two consequences, and they are the same gap from opposite ends:
 There is also no `retainerEnd`, so a stopped or paused retainer has nowhere to
 live: it either accrues forever or reads as settled, and neither is true.
 
+**Confirmed live: all four retainers are quoted, none active.** Jeff Schnell
+$79, Poppell $99, Level Up $99, Justus $249 — every toggle on, every one a rate
+to start charging after delivery. **So the reported $526 MRR is entirely
+fictional.** Quoted is the normal case, not the exception.
+
+The actual workflow: *sell a package and set the rate* → **quoted**; *deliver*;
+*agree a start date and begin billing* → **active**.
+
 **Fix (built in `src/lib/retainer.js`, not yet wired):** a state rather than a
-flag — `none` / `quoted` / `active` / `off` / `ended`. A retainer is **billing**
-only on evidence of billing: a retainer payment exists, or the owner confirmed
-the start. Until then the rate is *quoted*. `retainerEnd` bounds the far side.
+flag — `none` / `quoted` / `active` / `ended`. **The start date is the flip** —
+a date the owner states when billing begins, not the toggle, not a payment, not
+a derived guess. `retainerEnd` bounds the far side.
+
+**A prepaid month does not make it active.** Justus paid his first month up
+front inside the sale and still has not been delivered to. Inferring a start
+from a payment is the auto-stamp mistake in a new costume, and it would put him
+in MRR and then immediately chase the one client who has paid *ahead*. The money
+is tracked as a **credit** and consumed by the first billed months
+(`prepaidMonths`).
+
+**The migration must CLEAR every auto-stamped `retainerStart`.** A date nobody
+chose is not a start date, and it is the direct cause of the fictional $526.
 
 That default under-counts rather than over-counts, deliberately: an
 under-counted MRR is a number you can go and confirm, an over-counted one is a
@@ -621,13 +639,14 @@ Reported live: the tile reads **$526 across 4 retainers**, and it is not known
 how many are real. MRR sums `retainer` for every lead with `retainerActive`,
 which after #25 is the wrong population — it includes quoted rates.
 
-**Fix:** MRR counts `billsMrr()` only, with *"N quoted, not counted"* beside it
-so nothing is hidden. Same shape as AUDIT #1's split. Needs a one-off
-confirmation pass over the existing four, since the data cannot distinguish a
-confirmed start from an auto-stamped one.
+**Fix:** MRR counts `billsMrr()` only, with the quoted total **beside** it —
+`$0 · quoted $526 across 4 clients`. Same shape as AUDIT #1's split, and better
+than a number that cannot be collected.
 
-**Expect MRR to fall** when this lands. That is the point, and it should be
-announced on the screen the first time rather than discovered.
+**MRR goes to $0 and that is correct.** Confirmed against all four. No
+confirmation pass is needed for the *rates* — clearing the auto-stamped start
+dates is enough, because none of them has actually started. Setting a real start
+date is then an ordinary act on the record, not a migration.
 
 # Suggested order
 
