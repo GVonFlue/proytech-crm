@@ -79,6 +79,14 @@ globalThis.fetch = async (u, opts = {}) => {
       body:'When a lender says the rate is locked, ask what the expiry date is before you answer.',
       locator:{ start:'30:00', end:'32:00', quote:'the rate lock thing' }, confidence:'medium' },
   ] }) };
+  if (url.includes('/api/pocket-backfill')) {
+    const b = JSON.parse(opts.body);
+    if (b.action === 'list') return { ok:true, json: async () => ({ ok:true, hasMore:false, total:2, recordings:[
+      { id:'rec_sunday', title:'Sunday with Logan', createdAt:'2026-08-17T15:00:00.000Z', duration:2400 },
+      { id:'rec_older',  title:'Older call',        createdAt:'2026-08-10T15:00:00.000Z', duration:600 },
+    ] }) };
+    return { ok:true, json: async () => ({ ok:true, id:b.id, created: b.id === 'rec_older' }) };
+  }
   if (url.includes('/api/meeting-log')) return { ok:true, json: async () => ({ ok:true, extraction:{
     title:'Alvarez discovery', headline:'She wants it before listing season', summary:'.',
     themes:[], decisions:[], actions:[], numbers:[], risks:[], openItems:[], loopReview:[],
@@ -216,6 +224,38 @@ console.log('\nmarking it done takes it out of the queue');
      JSON.stringify(globalThis.__POCKET_STATUS__));
   ok('and the screen closed back to the dashboard', /Your day/.test(txt()));
   ok('the queue no longer lists it', !/Recordings to work through/.test(txt()));
+}
+
+console.log('\nthe Pocket import panel in Settings');
+{
+  /* rec_sunday is already in the CRM at this point (it was imported by the
+     webhook fixture and then marked done), so this also covers the case the
+     whole backfill design rests on: importing something already here is a
+     refresh, not a duplicate. */
+  const nav = [...document.querySelectorAll('.nav-i')].find(e => (e.textContent || '').trim() === 'Settings');
+  if (nav) await click(nav); await settle(200);
+  ok('Settings opened', /Sections/.test(txt()), txt().slice(0, 160));
+  ok('the Pocket panel is there', /predate it/.test(txt()), 'panel copy');
+  ok('it says re-running is safe', /never duplicated/.test(txt()));
+
+  const before = globalThis.__FETCHES__.filter(f => f.url.includes('pocket-backfill')).length;
+  ok('nothing was called just by opening Settings', before === 0);
+
+  const go = btn(/Import recent recordings/);
+  ok('the button is there', !!go);
+  if (go) await click(go); await settle(400);
+
+  const calls = globalThis.__FETCHES__.filter(f => f.url.includes('pocket-backfill'));
+  const actions = calls.map(c => JSON.parse(c.body).action);
+  ok('it listed once, then imported one at a time',
+     actions[0] === 'list' && actions.filter(a => a === 'import').length === 2, actions.join(','));
+  ok('  which is what stops a long transcript timing the function out', actions.length === 3);
+
+  ok('the one already in the CRM reports as already here', /Already here/.test(txt()), txt().slice(-400));
+  ok('the new one reports as imported', /Imported/.test(txt()));
+  ok('both are named', /Sunday with Logan/.test(txt()) && /Older call/.test(txt()));
+  ok('importing wrote no outputs of any kind',
+     globalThis.__MLOG_WRITES__.length === 1 && globalThis.__KB_WRITES__.length === 1);
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

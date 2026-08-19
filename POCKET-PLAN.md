@@ -619,11 +619,265 @@ POCKET_API_KEY          pk_xxx — only needed for §12
 
 ## 12. Deliberately not in scope
 
-- **Backfilling old recordings** via `GET /public/recordings`. Would bury the
-  inbox with months of history on day one. Ship the live path first.
+- ~~**Backfilling old recordings**~~ — now in scope, see §13. The reason it was
+  deferred (it would bury the inbox with months of history) turned out to be a
+  reason to make it *select-and-pick* rather than a reason not to build it.
 - **Audio.** `Get Audio Download URL` exists; we store text only.
 - **Semantic search** (`POST /search`). Matching is plain text and local, as you
   asked. Pocket's search is a different feature for a different screen and should
   not quietly become the matcher.
 - **Auto-creating outputs.** Even a 100% confident proposal writes nothing
   without a click.
+
+---
+
+# §13 — Backfill (revision 4: cut to size)
+
+**r4 supersedes r3 below.** Five or six recordings exist, not hundreds, so §13
+is built as ONE BUTTON rather than an import tool. r3 is kept underneath because
+its reasoning still holds if this ever needs to grow.
+
+## What r4 cuts
+
+| Cut | Why it was there | Why it goes |
+|---|---|---|
+| Date range picker | "how far back" needed an answer | The answer at six recordings is "all of them" |
+| Pagination | 100-per-page cap | Page one holds everything. If `has_more` is true the screen says so in a line; it does not page |
+| Select-and-pick list, tick boxes | Stops a bulk import burying the inbox | Six recordings cannot bury anything, and importing something twice is already a no-op |
+| Tag filtering | Pocket offers it | Nothing needs it |
+| "Import older" link in Your day | A second way in | One home is enough |
+
+## What r4 keeps, and why each is correctness rather than scale
+
+- **`api/_pocket.js`, with `tests/pockethook.mjs` passing untouched.** Two merge
+  implementations would mean a recording means something different depending on
+  which door it came through. The 67 existing checks passing without a single
+  edit IS the test that the extraction was clean.
+- **The `crm_whoami()` owner check.** This is the first endpoint where a browser
+  can cause a service-key write. `requireAuth` proves a valid session, not an
+  owner. Cheap, and the alternative is a rep being able to write a table they
+  cannot read.
+- **Idempotency by primary key**, through the shared merge. It is what makes
+  re-running safe, which is what lets everything above be cut.
+- **One recording per HTTP request.** NOT for scale — for timeouts. Twenty
+  transcripts fetched and upserted inside one Vercel invocation is plausibly
+  past the function limit, and the browser loop that avoids it is about ten
+  lines.
+- **429 and 404 handling.** Pocket documents 429. One recording failing must not
+  abort the run.
+- **Key-name logging on the first list call.** The `data` field names are still
+  undocumented; one real call settles them.
+
+## Built — and what moved
+
+Built as described. Two notes:
+
+- **The extraction was clean.** `tests/pockethook.mjs` passes 67/67 with the
+  file untouched, which was the whole test of it. `api/_pocket.js` holds shape
+  and storage; `api/pocket-hook.js` keeps only raw-body reading, signature
+  verification, the replay window and the status-code mapping.
+- **`fromRest` is a second mapper, not a second merge.** The REST envelope is a
+  different shape from the webhook payload, so it gets its own field mapping —
+  but it feeds the SAME `upsertMerge`. That is the line worth holding: mapping
+  may differ per door, storage may not.
+
+## What r4 actually is
+
+`Settings → Pocket`, one panel:
+
+> **Import from Pocket** — pulls your 20 most recent recordings.
+> [Import recent recordings]
+> Then: a line per recording — *imported* / *already here* / *refreshed* / *failed*.
+
+**"Already here" is computed in the browser.** `App.jsx` already holds the list
+of recordings in the CRM, so comparing Pocket's ids against it needs no server
+work and no second source of truth — derived, not stored, again.
+
+Endpoint keeps both actions: `list` (page 1, limit 20, writes nothing) and
+`import` (one id). Tests keep the 403, the idempotency pair and the failure
+paths, and drop the pagination and date-passthrough cases along with the
+features they covered.
+
+---
+
+# §13 — Backfill (revision 3, superseded — kept for the reasoning)
+
+Recordings that predate the webhook. Written after the first live delivery
+confirmed the webhook end to end, so the shape below is built on a known-good
+foundation rather than a guessed one.
+
+## The three questions, answered first
+
+**How far back does it pull? — As far as you ask, and no further by default.**
+Pocket's list endpoint takes `start_date` and `end_date` (`YYYY-MM-DD`, UTC), so
+this maps to a date range you choose. The form defaults to the **last 90 days**
+because that is a sane starting look, and "everything" is one click. Listing is
+read-only, costs nothing, and writes nothing — the range only decides what you
+are shown.
+
+**One-time or repeatable? — Permanently repeatable, on purpose.**
+Not a migration script. Because every import is idempotent (below), running it
+again is harmless, which makes it the **repair tool** as well as the backfill:
+Pocket retries a failed delivery three times and then gives up, and until now
+there was no way to recover that recording. There is now.
+
+**What stops a re-import? — The primary key, not a checklist.**
+`pocket_recordings.id` IS Pocket's recording id. An import is the same
+`upsertMerge` the webhook already uses: non-empty-wins, so re-importing a
+recording the webhook already delivered refreshes fields and creates nothing.
+Three consequences worth stating plainly:
+
+- **`status` is never written by a merge.** A recording you marked `done` stays
+  done. A re-import cannot drag it back into the queue.
+- **Outputs cannot be duplicated.** They are separate rows carrying
+  `sourcePocketId`, and nothing about importing touches them.
+- **The list tells you before you click.** Each row is marked *already here*,
+  *already worked — 2 outputs*, or *not imported*, so a re-import is a
+  deliberate refresh rather than an accident.
+
+## Select and pick, not bulk import
+
+The original reason for deferring this was that a bulk import buries the inbox
+with months of history on day one. That is a reason to change the shape, not to
+skip it.
+
+So: **you list a date range, tick what you want, and import those.** A Sunday
+call you want to run through Deep extract is three clicks, and a hundred
+recordings you do not care about never enter the CRM at all. It also sidesteps
+a subtler problem — `received_at` is set to now for a backfilled row, and the
+dashboard sorts on it, so a bulk import of twenty old recordings would push the
+genuinely new one off the top of "Your day".
+
+Imported recordings land as `status: 'open'`, because you selected them; that
+selection *is* the intent to work on them.
+
+## `api/pocket-backfill.js`
+
+Two actions on one endpoint. Small bodies, so a small `maxChars`.
+
+```
+POST { action: 'list', start_date?, end_date?, page? }
+  -> { ok, recordings: [{ id, title, createdAt, duration, language }],
+       pagination: { page, total_pages, has_more, total } }
+
+POST { action: 'import', id }
+  -> { ok, id, created: true|false }
+```
+
+**One recording per import request.** The browser drives the loop and shows
+progress. A batch endpoint would risk a Vercel timeout on a long transcript, and
+a failure halfway through would lose the whole batch instead of one recording.
+
+Guard: `{ name: 'pocket-backfill', perIp: 120, windowMin: 10, perDay: 600, maxChars: 2000, requireAuth: true }`.
+
+### This is the first endpoint where a BROWSER can cause a service-key write
+
+Worth its own heading. `api/pocket-hook.js` also writes with the service key,
+but it is authenticated by HMAC and Pocket is the only caller. Every other
+endpoint (`jarvis`, `meeting-log`, `kb-draft`, `pocket-segment`) only reads and
+returns text — none of them touch the database.
+
+`guard({ requireAuth: true })` proves there is a **valid session**. It does not
+prove the session is an **owner**. A rep could not read `pocket_recordings`, but
+they could cause writes to it, which is wrong on principle and would let them
+fill the owner's queue with noise.
+
+So the handler verifies the role server-side, using the caller's own JWT against
+SQL that already exists:
+
+```
+POST {SUPA}/rest/v1/rpc/crm_whoami
+  Authorization: Bearer <the caller's token>
+  -> role must be 'owner'; anything else is 403
+```
+
+`crm_whoami()` is `security definer` and derives the role from `auth.uid()`, so
+the caller cannot assert their own role — the same function the app already
+trusts for this. **Not** a role passed up in the request body: that is a claim,
+not a check.
+
+### Pocket's side
+
+- `GET /public/recordings?start_date=&end_date=&page=&limit=100` — `limit` caps
+  at 100, and `pagination.has_more` / `total_pages` drive paging.
+- `GET /public/recordings/{id}` — `include_transcript` and
+  `include_summarizations` both default to `true`, so the detail call needs no
+  parameters. Sent explicitly anyway, because a default that changes upstream is
+  a silent regression.
+- Auth is `Authorization: Bearer $POCKET_API_KEY` — already in Vercel.
+- **429 is a documented response.** Import is sequential with a small delay, and
+  a 429 is surfaced as "Pocket is rate limiting — wait a minute and continue"
+  rather than being retried into the ceiling.
+
+### The response envelope, and the field-name gap again
+
+Every response is `{ data, error, pagination, success }`, and the docs do not
+name the fields **inside** `data` — the same gap that the webhook payload had.
+The difference is that we now know what the webhook shape looks like in the
+wild, and the REST object is very likely the same `recording` /
+`summarizations` / `transcript` shape.
+
+So the mapper is defensive in exactly the way `recordingIdOf` and
+`readTranscript` already are, and the `list` action logs the **key names** of
+the first record (never values — they are transcripts) so one real call settles
+it. If the shape differs, it is a mapper change and nothing else.
+
+## `api/_pocket.js` — shared, because two copies would drift
+
+`upsertMerge`, `mergeData`, `recordingIdOf`, `readTranscript` and the size
+constants currently live inside `api/pocket-hook.js`. The backfill must use the
+**same** merge, not a second one that looks like it — ENGINEERING §2, and the
+consequence of divergence here is that a recording means something different
+depending on which door it came through.
+
+So they move to `api/_pocket.js` and both endpoints import them. `pocket-hook.js`
+keeps only what is genuinely its own: raw-body reading, signature verification,
+the replay window, and the status-code mapping. **No behaviour change** — the
+existing 67 checks in `tests/pockethook.mjs` must pass untouched, and that is the
+test that the extraction was clean.
+
+## Where it lives
+
+**Settings → Pocket.** Not the "Your day" group: that group is hidden when there
+are no open recordings, so on a fresh install it could not be the only way in.
+When the group *is* showing, it gets an "Import older" link to the same screen.
+
+The screen: a date range, a **List recordings** button, then a table of
+`title · date · duration` with a state badge per row and a tick box on the ones
+not already here. **Import selected** runs them one at a time with a progress
+line. Nothing about it is automatic.
+
+## What it costs
+
+**No Anthropic tokens at all.** Backfill is data movement. Deep extract stays
+the only thing in this feature that spends anything, and it stays behind a
+button on the recording you choose.
+
+## Tests
+
+`tests/pocketbackfill.mjs`, pure Node, stubbing both Pocket's API and PostgREST:
+
+- A rep's token is **403**, and nothing is written. The single most important
+  test here.
+- No session is 401; a valid owner is allowed through.
+- `list` writes nothing at all, ever.
+- `list` passes `start_date` / `end_date` / `page` through unchanged, and reports
+  `has_more` so the browser can page.
+- Importing a recording the webhook already stored produces **one row**, not two.
+- Importing over a `done` recording **leaves it done**.
+- Importing over a recording that already has data does not blank fields the
+  import did not mention — the same non-empty-wins assertion the webhook has,
+  proving the shared merge really is shared.
+- A Pocket 429 surfaces as a message, not a retry storm.
+- A Pocket 404 on one recording fails that one and does not abort the run.
+- The transcript reaches `pocket_recordings` and **no output anywhere**.
+- `tests/pockethook.mjs` still passes unchanged after the extraction.
+
+## Build order
+
+1. Extract `api/_pocket.js`; run `tests/pockethook.mjs` unchanged. If it needs
+   editing, the extraction was not clean.
+2. `api/pocket-backfill.js` + `tests/pocketbackfill.mjs`, including the 403.
+3. One real `list` call to confirm the `data` field names.
+4. Settings → Pocket screen, and the "Import older" link.
+5. `DEPLOY.md` — `POCKET_API_KEY` moves from "not needed" to required-for-backfill.
