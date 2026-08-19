@@ -85,16 +85,22 @@ const anCard=lab=>{const c=[...document.querySelectorAll('.an-card')]
      July Co        closed 2026-07-21                     ->    0  (not this month)
                                                     month = 5299
    ALL TIME adds July Co's 2499                            -> 7798
-   AVG DEAL divides by deals that HAVE a setup value: Paid Co (4000)
-     and July Co (2499) = 6499/2 = 3249.50 -> $3,250 rounded... but July Co is
-     all-time and avgDeal is all-time, so avg = 3249.5.
+   AVG DEAL (corrected by AUDIT #4). wonValue is 7798 and it is made of THREE
+     deals: Paid Co's 4000 setup, July Co's 2499 setup, and Level Up's 1299
+     ARCHIVED closed deal. It used to be divided by wonValued — a count of
+     LEADS with a live setup value, which is 2 — so it read 3899 over a total
+     that included a deal the divisor never counted. 7798/3 = 2599.33 -> $2,599.
+     Monthly Only still contributes nothing to either side: a retainer-only
+     client is not a data point about deal SIZE, and that part was always right.
    WIN RATE: 4 won (Paid, Unpaid, Monthly Only, Level Up, July Co = 5) vs 1 lost.
 */
 console.log('\navgDeal no longer punished by an unpaid win');
 await nav('Dashboard');
 const ad=anCard('Avg Deal Size');
-ok('avg deal ignores the $0-setup clients', ad && /\$3,899|\$3,900/.test(ad.v), ad&&ad.v);
-ok('it averages only the deals that had a setup value', ad && /across 2 closed/.test(ad.d), ad&&ad.d);
+/* $2,599, not $3,899 — see the arithmetic above. The old number divided a
+   three-deal total by two. */
+ok('avg deal divides by the deals in its own total', ad && /\$2,599/.test(ad.v), ad&&ad.v);
+ok('and says how many DEALS that was, not how many leads', ad && /across 3 deals/.test(ad.d), ad&&ad.d);
 ok('the retainer-only clients are named, not silently dropped',
    ad && /2 retainer-only/.test(ad.d), ad&&ad.d);
 
@@ -121,8 +127,10 @@ ok('what is still owed is named on the tile', rev && /still owed/.test(rev.d), r
 console.log('\nrevenue by client agrees with the dashboard');
 const rows=[...document.querySelectorAll('.rbc-row')].map(r=>(r.textContent||'').replace(/\s+/g,' '));
 const unpaidRow=rows.find(r=>/Unpaid Co/.test(r));
+/* AUDIT #3: this pill now comes from owedBy(), the same function the Money
+   page and the client card use, so the word is "outstanding" everywhere. */
 ok('the unpaid client is flagged, not counted as revenue',
-   unpaidRow && /\$2,000 unpaid/.test(unpaidRow), unpaidRow);
+   unpaidRow && /\$2,000 outstanding/.test(unpaidRow), unpaidRow);
 ok('and shows $0 lifetime', unpaidRow && /\$0/.test(unpaidRow), unpaidRow);
 const paidRow=rows.find(r=>/Paid Co/.test(r));
 ok('the paid client shows its full value', paidRow && /\$4,000/.test(paidRow), paidRow);
@@ -213,7 +221,9 @@ ok('a deal closed via closedDeals shows its real amount, not $0',
 ok('a deal closed in a previous month is not listed',
    !dRows.some(r=>/July Co/.test(r)), dRows.join(' || '));
 ok('the header total equals the rows shown', /\$5,299 this month/.test(sub), sub);
-ok('and that is exactly what the tile says', dcTile && /\$5,299 setup/.test(dcTile.d), dcTile&&dcTile.d);
+/* AUDIT #1: the subtitle says "collected from clients" now, because revenue
+   can also include hand-entered income and this figure deliberately does not. */
+ok('and that is exactly what the tile says', dcTile && /\$5,299 collected from clients/.test(dcTile.d), dcTile&&dcTile.d);
 
 console.log('\nAll time widens it');
 const allBtn=[...document.querySelectorAll('.mtab-time button')].find(b=>/All time/.test(b.textContent||''));

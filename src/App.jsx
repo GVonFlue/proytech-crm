@@ -319,7 +319,14 @@ const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},
 /* 'Booked' is the canonical meeting-booked marker. Both the scheduler and the
    composer button write this type, so every count in the app agrees. */
 /* sections that can be switched off per install. Dashboard + Settings always ship. */
-const ALL_MODULES=[['jarvis',AI_NAME],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['pipeline','Pipeline'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
+/* AUDIT #17. 'pipeline' is deliberately no longer in this list. The board
+   duplicated three dashboard tiles with its own arithmetic, its only unique verb
+   (drag to move stage) is done in fewer clicks from the lead row and the modal,
+   and it sorted by dealValue — which closing a deal properly empties, so the
+   board degraded as the business succeeded. Switched off rather than deleted:
+   every lead, stage and value is untouched, and putting it back is one entry in
+   this array plus a modulesV bump. */
+const ALL_MODULES=[['jarvis',AI_NAME],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -341,7 +348,7 @@ const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
    money: kb_published has six named columns and none of them is a figure.
    A rep who already has a CUSTOM tab list keeps it (see tabsOf), so those reps
    still need it switched on in Settings -> Team. */
-const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','pipeline','playbook'];
+const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','playbook'];
 /* a rep can never be given these by accident — they expose company money.
    An owner CAN still switch them on deliberately (see Team settings). */
 const MONEY_TABS=['invoices','books','money','huddle','mlog'];
@@ -728,6 +735,17 @@ const num=v=>{const n=Number(v);return isNaN(n)?0:n;};
 const usd=v=>(num(v)<0?'-$':'$')+Math.abs(Math.round(num(v))).toLocaleString();
 /* cents-aware money (payments can be $1,498.50) — shows cents only when non-zero */
 const usdc=v=>{ const x=num(v); const cents=Math.round(Math.abs(x)*100)%100; return (x<0?'-$':'$')+Math.abs(x).toLocaleString(undefined,{minimumFractionDigits:cents?2:0,maximumFractionDigits:2}); };
+/* AUDIT #1. ONE caption for the collected figure, so the dashboard tile and the
+   Money tile cannot describe the same number in two different ways. Both sources
+   are always visible: money that came from client work, and money that did not.
+   Owner contributions are excluded from revenue and named separately — your own
+   capital going in is not the business earning it. */
+const revenueSplit=m=>{
+  const bits=[`${usd(m.clientRevenueMonth)} from clients`];
+  bits.push(`${usd(m.otherIncomeMonth)} other`);
+  if(m.contribMonth>0) bits.push(`${usd(m.contribMonth)} owner contribution, not counted`);
+  return bits.join(' · ');
+};
 const usdK=v=>{v=num(v);return Math.abs(v)>=1000?'$'+(v/1000).toFixed(v%1000===0?0:1)+'k':'$'+Math.round(v);};
 const pct=v=>(num(v)*100).toFixed(0)+'%';
 const isoOf=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -1666,6 +1684,9 @@ const CSS=`
 .loc-recent button{border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:1px 8px;font-size:10.5px;font-family:inherit;color:${COBALT};cursor:pointer;font-weight:600;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .loc-recent button:hover{border-color:${COBALT}}
 .rbc-pend{font-size:10.5px;font-weight:700;color:#D97706;background:rgba(217,119,6,.1);border-radius:6px;padding:1px 6px}
+.mn-sub{font-style:normal;font-size:11px;color:#2C7A4B;font-weight:600}
+.mn-sub.owed{color:#D97706}
+.rbc-paid{font-size:10.5px;font-weight:700;color:#2C7A4B;background:rgba(44,122,75,.10);border-radius:6px;padding:1px 6px}
 .onb-item.skipped{opacity:.5}
 .onb-item.skipped .onb-label{text-decoration:line-through;color:#9A96AC}
 .onb-skip{margin-left:auto;border:1px solid #E4E5EF;background:#fff;color:#9A96AC;border-radius:7px;padding:2px 8px;font-size:10.5px;font-weight:700;font-family:inherit;cursor:pointer;flex:none}
@@ -2668,6 +2689,13 @@ export default function App(){
         st={...st,modules:st.modules.includes('playbook')?st.modules:[...st.modules,'playbook'],modulesV:7};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
+      /* Removing a module from ALL_MODULES is not enough on its own: a saved
+         settings.modules array still lists it, so the tab keeps rendering for
+         every existing install. Same trap as adding one, in reverse. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<8){
+        st={...st,modules:st.modules.filter(k=>k!=='pipeline'),modulesV:8};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
@@ -2717,7 +2745,7 @@ export default function App(){
      disagree — so every dollar it reports comes out of useMetrics, the SAME hook
      the Dashboard uses, over the SAME scopedBiz list. Jarvis derives no money of
      its own. A rep gets null: the figures never enter the request at all. */
-  const jvMetrics=useMetrics(scopedBiz,stages,settings);
+  const jvMetrics=useMetrics(scopedBiz,stages,settings,txns);
   const jvMoney=rep?null:{mrr:jvMetrics.mrr,openPipeline:jvMetrics.pipelineValue,revenueMonth:jvMetrics.revenueMonth,collectedMonth:jvMetrics.collectedMonth,outstanding:jvMetrics.outstanding,wonValue:jvMetrics.wonValue,avgDeal:jvMetrics.avgDeal,retainers:jvMetrics.retainers,winRate:jvMetrics.winRate};
   /* leaderboard: a rep cannot read other reps' leads, so the ranking comes
      from a security-definer DB function (names + counts, never dollars). */
@@ -3322,7 +3350,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
+          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -3360,11 +3388,11 @@ export default function App(){
 }
 
 /* ===================== metrics ===================== */
-function useMetrics(leads,stages,settings){
+function useMetrics(leads,stages,settings,txns){
   return useMemo(()=>{
     const ratioEx=ratioExcludeOf(settings);
     const byStage={}; stages.forEach(s=>byStage[s.key]={count:0,value:0});
-    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,wonValued=0,wonPending=0,lostCount=0,mrr=0,retainers=0,upsellCount=0,upsellValue=0;
+    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,wonValued=0,wonDealCount=0,wonPending=0,lostCount=0,mrr=0,retainers=0,upsellCount=0,upsellValue=0;
     /* An upsell to somebody you've already delivered for is at least as likely to
        land as a proposal sitting with a new lead, so it's weighted at the best
        probability on the open stages rather than at an invented number. */
@@ -3383,11 +3411,24 @@ function useMetrics(leads,stages,settings){
              data point about deal SIZE — averaging it in drags the number
              toward zero and misreports what a setup sale is actually worth.
              They still count as a win and their retainer still counts in MRR. */
-          if(v>0) wonValued++; }
+          /* Both counters, because wonValue takes BOTH parts: this lead's setup
+             sale here, and its archived closed deals below. Counting only one
+             side is the same population mismatch this fix exists to remove. */
+          if(v>0){ wonValued++; wonDealCount++; } }
         else wonPending++;
         const uv=upsellValueOf(l);
         if(uv>0){ upsellCount++; upsellValue+=uv; weighted+=uv*upsellProb; } }
-      if(s.lost) lostCount++; wonValue+=closedDealsTotal(l);
+      if(s.lost) lostCount++;
+      /* AUDIT #4. This accumulator is OUTSIDE the won branch on purpose — a
+         churned client's past deals are still money that was won, and zeroing
+         them would move historical revenue (ENGINEERING §4, "nothing historical
+         moves"). What WAS wrong is that avgDeal divided this total by a count of
+         LEADS, so a repeat client with three closed deals added three deals to
+         the numerator and at most one to the divisor, and average deal size read
+         high — worse the more repeat business you did. Count the deals that make
+         up this total, and divide by that. */
+      wonValue+=closedDealsTotal(l);
+      wonDealCount+=((l.closedDeals||[]).filter(d=>num(d.amount)>0).length);
       if(l.retainerActive){mrr+=num(l.retainer);retainers++;}});
     const pipelineValue=openValue+upsellValue;
     /* same rule as the follow-up page: a nurtured lead's revisit date is the
@@ -3402,7 +3443,11 @@ function useMetrics(leads,stages,settings){
        it below winRate crashed at render while still building cleanly. */
     const wonForRate=wonCount+wonPending;
     const winRate=(wonForRate+lostCount)>0?wonForRate/(wonForRate+lostCount):0;
-    const avgDeal=wonValued>0?wonValue/wonValued:0; const avgRet=retainers>0?mrr/retainers:0;
+    /* Numerator and denominator are now the same population: every deal whose
+       money is in wonValue. wonValued (won leads with a non-zero setup) is kept
+       because it is what excludes retainer-only clients from counting as a deal
+       at all — that part was already right. */
+    const avgDeal=wonDealCount>0?wonValue/wonDealCount:0; const avgRet=retainers>0?mrr/retainers:0;
     /* meetings — ONE unified source. Every meeting (scheduled or logged) counts
        once, and held/no-show is read from the same record everywhere. */
     const mKey=todayISO().slice(0,7); const nowMs=Date.now();
@@ -3456,17 +3501,34 @@ function useMetrics(leads,stages,settings){
        payments logged still counts at its close date — otherwise every deal
        recorded before payments were tracked would silently vanish from your
        history. Once you log a payment on a lead, its payments take over. */
-    let revenueMonth=0,collectedMonth=0,legacyMonth=0,outstanding=0;
+    let clientRevenueMonth=0,collectedMonth=0,legacyMonth=0,outstanding=0;
     leads.forEach(l=>{
       const pays=paidInMonth(l,mKey);
-      if(pays>0){ collectedMonth+=pays; revenueMonth+=pays; }
+      if(pays>0){ collectedMonth+=pays; clientRevenueMonth+=pays; }
       if(!paymentsOf(l).length){
         const closedHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l);
         const legacy=(closedHere?num(l.dealValue):0)+closedDealsInMonth(l,mKey);
-        if(legacy>0){ legacyMonth+=legacy; revenueMonth+=legacy; }
+        if(legacy>0){ legacyMonth+=legacy; clientRevenueMonth+=legacy; }
       }
       outstanding+=owedBy(l,stages);
     });
+    /* AUDIT #1. The dashboard read payments-plus-legacy; the Money page summed
+       every 'in' transaction. Same label, two numbers, in both directions —
+       Money was higher by any hand-entered income and lower by every deal that
+       predates payment tracking.
+       ONE number now, from one place, with both sources kept apart so the split
+       stays visible: money that came from client work, and money that did not.
+       OWNER CONTRIBUTIONS ARE NOT REVENUE and are excluded — putting your own
+       money into the business is not the business earning it — but they are
+       returned separately rather than hidden, because they are still cash that
+       arrived and the Money page's net has to account for them. */
+    let otherIncomeMonth=0,contribMonth=0;
+    (txns||[]).forEach(t=>{
+      if(!t||String(t.date||'').slice(0,7)!==mKey) return;
+      if(t.type==='income') otherIncomeMonth+=num(t.amount);
+      else if(t.type==='contribution') contribMonth+=num(t.amount);
+    });
+    const revenueMonth=clientRevenueMonth+otherIncomeMonth;
     const firstTouch=median(touchHrs);
     const fuRate=fuCleared>0?fuOnTime/fuCleared:null;
     const funnel=funnelOf(leads,stages);
@@ -3517,14 +3579,23 @@ function useMetrics(leads,stages,settings){
       const current=((sOf(l.stage,stages).won||l.isClient)&&cashConfirmed(l))?num(l.dealValue):0;
       const pending=((sOf(l.stage,stages).won||l.isClient)&&!cashConfirmed(l))?num(l.dealValue):0;
       const lifetime=closed+current;
+      /* AUDIT #3. `lifetime` is BOOKED value and always was — payments are not
+         read for it. Every other revenue figure in this product is cash-basis
+         (ENGINEERING §4), so a table headed "Revenue by client" showing booked
+         value was answering a different question to the one next to it. Rather
+         than change what `lifetime` means — which would move historical numbers
+         — the cash is now carried alongside it and the heading says which is
+         which. paid comes from the payment rows; owed is owedBy(), the same
+         function the Money page and the client card use. */
       return {id:l.id,name:l.name||l.company||'—',company:l.company,lifetime,closed,current,pending,
+        paid:paidTotal(l),owed:owedBy(l,stages),
         mrr:l.retainerActive?num(l.retainer):0,deals:((l.closedDeals||[]).length)+((sOf(l.stage,stages).won||l.isClient)&&num(l.dealValue)>0?1:0)};
     }).filter(c=>c.lifetime>0||c.mrr>0||c.pending>0).sort((a,b)=>b.lifetime-a.lifetime);
     return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,onbNeeded,onbMonthlyOnly,
-      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
-      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,avgDaysToClose,movingPct,rotting,sourceROI};
-  },[leads,stages,settings]);
+      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,revenueMonth,clientRevenueMonth,otherIncomeMonth,contribMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
+      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,wonDealCount,avgDaysToClose,movingPct,rotting,sourceROI};
+  },[leads,stages,settings,txns]);
 }
 
 /* ===================== DASHBOARD ===================== */
@@ -3619,9 +3690,9 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket}){
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns}){
   const G=goalsOf(settings);
-  const m=useMetrics(leads,stages,settings);
+  const m=useMetrics(leads,stages,settings,txns);
   const [drill,setDrill]=useState(null);
   const [scope,setScope]=useState('month');   // time filter across meeting tabs
   /* Defaults to today every load on purpose: the question this answers is
@@ -3920,8 +3991,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Open Pipeline" value={usd(m.pipelineValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} lead${m.openCount===1?'':'s'}${m.upsellCount>0?` · ${m.upsellCount} client upsell${m.upsellCount===1?'':'s'}`:''}${G.revenue>0?` · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:''}`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
-      <Kpi label="Revenue Collected" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?'collected this month':'weighted forecast')+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={m.revenueMonth}/>
-      <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.revenueMonth)} setup`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
+      <Kpi label="Revenue Collected" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?revenueSplit(m):'weighted forecast')+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={m.revenueMonth}/>
+      <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.clientRevenueMonth)} collected from clients`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
     {drill==='pipeline'&&(()=>{ const ups=leads.filter(l=>upsellValueOf(l)>0).sort((a,b)=>upsellValueOf(b)-upsellValueOf(a));
@@ -3944,7 +4015,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       const legacyRows=leads.filter(l=>!paymentsOf(l).length)
         .map(l=>({l,amt:((sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l))?num(l.dealValue):0)+closedDealsInMonth(l,mKey)}))
         .filter(r=>r.amt>0);
-      return (<Drill title="Collected this month" sub={usd(m.revenueMonth)+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClose={()=>setDrill(null)}>
+      const otherRows=(txns||[]).filter(t=>t&&t.type==='income'&&String(t.date||'').slice(0,7)===mKey);
+      return (<Drill title="Collected this month" sub={usd(m.revenueMonth)+' · '+revenueSplit(m)+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClose={()=>setDrill(null)}>
         {rows.map(({l,p})=>(<div className="drow" key={l.id+p.id}>
           <div className="drow-m"><Name l={l}/><div className="subcell">{fmtDate(p.date)}{p.note?` · ${p.note}`:''}
             {owedBy(l,stages)>0?<span className="mtg-flag"> · {usd(owedBy(l,stages))} still owed</span>:null}</div></div>
@@ -3956,7 +4028,15 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
           <div className="drow-m"><Name l={l}/><div className="subcell">closed {fmtDate(l.closedAt)} · no payments logged</div></div>
           <span className="drow-v">{usd(amt)}</span>
         </div>))}
-        {!rows.length&&!legacyRows.length&&<Empty t="Nothing collected this month yet."/>}
+        {/* AUDIT #1. Hand-entered income is part of the number above, so it has
+            to be part of the list under it — a drilldown's rows must sum to its
+            own header (ENGINEERING §2). */}
+        {otherRows.map(t=>(<div className="drow" key={'tx'+t.id}>
+          <div className="drow-m"><span className="drow-n">{t.who||'Other income'}</span>
+            <div className="subcell">{fmtDate(t.date)} · entered by hand{t.note?` · ${t.note}`:''}</div></div>
+          <span className="drow-v">{usdc(t.amount)}</span>
+        </div>))}
+        {!rows.length&&!legacyRows.length&&!otherRows.length&&<Empty t="Nothing collected this month yet."/>}
       </Drill>); })()}
 
     {drill==='won'&&<Drill title="Deals closed" sub={usd(wonShownTotal)+(wonScope==='month'?' this month':' all time')} onClose={()=>setDrill(null)}>
@@ -4082,9 +4162,9 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       <div className="an-card"><div className="an-l">Meeting &#8594; Close</div><div className="an-v">{m.metLeads?Math.round(m.meetCloseRate*100)+'%':'\u2014'}</div><div className="an-d">{m.metAndClosed} of {m.metLeads} closed after a sales meeting{(m.ratioEx||[]).length?` \u00b7 ${(m.ratioEx||[]).join(', ')} not counted`:''}{m.metNoSalesMtg>0?` \u00b7 ${m.metNoSalesMtg} met with no sales meeting logged`:''}{m.metAfterCloseOnly>0?` \u00b7 ${m.metAfterCloseOnly} only met after signing`:''}</div></div>
       <div className="an-card"><div className="an-l">Show Rate</div><div className="an-v">{(m.heldAll+m.noShowAll)?Math.round(m.showRate*100)+'%':'\u2014'}</div><div className="an-d">{m.noShowAll} no-show{m.noShowAll===1?'':'s'} all time{m.needsStatusCount>0?` \u00b7 ${m.needsStatusCount} unmarked, not counted yet`:''}</div></div>
       <div className="an-card"><div className="an-l">Avg Days to Close</div><div className="an-v">{m.avgDaysToClose==null?'—':m.avgDaysToClose+'d'}</div><div className="an-d">lead created → converted</div></div>
-      <div className="an-card"><div className="an-l">Win Rate</div><div className="an-v">{(m.wonCount+m.lostCount)?Math.round(m.winRate*100)+'%':'—'}</div><div className="an-d">of decided deals ({m.wonCount}W · {m.lostCount}L)</div></div>
+      <div className="an-card"><div className="an-l">Win Rate</div><div className="an-v">{(m.wonForRate+m.lostCount)?Math.round(m.winRate*100)+'%':'—'}</div><div className="an-d">of decided deals ({m.wonForRate}W · {m.lostCount}L){m.wonPending>0?` · ${m.wonPending} awaiting payment, counted as won`:''}</div></div>
       <div className={'an-card'+(m.rotting>0?' warn':'')}><div className="an-l">Pipeline Moving</div><div className="an-v">{m.openCount?Math.round(m.movingPct*100)+'%':'—'}</div><div className="an-d">{m.rotting} deal{m.rotting===1?'':'s'} cold 14+ days</div></div>
-      <div className="an-card"><div className="an-l">Avg Deal Size</div><div className="an-v">{m.avgDeal?usd(m.avgDeal):'—'}</div><div className="an-d">across {m.wonValued} closed{(m.wonCount-m.wonValued)>0?` · ${m.wonCount-m.wonValued} retainer-only`:''}</div></div>
+      <div className="an-card"><div className="an-l">Avg Deal Size</div><div className="an-v">{m.avgDeal?usd(m.avgDeal):'—'}</div><div className="an-d">across {m.wonDealCount} deal{m.wonDealCount===1?'':'s'}{(m.wonCount-m.wonValued)>0?` · ${m.wonCount-m.wonValued} retainer-only, excluded`:''}</div></div>
     </div>
     </>),
     sources:(<>
@@ -4103,8 +4183,9 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     </>),
     clients:(<>
     {m.byClient&&m.byClient.length>0&&<div className="card" style={{marginBottom:18}}>
-      <h3>Revenue by client</h3>
-      <div className="ch-sub">Lifetime booked value per client — your biggest relationships first</div>
+      <h3>Booked by client</h3>
+      <div className="ch-sub">Lifetime <b>booked</b> value per client — what they have bought, not what has landed.
+        Collected and outstanding are shown per row.</div>
       <div className="rbc-list">
         {(()=>{ const top=m.byClient[0].lifetime||1; return m.byClient.slice(0,12).map(cl=>(
           <div className="rbc-row" key={cl.id} onClick={()=>open(cl.id)}>
@@ -4112,7 +4193,9 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
               <span className="rbc-name">{cl.name}</span>
               {cl.deals>1&&<span className="rbc-deals">{cl.deals} deals</span>}
               {cl.mrr>0&&<span className="rbc-mrr">{usd(cl.mrr)}/mo</span>}
-              {cl.pending>0&&<span className="rbc-pend">{usd(cl.pending)} unpaid</span>}
+              {cl.paid>0&&<span className="rbc-paid">{usd(cl.paid)} collected</span>}
+              {cl.owed>0&&<span className="rbc-pend">{usd(cl.owed)} outstanding</span>}
+              {cl.owed<=0&&cl.pending>0&&<span className="rbc-pend">{usd(cl.pending)} awaiting deposit</span>}
             </div>
             <div className="rbc-bar"><div style={{width:Math.max(3,Math.round(cl.lifetime/top*100))+'%'}}/></div>
             <span className="rbc-v">{usd(cl.lifetime)}</span>
@@ -4922,7 +5005,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
       <button className={board==='clients'?'on':''} onClick={()=>setBoard('clients')}>Clients<i>{(clients||[]).length}</i></button>
     </div>
     {board==='clients'
-     ? ((clients||[]).length?<ClientBoard clients={clients} settings={settings} setClientPhase={setClientPhase} onCard={id=>open(id)}/>:<div className="empty">No clients yet. Move a lead to <b>Signed</b> to start onboarding.</div>)
+     ? ((clients||[]).length?<ClientBoard clients={clients} settings={settings} stages={stages} setClientPhase={setClientPhase} onCard={id=>open(id)}/>:<div className="empty">No clients yet. Move a lead to <b>Signed</b> to start onboarding.</div>)
      : <>
     <div className="kgrid" style={{marginBottom:18}}>
       <Kpi variant="accent" label={rep?'Your Open Pipeline':'Open Pipeline'} value={usd(totalOpen)} icon={<KanbanSquare size={14}/>} d={`${openLeads.length} open deal${openLeads.length===1?'':'s'}`}/>
@@ -5422,7 +5505,7 @@ function ClientRoadmap({clients,tracks,open}){
 }
 
 /* shared client kanban — used in the Clients tab and the Pipeline toggle */
-function ClientBoard({clients,settings,onCard,setClientPhase}){
+function ClientBoard({clients,settings,onCard,setClientPhase,stages}){
   const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);
   const cols=boardCols(clients,settings);
   const drop=col=>{ if(!dragId){setOver(null);return;} if(!(col.custom&&col.ownerId&&col.ownerId!==dragId)) setClientPhase(dragId,col.key); setDragId(null);setOver(null); };
@@ -5433,7 +5516,14 @@ function ClientBoard({clients,settings,onCard,setClientPhase}){
       <div className="kco">{l.company&&l.company!==l.name?l.company:l.businessType||''}</div>
       {(()=>{ const ds=dealsOf(l).filter(d=>d.label); if(!ds.length) return null;
         return (<div className="kdeals">{ds.map(d=>(<span className="kdeal" key={d.id} title={d.label}>{d.label}{dealBits(d)>0?` · ${usdK?usdK(dealBits(d)):usd(dealBits(d))}`:''}</span>))}</div>); })()}
-      <div className="kmeta"><span className="kvals">{(()=>{ const owed=num(l.dealValue)+(l.retainerActive?num(l.retainer):0); const rem=owed-paymentsPaid(l); return (l.payments&&l.payments.length&&rem>0)?<span className="kbal" title="Remaining balance">{usdc(rem)} due</span>:null; })()}{(l.closedDeals||[]).length>0&&<span className="kltv" title="Lifetime value across all deals">{usd(closedDealsTotal(l)+num(l.dealValue))} lifetime</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
+      <div className="kmeta"><span className="kvals">{(()=>{ /* AUDIT #2. This used to be `dealValue + retainer - every payment ever`.
+       dealValue is OPEN deals only — closing one moves its money into closedDeals
+       and rewrites dealValue to what is left — so a client with a $5,000 closed
+       deal and $2,000 paid computed a NEGATIVE balance and the badge silently
+       vanished, while the Money page correctly said $3,000 owed. owedBy() is the
+       one function that answers this, and it already encodes the won-or-client
+       rule. A hidden wrong number is worse than a visible one. */
+      const rem=owedBy(l,stages); return rem>0?<span className="kbal" title="Remaining balance — contracted minus paid">{usdc(rem)} due</span>:null; })()}{(l.closedDeals||[]).length>0&&<span className="kltv" title="Closed deals only — money already won, not deals still open">{usd(closedDealsTotal(l))} closed</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
       <div className="kmove" onClick={e=>e.stopPropagation()}>
         <button className="kmv" disabled={i<=0} onClick={()=>step(l,-1)} title="Back a phase"><ChevronLeft size={16}/></button>
         <span className="kmv-s">{phaseInfo(l.clientPhase||'intake',settings,l).label}</span>
@@ -5491,7 +5581,7 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,a
       <label className="chip-toggle" style={{marginLeft:'auto'}}><input type="checkbox" checked={showChurned} onChange={e=>setShowChurned(e.target.checked)}/>Show churned</label>
     </div>
     {!visible.length?<div className="empty">No clients yet. Move a lead to <b>Signed</b> (or hit Convert to Client) to start onboarding.</div>
-    :<><ClientBoard clients={visible} settings={settings} setClientPhase={setClientPhase} onCard={id=>setExpand(id===expand?null:id)}/>
+    :<><ClientBoard clients={visible} settings={settings} stages={stages} setClientPhase={setClientPhase} onCard={id=>setExpand(id===expand?null:id)}/>
       {sel?(()=>{ const l=sel; const phase=l.clientPhase||'intake'; const order=flowOrder(settings,l); const i=order.indexOf(phase); const canAdvance=i>=0&&i<order.length-1;
         return (<div className="cli-detail">
           <div className="cli-detail-h">
@@ -5552,8 +5642,8 @@ function CustomPhaseAdd({settings,onAdd}){
 }
 
 /* ===================== MONEY ===================== */
-function Money({leads,stages,settings}){
-  const m=useMetrics(leads,stages,settings);const won=leads.filter(l=>sOf(l.stage,stages).won);
+function Money({leads,stages,settings,txns}){
+  const m=useMetrics(leads,stages,settings,txns);const won=leads.filter(l=>sOf(l.stage,stages).won);
   const opt=DEFAULT_OPTIONS; const months=lastNMonths(6);
   const setupByMonth=months.map(k=>({name:monthLabel(k),Setup:won.filter(l=>l.closedAt&&monthKey(l.closedAt)===k).reduce((a,l)=>a+num(l.dealValue),0)}));
   const mrrByMonth=months.map(k=>{const end=k+'-31';const v=leads.filter(l=>l.retainerActive&&l.retainerStart&&l.retainerStart<=end).reduce((a,l)=>a+num(l.retainer),0);return {name:monthLabel(k),MRR:v};});
@@ -5565,7 +5655,7 @@ function Money({leads,stages,settings}){
   const anyMoney=m.wonValue>0||m.mrr>0;
   return (<>
     <div className="kgrid">
-      <Kpi variant="green" label="Closed Setup Rev" value={usd(m.wonValue)} icon={<CheckCircle2 size={14}/>} d={`${m.wonCount} deals`}/>
+      <Kpi variant="green" label="Closed Setup Rev" value={usd(m.wonValue)} icon={<CheckCircle2 size={14}/>} d={`${m.wonDealCount} deal${m.wonDealCount===1?'':'s'}`}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${usd(m.mrr*12)}/yr`}/>
       <Kpi variant="accent" label="Weighted Pipeline" value={usd(m.weighted)} icon={<Target size={14}/>} d={`${usd(m.openValue)} unweighted`}/>
       <Kpi label="Win Rate" value={pct(m.winRate)} icon={<Percent size={14}/>} d={`avg deal ${usdK(m.avgDeal)}`}/>
@@ -5992,7 +6082,7 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSetting
   /* computed here rather than passed in — `metrics` is local to Dashboard and
      Money, so threading it through the router would mean lifting it for one
      consumer */
-  const m=useMetrics(leads,stages,settings);
+  const m=useMetrics(leads,stages,settings,txns);
   const burn=monthlyBurn(settings);
   const mKey=isoOf(new Date()).slice(0,7);
   const all=useMemo(()=>[...txns,...paymentTxns(leads)],[txns,leads]);
@@ -6040,8 +6130,12 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSetting
       <div className="meta">What came in, what's committed, and where it goes</div></div></div>
 
     <div className="kgrid" style={{marginBottom:16}}>
-      <Kpi variant="accent" label="Collected this month" value={usd(thisIn)} icon={<DollarSign size={14}/>}
-        d={thisOut>0?`${usd(thisOut)} out · ${usd(thisIn-thisOut)} net`:'nothing out yet'}/>
+      {/* AUDIT #1. Was `thisIn` — every 'in' transaction, which included owner
+          contributions and excluded every deal that predates payment tracking,
+          so this tile and the dashboard's disagreed under the same label. Both
+          now read m.revenueMonth. thisOut/net still come from the ledger. */}
+      <Kpi variant="accent" label="Collected this month" value={usd(m.revenueMonth)} icon={<DollarSign size={14}/>}
+        d={revenueSplit(m)+(thisOut>0?` · ${usd(thisOut)} out`:'')}/>
       <Kpi variant={burn>0?'gold':undefined} label="Monthly burn" value={usd(burn)} icon={<RefreshCw size={14}/>}
         d={`${recurringOf(settings).filter(r=>r.active!==false).length} recurring bill${recurringOf(settings).filter(r=>r.active!==false).length===1?'':'s'}`}/>
       <Kpi variant="green" label="MRR" value={usd(mrr)} icon={<Handshake size={14}/>}
@@ -6099,9 +6193,14 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSetting
         <b>{usd(v)}</b><em>{Math.round(v/catTotal*100)}%</em>
       </div>)):<div className="empty" style={{padding:'24px 4px'}}>No expenses recorded yet.</div>}
       {m&&m.byClient&&m.byClient.length>0&&<>
-        <div className="td-h" style={{marginTop:20}}><Building2 size={13}/>Revenue by client</div>
+        {/* AUDIT #3. Same data as the dashboard's card and it must say the same
+            thing: this is BOOKED value, and the cash is shown beside it. */}
+        <div className="td-h" style={{marginTop:20}}><Building2 size={13}/>Booked by client</div>
         {m.byClient.slice(0,10).map(c=>(<div className="mn-row" key={c.id}>
-          <span>{c.name}{c.mrr>0?` · ${usd(c.mrr)}/mo`:''}</span><b className="in">{usd(c.lifetime)}</b></div>))}
+          <span>{c.name}{c.mrr>0?` · ${usd(c.mrr)}/mo`:''}
+            {c.paid>0?<em className="mn-sub"> · {usd(c.paid)} collected</em>:null}
+            {c.owed>0?<em className="mn-sub owed"> · {usd(c.owed)} outstanding</em>:null}</span>
+          <b className="in">{usd(c.lifetime)}</b></div>))}
       </>}
     </div>}
 
