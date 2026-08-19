@@ -1829,6 +1829,12 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .an-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:11px;margin-bottom:18px}
 .an-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:14px 16px}
 .an-card.warn{border-color:#FFD59E;background:color-mix(in srgb,#FFA500 6%,#fff)}
+.rate{font-variant-numeric:tabular-nums}
+.rate.warn{color:#B45309;font-weight:800}
+.rate.good{color:#2C7A4B;font-weight:800}
+/* under the sample floor: readable, and deliberately colourless */
+.rate-thin{color:#8b88a0;font-weight:700}
+.rate-none{color:#C9C5D9}
 .an-l{font-size:10.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#a6a2bc}
 .an-v{font-size:27px;font-weight:800;color:${INK};font-family:'Space Grotesk',sans-serif;margin:4px 0 2px}
 .an-d{font-size:11.5px;color:#9b98ad}
@@ -4111,10 +4117,10 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     <div className="kgroup">Activity &amp; health</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Meetings Booked" value={m.bookedMonth} icon={<CalendarCheck size={14}/>} d={`this month · ${m.mtgUpcoming} upcoming${m.needsDateCount>0?` · ${m.needsDateCount} need a date`:''} · ${m.bookedAll} all time`} onClick={()=>tog('booked')} active={drill==='booked'} goal={G.booked} current={m.bookedMonth}/>
-      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?`${Math.round(m.showRate*100)}% show rate · ${m.noShowMonth} no-show${m.needsStatusCount>0?` · ${m.needsStatusCount} unmarked`:''}`:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
+      <Kpi label="Meetings Held" value={m.heldMonth} icon={<CheckCircle2 size={14}/>} d={(m.heldAll+m.noShowAll)>0?<>show rate <Rate part={m.heldAll} whole={m.heldAll+m.noShowAll} warnBelow={0.6}/> · {rateSample(m.heldAll,m.heldAll+m.noShowAll,'kept')}{m.noShowMonth>0?` · ${m.noShowMonth} no-show`:''}{m.needsStatusCount>0?` · ${m.needsStatusCount} unmarked`:''}</>:'mark meetings held to track'} onClick={()=>tog('held')} active={drill==='held'}/>
       <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} of ${m.onbNeeded} deposit${m.onbNeeded===1?'':'s'} in${m.onbMonthlyOnly>0?` · ${m.onbMonthlyOnly} monthly-only`:''}`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
       <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
-      <Kpi label="Follow-Up Health" value={m.fuRate==null?'—':Math.round(m.fuRate*100)+'%'} icon={<Bell size={14}/>} d={m.overdue.length>0?`${m.overdue.length} overdue right now`:(m.fuCleared>0?`${m.fuOnTime}/${m.fuCleared} cleared on time`:'clear a follow-up to start')} onClick={()=>tog('fu')} active={drill==='fu'}/>
+      <Kpi label="Follow-Up Health" value={<Rate part={m.fuOnTime} whole={m.fuCleared} warnBelow={0.7} goodAbove={0.9}/>} icon={<Bell size={14}/>} d={`${rateSample(m.fuOnTime,m.fuCleared,'cleared on time')}${m.overdue.length>0?` · ${m.overdue.length} overdue right now`:''}`} onClick={()=>tog('fu')} active={drill==='fu'}/>
       <Kpi label="Going Cold" value={cold.length} icon={<Users size={14}/>} d={cold.length>0?`${cold.filter(x=>x.tier==='champion').length} champion${cold.filter(x=>x.tier==='champion').length===1?'':'s'} need a touch`:'everyone is warm'} onClick={()=>tog('cold')} active={drill==='cold'}/>
     </div>
     {(drill==='booked'||drill==='held')&&<Drill title="Meetings" sub={`${mtabCounts.upcoming} upcoming · ${mtabCounts.completed} held · ${mtabCounts.noshow} no-show`} onClose={()=>setDrill(null)}>
@@ -4194,8 +4200,13 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
           <span className="fn-l">{f.label}</span>
           <div className="fn-bar"><div style={{width:Math.max(2,Math.round(f.count/top*100))+'%',background:f.color||COBALT}}/></div>
           <span className="fn-c">{f.count}</span>
-          <span className="fn-r">{i===0?'—':Math.round(f.rate*100)+'%'}</span>
-          <span className={'fn-r close'+(i>0&&f.closeRate<0.5?' warn':'')}>{i===m.funnel.length-1?'—':Math.round(f.closeRate*100)+'%'}</span>
+          {/* AUDIT #7. Both of these were bare percentages with no sample, and
+              the close rate turned RED below 50% — on a stage three leads had
+              reached. <Rate> shows the fraction instead until there are enough
+              to read, and withholds the colour with it. */}
+          <span className="fn-r">{i===0?'—':<Rate part={f.count} whole={m.funnel[i-1].count}/>}</span>
+          <span className="fn-r close">{i===m.funnel.length-1?'—':
+            <Rate part={Math.round(f.closeRate*f.count)} whole={f.count} warnBelow={0.5}/>}</span>
         </div>); })}</div>
     </div>}
     </>),
@@ -4203,11 +4214,14 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     {/* higher-order sales analytics — the numbers a sales leader actually runs on */}
     <div className="kgroup">Sales analytics</div>
     <div className="an-grid">
-      <div className="an-card"><div className="an-l">Meeting &#8594; Close</div><div className="an-v">{m.metLeads?Math.round(m.meetCloseRate*100)+'%':'\u2014'}</div><div className="an-d">{m.metAndClosed} of {m.metLeads} closed after a sales meeting{(m.ratioEx||[]).length?` \u00b7 ${(m.ratioEx||[]).join(', ')} not counted`:''}{m.metNoSalesMtg>0?` \u00b7 ${m.metNoSalesMtg} met with no sales meeting logged`:''}{m.metAfterCloseOnly>0?` \u00b7 ${m.metAfterCloseOnly} only met after signing`:''}</div></div>
-      <div className="an-card"><div className="an-l">Show Rate</div><div className="an-v">{(m.heldAll+m.noShowAll)?Math.round(m.showRate*100)+'%':'\u2014'}</div><div className="an-d">{m.noShowAll} no-show{m.noShowAll===1?'':'s'} all time{m.needsStatusCount>0?` \u00b7 ${m.needsStatusCount} unmarked, not counted yet`:''}</div></div>
+      <div className="an-card"><div className="an-l">Meeting &#8594; Close</div><div className="an-v"><Rate part={m.metAndClosed} whole={m.metLeads} warnBelow={0.25} goodAbove={0.5}/></div><div className="an-d">{m.metAndClosed} of {m.metLeads} closed after a sales meeting{(m.ratioEx||[]).length?` \u00b7 ${(m.ratioEx||[]).join(', ')} not counted`:''}{m.metNoSalesMtg>0?` \u00b7 ${m.metNoSalesMtg} met with no sales meeting logged`:''}{m.metAfterCloseOnly>0?` \u00b7 ${m.metAfterCloseOnly} only met after signing`:''}</div></div>
+      <div className="an-card"><div className="an-l">Show Rate</div><div className="an-v"><Rate part={m.heldAll} whole={m.heldAll+m.noShowAll} warnBelow={0.6} goodAbove={0.85}/></div><div className="an-d">{m.noShowAll} no-show{m.noShowAll===1?'':'s'} all time{m.needsStatusCount>0?` \u00b7 ${m.needsStatusCount} unmarked, not counted yet`:''}</div></div>
       <div className="an-card"><div className="an-l">Avg Days to Close</div><div className="an-v">{m.avgDaysToClose==null?'—':m.avgDaysToClose+'d'}</div><div className="an-d">lead created → converted</div></div>
-      <div className="an-card"><div className="an-l">Win Rate</div><div className="an-v">{(m.wonForRate+m.lostCount)?Math.round(m.winRate*100)+'%':'—'}</div><div className="an-d">of decided deals ({m.wonForRate}W · {m.lostCount}L){m.wonPending>0?` · ${m.wonPending} awaiting payment, counted as won`:''}</div></div>
-      <div className={'an-card'+(m.rotting>0?' warn':'')}><div className="an-l">Pipeline Moving</div><div className="an-v">{m.openCount?Math.round(m.movingPct*100)+'%':'—'}</div><div className="an-d">{m.rotting} deal{m.rotting===1?'':'s'} cold 14+ days</div></div>
+      <div className="an-card"><div className="an-l">Win Rate</div><div className="an-v"><Rate part={m.wonForRate} whole={m.wonForRate+m.lostCount} warnBelow={0.2} goodAbove={0.5}/></div><div className="an-d">of decided deals ({m.wonForRate}W · {m.lostCount}L){m.wonPending>0?` · ${m.wonPending} awaiting payment, counted as won`:''}</div></div>
+      {/* The CARD's own warn state is gated on the same floor as the rate inside
+    it — colouring the card red while the rate refuses to judge would put the
+    alarm back by the side door. */}
+<div className={'an-card'+(m.rotting>0&&m.openCount>=RATE_MIN_N?' warn':'')}><div className="an-l">Pipeline Moving</div><div className="an-v"><Rate part={m.openCount-m.rotting} whole={m.openCount} warnBelow={0.6} goodAbove={0.9}/></div><div className="an-d">{rateSample(m.openCount-m.rotting,m.openCount,'still moving')}{m.rotting>0?` · ${m.rotting} cold 14+ days`:''}</div></div>
       <div className="an-card"><div className="an-l">Avg Deal Size</div><div className="an-v">{m.avgDeal?usd(m.avgDeal):'—'}</div><div className="an-d">across {m.wonDealCount} deal{m.wonDealCount===1?'':'s'}{(m.wonCount-m.wonValued)>0?` · ${m.wonCount-m.wonValued} retainer-only, excluded`:''}</div></div>
     </div>
     </>),
@@ -4219,7 +4233,12 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         <div className="src-row src-head"><span>Source</span><span>Leads</span><span>Closed</span><span>Rate</span><span>Value</span></div>
         {m.sourceROI.map(s=>(<div className="src-row" key={s.source}>
           <span className="src-name">{s.source}</span><span>{s.total}</span><span>{s.won}</span>
-          <span className={s.total>=3&&s.rate<0.15?'src-lo':s.rate>=0.4?'src-hi':''}>{Math.round(s.rate*100)}%</span>
+          {/* AUDIT #7. This had its OWN threshold — s.total>=3 — hand-rolled and
+              lower than everywhere else, so one source could be judged on three
+              leads while an identical rate elsewhere was not. The row already
+              prints Leads and Closed beside it, so the sample was never the
+              problem here; the colour was. One floor now, from <Rate>. */}
+          <span><Rate part={s.won} whole={s.total} warnBelow={0.15} goodAbove={0.4}/></span>
           <span>{s.value?usd(s.value):'—'}</span>
         </div>))}
       </div>
@@ -8287,6 +8306,40 @@ function Huddle({leads,tasks,settings,stages,rels,saveSettings,me,open}){
       </div>
     </div>
   </>);
+}
+
+/* ---- rates -----------------------------------------------------------------
+   AUDIT #7. EVERY rate in this app renders through <Rate>. Two rules, and
+   neither is a per-call-site choice:
+
+   1. A PERCENTAGE IS NEVER SHOWN WITHOUT THE SAMPLE IT CAME FROM.
+   2. BELOW RATE_MIN_N THERE IS NO PERCENTAGE AND NO COLOUR. A funnel close
+      rate of 33% from three leads used to turn RED. That is worse than no
+      alarm: an alarm reads as information, and a red one gets acted on. Under
+      the floor it shows the raw fraction instead — "1/3" is honest, and just
+      as actionable, without pretending to be a rate.
+
+   The floor lives in the COMPONENT, not at each call site, so it cannot drift
+   back apart the way four hand-rolled Math.round(x*100)+'%' calls already had.
+   If you are about to write that expression, you want this instead. */
+const RATE_MIN_N=5;
+
+/** part/whole, or null when there is nothing to divide. */
+const rateOf=(part,whole)=>(num(whole)>0?num(part)/num(whole):null);
+/** The sample, for a caption. A rate without one of these is not finished. */
+const rateSample=(part,whole,noun='')=>`${num(part)} of ${num(whole)}${noun?' '+noun:''}`;
+
+/** part / whole. `warnBelow` and `goodAbove` are 0-1 fractions and are only
+ *  ever applied above the floor. */
+function Rate({part,whole,warnBelow,goodAbove,min=RATE_MIN_N,empty='\u2014',className='',title}){
+  const w=num(whole),p=num(part);
+  const cls=x=>('rate '+x+' '+className).replace(/\s+/g,' ').trim();
+  if(!w) return <span className={cls('rate-none')} title={title||'nothing to measure yet'}>{empty}</span>;
+  const r=p/w;
+  if(w<min) return (<span className={cls('rate-thin')}
+    title={`Only ${w} so far — too few to read as a rate, so the raw figure is shown instead`}>{p}/{w}</span>);
+  const tone=(warnBelow!=null&&r<warnBelow)?'warn':((goodAbove!=null&&r>=goodAbove)?'good':'');
+  return <span className={cls(tone)} title={title||rateSample(p,w)}>{Math.round(r*100)}%</span>;
 }
 
 function Kpi({label,value,d,variant,icon,onClick,active,goal,current}){

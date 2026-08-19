@@ -76,7 +76,12 @@ const kpi=label=>{const k=[...document.querySelectorAll('.kpi')].find(e=>
 console.log('\nMeeting -> Close, coffee excluded by default');
 const mc=anCard('Meeting');
 ok('card renders', !!mc, JSON.stringify(mc));
-ok('ratio is 3 of 4 = 75%', mc && mc.v==='75%', mc&&mc.v);
+/* AUDIT #7. Four is below RATE_MIN_N, so <Rate> shows the raw figure rather
+   than "75%" — a rate off four data points is not a rate. What this suite is
+   actually about is the DENOMINATOR (which meetings count), and that is
+   unchanged and still asserted by the "3 of 4" checks below. */
+ok('ratio is 3 of 4, shown as a figure because four is a thin sample',
+   mc && mc.v==='3/4', mc&&mc.v);
 ok('denominator excludes the coffee-only leads', mc && /3 of 4/.test(mc.d), mc&&mc.d);
 ok('an onboarding-only client is NOT a free conversion', mc && /3 of 4/.test(mc.d), mc&&mc.d);
 ok('a post-close discovery call does not count either', mc && /1 only met after signing/.test(mc.d), mc&&mc.d);
