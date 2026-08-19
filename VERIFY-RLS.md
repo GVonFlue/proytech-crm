@@ -145,6 +145,136 @@ deactivated rep and `select count(*) from leads` returns **0**.
 
 ---
 
+## 6. The Playbook boundary (after KB-MIGRATION.sql)
+
+**Do this before any Playbook UI exists.** The boundary is the feature; there
+is no point building a screen on a policy nobody has proved. If a rep can read
+a draft, stop and say so.
+
+Seed two notes first, in the SQL Editor as superuser:
+
+```sql
+insert into kb_notes (id, data, status) values
+  ('kb-draft', '{"title":"Lender objections","body":"SENTINEL-DRAFT-TEXT"}'::jsonb, 'draft'),
+  ('kb-live',  '{"title":"Onboarding a client","body":"Step one, send the welcome pack."}'::jsonb, 'draft');
+```
+
+Now publish only the second one **as the owner**, through the real path:
+
+```sql
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<OWNER-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+
+  -- the preview is what will be published; read it before publishing
+  select * from kb_preview('kb-live');
+  select kb_publish('kb-live');
+commit;
+```
+
+### As a rep
+
+```sql
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+
+  select count(*) as kb_notes_visible      from kb_notes;        -- MUST be 0
+  select count(*) as kb_published_visible  from kb_published;    -- MUST be 1
+  select count(*) as ai_rows               from kb_ai_context(); -- MUST be 1
+
+  -- the draft's text must not be reachable by ANY route open to a rep
+  select count(*) as leaked from kb_published where body like '%SENTINEL-DRAFT-TEXT%';
+  select count(*) as leaked from kb_ai_context() where body like '%SENTINEL-DRAFT-TEXT%';
+
+rollback;
+```
+
+Then the three refusals. Each gets its **own** block: the first failure aborts
+the transaction, so running them together would give you
+`current transaction is aborted` for the second and third and prove nothing.
+
+```sql
+-- 1. a rep cannot publish
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  select kb_publish('kb-draft');                                   -- MUST raise
+rollback;
+
+-- 2. a rep cannot write the rep-readable table directly
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  insert into kb_published (id,title,body) values ('x','x','x');   -- MUST be denied
+rollback;
+
+-- 3. neither can the OWNER. This one is the point of the design.
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<OWNER-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  update kb_published set body = 'tampered' where id = 'kb-live';  -- MUST be denied
+rollback;
+```
+
+- [ ] `kb_notes_visible` = **0**. This is the same result `select count(*) from
+      meeting_logs` gives a rep today, from the same policy shape.
+- [ ] `kb_published_visible` = **1**, and it is the note you published.
+- [ ] `ai_rows` = **1** — equal to the published count, not the note count.
+- [ ] Both `leaked` counts are **0**.
+- [ ] Block 1 raises `only an owner can publish`.
+- [ ] Blocks 2 and 3 are both refused with `permission denied for table
+      kb_published` — **not** "0 rows updated". That distinction is the whole
+      design: the write is refused at the privilege level, not filtered by a
+      policy, so no browser session may write that table at all. Block 3
+      failing for the OWNER too is the proof that `kb_publish()` is the only
+      writer there is.
+
+### As the owner
+
+Repeat the block with the **owner's** uuid:
+
+- [ ] `kb_notes_visible` = **2** — both notes, drafts included.
+- [ ] `select count(*) from kb_ai_context()` is still **1**.
+
+That last line is the JARVIS guarantee, proved from SQL rather than asserted:
+the person who can read every draft still cannot obtain one through the
+function the assistant is fed from. There is no argument to pass and no branch
+to take — `kb_ai_context()` does not name `kb_notes`.
+
+### The preview cannot lie
+
+```sql
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<OWNER-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+
+  update kb_notes set data = jsonb_set(data,'{body}','"Edited after publishing."'::jsonb),
+                      updated_at = now()
+   where id = 'kb-live';
+
+  select * from kb_preview('kb-live');                  -- shows the NEW text
+  select body from kb_published where id = 'kb-live';   -- still the OLD text
+rollback;
+```
+
+- [ ] The two differ, and the editor is expected to say **"published version is
+      behind"** on exactly this condition
+      (`kb_notes.updated_at > kb_published.published_at`).
+- [ ] After `kb_publish('kb-live')` they match — because publish inserts the
+      rows the preview returned. One source, so they cannot disagree.
+
+Clean up when you're done: `delete from kb_notes where id in ('kb-draft','kb-live');`
+(the published row cascades away with it).
+
+---
+
 ## What this test cannot prove
 
 `app_settings` is a single row per key holding team-wide blobs — tasks,
@@ -156,3 +286,13 @@ owns, so hiding it is a UI decision, not a database one. Both are stated in
 BUILD-NOTES.md. If either needs to be a real boundary, the next step is a
 `tasks` table with its own policies and moving deal money to columns the rep's
 policy doesn't select.
+
+One more, from the Playbook. `kb_ai_context()` means a REP's assistant can
+never be given a draft — their browser cannot obtain the text in the first
+place, so it does not exist in their process to send. But Postgres cannot stop
+**your own** browser from sending **your own** drafts to **your own**
+assistant: you are authorised to read that text, and the database cannot tell
+"displaying it" from "putting it in a request". That last link is enforced by a
+test asserting on what reaches the network, not by a policy. It is stated in
+ROLES.md → The honest limits alongside `dealValue`, and it is the honest shape
+of the guarantee rather than the marketing version.
