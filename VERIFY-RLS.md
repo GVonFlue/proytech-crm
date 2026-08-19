@@ -275,6 +275,125 @@ Clean up when you're done: `delete from kb_notes where id in ('kb-draft','kb-liv
 
 ---
 
+## 7. Pocket recordings (after POCKET-MIGRATION.sql)
+
+**Do this before any Pocket UI exists.**
+
+`pocket_recordings` holds the **full transcript of every recording, forever** —
+including the Sunday calls where pay splits, pricing floors and candid reads get
+said out loud. It is the most sensitive table in this database alongside
+`meeting_logs`, and it has deliberately been given `meeting_logs`' policy rather
+than a new one. This section proves that.
+
+First, prove the two policies really are the same expression rather than two
+things that look alike:
+
+```sql
+select polrelid::regclass as tbl, pg_get_expr(polqual, polrelid) as using_expr
+  from pg_policy
+ where polrelid in ('pocket_recordings'::regclass, 'meeting_logs'::regclass);
+```
+
+- [ ] Two rows, and the `using_expr` strings are **identical**.
+- [ ] `select relname, relrowsecurity from pg_class where relname = 'pocket_recordings';`
+      returns **true**. A policy on a table with RLS switched off enforces nothing.
+
+Seed one recording as superuser, with a sentinel standing in for the material
+that must never travel:
+
+```sql
+insert into pocket_recordings (id, data, status) values
+  ('rec_test_1',
+   '{"title":"Sunday with Logan",
+     "transcript":"SENTINEL-PAY-SPLIT-forty-percent-and-we-floor-at-nine-thousand",
+     "summary":"Pricing and the Alvarez account."}'::jsonb,
+   'open');
+```
+
+### As a rep
+
+```sql
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+
+  select count(*) as recordings_visible from pocket_recordings;   -- MUST be 0
+
+  -- the sentinel must not be reachable by ANY route open to a rep
+  select count(*) as leaked from pocket_recordings
+   where data->>'transcript' like '%SENTINEL-PAY-SPLIT%';         -- MUST be 0
+rollback;
+```
+
+- [ ] `recordings_visible` = **0**. This is the same number `select count(*)
+      from meeting_logs` gives a rep, from the same policy.
+- [ ] `leaked` = **0**.
+
+### The writes a rep must not be able to make
+
+Each in its **own** block — the first failure aborts a transaction, so running
+them together reports `current transaction is aborted` for the rest and proves
+nothing.
+
+```sql
+-- 1. a rep cannot insert
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  insert into pocket_recordings (id, data) values ('rec_rep','{}'::jsonb);
+rollback;
+
+-- 2. a rep cannot change one
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  update pocket_recordings set status = 'dismissed' where id = 'rec_test_1';
+rollback;
+
+-- 3. a rep cannot delete one
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  delete from pocket_recordings where id = 'rec_test_1';
+rollback;
+```
+
+**Read these results carefully — they do not all look the same, and that is
+correct.** This table is protected by a policy, not by revoked privileges as
+`kb_published` is, so the three commands fail in two different ways:
+
+- [ ] Block 1 **raises**: `new row violates row-level security policy for table
+      "pocket_recordings"`. The `with check` clause rejects it.
+- [ ] Blocks 2 and 3 report **`UPDATE 0` / `DELETE 0`** and **raise nothing**.
+      That is a pass, not a failure. The `using` clause filters the row out
+      before the write is considered, so there is nothing to refuse — from the
+      rep's side the row does not exist to be changed.
+
+If block 2 or 3 reports **1** row, the boundary is broken. Stop.
+
+### As the owner
+
+Repeat the read block with the **owner's** uuid:
+
+- [ ] `recordings_visible` = **1**.
+- [ ] `leaked` = **1** — the owner can read their own transcript, which is the
+      entire point of the table.
+
+### Deactivation
+
+`crm_active()` is in this policy, so it inherits §4's behaviour. Re-run the read
+block for a **deactivated owner**:
+
+- [ ] `recordings_visible` = **0**.
+
+Clean up: `delete from pocket_recordings where id = 'rec_test_1';`
+
+---
+
 ## What this test cannot prove
 
 `app_settings` is a single row per key holding team-wide blobs — tasks,
@@ -286,6 +405,15 @@ owns, so hiding it is a UI decision, not a database one. Both are stated in
 BUILD-NOTES.md. If either needs to be a real boundary, the next step is a
 `tasks` table with its own policies and moving deal money to columns the rep's
 policy doesn't select.
+
+And §7 proves the **browser** boundary on `pocket_recordings`, which is the only
+boundary RLS can prove. `api/pocket-hook.js` writes that table with
+`SUPABASE_SERVICE_KEY`, which bypasses RLS by design — Pocket is the caller and
+there is no user session to check. What stands between a stranger and a write is
+the HMAC signature on the delivery, not a policy, so it is verified in
+`tests/pockethook.mjs` rather than here. Rotate that secret the way you would
+rotate a password, and never let the endpoint run without one: it is written to
+refuse rather than to fall back to trusting the caller.
 
 One more, from the Playbook. `kb_ai_context()` means a REP's assistant can
 never be given a draft — their browser cannot obtain the text in the first
