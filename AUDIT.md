@@ -3,6 +3,16 @@
 Read against `ENGINEERING.md` §2 ("two screens must never disagree") and §4
 (money rules). **Findings only. No code was changed.**
 
+## Status
+
+**Fixed** (branch `fix/audit-money`, tests in `tests/moneyaudit.mjs`, each written
+to fail against the old code — verified by stashing the fix and re-running):
+**#1**, **#2**, **#3**, **#4**, **#5**, and **#17** (Pipeline switched off).
+
+**Still open:** #6, #7, #8, #9, #10, #11, #12, and #16.
+
+**Found while fixing** — added below as #19 and #20.
+
 Method: traced each displayed metric back to the function that produces it, by
 reading `src/App.jsx`, `src/lib/goals.js`, `MIGRATION.sql` and the API handlers.
 Everything below cites a line number so it can be checked rather than believed.
@@ -420,6 +430,39 @@ anything.
 
 Each is a one-line copy fix and together they are most of why the money screens
 feel untrustworthy.
+
+---
+
+## 19. `Money()` at 5609 is dead code, and I nearly fixed a bug in it
+
+Found while fixing #4. `function Money({leads,stages,settings})` renders
+"Closed Setup Rev", a Win Rate KPI, "Avg Retainer" and several charts — and has
+**zero call sites**. `grep -c '<Money[ /]'` returns 0; the only live `Money` is
+`MoneyPage`.
+
+I edited its "Closed Setup Rev" caption before noticing, and the test passed
+while the screen never rendered. The live Avg Deal Size card is at **4165**, in
+the dashboard's analytics section, and that is the one that needed changing.
+
+This matters beyond tidiness: a duplicate of a metric that nobody can see is
+still a duplicate that will be found by the next person searching for it and
+"fixed" in the wrong place.
+
+**Fix:** delete it, or wire it up if any of those charts are wanted. Half an
+hour to delete, and the suite will tell you if it was reachable after all.
+
+## 20. "retainer-only" counts more than retainer-only clients
+
+The Avg Deal Size caption says `${m.wonCount - m.wonValued} retainer-only`.
+`wonValued` counts won leads with a **live** setup value, so a client whose
+deals have all been **archived into `closedDeals`** also lands in that
+subtraction and is described as retainer-only. In the `money.mjs` fixture,
+"Level Up" — which has a $1,299 closed deal and no retainer — is counted there.
+
+The number is small and the direction is harmless, but the word is wrong.
+
+**Fix:** count `l.retainerActive && openSaleValue(l) === 0 && !closedDealsTotal(l)`
+explicitly rather than inferring it by subtraction. An hour.
 
 ---
 

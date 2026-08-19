@@ -48,7 +48,11 @@ console.log('\nsaved order is honoured and repaired');
 const t0=tabs();
 ok('the saved keys lead', t0[0]==='Tasks'&&t0[1]==='Dashboard', t0.slice(0,3).join(' | '));
 ok('a stale key is dropped', !t0.some(t=>/gone_tab/.test(t)), t0.join(' | '));
-ok('every real tab still appears', t0.includes('Settings')&&t0.includes('Pipeline')&&t0.includes('Leads'),
+/* AUDIT #17: Pipeline is switched off — it duplicated three dashboard tiles
+   with its own arithmetic and its only unique verb was done in fewer clicks
+   elsewhere. Switched off, not deleted: every lead keeps its stage, and putting
+   it back is one entry in ALL_MODULES plus a modulesV bump. */
+ok('every real tab still appears', t0.includes('Settings')&&t0.includes('Clients')&&t0.includes('Leads'),
    t0.length+' tabs');
 
 console.log('\nnormal mode still navigates');
@@ -115,7 +119,7 @@ console.log('\nthe sidebar scrolls, the actions stay put');
   ok('the tab list has its own scroll container', !!scroller);
   ok('the action buttons sit outside it', !!fixed);
   ok('every tab lives inside the scroller',
-     [...document.querySelectorAll('aside .nav-i')].filter(b=>/^(Dashboard|Leads|Pipeline|Settings)$/.test((b.textContent||'').trim()))
+     [...document.querySelectorAll('aside .nav-i')].filter(b=>/^(Dashboard|Leads|Clients|Settings)$/.test((b.textContent||'').trim()))
        .every(b=>scroller&&scroller.contains(b)));
   const signout=[...document.querySelectorAll('aside .nav-i')].find(b=>/^Sign out/.test((b.textContent||'').trim()));
   ok('Sign out is present', !!signout);
