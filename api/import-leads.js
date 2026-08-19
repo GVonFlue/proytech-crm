@@ -6,7 +6,9 @@ import { guard, sweep } from './_guard.js';
 export default async function handler(req, res) {
   // Signed-in users only, plus per-IP and a global daily ceiling. These
   // endpoints cost money, so an open one is a direct line to the card.
-  const gate = await guard(req, res, { name: 'import-leads', perIp: 20, perDay: 600, requireAuth: true });
+  // Header row plus a handful of sample rows, never the whole file — the
+  // import maps columns here and does the rows in the browser.
+  const gate = await guard(req, res, { name: 'import-leads', perIp: 20, perDay: 600, maxChars: 60000, requireAuth: true });
   if (!gate.ok) return;
   sweep();
 

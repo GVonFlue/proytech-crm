@@ -6,7 +6,11 @@ import { guard, sweep } from './_guard.js';
 export default async function handler(req, res) {
   // Signed-in users only, plus per-IP and a global daily ceiling. These
   // endpoints cost money, so an open one is a direct line to the card.
-  const gate = await guard(req, res, { name: 'parse-receipt', perIp: 30, perDay: 900, requireAuth: true });
+  // A base64 photo of a receipt is megabytes, so the 12k default rejected
+  // every single upload before it reached the model. The real ceiling here is
+  // the platform body limit; this just keeps a hand-rolled body from being
+  // unbounded.
+  const gate = await guard(req, res, { name: 'parse-receipt', perIp: 30, perDay: 900, maxChars: 5000000, requireAuth: true });
   if (!gate.ok) return;
   sweep();
 

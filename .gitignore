@@ -1,0 +1,4 @@
+# Test bundles. Each jsdom suite esbuilds src/App.jsx to a dotfile beside
+# itself and imports it; they are rebuilt on every run and never committed.
+tests/.b*.mjs
+t/

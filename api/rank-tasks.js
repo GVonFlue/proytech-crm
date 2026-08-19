@@ -6,7 +6,9 @@ import { guard, sweep } from './_guard.js';
 export default async function handler(req, res) {
   // Signed-in users only, plus per-IP and a global daily ceiling. These
   // endpoints cost money, so an open one is a direct line to the card.
-  const gate = await guard(req, res, { name: 'rank-tasks', perIp: 30, perDay: 900, requireAuth: true });
+  // The open task list as JSON. Generous, because a busy install with a few
+  // hundred tasks is a normal Monday, not an attack.
+  const gate = await guard(req, res, { name: 'rank-tasks', perIp: 30, perDay: 900, maxChars: 120000, requireAuth: true });
   if (!gate.ok) return;
   sweep();
 

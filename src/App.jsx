@@ -19,6 +19,7 @@ import {
 import JSZip from 'jszip';
 import MeetingLog from './MeetingLog';
 import Jarvis from './Jarvis';
+import { meetingLogsOf } from './lib/meetinglog';
 import { auth, db, configured } from './lib/supabase';
 import { BRAND, AI_NAME } from './lib/brand';
 
@@ -2722,6 +2723,31 @@ export default function App(){
      show a failure instead of pretending a transcript was saved. */
   const saveMlog=async l=>{ await db.upsertMeetingLog(l); setMlogs(p=>[l,...p.filter(x=>x.id!==l.id)]); };
   const delMlog=async id=>{ await db.deleteMeetingLog(id); setMlogs(p=>p.filter(x=>x.id!==id)); };
+  /* THE ONE PLACE anything from a meeting log crosses into rep-readable data.
+     meeting_logs is owner-only; lead activities are read by whoever owns the
+     lead. So this never runs on its own — it runs when an owner types a line
+     and presses the button, and it publishes THAT line and nothing else. The
+     transcript and the extraction stay in their own table.
+
+     The lead gets ONE patch (ENGINEERING §3): re-publishing edits the existing
+     activity in place rather than logging a second one, so a corrected line
+     doesn't read as two meetings. The activity id is generated here so the log
+     can hold on to it and find the same row next time. */
+  const publishLogToLead=async(log,text)=>{
+    const body=String(text||'').trim(); if(!log||!log.leadId||!body) return;
+    const lead=leadsRef.current.find(l=>l.id===log.leadId);
+    if(!lead) throw new Error('That lead is no longer on file.');
+    const prevId=log.shared&&log.shared.activityId;
+    const actId=prevId||uid();
+    const ts=new Date().toISOString();
+    const acts=lead.activities||[];
+    const has=prevId&&acts.some(a=>a&&a.id===prevId);
+    const act={id:actId,ts:has?(acts.find(a=>a.id===prevId).ts||ts):ts,type:'Note',text:body,who:me,fromLog:log.id};
+    const updated={...lead,activities:has?acts.map(a=>a&&a.id===prevId?{...a,text:body}:a):[act,...acts]};
+    commitLeads(leadsRef.current.map(l=>l.id===lead.id?updated:l));
+    putLead(updated);
+    await saveMlog({...log,shared:{text:body,at:ts,by:me,activityId:actId}});
+  };
   /* a guest or sponsor typed in by hand becomes a real lead, sourced to the
      event. That is the whole point — otherwise the night is untracked spend. */
   const quickLead=(name,source,extra)=>{ const lead={id:uid(),name:String(name||'').trim(),company:'',stage:stages[0]&&stages[0].key||'new',
@@ -3248,7 +3274,7 @@ export default function App(){
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings}/>:
-          view==='mlog'?<MeetingLog logs={mlogs} tasks={tasks} saveLog={saveMlog} deleteLog={delMlog} saveTasks={saveTasks} me={me}/>:
+          view==='mlog'?<MeetingLog logs={mlogs} tasks={tasks} leads={scoped} saveLog={saveMlog} deleteLog={delMlog} saveTasks={saveTasks} publishToLead={publishLogToLead} me={me}/>:
           view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
           view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} />:
@@ -3258,7 +3284,7 @@ export default function App(){
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
     {celebrate&&<Celebration data={celebrate} onDone={()=>setCelebrate(null)}/>}
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} events={events} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -6857,7 +6883,64 @@ function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
     {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
   </div>);
 }
-function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,events,goEvents}){
+/* The structured read on a client, rendered inside their own lead's feed.
+
+   Everything here comes from meeting_logs through meetingLogsOf, so it is on
+   screen only for someone Postgres let read that table — an owner. That is why
+   the candid three (objections, budget, the temperature read) can be shown
+   here while being deliberately absent from the draft the publish box offers.
+   The rule is about what is OFFERED for publishing to a rep, not about what an
+   owner may see on a lead they own.
+
+   Renders nothing at all when the log predates these fields, which is every
+   log written before this shipped — an empty scaffold of headings would make
+   an old meeting look like a meeting where nobody said anything. */
+const MTEMP={warm:{label:'Warm',fg:'#1F9D55',bg:'rgba(31,157,85,.10)'},
+  neutral:{label:'Neutral',fg:'#8b88a0',bg:'#F1F2F8'},
+  cool:{label:'Cooling',fg:'#b4322e',bg:'rgba(209,67,67,.10)'}};
+function MLogRow({label,children}){
+  return (<div style={{display:'flex',gap:8,marginTop:5,alignItems:'baseline'}}>
+    <span style={{flex:'none',width:86,fontSize:10.5,fontWeight:800,letterSpacing:'.04em',
+      textTransform:'uppercase',color:'#A6A2BC'}}>{label}</span>
+    <span style={{flex:1,minWidth:0,fontSize:12.5,lineHeight:1.5,color:'#56527a'}}>{children}</span>
+  </div>);
+}
+function MeetingBlock({r}){
+  const wants=r.wants||[],objections=r.objections||[],people=r.people||[];
+  const commits=r.commitments||[];
+  const ours=commits.filter(c=>c&&c.side!=='client'),theirs=commits.filter(c=>c&&c.side==='client');
+  const ns=r.nextStep||{},bud=r.budget||{},tmp=r.temperature||{};
+  const money=[bud.stated&&'budget '+bud.stated,bud.paying&&'paying '+bud.paying,bud.note].filter(Boolean).join(' · ');
+  const t=MTEMP[tmp.read]||null;
+  if(!wants.length&&!objections.length&&!people.length&&!ours.length&&!theirs.length
+     &&!ns.what&&!money&&!t) return null;
+  const commitText=c=>String(c.what||'')+(c.due?' (by '+c.due+')':'');
+  return (<div style={{marginTop:8,paddingTop:8,borderTop:'1px solid rgba(43,77,224,.14)'}}>
+    {wants.length>0&&<MLogRow label="Wants">
+      {wants.map((w,i)=>(<span key={i}>{i?'  ·  ':''}{w.want}
+        {w.quote?<i style={{opacity:.8}}> &ldquo;{w.quote}&rdquo;</i>:null}</span>))}
+    </MLogRow>}
+    {objections.length>0&&<MLogRow label="Held back">
+      {objections.map((o,i)=>(<span key={i}>{i?'  ·  ':''}<b style={{color:'#3a3658'}}>{o.objection}</b>
+        {o.detail?' — '+o.detail:''}</span>))}
+    </MLogRow>}
+    {!!money&&<MLogRow label="Money">{money}</MLogRow>}
+    {ours.length>0&&<MLogRow label="We owe">{ours.map(commitText).join('  ·  ')}</MLogRow>}
+    {theirs.length>0&&<MLogRow label="They owe">{theirs.map(commitText).join('  ·  ')}</MLogRow>}
+    {people.length>0&&<MLogRow label="Who else">
+      {people.map(x=>x.name+(x.role?' ('+x.role+')':'')+(x.influence==='decides'?' · decides':'')).join('  ·  ')}
+    </MLogRow>}
+    {!!ns.what&&<MLogRow label="Next">
+      <b style={{color:'#3a3658'}}>{ns.what}</b>{ns.who?' — '+ns.who:''}{ns.when?' · '+ns.when:''}
+    </MLogRow>}
+    {t&&<MLogRow label="Read">
+      <span className="pill" style={{background:t.bg,color:t.fg,marginRight:6}}>{t.label}</span>
+      {tmp.why||''}
+    </MLogRow>}
+  </div>);
+}
+
+function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,events,mlogs,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -7065,7 +7148,25 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
     if(firstNote.trim()) acts.unshift({id:uid(),ts,type:firstType,text:firstNote.trim(),who});
     createNew({...draft,activities:acts});
   };
-  const feed=(isNew?[]:(lead?.activities||[])).filter(a=>feedFilter==='All'||a.type===feedFilter);
+  /* Client meeting logs read through onto the lead — DERIVED, never copied,
+     the same rule sponsorshipsOf follows. Editing or re-running a log updates
+     what shows here for free, and deleting it takes the row with it.
+
+     `mlogs` is owner-only at the database, so a rep gets an empty array and
+     these rows simply do not exist for them. That is the whole visibility
+     model: Postgres decides, not a hidden div.
+
+     They are DISPLAY-ONLY. Nothing here feeds touch counts, REACHED_TYPES or
+     the untouched filter — those keep reading `activities` alone, so every
+     role counts the same lead identically (ENGINEERING §2). */
+  const logRows=useMemo(()=>isNew?[]:meetingLogsOf(lead,mlogs||[]),[lead,mlogs,isNew]);
+  const feed=useMemo(()=>{
+    const acts=(isNew?[]:(lead?.activities||[])).filter(a=>feedFilter==='All'||a.type===feedFilter);
+    /* only under All: the type chips count activities, and a derived row is
+       not one — showing them under a chip would make its count read wrong */
+    if(feedFilter!=='All'||!logRows.length) return acts;
+    return [...acts,...logRows].sort((a,b)=>String(b.ts||'').localeCompare(String(a.ts||'')));
+  },[lead,isNew,feedFilter,logRows]);
   const noteCount=(lead?.activities||[]).filter(a=>a.type==='Note').length;
   /* How much contact there has actually been, by type. The filter chips already
      existed but only Notes carried a count — so the answer to "how many times
@@ -7738,6 +7839,26 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               const d=String(a.ts||'').slice(0,10);
               const prev=i>0?String(feed[i-1].ts||'').slice(0,10):null;
               const head=d&&d!==prev?d:null;
+              /* A meeting log, read through from its own table. Deliberately
+                 not a .fitem: it is not an activity, it has no delete button
+                 here (delete the log, not the row), and it must not be
+                 mistaken for something a rep can see. */
+              if(a.derived) return (<Fragment key={a.id}>
+                {head&&<div className="fday">{dayLabel(head)}</div>}
+                <div className="fitem" style={{background:'rgba(43,77,224,.04)',borderLeft:'2px solid #2B4DE0',paddingLeft:10,borderRadius:6}}>
+                  <div className="fic"><FileText size={14}/></div>
+                  <div style={{minWidth:0}}>
+                    <div className="ftxt"><b>{a.title}</b>{a.headline?' — '+a.headline:''}</div>
+                    {a.summary&&<div className="fmeta" style={{marginTop:4,lineHeight:1.55,whiteSpace:'normal'}}>{a.summary}</div>}
+                    <MeetingBlock r={a}/>
+                    <div className="fmeta" style={{marginTop:6}}>
+                      Meeting log · {a.source}{a.attendees.length?' · '+a.attendees.join(', '):''} · {fmtStamp(a.ts)}
+                      {' · '}<span style={{color:a.published?'#2B4DE0':'#8b88a0',fontWeight:600}}>
+                        {a.published?'a line is on this lead':'owner only'}</span>
+                    </div>
+                  </div>
+                </div>
+              </Fragment>);
               return (<Fragment key={a.id}>
               {head&&<div className="fday">{dayLabel(head)}</div>}
               <div className={'fitem'+(a.type==='Note'?' note':'')}>
