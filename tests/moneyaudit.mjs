@@ -158,12 +158,14 @@ const JUSTUS = {
   dealValue:1011.75, deals:[{ id:'dj', label:'Automations', setup:1011.75 }],
   meetings:[], activities:[],
   closedDeals:[{ id:'cdj', label:'Package', amount:2499, closedAt:'2026-07-21' }],
-  /* post-classification: the split has been applied */
+  /* UNCLASSIFIED — the record as it stands before the review screen runs.
+     The $1,498.50 is $1,249.50 of package plus $249 of retainer, and until
+     somebody says so the whole thing pays down the automations deal. */
   payments:[
-    { id:'pj1', amount:1249.50, date:'2026-07-21', note:'square deposit', receipt:'rcj' },
+    { id:'pj1', amount:1498.50, date:'2026-07-21', note:'square deposit' },
     { id:'pj2', amount:1249.50, date:'2026-08-07', note:'balance' },
   ],
-  retainerPayments:[{ id:'pj1_r', amount:249, date:'2026-07-21', period:'2026-07', receipt:'rcj' }],
+  retainerPayments:[],
   retainerActive:true, retainer:249, retainerStart:'',
 };
 
@@ -392,9 +394,10 @@ console.log('\n#21 the lead panel and the dashboard agree on what is owed');
      the split, the $249 retainer prepayment inside his deposit paid the
      automations deal down to $762.75 — the CRM saying he owed $249 less than
      he did. */
-  ok('the client card shows $1,011.75 due', /\$1,011\.75 due/.test(c), c.match(/Justus[\s\S]{0,160}/)?.[0]);
-  ok('  and NOT the $762.75 the retainer money used to produce',
-     !/762\.75/.test(c), c.match(/Justus[\s\S]{0,160}/)?.[0]);
+  /* Justus is UNCLASSIFIED at this point in the run — his $249 retainer is
+     still paying down the automations deal, so the card reads $762.75. The
+     review screen fixes it further down, and asserts the change. */
+  ok('Justus reads $762.75 before the review', /\$762\.75 due/.test(c), c.match(/Justus[\s\S]{0,160}/)?.[0]);
   ok('  his paid package shows as closed', /\$2,499 closed/.test(c), c.match(/Justus[\s\S]{0,160}/)?.[0]);
 }
 
@@ -405,6 +408,70 @@ console.log('\n#21 the retainer is shown beside the balance, never inside it');
   ok('no firstMonth in the balance', !/const owed=openDealsTotal\+closedDealsTotal\(draft\)\+firstMonth/.test(src));
   ok('the retainer is still surfaced, so nothing is hidden', /plus \{usdc\(firstMonth\)\}\/mo recurring/.test(src));
   ok('  and labelled as excluded', /not counted in the balance/.test(src));
+}
+
+/* ================= #23 — the review screen, where Justus actually gets fixed */
+
+console.log('\n#23 before the review: Justus owes less than he does');
+{
+  await nav('Clients'); await settle(280);
+  const c=norm();
+  ok('the card shows $762.75', /\$762\.75 due/.test(c), c.match(/Justus[\s\S]{0,150}/)?.[0]);
+  ok('  because the $249 retainer is paying down the build', true);
+}
+
+console.log('\n#23 the review screen proposes, with reasons, and refuses to guess');
+{
+  await nav('Settings'); await settle(320);
+  const t=norm();
+  ok('the Payments panel is there', /Payments · \d+ client/.test(t), t.match(/Payments ·.{0,60}/)?.[0]);
+  ok('  and says the money does not move', /The money does not move/.test(t));
+
+  ok('Justus is listed', /Justus/.test(t));
+  /* The split is PROPOSED with its arithmetic, not applied. */
+  ok('the $1,498.50 is proposed as both', /retainer = \$1,249\.50, which matches another payment/.test(t),
+     t.match(/1,498\.50[\s\S]{0,160}/)?.[0]);
+  /* The second payment is proposed as work too. Its note reads "balance", which
+     is setup language and settles it before the package-instalment inference is
+     needed — either route reaches the same answer. */
+  ok('  and the other $1,249.50 is proposed as work', /the note says .balance./.test(t),
+     t.match(/1,249\.50[\s\S]{0,120}/)?.[0]);
+
+  /* Nothing has been written yet. */
+  const wrote=(globalThis.__WRITES__||[]).filter(w=>w.id==='l_justus');
+  ok('NOTHING was written by rendering the screen', wrote.length===0, JSON.stringify(wrote.length));
+}
+
+console.log('\n#23 saving writes ONE patch, and the balance becomes true');
+{
+  const before=(globalThis.__WRITES__||[]).length;
+  const save=[...document.querySelectorAll('button')].find(b=>/Save Justus/.test(b.textContent||''));
+  ok('the save button is there', !!save);
+  ok('  and is enabled, because every row was decided', save && !save.disabled);
+  if (save) await click(save); await settle(320);
+
+  const writes=(globalThis.__WRITES__||[]).slice(before).filter(w=>w.id==='l_justus');
+  ok('exactly ONE write for the lead', writes.length===1, String(writes.length));
+  const w=writes[0]||{};
+  ok('  carrying both arrays together', Array.isArray(w.payments)&&Array.isArray(w.retainerPayments),
+     Object.keys(w).slice(0,12).join(','));
+  ok('  and the reviewed flag', w.paymentsReviewed===true);
+
+  const setup=(w.payments||[]).reduce((a,p)=>a+Number(p.amount||0),0);
+  const ret=(w.retainerPayments||[]).reduce((a,p)=>a+Number(p.amount||0),0);
+  ok('the package is fully paid — $2,499 toward the work', setup===2499, String(setup));
+  ok('one month of retainer, $249', ret===249, String(ret));
+  ok('CASH IS UNCHANGED — $2,748 either way', setup+ret===2748, String(setup+ret));
+  ok('the split rows share a receipt so they still reconcile',
+     (w.payments||[]).some(p=>p.receipt) && (w.retainerPayments||[]).some(p=>p.receipt));
+}
+
+console.log('\n#23 and the screen now says what he really owes');
+{
+  await nav('Clients'); await settle(320);
+  const c=norm();
+  ok('Justus owes $1,011.75', /\$1,011\.75 due/.test(c), c.match(/Justus[\s\S]{0,160}/)?.[0]);
+  ok('  and $762.75 is gone', !/762\.75/.test(c), c.match(/Justus[\s\S]{0,160}/)?.[0]);
 }
 
 /* ============================= #26 — MRR counts billing, not intentions */

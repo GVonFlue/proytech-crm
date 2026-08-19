@@ -22,6 +22,7 @@ import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import Pocket from './Pocket';
+import PaymentReview from './PaymentReview';
 /* AUDIT #23. setupPaid vs retainerPaid vs allPaid — the three answers that used
    to be one. See src/lib/retainer.js for why they are separate arrays rather
    than one array with a kind. */
@@ -1885,6 +1886,22 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .an-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:14px 16px}
 .an-card.warn{border-color:#FFD59E;background:color-mix(in srgb,#FFA500 6%,#fff)}
 .pay-mrr{font-size:11.5px;color:#8b88a0;margin:-2px 0 8px}
+/* payment review */
+.pr-lead{border:1px solid #EDEEF5;border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.pr-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px}
+.pr-row{display:grid;grid-template-columns:1fr auto;gap:8px;padding:9px 0;border-top:1px solid #F4F5FA}
+.pr-row.undecided{background:linear-gradient(90deg,rgba(224,102,43,.05),transparent 60%)}
+.pr-m b{display:block}
+.pr-why{display:block;font-size:11px;color:#8b88a0;margin-top:3px}
+.pr-pick{display:flex;gap:4px;align-items:flex-start}
+.pr-pick button{font-size:11.5px;font-weight:700;padding:4px 9px;border-radius:8px;border:1px solid #E3E5EF;background:#fff;color:#5A6178;cursor:pointer}
+.pr-pick button.on{background:#2B4DE0;border-color:#2B4DE0;color:#fff}
+.pr-pick button:disabled{opacity:.4;cursor:not-allowed}
+.pr-split{grid-column:1/-1;display:flex;gap:12px;align-items:center;padding:6px 0 2px}
+.pr-split label{font-size:11.5px;color:#5A6178;display:flex;gap:5px;align-items:center}
+.pr-split input{width:92px;padding:3px 7px;font-size:12px;border:1px solid #E3E5EF;border-radius:7px}
+.pr-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid #F4F5FA}
+.pr-block{font-size:11.5px;font-weight:700;color:#B45309;display:flex;gap:5px;align-items:center}
 .rate{font-variant-numeric:tabular-nums}
 .rate.warn{color:#B45309;font-weight:800}
 .rate.good{color:#2C7A4B;font-weight:800}
@@ -3450,7 +3467,7 @@ export default function App(){
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
           view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} />:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
-            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh}/>}
+            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh} updateLead={updateLead}/>}
       </div>
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
@@ -6823,7 +6840,7 @@ function PocketImport({pockets,onDone}){
   </div>);
 }
 
-function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers,pockets,refreshPockets}){
+function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers,pockets,refreshPockets,updateLead}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
@@ -6915,6 +6932,11 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
         Lives here rather than in "Your day" because that group is hidden when
         there are no open recordings, so on a fresh install it could not be the
         way in. */}
+    {/* AUDIT #23. Sorting which money paid for the WORK and which paid for the
+        MONTH. Above the Pocket panel because it is fixing wrong numbers rather
+        than adding a feature. */}
+    {isOwner&&<PaymentReview leads={leads} updateLead={updateLead}/>}
+
     {isOwner&&<PocketImport pockets={pockets} onDone={refreshPockets}/>}
 
     {/* google calendar */}
