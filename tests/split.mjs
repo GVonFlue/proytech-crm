@@ -36,7 +36,11 @@ globalThis.__LEADS__=[
      keep counting at its close date or old history would vanish. */
   {id:'g1',name:'Legacy Co',company:'Legacy Co',stage:'signed',owner:'Garrett',isClient:true,
    convertedAt:`${thisM}-01`,closedAt:`${thisM}-01`,createdAt:ago(40),activities:[],meetings:[],deals:[],dealValue:999,
-   onboarding:{deposit_paid:{done:`${thisM}-01`,due:null}}},
+   onboarding:{deposit_paid:{done:`${thisM}-01`,due:null}},
+   /* AUDIT #22. Called "Legacy Co" but closing THIS month — which is the shape
+      the bounded fallback now excludes, and rightly: a deposit tick is not a
+      payment. Logged, so the money arrives the way money arrives. */
+   payments:[{id:'pg',amount:999,date:`${thisM}-01`,note:'paid in full'}]},
   /* closed this month, half collected, half still owed */
   /* open prospect — never bought, owes nothing */
   {id:'o1',name:'Prospect Co',company:'Prospect Co',stage:'discovery',owner:'Garrett',
@@ -45,6 +49,7 @@ globalThis.__LEADS__=[
   {id:'lv',name:'Level Up',company:'Level Up',stage:'signed',owner:'Logan',isClient:true,
    convertedAt:`${thisM}-06`,closedAt:`${thisM}-06`,createdAt:ago(15),activities:[],meetings:[],deals:[],dealValue:0,
    onboarding:{deposit_paid:{done:`${thisM}-06`,due:null}},
+   payments:[{id:'pv',amount:1299,date:`${thisM}-06`,note:'build'}],
    closedDeals:[{id:'cdx',label:'Build',amount:1299,closedAt:`${thisM}-06`}]},
   {id:'h1',name:'Half Paid',company:'Half Paid',stage:'signed',owner:'Garrett',isClient:true,
    convertedAt:`${thisM}-03`,closedAt:`${thisM}-03`,createdAt:ago(20),activities:[],meetings:[],deals:[],dealValue:1000,
@@ -103,8 +108,14 @@ ok('the balance payment is listed', rows.some(r=>/Agent Kidd/.test(r)&&/\$1,249/
 ok('the deposit from last month is NOT', !rows.some(r=>/\$1,250/.test(r)), rows.join(' || '));
 ok('a partly-paid client shows what is still owed',
    rows.some(r=>/Half Paid/.test(r)&&/\$600 still owed/.test(r)), rows.join(' || '));
-ok('a lead with no payments logged still counts, and says why',
-   rows.some(r=>/Legacy Co/.test(r)&&/no payments logged/.test(r)), rows.join(' || '));
+/* AUDIT #22. There is no longer such a row for a CURRENT month, and there
+   cannot be: the fallback is bounded to leads closed before payment tracking
+   existed, and those count in their own month, not this one. What replaces it
+   is the opposite guarantee — a close with no payment logged is absent from
+   this list, and the tile says how many are waiting. */
+ok('no current-month close appears without a payment behind it',
+   rows.every(r=>!/no payments logged/.test(r)), rows.join(' || '));
+ok('every listed row names a real payment', rows.length>0&&rows.every(r=>/\$/.test(r)), rows.join(' || '));
 
 console.log('\nnothing was lost from the old behaviour');
 const dc=kpi('Deals Closed');
@@ -163,10 +174,21 @@ if(rr) await click(rr); await settle(140);
 const dj=[...document.querySelectorAll('button')].find(b=>/^Deal$/.test((b.textContent||'').trim()));
 if(dj) await click(dj); await settle(90);
 const panel=(document.querySelector('.pay-panel')||{}).textContent||'';
-ok('owed counts the closed deal, not just the retainer', /of \$2,748/.test(panel.replace(/\s+/g,' ')),
+/* AUDIT #21. The balance is one-off work only — 2,499 of closed deal — and the
+   retainer is shown BESIDE it rather than folded in. It used to read 2,748:
+   2,499 plus one month of retainer, which is why this screen and the dashboard
+   disagreed about the same client. */
+ok('owed counts the closed deal', /of \$2,499/.test(panel.replace(/\s+/g,' ')),
    panel.replace(/\s+/g,' ').slice(0,140));
+ok('and the retainer is named beside it, not inside it', /\/mo recurring/.test(panel),
+   panel.replace(/\s+/g,' ').slice(0,160));
 ok('and it reads as paid in full', /PAID IN FULL/i.test(panel), panel.slice(0,120));
+/* Still no false alarm — and now for a better reason: retainer payments share
+   this array, so on a retainer client `paid` outrunning the one-off total is
+   normal rather than an overpayment (AUDIT #23). */
 ok('no bogus "paid over the deal total" warning', !/over the deal total/.test(panel), panel.slice(0,160));
+ok('and it explains why the total received is higher', /retainer payments are logged here too/.test(panel),
+   panel.replace(/\s+/g,' ').slice(0,200));
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);
