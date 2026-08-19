@@ -137,6 +137,51 @@ your real CRM domain — that's where the "set your password" email sends people
 
 ---
 
+## 4b. Pocket AI webhook (only if you use Pocket)
+
+Skip this whole section if you don't. Nothing else depends on it.
+
+**In Pocket**, create a webhook pointing at:
+
+```
+https://<your-crm-domain>/api/pocket-hook
+```
+
+Pocket shows you a **signing secret** when the webhook is created. Copy it.
+
+**In Vercel** → Project → Settings → Environment Variables:
+
+| Name | Value |
+|---|---|
+| `POCKET_WEBHOOK_SECRET` | the signing secret Pocket showed you |
+
+Then **redeploy** — Vercel only picks up new environment variables on a build.
+
+`SUPABASE_SERVICE_KEY` is already set (the rate limiter uses it). Run
+`POCKET-MIGRATION.sql` first if you haven't; without the table every delivery
+returns 500 and Pocket gives up after three tries.
+
+### Two things that will bite
+
+**Without the secret the endpoint refuses everything**, with a 503, on purpose.
+Pocket is the only caller and there is no login to check, so that signature is
+the entire authentication — falling back to accepting unsigned deliveries would
+turn this into an open write endpoint into your CRM. If recordings are not
+arriving, check this variable first.
+
+**A webhook created before Pocket added signing secrets sends unsigned
+deliveries**, and those are refused too. Their docs say to rotate or recreate
+the webhook; do that rather than looking for a setting to turn the check off.
+There isn't one.
+
+### Checking it works
+
+Pocket's webhook screen has a **test delivery** button. A working setup returns
+**200**. A **401** means the secret does not match; a **503** means it is not
+set; a **500** means the migration has not been run.
+
+---
+
 ## 5. First run inside the CRM
 
 1. Sign in as yourself. **Nothing looks different yet** — that's correct.
