@@ -147,17 +147,39 @@ const OLDCLOSE = {
 /* JUSTUS — the #21 case, from live data. A retainer client with an unpaid
    balance. owedBy said $763, the lead panel said $1,011.75 — the panel was
    adding one month of retainer. */
+/* JUSTUS, the live record. A $2,499 package closed and paid, a $1,011.75
+   automations deal open and untouched, and a $249 retainer QUOTED — the rate is
+   set, nothing has been billed. His first month was prepaid inside the
+   $1,498.50, which is why one setup payment carries a retainer part. */
 const JUSTUS = {
   id:'l_justus', name:'Justus', company:'Justus Co', stage:'signed',
   isClient:true, owner:'Garrett', createdAt:'2026-06-10T10:00:00.000Z',
   convertedAt:'2026-07-10', closedAt:'2026-07-10',
-  dealValue:1000, deals:[{ id:'dj', label:'Build', setup:1000 }],
-  meetings:[], activities:[], closedDeals:[],
-  payments:[{ id:'pj', amount:237, date:'2026-07-15', note:'deposit' }],
-  retainerActive:true, retainer:248.75,
+  dealValue:1011.75, deals:[{ id:'dj', label:'Automations', setup:1011.75 }],
+  meetings:[], activities:[],
+  closedDeals:[{ id:'cdj', label:'Package', amount:2499, closedAt:'2026-07-21' }],
+  /* post-classification: the split has been applied */
+  payments:[
+    { id:'pj1', amount:1249.50, date:'2026-07-21', note:'square deposit', receipt:'rcj' },
+    { id:'pj2', amount:1249.50, date:'2026-08-07', note:'balance' },
+  ],
+  retainerPayments:[{ id:'pj1_r', amount:249, date:'2026-07-21', period:'2026-07', receipt:'rcj' }],
+  retainerActive:true, retainer:249, retainerStart:'',
 };
 
-globalThis.__LEADS__=[ALVAREZ, KAUFMANN, PENDING, LOST, THISMONTH, FREEBIE, OPENUPSELL, WONUPSELL, POPPELL, OLDCLOSE, JUSTUS];
+/* AUDIT #26. Two quoted retainers — a rate agreed at sale, no start date. They
+   must contribute $0 to MRR and be named beside it. */
+const QUOTED_A = { id:'l_qa', name:'Jeff Schnell', company:'Schnell', stage:'signed', isClient:true,
+  owner:'Garrett', createdAt:'2026-07-01T10:00:00.000Z', convertedAt:'2026-07-05', closedAt:'2026-07-05',
+  dealValue:0, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
+  retainerActive:true, retainer:79, retainerStart:'' };
+const QUOTED_B = { ...QUOTED_A, id:'l_qb', name:'Level Up Co', company:'Level Up', retainer:99 };
+/* One genuinely billing, with a start date somebody set. */
+const BILLING = { ...QUOTED_A, id:'l_bill', name:'Billing Client', company:'Bill Co',
+  retainer:150, retainerStart:'2026-07-01',
+  retainerPayments:[{ id:'rp', amount:150, date:D('05'), period:MONTH }] };
+
+globalThis.__LEADS__=[ALVAREZ, KAUFMANN, PENDING, LOST, THISMONTH, FREEBIE, OPENUPSELL, WONUPSELL, POPPELL, OLDCLOSE, JUSTUS, QUOTED_A, QUOTED_B, BILLING];
 
 /* A hand-entered income row and an owner contribution, both this month.
    The #1 case: the old dashboard ignored both, the old Money page counted both. */
@@ -198,23 +220,23 @@ console.log('\n#1 the dashboard and the Money page agree on what was collected')
   /* $2,000 in client payments + $500 hand-entered income = $2,500.
      The $9,000 owner contribution is cash, but it is NOT revenue. */
   const dash = norm();
-  ok('the dashboard says $4,000 collected', /\$4,000/.test(dash), dash.match(/Revenue Collected.{0,120}/)?.[0]);
-  ok('  broken out: from clients', /\$3,500 from clients/.test(dash), dash.match(/from clients.{0,60}/)?.[0]);
+  ok('the dashboard says $5,400 collected', /\$5,400/.test(dash), dash.match(/Revenue Collected.{0,120}/)?.[0]);
+  ok('  broken out: from clients', /\$4,900 from clients/.test(dash), dash.match(/from clients.{0,60}/)?.[0]);
   ok('  broken out: other', /\$500 other/.test(dash));
   ok('  the owner contribution is named and excluded', /\$9,000 owner contribution, not counted/.test(dash));
-  ok('  it is NOT counted in the headline', !/\$13,000/.test(dash));
+  ok('  it is NOT counted in the headline', !/\$14,400/.test(dash));
 
   await nav('Money'); await settle(220);
   const money = norm();
-  ok('the Money page says the SAME $4,000', /\$4,000/.test(money), money.match(/Collected this month.{0,140}/)?.[0]);
-  ok('  with the same breakout', /\$3,500 from clients/.test(money) && /\$500 other/.test(money));
-  /* The old Money tile summed every 'in' row: 3,500 + 500 + 9,000 = 13,000.
+  ok('the Money page says the SAME $5,400', /\$5,400/.test(money), money.match(/Collected this month.{0,140}/)?.[0]);
+  ok('  with the same breakout', /\$4,900 from clients/.test(money) && /\$500 other/.test(money));
+  /* The old Money tile summed every 'in' row: 4,900 + 500 + 9,000 = 14,400.
      Scoped to the TILE — the ledger legitimately shows total cash in elsewhere,
      including the owner contribution, and that is a cash-flow figure not a
      revenue one. */
   const tileEl=[...document.querySelectorAll('[class*=kpi]')].find(e=>/Collected this month/.test(e.textContent||''));
   ok('  the tile exists', !!tileEl);
-  ok('  and it is NOT the old all-inclusive total', !!tileEl && !/\$13,000/.test(tileEl.textContent||''),
+  ok('  and it is NOT the old all-inclusive total', !!tileEl && !/\$14,400/.test(tileEl.textContent||''),
      tileEl && tileEl.textContent);
 }
 
@@ -276,8 +298,8 @@ console.log('\n#4 avg deal size divides by the deals in its own total');
   const card=[...document.querySelectorAll('.an-card')].find(e=>/Avg Deal Size/.test(e.textContent||''));
   ok('the Avg Deal Size card is on screen', !!card, a.slice(0,160));
   const ct=(card&&card.textContent)||'';
-  ok('it reads $2,083 — 12,499 over six deals', /\$2,083/.test(ct), ct);
-  ok('  and says it is across 6 DEALS, not the 3 leads with a live setup', /across 6 deals/.test(ct), ct);
+  ok('it reads $2,144 — 15,009.75 over seven deals', /\$2,144/.test(ct), ct);
+  ok('  and says it is across 7 DEALS, not the leads with a live setup', /across 7 deals/.test(ct), ct);
 }
 
 console.log('\n#5 the win rate prints the sample that its own percentage used');
@@ -287,8 +309,8 @@ console.log('\n#5 the win rate prints the sample that its own percentage used');
      awaiting payment = 6. Lost: 1. 6/7 = 86%.
      The old caption printed wonCount — cash-confirmed only — which is 2, and
      "(2W · 1L)" is 67%, so the card contradicted itself. */
-  ok('the rate is 90%', /90%/.test(a), a.match(/Win Rate.{0,90}/)?.[0]);
-  ok('  and the sample says 9W · 1L', /9W\s*·\s*1L/.test(a), a.match(/decided deals.{0,60}/)?.[0]);
+  ok('the rate is 92%', /92%/.test(a), a.match(/Win Rate.{0,90}/)?.[0]);
+  ok('  and the sample says 12W · 1L', /12W\s*·\s*1L/.test(a), a.match(/decided deals.{0,60}/)?.[0]);
   ok('  and it says one is awaiting payment', /1 awaiting payment, counted as won/.test(a), a.match(/awaiting payment.{0,40}/)?.[0]);
   const m = a.match(/of decided deals \((\d+)W · (\d+)L\)/);
   if (m) {
@@ -334,7 +356,10 @@ console.log('\n#22 but a close from BEFORE payment tracking still counts');
      PAYMENTS_FROM, so it keeps counting at its close date. */
   const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
   ok('the cutoff is a named, documented constant', /const PAYMENTS_FROM='\d{4}-\d{2}-\d{2}'/.test(src));
-  ok('the fallback is gated on it', /!paymentsOf\(l\)\.length&&preDatesPayments\(l\)/.test(src));
+  /* anyPayments, not paymentsOf: after AUDIT #23 "has any cash been logged"
+     has to see BOTH arrays, or a client whose only payment was a retainer would
+     drop through to the legacy path. */
+  ok('the fallback is gated on it', /!anyPayments\(l\)\.length&&preDatesPayments\(l\)/.test(src));
   /* Its close month is July, so it does not show in THIS month's figure — what
      matters is that the gate is by DATE, not that the fallback is gone. */
   ok('and owedBy reads the same predicate, so the two cannot disagree',
@@ -362,10 +387,15 @@ console.log('\n#21 the lead panel and the dashboard agree on what is owed');
   await nav('Clients'); await settle(280);
   const c=norm();
   ok('the clients screen rendered', /Justus/.test(c), c.slice(0,160));
-  /* Justus: contracted 1,000, paid 237 -> owed 763. The panel used to add one
-     month of retainer (248.75) and show 1,011.75. */
-  ok('the client card shows $763 due', /\$763 due/.test(c), c.match(/Justus[\s\S]{0,140}/)?.[0]);
-  ok('  and NOT the retainer-inflated $1,011.75', !/1,011/.test(c), c.match(/Justus[\s\S]{0,140}/)?.[0]);
+  /* AUDIT #23, on a real screen. His $2,499 package is fully paid and the
+     $1,011.75 automations deal is untouched, so that is what he owes. Before
+     the split, the $249 retainer prepayment inside his deposit paid the
+     automations deal down to $762.75 — the CRM saying he owed $249 less than
+     he did. */
+  ok('the client card shows $1,011.75 due', /\$1,011\.75 due/.test(c), c.match(/Justus[\s\S]{0,160}/)?.[0]);
+  ok('  and NOT the $762.75 the retainer money used to produce',
+     !/762\.75/.test(c), c.match(/Justus[\s\S]{0,160}/)?.[0]);
+  ok('  his paid package shows as closed', /\$2,499 closed/.test(c), c.match(/Justus[\s\S]{0,160}/)?.[0]);
 }
 
 console.log('\n#21 the retainer is shown beside the balance, never inside it');
@@ -375,6 +405,55 @@ console.log('\n#21 the retainer is shown beside the balance, never inside it');
   ok('no firstMonth in the balance', !/const owed=openDealsTotal\+closedDealsTotal\(draft\)\+firstMonth/.test(src));
   ok('the retainer is still surfaced, so nothing is hidden', /plus \{usdc\(firstMonth\)\}\/mo recurring/.test(src));
   ok('  and labelled as excluded', /not counted in the balance/.test(src));
+}
+
+/* ============================= #26 — MRR counts billing, not intentions */
+
+console.log('\n#26 a quoted rate is not MRR');
+{
+  await nav('Dashboard'); await settle(240);
+  const tile=[...document.querySelectorAll('[class*=kpi]')].find(e=>/MRR/.test(e.textContent||''));
+  ok('the MRR tile is on screen', !!tile);
+  const tt=(tile&&tile.textContent||'').replace(/ /g,' ');
+
+  /* Only BILLING has a start date. Jeff Schnell ($79), Level Up ($99) and
+     Justus ($249) are rates agreed at sale with nothing billed. */
+  ok('MRR is the billing retainer only', /\$150/.test(tt), tt);
+  ok('  and it says how many are billing', /1 billing/.test(tt), tt);
+  ok('the quoted rates are named beside it, not inside it',
+     /quoted \$427 across 3 clients, not started/.test(tt), tt);
+  ok('  so the $427 is visible rather than lost', /427/.test(tt));
+  ok('  and never added into the headline', !/\$577/.test(tt), tt);
+
+  if (tile) await click(tile); await settle(220);
+  const d=norm();
+  ok('the drilldown separates them', /Quoted/.test(d) && /not counted in MRR/.test(d),
+     d.match(/Retainer clients[\s\S]{0,220}/)?.[0]);
+  ok('  each quoted row says what it is waiting for', /no start date set/.test(d));
+  ok('  and the billing one shows since when', /since /.test(d));
+  if (tile) await click(tile); await settle(150);
+}
+
+console.log('\n#25 setting a rate no longer stamps a start date');
+{
+  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  ok('the auto-stamp is gone', !/retainerStart=todayISO\(\)/.test(src));
+  ok('  and the reason is recorded where it was', /Setting a price is not starting/.test(src));
+  ok('a one-off clear exists for the dates it already wrote',
+     /retainerStartCleared/.test(src));
+  ok('  guarded so it cannot run twice', /!st\.retainerStartCleared/.test(src));
+}
+
+console.log('\n#23 the unqualified sum has no name left to call');
+{
+  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  ok('paidTotal is deleted', !/const paidTotal=/.test(src));
+  ok('paymentsPaid is deleted', !/const paymentsPaid=/.test(src));
+  ok('owedBy asks the setup question', /contractedTotal\(l\)-setupPaid\(l\)/.test(src));
+  /* Revenue must still see every dollar — that is the constraint the whole
+     split hangs on, and the 39 other suites passing unchanged is its proof. */
+  ok('revenue reads both arrays', /const paidInMonth=\(l,mKey\)=>paymentRows\(l\)/.test(src));
+  ok('the ledger reads both arrays', /const paymentTxns=leads=>\(leads\|\|\[\]\)\.flatMap\(l=>paymentRows\(l\)/.test(src));
 }
 
 /* ================== #6 — the pipeline panel must sum to the pipeline tile */

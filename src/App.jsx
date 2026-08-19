@@ -22,6 +22,13 @@ import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import Pocket from './Pocket';
+/* AUDIT #23. setupPaid vs retainerPaid vs allPaid — the three answers that used
+   to be one. See src/lib/retainer.js for why they are separate arrays rather
+   than one array with a kind. */
+import {
+  setupPaid, retainerPaid, allPaid, allPayments as paymentRows,
+  retainerState, billsMrr, quotedRate, arrears as retainerArrears,
+} from './lib/retainer';
 import { auth, db, configured } from './lib/supabase';
 import { BRAND, AI_NAME } from './lib/brand';
 
@@ -566,7 +573,7 @@ function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
     lastWeek:cur, weekBefore:prev,
     pipeline:{openDeals:openLeads.length,openValue:Math.round(openLeads.reduce((a,l)=>a+num(l.dealValue),0)),
       weighted:Math.round(openLeads.reduce((a,l)=>a+num(l.dealValue)*num(sOf(l.stage,stages).prob),0)),
-      mrr:Math.round((leads||[]).filter(l=>l.retainerActive).reduce((a,l)=>a+num(l.retainer),0))},
+      mrr:Math.round((leads||[]).filter(billsMrr).reduce((a,l)=>a+num(l.retainer),0))},
     monthToDate:{month:mKey,dayOfMonth:now.getDate(),pctOfMonthElapsed:Math.round(monthPace(now)*100),
       booked:mtdBooked,closed:mtdClosed,revenue:mtdRevenue,onboarded:mtdOnboarded,
       goals:{booked:G.booked,closed:G.closed,onboarded:G.onboarded,revenue:G.revenue,mrr:G.mrr}},
@@ -627,8 +634,19 @@ const closedDealsTotal=l=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+num(d.amount)
    — the month you closed and the month you got paid are different facts.
    Money now lands in the month the PAYMENT is dated. */
 const paymentsOf=l=>Array.isArray(l&&l.payments)?l.payments:[];
-const paidTotal=l=>paymentsOf(l).reduce((a,p)=>a+num(p.amount),0);
-const paidInMonth=(l,mKey)=>paymentsOf(l).reduce((a,p)=>
+/* AUDIT #23. paidTotal is GONE. It summed one array and was used to answer two
+   different questions — "how much cash arrived" and "is the balance settled" —
+   and a retainer payment silently settling a build is what that cost. The
+   unqualified question no longer has a name to call:
+     setupPaid(l)     against the work        -> balances
+     retainerPaid(l)  against the retainer    -> arrears
+     allPaid(l)       every dollar            -> revenue and the ledger
+   Any cash logged at all, for the legacy-fallback checks below. */
+const anyPayments=l=>paymentRows(l);
+/* Revenue reads BOTH arrays. Cash is cash — a retainer payment arriving is
+   money in, exactly like a deposit — so splitting the storage must not move a
+   single month's revenue. */
+const paidInMonth=(l,mKey)=>paymentRows(l).reduce((a,p)=>
   a+((p.date&&String(p.date).slice(0,7)===mKey)?num(p.amount):0),0);
 /* everything this client has been sold: open deals, archived closed deals, and
    a bare dealValue for leads that never used deal rows */
@@ -659,14 +677,17 @@ const owedBy=(l,stages)=>{
      contradict each other.
 
      RETAINERS ARE DELIBERATELY NOT IN HERE — see the note on the lead panel. */
-  if(!paymentsOf(l).length) return legacySettled(l)?0:contractedTotal(l);
-  return Math.max(0,contractedTotal(l)-paidTotal(l));
+  if(!anyPayments(l).length) return legacySettled(l)?0:contractedTotal(l);
+  /* setupPaid, not every payment. This is the line Justus's $249 was going
+     through: a month of retainer paying down a $1,011.75 automations deal. */
+  return Math.max(0,contractedTotal(l)-setupPaid(l));
 };
 const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.closedAt&&String(d.closedAt).slice(0,7)===mKey)?num(d.amount):0),0);
 /* open deals on a lead, migrating legacy single-deal / bare-dealValue shapes.
    Mirrors the modal's openDeals so the card and the modal always agree. */
 const dealBits=d=>num(d.setup)+num(d.website)+num(d.integration)+((d.extras||[]).reduce((a,e)=>a+num(e.amount),0));
-const paymentsPaid=l=>((l&&l.payments)||[]).reduce((a,p)=>a+(+((''+p.amount).replace(/[^0-9.-]/g,''))||0),0);
+/* paymentsPaid deleted with paidTotal — it was a second name for the same sum
+   (AUDIT #24), and its last caller went when the client card moved to owedBy. */
 /* A deal opened on somebody who is ALREADY a client is new business in progress,
    not revenue already earned. It gets stamped at creation, because guessing after
    the fact from dates is fragile. Deals with no stamp are every deal that existed
@@ -887,7 +908,7 @@ const preDatesPayments=l=>{ const c=String((l&&l.closedAt)||'').slice(0,10);
 /* The one predicate BOTH revenue and owedBy read, so "we counted this as
    collected" and "they still owe it" can never both be true of one lead — which
    is the contradictory pair the unbounded fallback used to produce. */
-const legacySettled=l=>!paymentsOf(l).length && cashConfirmed(l) && preDatesPayments(l);
+const legacySettled=l=>!anyPayments(l).length && cashConfirmed(l) && preDatesPayments(l);
 const cashConfirmed=l=>{ if(!l) return false;
   if(depositPaidAt(l)) return true;
   /* deposit switched off for this client — monthly-only, no setup fee to
@@ -2733,6 +2754,21 @@ export default function App(){
       /* Removing a module from ALL_MODULES is not enough on its own: a saved
          settings.modules array still lists it, so the tab keeps rendering for
          every existing install. Same trap as adding one, in reverse. */
+      /* AUDIT #25/#26. Every retainerStart on this install was written by the
+         toggle, not by anyone deciding to bill — App.jsx stamped it on flip
+         until this build. A date nobody chose is not a start date, and leaving
+         them would keep four quoted retainers reading as $526 of MRR that
+         cannot be collected. Cleared once, stamped with retainerStartCleared so
+         it never runs twice and never touches a date set deliberately after
+         this point. Setting a real start date is an ordinary edit afterwards. */
+      if(amOwner&&!st.retainerStartCleared){
+        const stale=s.filter(l=>l&&l.retainerStart&&(!Array.isArray(l.retainerPayments)||!l.retainerPayments.length));
+        if(stale.length){ const fixed=stale.map(l=>({...l,retainerStart:''}));
+          s=s.map(l=>fixed.find(x=>x.id===l.id)||l);
+          try{ await db.upsertMany(fixed); }catch(err){ console.error('retainer start clear failed',err); } }
+        st={...st,retainerStartCleared:new Date().toISOString()};
+        try{ await db.saveSettings(st); }catch(err){ console.error('retainer clear flag failed',err); }
+      }
       if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<8){
         st={...st,modules:st.modules.filter(k=>k!=='pipeline'),modulesV:8};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
@@ -3015,7 +3051,11 @@ export default function App(){
         }
       }
     }
-    if(patch.retainerActive&&!l.retainerActive&&!l.retainerStart) m.retainerStart=todayISO();
+    /* AUDIT #25. This used to stamp retainerStart the moment the toggle was
+       flipped, which is how four QUOTED retainers came to look like billing
+       ones and $526 of fictional MRR appeared. Setting a price is not starting
+       to charge for it — the start date is now something you state when
+       billing actually begins, and the toggle no longer invents one. */
     updated=m; return m;
   })); if(updated) putLead(updated); };
   /* retro-tagging: set the meeting type on a logged 'Booked' activity, and on the
@@ -3433,7 +3473,7 @@ function useMetrics(leads,stages,settings,txns){
   return useMemo(()=>{
     const ratioEx=ratioExcludeOf(settings);
     const byStage={}; stages.forEach(s=>byStage[s.key]={count:0,value:0});
-    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,wonValued=0,wonDealCount=0,wonPending=0,lostCount=0,mrr=0,retainers=0,upsellCount=0,upsellValue=0;
+    let openCount=0,openValue=0,weighted=0,wonCount=0,wonValue=0,wonValued=0,wonDealCount=0,wonPending=0,lostCount=0,mrr=0,retainers=0,quotedMrr=0,quotedCount=0,upsellCount=0,upsellValue=0;
     /* An upsell to somebody you've already delivered for is at least as likely to
        land as a proposal sitting with a new lead, so it's weighted at the best
        probability on the open stages rather than at an invented number. */
@@ -3470,7 +3510,10 @@ function useMetrics(leads,stages,settings,txns){
          up this total, and divide by that. */
       wonValue+=closedDealsTotal(l);
       wonDealCount+=((l.closedDeals||[]).filter(d=>num(d.amount)>0).length);
-      if(l.retainerActive){mrr+=num(l.retainer);retainers++;}});
+      /* AUDIT #26. Only a retainer that is actually BILLING is MRR. A quoted
+         rate is a price you intend to charge, counted beside it, never inside. */
+      if(billsMrr(l)){mrr+=num(l.retainer);retainers++;}
+      else if(quotedRate(l)>0){quotedMrr+=num(l.retainer);quotedCount++;}});
     const pipelineValue=openValue+upsellValue;
     /* same rule as the follow-up page: a nurtured lead's revisit date is the
        only thing that brings them back, so it has to count as overdue */
@@ -3565,7 +3608,7 @@ function useMetrics(leads,stages,settings,txns){
          it the fallback fired on brand-new closes and reported money that had
          not arrived — Poppell closed on the 17th with no payment logged and
          appeared under "Collected this month". */
-      if(!paymentsOf(l).length&&preDatesPayments(l)){
+      if(!anyPayments(l).length&&preDatesPayments(l)){
         const closedHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l);
         const legacy=(closedHere?num(l.dealValue):0)+closedDealsInMonth(l,mKey);
         if(legacy>0){ legacyMonth+=legacy; clientRevenueMonth+=legacy; }
@@ -3573,7 +3616,7 @@ function useMetrics(leads,stages,settings,txns){
       /* Closed since payment tracking began, deposit ticked, no payment row —
          it is not collected and it IS owed. Counted so the screen can say so
          instead of the money simply disappearing from both sides. */
-      else if(!paymentsOf(l).length&&sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){
+      else if(!anyPayments(l).length&&sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){
         awaitingLog++; awaitingLogValue+=num(l.dealValue)+closedDealsInMonth(l,mKey);
       }
       outstanding+=owedBy(l,stages);
@@ -3654,12 +3697,12 @@ function useMetrics(leads,stages,settings,txns){
          which. paid comes from the payment rows; owed is owedBy(), the same
          function the Money page and the client card use. */
       return {id:l.id,name:l.name||l.company||'—',company:l.company,lifetime,closed,current,pending,
-        paid:paidTotal(l),owed:owedBy(l,stages),
-        mrr:l.retainerActive?num(l.retainer):0,deals:((l.closedDeals||[]).length)+((sOf(l.stage,stages).won||l.isClient)&&num(l.dealValue)>0?1:0)};
+        paid:allPaid(l),owed:owedBy(l,stages),
+        mrr:billsMrr(l)?num(l.retainer):0,deals:((l.closedDeals||[]).length)+((sOf(l.stage,stages).won||l.isClient)&&num(l.dealValue)>0?1:0)};
     }).filter(c=>c.lifetime>0||c.mrr>0||c.pending>0).sort((a,b)=>b.lifetime-a.lifetime);
     return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,onbNeeded,onbMonthlyOnly,
-      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,closedMonth,closedMonthValue,closedRows,awaitingLog,awaitingLogValue,revenueMonth,clientRevenueMonth,otherIncomeMonth,contribMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
+      firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,quotedMrr,quotedCount,closedMonth,closedMonthValue,closedRows,awaitingLog,awaitingLogValue,revenueMonth,clientRevenueMonth,otherIncomeMonth,contribMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
       meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,wonDealCount,avgDaysToClose,movingPct,rotting,sourceROI};
   },[leads,stages,settings,txns]);
 }
@@ -3882,7 +3925,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       .sort((a,b)=>(b.l.closedAt||'').localeCompare(a.l.closedAt||'')); })();
   const wonShownTotal=wonLeads.reduce((a,r)=>a+r.v,0);
   const wonShownCloses=wonScope==='month'?wonLeads.reduce((a,r)=>a+r.deals,0):wonLeads.length;
-  const retLeads=leads.filter(l=>l.retainerActive).sort((a,b)=>num(b.retainer)-num(a.retainer));
+  const retLeads=leads.filter(billsMrr).sort((a,b)=>num(b.retainer)-num(a.retainer));
+  const quotedLeads=leads.filter(l=>quotedRate(l)>0).sort((a,b)=>num(b.retainer)-num(a.retainer));
   const onboardedLeads=leads.filter(l=>l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey);
   const cold=coldList(rels||[]);
   /* one flat list of every meeting, filtered by the active tab + time scope */
@@ -4071,7 +4115,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       <Kpi variant="accent" label="Open Pipeline" value={usd(m.pipelineValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} lead${m.openCount===1?'':'s'}${m.upsellCount>0?` · ${m.upsellCount} client upsell${m.upsellCount===1?'':'s'}`:''}${G.revenue>0?` · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:''}`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
       <Kpi label="Revenue Collected" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?revenueSplit(m):'weighted forecast')+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')+(m.awaitingLog>0?` · ${m.awaitingLog} closed this month with no payment logged`:'')} onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={m.revenueMonth}/>
       <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.closedMonthValue)} closed`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
-      <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} retainers · ${usdK(m.mrr*12)}/yr`} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
+      <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} billing · ${usdK(m.mrr*12)}/yr`+(m.quotedCount>0?` · quoted ${usd(m.quotedMrr)} across ${m.quotedCount} client${m.quotedCount===1?'':'s'}, not started`:'')} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
     {drill==='pipeline'&&(()=>{
       /* AUDIT #6. This filtered on upsellValueOf(l)>0 alone, while useMetrics
@@ -4101,14 +4145,14 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       {!rows&&<Empty t="Nothing open."/>}
     </Drill>); })()}
 
-    {drill==='rev'&&(()=>{ const rows=leads.flatMap(l=>paymentsOf(l)
+    {drill==='rev'&&(()=>{ const rows=leads.flatMap(l=>paymentRows(l)
         .filter(p=>p.date&&String(p.date).slice(0,7)===mKey)
         .map(p=>({l,p}))).sort((a,b)=>(b.p.date||'').localeCompare(a.p.date||''));
       /* AUDIT #22. The panel builds these rows ITSELF, so bounding the metric
          without bounding this listed Poppell under a total that excluded it —
          the drilldown contradicting its own header. Same predicate as
          useMetrics, which is the only way these two stay equal. */
-      const legacyRows=leads.filter(l=>!paymentsOf(l).length&&preDatesPayments(l))
+      const legacyRows=leads.filter(l=>!anyPayments(l).length&&preDatesPayments(l))
         .map(l=>({l,amt:((sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l))?num(l.dealValue):0)+closedDealsInMonth(l,mKey)}))
         .filter(r=>r.amt>0);
       const otherRows=(txns||[]).filter(t=>t&&t.type==='income'&&String(t.date||'').slice(0,7)===mKey);
@@ -4155,11 +4199,24 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       </div>)):<Empty t={wonScope==='month'?'Nothing closed this month.':'No closed deals yet.'}/>}
     </Drill>}
 
-    {drill==='mrr'&&<Drill title="Retainer clients" sub={usd(m.mrr)+'/mo'} onClose={()=>setDrill(null)}>
-      {retLeads.length?retLeads.map(l=>(<div className="drow" key={l.id}>
-        <div className="drow-m"><Name l={l}/><div className="subcell">{l.retainerStart?`since ${fmtDate(l.retainerStart)}`:'active'}</div></div>
+    {/* AUDIT #26. Quoted rates are listed BELOW the billing ones, never summed
+        into them. "$0 · quoted $526 across 4 clients" is honest; $526 of MRR
+        that cannot be collected is not. */}
+    {drill==='mrr'&&<Drill title="Retainer clients" sub={usd(m.mrr)+'/mo billing'+(m.quotedMrr>0?` · ${usd(m.quotedMrr)}/mo quoted`:'')} onClose={()=>setDrill(null)}>
+      {retLeads.map(l=>(<div className="drow" key={l.id}>
+        <div className="drow-m"><Name l={l}/><div className="subcell">since {fmtDate(l.retainerStart)}{(()=>{ const a=retainerArrears(l,mKey); return a.months>0?` · ${a.months} month${a.months===1?'':'s'} behind`:' · up to date'; })()}</div></div>
         <span className="drow-v">{usd(l.retainer)}/mo</span>
-      </div>)):<Empty t="No active retainers."/>}
+      </div>))}
+      {!retLeads.length&&quotedLeads.length>0&&<div className="subcell" style={{padding:'8px 2px'}}>
+        Nothing is being billed yet — every retainer below is a rate agreed at sale, waiting on a start date.</div>}
+      {quotedLeads.length>0&&<>
+        <div className="kgroup" style={{marginTop:12}}>Quoted · {usd(m.quotedMrr)}/mo · not counted in MRR</div>
+        {quotedLeads.map(l=>(<div className="drow" key={'q'+l.id}>
+          <div className="drow-m"><Name l={l}/><div className="subcell">rate agreed · no start date set</div></div>
+          <span className="drow-v">{usd(l.retainer)}/mo</span>
+        </div>))}
+      </>}
+      {!retLeads.length&&!quotedLeads.length&&<Empty t="No retainers yet."/>}
     </Drill>}
     </>),
     activity:(<>
@@ -6125,9 +6182,12 @@ function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
    The Books shows them, counts them, and sends you to the client to change one.
    This is what turns an expense ledger into an actual P&L — before this, every
    dollar you collected was invisible here. */
-const paymentTxns=leads=>(leads||[]).flatMap(l=>(l.payments||[]).map(p=>({
+/* The ledger shows CASH, so it reads both arrays — a retainer payment is a line
+   on a bank statement like any other. Tagged, so the screen can say which. */
+const paymentTxns=leads=>(leads||[]).flatMap(l=>paymentRows(l).map(p=>({
   id:'pay_'+l.id+'_'+p.id, date:p.date||'', type:'income', amount:num(p.amount),
   who:l.name||l.company||'Client', note:p.note||'', leadId:l.id, derived:true,
+  kind:p.kind||'setup',
 })));
 /* One page for money. "Money" and "The Books" both meant money in the sidebar,
    so answering a single question meant checking two tabs with overlapping
@@ -6169,7 +6229,7 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSetting
   const due=recurDueIn(settings,90);
   const dueTotal=due.reduce((a,x)=>a+x.amount,0);
   /* retainers are contractual, so three months of them is a fact, not a guess */
-  const mrr=(leads||[]).filter(l=>l.retainerActive).reduce((a,l)=>a+num(l.retainer),0);
+  const mrr=(leads||[]).filter(billsMrr).reduce((a,l)=>a+num(l.retainer),0);
   const owedNow=(leads||[]).reduce((a,l)=>a+owedBy(l,stages),0);
 
   const setRec=list=>saveSettings({...settings,recurring:list});

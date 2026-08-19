@@ -14,7 +14,9 @@ globalThis.__USER_WRITES__=[];globalThis.__EVENTS__=[];globalThis.__EVENT_WRITES
 globalThis.__SETTINGS_WRITES__=[];
 const pad=n=>String(n).padStart(2,'0');
 const today=(()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;})();
-globalThis.__SETTINGS__={goals:{revenue:10000},recurring:[
+/* AUDIT #25: this install is already past the one-off retainerStart clear,
+   so a start date set here is one somebody chose. */
+globalThis.__SETTINGS__={retainerStartCleared:'2026-08-01T00:00:00.000Z',goals:{revenue:10000},recurring:[
   {id:'r1',name:'Supabase Pro',amount:25,every:'monthly',category:'Hosting',nextDue:today,active:true},
   {id:'r2',name:'Vercel Pro',amount:20,every:'monthly',category:'Hosting',nextDue:today,active:true},
   {id:'r3',name:'Domain',amount:120,every:'yearly',category:'Hosting',nextDue:today,active:true},
@@ -28,7 +30,8 @@ const ago=n=>new Date(Date.now()-n*864e5).toISOString();
 globalThis.__LEADS__=[
   {id:'c1',name:'Retainer Co',company:'Retainer Co',stage:'signed',owner:'Garrett',isClient:true,
    convertedAt:today,closedAt:today,createdAt:ago(60),activities:[],meetings:[],deals:[],dealValue:1000,
-   retainerActive:true,retainer:250,onboarding:{deposit_paid:{done:today,due:null}},
+   /* AUDIT #26: billing needs a start date, not just a rate. */
+   retainerActive:true,retainer:250,retainerStart:today,onboarding:{deposit_paid:{done:today,due:null}},
    payments:[{id:'p1',amount:1000,date:today,note:'setup'}]},
 ];
 const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:false,format:'esm',jsx:'automatic',

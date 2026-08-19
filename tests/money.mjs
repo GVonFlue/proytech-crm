@@ -12,7 +12,9 @@ globalThis.IS_REACT_ACT_ENVIRONMENT=true;
 globalThis.__WRITES__=[];globalThis.__CAL__=[];globalThis.__TASKS__=[];globalThis.__USER_WRITES__=[];
 globalThis.__EVENTS__=[];globalThis.__EVENT_WRITES__=[];globalThis.__USERS__=[];globalThis.__SETTINGS_WRITES__=[];
 globalThis.__INVOICES__=[];
-globalThis.__SETTINGS__={goals:{revenue:10000,closed:5}};
+/* AUDIT #25: this install is already past the one-off retainerStart clear,
+   so a start date set here is one somebody chose. */
+globalThis.__SETTINGS__={goals:{revenue:10000,closed:5},retainerStartCleared:'2026-08-01T00:00:00.000Z'};
 globalThis.fetch=async(u,o)=>{
   if(String(u).includes('google-status')) return {ok:true,json:async()=>({connected:true,email:'a@b.com'})};
   if(String(u).includes('/api/calendar-event')){ globalThis.__CAL__.push(o&&o.body?JSON.parse(o.body):null);
@@ -29,7 +31,9 @@ globalThis.__LEADS__=[
      month like the others, but no deposit is expected from them. */
   {id:'p4',name:'Monthly Only',company:'Monthly Only',stage:'signed',owner:'Garrett',isClient:true,
    convertedAt:today,closedAt:today,createdAt:ago(20),activities:[],meetings:[],deals:[],dealValue:0,
-   retainerActive:true,retainer:130,onboarding:{},onbSkip:['deposit_paid']},
+   /* AUDIT #26. A retainer counts in MRR when it is BILLING, and billing
+      begins on a start date somebody set. The toggle alone is a price. */
+   retainerActive:true,retainer:130,retainerStart:today,onboarding:{},onbSkip:['deposit_paid']},
   {id:'p1',name:'Paid Co',company:'Paid Co',stage:'signed',owner:'Garrett',isClient:true,
    convertedAt:today,closedAt:today,createdAt:ago(20),activities:[],meetings:[],deals:[],dealValue:4000,
    onboarding:{deposit_paid:{done:today,due:null}},payments:[{id:'x1',amount:4000,date:today,note:'wire'}]},
@@ -208,7 +212,9 @@ const rev2=kpi('Revenue Collected');
 ok('the monthly-only client adds nothing to revenue', rev2 && /\$5,299/.test(rev2.v), rev2&&rev2.v);
 ok('the monthly-only client owes nothing', rev2 && /\$2,000 still owed/.test(rev2.d), rev2&&rev2.d);
 ok('and a lost lead is not treated as a debtor', rev2 && !/\$3,000/.test(rev2.d), rev2&&rev2.d);
-ok('their retainer still counts in MRR the moment it is on',
+/* Renamed with the behaviour: "the moment it is on" was the bug — a rate set
+   on a client you have not started billing is not revenue. */
+ok('a BILLING retainer counts in MRR',
    (kpi('MRR')||{v:''}).v && /\$130|\$130/.test((kpi('MRR')||{}).v||''), (kpi('MRR')||{}).v);
 
 console.log('\nthe Deals Closed panel matches its tile');
