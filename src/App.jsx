@@ -3341,7 +3341,7 @@ export default function App(){
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
           view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} />:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
-            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers}/>}
+            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh}/>}
       </div>
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
@@ -6513,7 +6513,83 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
   </div>);
 }
 
-function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers}){
+/* ---- Pocket import -------------------------------------------------------
+   Recordings that predate the webhook. One button, because six recordings is
+   not a bulk import problem — and because importing twice is a no-op, which is
+   what let the date picker, the paging and the pick-list be cut (POCKET-PLAN
+   §13 r4).
+
+   "Already here" is computed HERE, from the recordings the app already holds.
+   No second source of truth and no server round trip to answer it. */
+function PocketImport({pockets,onDone}){
+  const [busy,setBusy]=useState(false);
+  const [rows,setRows]=useState(null);
+  const [err,setErr]=useState('');
+  const have=useMemo(()=>new Set((pockets||[]).map(r=>r.id)),[pockets]);
+
+  const post=async body=>{
+    const mod=await import('./lib/supabase');
+    const sess=await mod.auth.session();
+    const tok=(sess&&sess.access_token)||'';
+    const r=await fetch('/api/pocket-backfill',{method:'POST',
+      headers:{'Content-Type':'application/json',...(tok?{authorization:`Bearer ${tok}`}:{})},
+      body:JSON.stringify(body)});
+    return r.json();
+  };
+
+  const run=async()=>{
+    setBusy(true); setErr(''); setRows(null);
+    try{
+      const list=await post({action:'list'});
+      if(!list.ok){ setErr(list.error||'Could not reach Pocket.'); setBusy(false); return; }
+      const found=list.recordings||[];
+      if(!found.length){ setRows([]); setBusy(false); return; }
+      /* One at a time: the browser drives the loop so a long transcript cannot
+         time the function out, and one failure costs one recording. */
+      const out=[];
+      for(const rec of found){
+        const already=have.has(rec.id);
+        setRows([...out,{...rec,state:'working'}]);
+        const res=await post({action:'import',id:rec.id});
+        out.push({...rec,state:res.ok?(already?'refreshed':(res.created?'imported':'refreshed')):'failed',error:res.error||''});
+        setRows([...out]);
+      }
+      setRows(out);
+      if(onDone) await onDone();
+    }catch{ setErr('Could not reach Pocket.'); }
+    setBusy(false);
+  };
+
+  const label={imported:'Imported',refreshed:'Already here — refreshed',failed:'Failed',working:'…'};
+  const colour={imported:GREEN,refreshed:'#8b88a0',failed:RED,working:'#8b88a0'};
+
+  return (<div className="card" style={{marginBottom:18}}>
+    <div className="sec-title"><Mic size={15}/>Pocket</div>
+    <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>
+      New recordings arrive on their own through the webhook. This pulls in ones that
+      predate it — your 20 most recent. Running it again is safe: a recording already
+      here is refreshed, never duplicated, and one you have finished with stays finished.
+    </div>
+    <button className="btn btn-p" onClick={run} disabled={busy}>
+      {busy?<Loader2 size={15} className="spin"/>:<FileDown size={15}/>}
+      {busy?' Importing…':' Import recent recordings'}
+    </button>
+    {err&&<div className="mtg-warn" style={{marginTop:12}}><AlertTriangle size={15}/><div>{err}</div></div>}
+    {rows&&!rows.length&&<div className="empty" style={{marginTop:12}}>Pocket has no recordings to import.</div>}
+    {rows&&rows.length>0&&<div className="hlist" style={{marginTop:12}}>
+      {rows.map(r=>(<div className="hli" key={r.id}>
+        <span style={{flex:1}}><b>{r.title}</b>
+          <span className="ch-sub" style={{display:'block'}}>{r.createdAt?fmtDate(r.createdAt.slice(0,10)):''}{r.duration?` · ${Math.round(r.duration/60)} min`:''}</span></span>
+        <span className="pill" style={{background:'#F1F2F8',color:colour[r.state]||'#5A6178'}}>{label[r.state]||r.state}</span>
+      </div>))}
+    </div>}
+    {rows&&rows.some(r=>r.state==='failed')&&<div className="subcell" style={{marginTop:8}}>
+      {rows.filter(r=>r.state==='failed').map(r=>r.error).filter(Boolean)[0]}
+    </div>}
+  </div>);
+}
+
+function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers,pockets,refreshPockets}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
@@ -6600,6 +6676,12 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
           </label>))}</div>
         <div className="subcell" style={{marginTop:10}}>{on.length} of {ALL_MODULES.length} sections on. Data is never deleted — switching a section back on brings everything with it.</div>
       </div>); })()}
+
+    {/* pocket backfill — recordings that predate the webhook.
+        Lives here rather than in "Your day" because that group is hidden when
+        there are no open recordings, so on a fresh install it could not be the
+        way in. */}
+    {isOwner&&<PocketImport pockets={pockets} onDone={refreshPockets}/>}
 
     {/* google calendar */}
     <div className="card" style={{marginBottom:18}}>

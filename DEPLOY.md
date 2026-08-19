@@ -161,6 +161,23 @@ Then **redeploy** — Vercel only picks up new environment variables on a build.
 `POCKET-MIGRATION.sql` first if you haven't; without the table every delivery
 returns 500 and Pocket gives up after three tries.
 
+### Importing recordings that predate the webhook
+
+Optional, and only needed once. Add a second variable:
+
+| Name | Value |
+|---|---|
+| `POCKET_API_KEY` | your `pk_…` key, from Pocket's API key screen |
+
+That key is for **calling** Pocket's API. It has nothing to do with verifying
+webhooks — those use `POCKET_WEBHOOK_SECRET` — and the webhook works without it.
+
+Then **Settings → Pocket → Import recent recordings**. It pulls your 20 most
+recent, one at a time, and says what happened to each. Running it again is safe:
+a recording already here is refreshed rather than duplicated, and one you have
+finished with stays finished. Only an owner can run it — a rep gets a 403 from
+the server, not just a hidden button.
+
 ### Two things that will bite
 
 **Without the secret the endpoint refuses everything**, with a 503, on purpose.
