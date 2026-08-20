@@ -9,7 +9,7 @@ Read against `ENGINEERING.md` §2 ("two screens must never disagree") and §4
 code — verified by stashing the fix and re-running:
 **#1**, **#2**, **#3**, **#4**, **#5**, **#17** (Pipeline off), **#8**, **#19**, **#6**, **#7**, **#21**, **#22**.
 
-**Still open:** #9, #10, #11, #12, #16, #20, #23, #24, #25, #26.
+**Still open:** #9, #10, #11, #12, #16, #20, #24.
 
 **Found while fixing** — added below as #19 and #20.
 
@@ -540,7 +540,7 @@ sides. Both now read one predicate, `legacySettled()`.
 The money moves into **owed**, and the Revenue tile now says *"N closed this
 month with no payment logged"* so the gap is visible rather than silent.
 
-## 23. Payments are not categorised as setup vs retainer — **OPEN, live instance confirmed**
+## 23. Payments are not categorised as setup vs retainer — **FIXED**
 
 **Justus, from the live record.** A $2,499 package (closed) plus a $1,011.75
 automations deal (open), and a $249/mo retainer with the first month billed up
@@ -587,7 +587,7 @@ contracted total every month. Two consequences:
 counting only setup payments against one-off work. Half a day, plus a migration
 defaulting existing rows to `setup`.
 
-## 25. A retainer RATE and a retainer BEING BILLED are the same flag — **OPEN**
+## 25. A retainer RATE and a retainer BEING BILLED are the same flag — **FIXED**
 
 `retainerActive` means both "I have decided what to charge" and "I am charging
 it", and `src/App.jsx:3018` **auto-stamps `retainerStart` the moment the toggle
@@ -633,7 +633,7 @@ That default under-counts rather than over-counts, deliberately: an
 under-counted MRR is a number you can go and confirm, an over-counted one is a
 number you plan on and then miss.
 
-## 26. MRR counts unstarted retainers — **OPEN**
+## 26. MRR counts unstarted retainers — **FIXED**
 
 Reported live: the tile reads **$526 across 4 retainers**, and it is not known
 how many are real. MRR sums `retainer` for every lead with `retainerActive`,
