@@ -88,8 +88,13 @@ console.log('\n#6 a rep opens the app and is told what to do');
   ok('every row opens the lead', !!jump);
   if (jump) await click(jump);
   ok('  and it does open', /Overdue Olga/.test(vis(document.querySelector('.m-wrap')||document.body)));
-  const close=[...document.querySelectorAll('button')].find(b=>/^×|Close/.test((b.textContent||'').trim()));
+  /* Close it properly — .m-x is the modal's own close button. Leaving it open
+     leaks the lead's text into every later assertion, which is how a test
+     "fails" for a reason that has nothing to do with what it is testing. */
+  const close=document.querySelector('.m-x');
+  ok('the modal can be closed', !!close);
   if (close) await click(close);
+  ok('  and it closes', !document.querySelector('.m-wrap'));
 }
 
 console.log('\n#8 two numbers about the same leads no longer contradict');
@@ -175,6 +180,43 @@ console.log('\nrep pay: a rep sees what they have claimed and what is approved')
   ok('  and that no-shows pay nothing', /no-shows pay nothing/.test(t));
   /* Dana is on appointments only, so no commission block should appear. */
   ok('a rep on one model does not see the other', !/Your commission/.test(t));
+}
+
+console.log('\nreps get a Meetings tab, because meetings are money now');
+{
+  const navs=[...document.querySelectorAll('.nav-i')].map(e=>(e.textContent||'').trim());
+  ok('Meetings is in a rep\'s sidebar by default', navs.includes('Meetings'), navs.join(' | '));
+  ok('  and Meeting Log still is not — that one is owner-only', !navs.includes('Meeting Log'));
+  ok('  nor Money', !navs.includes('Money'));
+
+  const went=await nav('Meetings'); await act(async()=>{await new Promise(r=>setTimeout(r,240));});
+  ok('the page opens', went && /Everything booked, everywhere/.test(txt()), txt().slice(0,160));
+  const t=txt();
+
+
+  /* The point of putting it here: the appointments and the money in one place. */
+  ok('the rate is stated', /\$75 per appointment/.test(t), t.match(/per appointment.{0,60}/)?.[0]);
+  ok('  with what earns it', /marked held/.test(t));
+  ok('  and what does not', /no-shows pay nothing/.test(t));
+  /* The default tab is Upcoming and this meeting already happened, so switch
+     to Held — which is also the tab that matters when meetings are money. */
+  const heldTab=[...document.querySelectorAll('.mtab')].find(b=>/^Held/.test((b.textContent||'').trim()));
+  ok('there is a Held tab', !!heldTab, [...document.querySelectorAll('.mtab')].map(b=>b.textContent).join(' | '));
+  if (heldTab) await click(heldTab);
+
+  /* Scoped to the meeting ROWS. A lead modal left open elsewhere in this run
+     would otherwise leak its text in and fail this for a reason that has
+     nothing to do with meetings. */
+  const rows=[...document.querySelectorAll('.mrow')].map(e=>vis(e));
+  ok('the rows render', rows.length>0, String(rows.length));
+  ok('the held meeting shows its fee awaiting approval',
+     rows.some(r=>/\$75 awaiting approval/.test(r)), rows.join(' || ').slice(0,240));
+
+  /* Still no company money in the list. */
+  ok('no deal value on any row', rows.every(r=>!/\$5,000/.test(r)), rows.join(' || ').slice(0,240));
+  const strip=vis(document.querySelector('.mtg-pay'));
+  ok('the pay strip shows only their own rate', /\$75 per appointment/.test(strip), strip);
+  ok('  and no company figure', !/\$5,000|Pipeline|Forecast/.test(strip), strip);
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

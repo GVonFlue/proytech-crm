@@ -202,14 +202,23 @@ scheduler is invisible until you find and expand it.
 **Fix:** default it open when there are **no** meetings. One character of logic,
 and it inverts to match what the screen is for.
 
-## 11. A rep cannot see their meetings in one place
+## 11. A rep cannot see their meetings in one place — **FIXED**
 
 `REP_DEFAULT_TABS` has no `meetings`. They can book from a lead and see it on
 that lead, but there is no "what have I got on this week". For a role whose job
 is booking meetings, that is the missing tab.
 
-**Fix:** add `meetings` to the rep defaults. It carries no money and is already
-scoped by lead. Fifteen minutes.
+**Fixed**, and it mattered more than fifteen minutes' worth once appointments
+became money. `meetings` is in `REP_DEFAULT_TABS`, and the page carries a pay
+strip for a rep on the per-appointment model — their rate, what earns it, what
+does not, and how much is awaiting approval — plus the fee state on each row
+they set.
+
+Still no company money on it: the page renders no deal value and no totals, and
+there is a test asserting that over every row.
+
+**A rep with a custom tab list will not have it** until it is switched on in
+Settings → Team. Same per-rep trap the Playbook hit.
 
 ## 12. Things a rep needs that they do have — checked, so the list is honest
 
