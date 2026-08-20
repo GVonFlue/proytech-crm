@@ -2856,8 +2856,14 @@ export default function App(){
   const myUid=auth.uid(session);
   /* my own crm_users row — from the table when I can read it, otherwise
      rebuilt from whoami (a rep can always read their own row, so this is
-     belt and braces for the moment right after a role change). */
-  const myUser=users.find(u=>u.id===myUid)||((who&&who.role==='rep')?{id:myUid,name:who.name,role:'rep',pools:who.pools,commission_pct:who.commission_pct,tabs:who.tabs,goal_conversions:who.goal_conversions,active:who.active}:null);
+     belt and braces for the moment right after a role change).
+
+     EVERY pay field must be carried here. This rebuilt object feeds the rep's
+     own earnings block and conversionPatch's commission, so a field left out is
+     a rate of zero on their payslip while Settings shows the real number —
+     write path and read path disagreeing, which is ENGINEERING §2 wearing a
+     different hat. appointment_rate was missing and is why it is called out. */
+  const myUser=users.find(u=>u.id===myUid)||((who&&who.role==='rep')?{id:myUid,name:who.name,role:'rep',pools:who.pools,commission_pct:who.commission_pct,appointment_rate:who.appointment_rate,tabs:who.tabs,goal_conversions:who.goal_conversions,active:who.active}:null);
   /* "nobody has been set up yet" is a DB fact, not a guess from what I can see */
   const noUsers=who?!who.setup:users.length===0;
   const isOwner=who?(who.role==='owner'||!who.setup):(users.length===0||(!!myUser&&myUser.role==='owner'));
