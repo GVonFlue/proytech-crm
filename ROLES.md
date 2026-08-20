@@ -24,6 +24,7 @@ own commission, and a leaderboard. No company money, anywhere.
 | Anyone else's deal value | **Never** — they only ever see leads they own or can claim |
 | Another rep's commission | **Never** |
 | Their own commission | Yes — the amount and whether it's Pending, Earned or Voided |
+| Meetings | **Their own appointments in one place** — the same list the leads carry, scoped to leads they can see. No deal value, no totals |
 | Playbook | **Published notes only.** Never a draft — a draft returns them zero rows from Postgres, same as a meeting log |
 | Settings, Clients, Invoices, The Books, Money, Relationships, Monday Huddle | Off. You can switch individual tabs on per rep; the money ones are flagged ⚠ |
 
@@ -201,6 +202,10 @@ note: the text simply is not kept.
 
 Reps get the Playbook tab by default. A rep who already has a custom tab list
 keeps it, so switch it on for them in **Settings → Team**.
+
+The same is true of **Meetings**, which reps now get by default because a rep
+paid per appointment needs to see their appointments and their fees in one
+place. A rep with a custom tab list will not have it until you switch it on.
 
 ## Pocket recordings
 

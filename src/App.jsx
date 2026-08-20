@@ -22,7 +22,9 @@ import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import Pocket from './Pocket';
-import { apptEarnings, payModels } from './lib/reppay';
+/* aliased: rateOf is already taken in this file by the <Rate> helper from
+   AUDIT #7, which divides part/whole. This one is a meeting's pay rate. */
+import { apptEarnings, payModels, feeState, rateOf as feeRateOf, setterOf } from './lib/reppay';
 import RepPay from './RepPay';
 /* AUDIT #23. setupPaid vs retainerPaid vs allPaid — the three answers that used
    to be one. See src/lib/retainer.js for why they are separate arrays rather
@@ -357,7 +359,14 @@ const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
    money: kb_published has six named columns and none of them is a figure.
    A rep who already has a CUSTOM tab list keeps it (see tabsOf), so those reps
    still need it switched on in Settings -> Team. */
-const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','playbook'];
+/* 'meetings' is in a rep's defaults because meetings are now MONEY — a rep paid
+   per appointment could otherwise only see their appointments one lead at a
+   time, which is no way to check a payslip. It carries no company figures: the
+   page renders no deal value and no totals, and its list is already scoped to
+   leads the rep can see.
+   A rep who already has a CUSTOM tab list keeps it, so switch it on for them in
+   Settings -> Team — the same per-rep trap the Playbook hit. */
+const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','meetings','playbook'];
 /* a rep can never be given these by accident — they expose company money.
    An owner CAN still switch them on deliberately (see Team settings). */
 const MONEY_TABS=['invoices','books','money','huddle','mlog'];
@@ -1909,6 +1918,13 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .rp-v{font-weight:700}
 .rp-stale{display:flex;gap:8px;margin:10px 0;padding:10px 12px;border-radius:10px;background:#FFF8EE;border:1px solid #FFD59E;font-size:12.5px}
 .rp-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid #F4F5FA}
+.mtg-pay{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+.mtg-pay-r{display:flex;gap:16px;flex-wrap:wrap}
+.mtg-pay-r span{font-size:12px;color:#5A6178}
+.mtg-pay-r em{font-style:normal;font-weight:800;color:#181530;font-size:15px;margin-right:3px}
+.mtg-fee{font-weight:700;color:#B45309}
+.mtg-fee.approved{color:#2C7A4B}
+.mtg-fee.paid{color:#8b88a0}
 .rate{font-variant-numeric:tabular-nums}
 .rate.warn{color:#B45309;font-weight:800}
 .rate.good{color:#2C7A4B;font-weight:800}
@@ -3487,7 +3503,7 @@ export default function App(){
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
-          view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings}/>:
+          view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings} rep={rep} myUser={repUser||myUser} myUid={myUid}/>:
           view==='playbook'?<Playbook notes={kbNotes} pub={kbPub} mlogs={mlogs} rep={rep} me={me}
             saveNote={saveKbNote} deleteNote={delKbNote} previewNote={db.kbPreview} publishNote={kbPublishNote} unpublishNote={kbUnpublishNote}/>:
           view==='mlog'?<MeetingLog logs={mlogs} tasks={tasks} leads={scoped} saveLog={saveMlog} deleteLog={delMlog} saveTasks={saveTasks} publishToLead={publishLogToLead} me={me}/>:
@@ -4843,7 +4859,7 @@ const evUpcomingEvents=list=>(list||[]).filter(e=>e.status!=='done')
    of this month"; this answers "where is everything and let me fix it". Same
    derived model (meetingsOf) and the same mutators, so nothing here can drift
    from what the dashboard reports. */
-function MeetingsPage({leads,setMeetingStatus,setMeetingTime,tagMeetingType,removeMeeting,open,settings}){
+function MeetingsPage({leads,setMeetingStatus,setMeetingTime,tagMeetingType,removeMeeting,open,settings,rep,myUser,myUid}){
   const [tab,setTab]=useState('upcoming');
   const [q,setQ]=useState('');
   const [who,setWho]=useState('all');
@@ -4880,6 +4896,22 @@ function MeetingsPage({leads,setMeetingStatus,setMeetingTime,tagMeetingType,remo
     <div className="sec-h"><div><h2>Meetings</h2>
       <div className="meta">Everything booked, everywhere — fix a date, mark what happened, cancel</div></div></div>
 
+    {/* A rep paid per appointment needs to see the appointments and the money in
+        the same place, or checking a payslip means opening leads one at a time.
+        Nothing here is a company figure — it is their own meetings at their own
+        rate. */}
+    {rep&&payModels(myUser||{}).appointment&&(()=>{
+      const rate=num((myUser||{}).appointment_rate);
+      const e=apptEarnings(leads,myUid,rate);
+      return (<div className="card mtg-pay">
+        <div className="mtg-pay-l"><b>{usd(rate)} per appointment</b>
+          <span className="subcell">paid once a meeting is marked <b>held</b> — cancelled and no-shows pay nothing</span></div>
+        <div className="mtg-pay-r">
+          <span><em>{e.pending.length}</em> awaiting approval · {usd(e.pendingTotal)}</span>
+          <span><em>{e.approved.length}</em> approved · {usd(e.approvedTotal)}</span>
+        </div>
+      </div>); })()}
+
     <div className="card" style={{marginBottom:16}}>
       <div className="mtg-filters">
         <input className="mtg-q" placeholder="Search a name, company or title" value={q} onChange={e=>setQ(e.target.value)}/>
@@ -4906,6 +4938,12 @@ function MeetingsPage({leads,setMeetingStatus,setMeetingTime,tagMeetingType,remo
               {m.title&&m.title!==m.mtype?` · ${m.title}`:''}
               {m.location?<span className="mtg-loc"><MapPin size={11}/>{m.location}</span>:null}
               {needsStatus(m)&&<span className="mtg-flag"> · did this happen?</span>}
+              {/* The fee state, on the meeting it belongs to. Only for the rep
+                  who SET it — the fee follows the setter, not the lead. */}
+              {rep&&payModels(myUser||{}).appointment&&setterOf(m)===myUid&&(()=>{
+                const st=feeState(m); if(!st||st==='void') return null;
+                const amt=feeRateOf(m,num((myUser||{}).appointment_rate));
+                return <span className={'mtg-fee '+st}> · {usd(amt)} {st==='pending'?'awaiting approval':st}</span>; })()}
             </div>
           </div>
           <div className="mrow-r">
