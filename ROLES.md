@@ -18,8 +18,10 @@ own commission, and a leaderboard. No company money, anywhere.
 | Leads | Only leads they own, plus unclaimed leads in the pools you gave them |
 | Dashboard | Their commission (pending + earned), their conversions, their goal, their rank |
 | Leaderboard | Every rep ranked by **clients closed**. No dollars. No owners on it. |
-| Deal value | **Never.** Not on the lead, not on a card, not in a column, not in the CSV |
-| Company revenue / MRR / forecast | **Never** |
+| Deal value **on a lead they own** | **Yes.** They are paid on the deal, so they can see it — on the lead, in the table, in their CSV |
+| Deal value **on a pool lead they have not claimed** | See the note below — this is the one worth deciding deliberately |
+| Company revenue / MRR / forecast / pipeline totals | **Never.** A rep sees the value of *their* deals, never a company-wide figure |
+| Anyone else's deal value | **Never** — they only ever see leads they own or can claim |
 | Another rep's commission | **Never** |
 | Their own commission | Yes — the amount and whether it's Pending, Earned or Voided |
 | Playbook | **Published notes only.** Never a draft — a draft returns them zero rows from Postgres, same as a meeting log |
@@ -28,6 +30,27 @@ own commission, and a leaderboard. No company money, anywhere.
 A rep can never see a tab you've turned off for the whole install in
 **Settings → Sections**. Per-rep tabs narrow what the install has; they can't
 widen it.
+
+### Why deal value is visible, and what is not
+
+A rep is paid on the deal, so hiding its value would mean hiding the thing their
+pay is calculated from. It shows on the lead, in the `Deal` column, and in the
+CSV they export.
+
+What stays hidden is **everything aggregate**: open pipeline, weighted forecast,
+revenue collected, MRR, avg deal size, what the business is owed, and any other
+rep's numbers. A rep can tell you what *their* deals are worth. They cannot tell
+you what the business is worth, and nothing on their screen adds their leads up
+into a company figure.
+
+That distinction is the actual rule, and it is enforced by scope rather than by
+redaction: a rep's screens only ever run over leads they own or can claim, so
+there is no company-wide total available to render.
+
+**The assistant is stricter than the screen.** Money is stripped from the JARVIS
+payload for a rep entirely — deal values, retainers, payments and commission are
+absent from the request, not hidden in the answer — because a chat box walks
+around a hidden column. That is deliberate and it stays.
 
 ## Commission — three states
 
@@ -53,6 +76,11 @@ record — the app recalculates and logs it.
 - No email is sent (this install has no mail sender — see BUILD-NOTES).
 
 ## Pools
+
+**Claiming a lead takes it out of its pool.** That matters more than it sounds:
+the database rule is *"you can read a lead you own, **or** one in a pool you
+have"*, so a claimed lead that kept its pool would stay readable by every other
+rep who has that pool. It is cleared on claim, and on any assignment you make.
 
 A pool is a named bucket of unclaimed leads — "Inbound", "Outbound", whatever
 you want. You put a lead in a pool from the lead's **Qualifying** section. Reps
@@ -153,9 +181,12 @@ leaderboard, and keeps every lead, note and commission they ever made.
 
 Two things are **not** enforced by the database, only by the screen:
 
-1. **Deal value.** It lives inside the same lead record a rep is allowed to
-   read. The app never shows it to them — but that's the app's promise, not
-   Postgres's.
+1. **Aggregate money.** Deal value on a lead is intentionally visible (above),
+   but the *company-wide* figures are kept off a rep's screen by never rendering
+   them, not by Postgres. The lead rows they can legitimately read contain the
+   numbers those totals are made of, so a determined rep with the browser
+   console could add them up. Scope is the real control; the missing tiles are
+   a UI decision.
 2. **Tasks / invoices / transactions / the huddle.** These are stored as one
    shared blob, so they can't be split per person. Reps don't get those tabs,
    which is why it doesn't bite — but a hidden tab is not a locked door.

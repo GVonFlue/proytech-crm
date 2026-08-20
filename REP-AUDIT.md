@@ -11,7 +11,11 @@ the source. The database boundaries were taken as proven and are not re-tested.
 
 # 1. What they can reach
 
-## 1. Deal value is on a rep's screen in three places — **seen**
+## 1. ~~Deal value is on a rep's screen~~ — **NOT A BUG. ROLES.md was wrong.**
+
+> **Corrected by the owner:** reps are paid on the deal, so they need to see it.
+> `ROLES.md` has been updated to match the code. What follows is kept because
+> the *pool* half of it is still an open decision — see the note at the end.
 
 `ROLES.md` says, in bold: *"Deal value: **Never.** Not on the lead, not on a
 card, not in a column, not in the CSV."*
@@ -34,10 +38,16 @@ This is the single most-stated promise in `ROLES.md` and it is not kept. It is
 also the one a rep will notice first, because the column is **sortable** — the
 fastest way to find out what everyone's deals are worth is to click the header.
 
-**Fix:** filter `dealValue`/`retainer` out of `leadColumns`, the facts array and
-the CSV `cols` when `rep`. Two hours including a test that mounts as a rep and
-asserts no money renders anywhere. That test is the real deliverable — the
-promise has no enforcement behind it today.
+**Resolution:** the code is right and the doc was wrong. `ROLES.md` now says a
+rep sees deal value **on leads they own**, and that what stays hidden is
+everything **aggregate** — pipeline, forecast, revenue, MRR, avg deal, what the
+business is owed, and any other rep's numbers. That distinction is enforced by
+**scope** rather than redaction: a rep's screens only run over leads they own or
+can claim, so no company total is available to render.
+
+**Still open — the pool half.** Deal value on a lead they *own* is settled. Deal
+value on a **pool lead they have not claimed** is a different question, and my
+recommendation is below at #14.
 
 ## 2. Claiming a lead does not clear its pool, so two reps in one pool can read each other's claimed leads
 
@@ -239,13 +249,53 @@ scoped by lead. Fifteen minutes.
   see, and `VERIFY-RLS.md` §2 is currently written so it cannot appear.
 - **Mobile.** Reps will use this on a phone and I looked only at desktop layout.
 
+## 14. The sortable Deal column across the pool — what I would do
+
+**Show deal value on leads a rep owns. Hide it on pool leads until claimed.**
+
+The privacy argument is gone — they are paid on the deal. What is left is a
+**behavioural** argument, and it is about the pool specifically.
+
+A sortable `Deal` column over an unclaimed pool turns the queue into a
+leaderboard of which lead is worth most. Reps will sort descending and claim the
+top of the list. That is rational and it is probably not what you want a pool
+for: it means the cheap leads rot, the first rep in takes the best ones, and
+"first come, first served" quietly becomes "highest value, first served".
+
+It also makes the number least trustworthy exactly where it matters most — an
+unclaimed lead's deal value is usually a guess typed at import or during a first
+call, and sorting a queue by an estimate dressed up as a figure is worse than
+not sorting it.
+
+So:
+
+- **Their own leads** — column, chip, CSV, sortable. They are paid on it and it
+  is their own work.
+- **Pool leads** — hide the value until claimed; the row shows what actually
+  helps them choose (source, age, business type, what was said).
+- **Sorting still works**, because it only sorts what they can see.
+
+Cost: a condition on the column renderer and the facts chip keyed on
+`isPoolLead(l)` rather than on `rep`. Two hours.
+
+**If the pool is a queue you assign from rather than one reps self-serve, none
+of this matters** and the simplest thing is to leave it visible. It only bites
+when reps pick for themselves — which is what the Claim button is for, so I
+assume they do.
+
 # Suggested order
 
-1. **#1** — deal value on screen. It is the stated promise, it is trivially
-   discoverable by sorting a column, and a rep is in the tool this week.
-2. **#6** — a rep dashboard that names a next action.
-3. **#7**, **#8** — two strings; the first impression stops reading as broken.
-4. **#9**, **#10** — the two flows they use every day.
-5. **#2** — before the second rep, not before the first.
-6. **#3** — before they book anything.
-7. **#11**, **#13**.
+**Done:** #2 (pool cleared on claim), #6 (a rep dashboard with a next action),
+#7 and #8 (the two strings). #1 resolved as a documentation fix.
+
+**Still open, in the order I would take them:**
+
+1. **#9**, **#10** — logging a call and booking a meeting, the two flows a rep
+   uses every day.
+2. **#3** — a rep's meeting writes to *your* calendar, and nothing says so.
+   Before they book anything.
+3. **#14** — the pool column decision. Cheap, and better made before a rep
+   builds a habit around it.
+4. **#11** — a Meetings tab, which matters more once appointments are paid.
+5. **#4** — JARVIS is safe to enable now that #2 is fixed.
+6. **#13**, **#5**.
