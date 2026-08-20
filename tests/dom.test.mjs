@@ -2,8 +2,35 @@
    DATABASE. Requires jsdom:  npm i --no-save jsdom
 
    Rendering the right thing and writing the right thing are different claims.
-   These test the second one. */
-import { testAsync, eq, ok } from './assert.mjs';
+   These test the second one.
+
+   ---------------------------------------------------------------------------
+   THIS FILE CURRENTLY FAILS 17 OF ITS 18 TESTS. THAT IS NOT A REGRESSION —
+   IT IS THE FIRST TIME IT HAS EVER BEEN ABLE TO REPORT ANYTHING.
+
+   Until now it HUNG: tests/stub-supabase.mjs had no getMeetingLogs, so App.jsx
+   threw during boot; a failing test never reached its own app.unmount(), so the
+   jsdom window stayed open and pretendToBeVisual kept a requestAnimationFrame
+   timer on the event loop forever. And the file had no reporter and no exit
+   code, so even a clean run said nothing. Three separate ways to be invisible,
+   stacked.
+
+   With those fixed, what it actually reports is that MOST OF THIS FILE TESTS
+   UI THAT DOES NOT EXIST IN THIS REPOSITORY:
+
+     .convo-ta, "Read this conversation", "Save to lead"   Conversation Capture
+     .gw-implies, .gw-implies-t, Monthly/Annual toggles    the goals wizard
+
+   Neither string appears in src/App.jsx on ANY branch, local or remote. The
+   backing pieces exist — src/lib/convo.js, api/conversation.js,
+   tests/convo.test.mjs, which passes — but the screens that would drive them
+   were never wired into App.jsx here.
+
+   So these are not broken tests. They are tests for a version of the app that
+   never landed. Deleting them and building the features are both defensible;
+   quietly leaving them to hang was not. Decide, then delete this notice.
+   --------------------------------------------------------------------------- */
+import { testAsync, eq, ok, report } from './assert.mjs';
 import { mount } from './harness.mjs';
 
 /* modulesV 9 skips the one-time module backfills, and stages are spelled out
@@ -55,18 +82,19 @@ const openLead = async app => {
 
 /* ------------------------------------------------------------------ boot */
 
-await testAsync('the app mounts signed in and renders the dashboard without crashing', async () => {
+await testAsync('the app mounts signed in and renders the dashboard without crashing', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS() });
+  tc.after(() => app.unmount());
   ok(/Dashboard/.test(app.text()), 'dashboard should render');
   ok(app.text().length > 2000, 'the page should have real content');
-  await app.unmount();
 });
 
-await testAsync('no screen renders NaN, Infinity or undefined anywhere', async () => {
+await testAsync('no screen renders NaN, Infinity or undefined anywhere', async tc => {
   const app = await mount({
     leads: [LEAD(), LEAD({ id: 'L2', name: 'Empty Lead', dealValue: 0, createdAt: '' })],
     settings: OWNER_SETTINGS({ goals: { revenue: 10000, closed: 4, booked: 12, mrr: 1500, onboarded: 2 } }),
   });
+  tc.after(() => app.unmount());
   for (const page of [/^Dashboard$/, /^Leads$/, /^Settings$/]) {
     await app.click(btn(app, page));
     const t = app.text();
@@ -74,13 +102,13 @@ await testAsync('no screen renders NaN, Infinity or undefined anywhere', async (
     ok(!/Infinity/.test(t), `Infinity rendered on ${page}`);
     ok(!/undefined/.test(t), `undefined rendered on ${page}`);
   }
-  await app.unmount();
 });
 
 /* ------------------------------------------------------------------ goals */
 
-await testAsync('a zero-history install shows the goal WITHOUT inventing rates', async () => {
+await testAsync('a zero-history install shows the goal WITHOUT inventing rates', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS({ goals: { revenue: 10000 } }) });
+  tc.after(() => app.unmount());
   const hero = app.container.querySelector('.gh-text');
   ok(hero, 'the goal headline should render');
   ok(/\$10,000 to go/.test(hero.textContent), hero.textContent);
@@ -90,10 +118,9 @@ await testAsync('a zero-history install shows the goal WITHOUT inventing rates',
   const chips = [...app.container.querySelectorAll('.rchip')].map(c => c.textContent);
   eq(chips.length, 3);
   chips.forEach(c => ok(/no history yet/.test(c), c));
-  await app.unmount();
 });
 
-await testAsync('every rate on screen displays its sample size', async () => {
+await testAsync('every rate on screen displays its sample size', async tc => {
   /* two closed deals and some held meetings: enough for rates, far below the
      threshold, so all three must read as ranges and say the sample is thin */
   const closed = (id, v) => LEAD({
@@ -106,26 +133,27 @@ await testAsync('every rate on screen displays its sample size', async () => {
     leads: [closed('C1', 2000), closed('C2', 3000), LEAD()],
     settings: OWNER_SETTINGS({ goals: { revenue: 10000 } }),
   });
+  tc.after(() => app.unmount());
   const chips = [...app.container.querySelectorAll('.rchip')].map(c => c.textContent);
   chips.forEach(c => ok(/n=\d/.test(c), 'every rate must show n= : ' + c));
   const avg = chips.find(c => /Avg deal/.test(c));
   ok(/thin sample/.test(avg), 'a 2-deal average must be flagged thin: ' + avg);
   ok(/–/.test(avg), 'a thin rate must render as a range: ' + avg);
-  await app.unmount();
 });
 
-await testAsync('goal numbers reconcile with the dashboard tile above them', async () => {
+await testAsync('goal numbers reconcile with the dashboard tile above them', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS({ goals: { booked: 12 } }) });
+  tc.after(() => app.unmount());
   const card = [...app.container.querySelectorAll('.goalcard')].find(c => /Meetings booked/.test(c.textContent));
   ok(card, 'the booked goal card should render');
   /* the card's "achieved / target" must be the same pair the KPI tile shows */
   const v = card.querySelector('.gc-v').textContent;
   ok(/^0 \/ 12$/.test(v.replace(/\s+/g, ' ').trim()), 'card reads ' + v);
-  await app.unmount();
 });
 
-await testAsync('setting a goal writes goalPlan AND keeps legacy settings.goals in step', async () => {
+await testAsync('setting a goal writes goalPlan AND keeps legacy settings.goals in step', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS({ goals: { revenue: 10000, booked: 12, closed: 4, onboarded: 2, mrr: 1500 } }) });
+  tc.after(() => app.unmount());
   await app.click(btn(app, /^Settings$/));
   const rows = [...app.container.querySelectorAll('.goal-row')];
   const revRow = rows.find(r => /Revenue closed/.test(r.textContent));
@@ -144,24 +172,23 @@ await testAsync('setting a goal writes goalPlan AND keeps legacy settings.goals 
   eq(s.goals.closed, 4);
   eq(s.goals.onboarded, 2);
   eq(s.goals.mrr, 1500);
-  await app.unmount();
 });
 
-await testAsync('EXISTING INSTALLS SEE IDENTICAL NUMBERS — merely loading writes nothing', async () => {
+await testAsync('EXISTING INSTALLS SEE IDENTICAL NUMBERS — merely loading writes nothing', async tc => {
   /* the parity guarantee. An owner opening the app after this ships must not
      have a single stored number rewritten by a silent migration. */
   const app = await mount({
     leads: [LEAD()],
     settings: OWNER_SETTINGS({ goals: { revenue: 10000, booked: 12, closed: 4, onboarded: 2, mrr: 1500 } }),
   });
+  tc.after(() => app.unmount());
   const writes = app.db.writes.filter(w => w.op === 'saveSettings' || w.op === 'upsertMany' || w.op === 'upsertLead');
   eq(writes, [], 'loading an existing install must write nothing: ' + JSON.stringify(writes.map(w => w.op)));
   /* and the legacy targets are visibly in force */
   ok(/\$10,000/.test(app.text()), 'the legacy revenue goal should be on screen');
-  await app.unmount();
 });
 
-await testAsync('a rep sees only their own goal — never the team total', async () => {
+await testAsync('a rep sees only their own goal — never the team total', async tc => {
   const app = await mount({
     leads: [LEAD({ owner: 'Ana' })],
     users: [{ id: 'uid-owner', name: 'Ana', role: 'rep', active: true, pools: [], tabs: [], nav_order: [] }],
@@ -171,16 +198,17 @@ await testAsync('a rep sees only their own goal — never the team total', async
       goalPlan: { v: 1, period: 'month', anchor: '2026-08', team: { revenue: 100000 }, people: { Ana: { revenue: 20000 } } },
     }),
   });
+  tc.after(() => app.unmount());
   const t = app.text();
   ok(/\$20,000/.test(t), "the rep's own target should be on screen");
   ok(!/\$100,000/.test(t), 'the TEAM target must never appear on a rep screen');
-  await app.unmount();
 });
 
 /* --------------------------------------------------- conversation capture */
 
-await testAsync('a labelled conversation writes ONE Note and never the raw thread', async () => {
+await testAsync('a labelled conversation writes ONE Note and never the raw thread', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS(), api: { '/api/conversation': AI_OK } });
+  tc.after(() => app.unmount());
   await openLead(app);
   await app.click([...app.container.querySelectorAll('.act-t')].find(b => /Conversation/.test(b.textContent)));
   await app.type(app.container.querySelector('.convo-ta'), THREAD);
@@ -199,11 +227,11 @@ await testAsync('a labelled conversation writes ONE Note and never the raw threa
   const persisted = JSON.stringify(app.db.writes.filter(w => w.op !== 'fetch'));
   ok(!/following up on the site/.test(persisted), 'the raw thread must never be stored');
   ok(!/Can we do \$3,500/.test(persisted), 'the raw thread must never be stored');
-  await app.unmount();
 });
 
-await testAsync('the conversation is sent to /api/conversation and nowhere else', async () => {
+await testAsync('the conversation is sent to /api/conversation and nowhere else', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS(), api: { '/api/conversation': AI_OK } });
+  tc.after(() => app.unmount());
   await openLead(app);
   await app.click([...app.container.querySelectorAll('.act-t')].find(b => /Conversation/.test(b.textContent)));
   await app.type(app.container.querySelector('.convo-ta'), THREAD);
@@ -211,11 +239,11 @@ await testAsync('the conversation is sent to /api/conversation and nowhere else'
   const carrying = app.db.writes.filter(w => w.op === 'fetch' && JSON.stringify(w.body || '').includes('following up'));
   eq(carrying.length, 1, 'exactly one outbound request may carry the thread');
   eq(carrying[0].url, '/api/conversation');
-  await app.unmount();
 });
 
-await testAsync('the note is stamped with WHEN THE CONVERSATION HAPPENED, not when it was pasted', async () => {
+await testAsync('the note is stamped with WHEN THE CONVERSATION HAPPENED, not when it was pasted', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS(), api: { '/api/conversation': AI_OK } });
+  tc.after(() => app.unmount());
   await openLead(app);
   await app.click([...app.container.querySelectorAll('.act-t')].find(b => /Conversation/.test(b.textContent)));
   await app.type(app.container.querySelector('.convo-ta'), THREAD);
@@ -225,21 +253,25 @@ await testAsync('the note is stamped with WHEN THE CONVERSATION HAPPENED, not wh
   await app.click(btn(app, /Save to lead/));
   const note = app.db.writes.filter(w => w.op === 'upsertLead')[0].lead.activities.find(a => a.type === 'Note');
   ok(note.ts.startsWith('2026-07-20'), 'stamped ' + note.ts + ' — an activity feed is a timeline');
-  await app.unmount();
 });
 
-await testAsync('field updates are NOT applied unless ticked, and a tick applies a diff', async () => {
+await testAsync('field updates are NOT applied unless ticked, and a tick applies a diff', async tc => {
   /* first run: change nothing */
   let app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS(), api: { '/api/conversation': AI_OK } });
+  tc.after(() => app.unmount());
   await openLead(app);
   await app.click([...app.container.querySelectorAll('.act-t')].find(b => /Conversation/.test(b.textContent)));
   await app.type(app.container.querySelector('.convo-ta'), THREAD);
   await app.click(btn(app, /Read this conversation/));
   await app.click(btn(app, /Save to lead/));
   eq(app.db.writes.filter(w => w.op === 'upsertLead')[0].lead.email, 'sarah@old.com', 'an untouched checkbox must not overwrite');
-  await app.unmount();
 
   /* second run: tick the email diff */
+  /* Second mount, deliberately: this asserts the SAME flow with the tickbox
+     off. `app` is reassigned, so the teardown above would otherwise release
+     only the second window and leak the first. Register per mount. */
+  const first = app;
+  tc.after(() => first.unmount());
   app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS(), api: { '/api/conversation': AI_OK } });
   await openLead(app);
   await app.click([...app.container.querySelectorAll('.act-t')].find(b => /Conversation/.test(b.textContent)));
@@ -250,11 +282,11 @@ await testAsync('field updates are NOT applied unless ticked, and a tick applies
   await app.click(diff.querySelector('input'));
   await app.click(btn(app, /Save to lead/));
   eq(app.db.writes.filter(w => w.op === 'upsertLead')[0].lead.email, 'sarah@chenrealty.com');
-  await app.unmount();
 });
 
-await testAsync('suggested follow-ups are unchecked by default and create nothing', async () => {
+await testAsync('suggested follow-ups are unchecked by default and create nothing', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS(), api: { '/api/conversation': AI_OK } });
+  tc.after(() => app.unmount());
   await openLead(app);
   await app.click([...app.container.querySelectorAll('.act-t')].find(b => /Conversation/.test(b.textContent)));
   await app.type(app.container.querySelector('.convo-ta'), THREAD);
@@ -265,10 +297,9 @@ await testAsync('suggested follow-ups are unchecked by default and create nothin
   await app.click(btn(app, /Save to lead/));
   const acts = app.db.writes.filter(w => w.op === 'upsertLead')[0].lead.activities;
   eq(acts.filter(a => a.type === 'Task').length, 0, 'no task may be created without a tick');
-  await app.unmount();
 });
 
-await testAsync('an UNLABELLED thread refuses to guess and blocks saving', async () => {
+await testAsync('an UNLABELLED thread refuses to guess and blocks saving', async tc => {
   const ambiguous = {
     ok: true,
     result: {
@@ -279,6 +310,7 @@ await testAsync('an UNLABELLED thread refuses to guess and blocks saving', async
     },
   };
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS(), api: { '/api/conversation': ambiguous } });
+  tc.after(() => app.unmount());
   await openLead(app);
   await app.click([...app.container.querySelectorAll('.act-t')].find(b => /Conversation/.test(b.textContent)));
   await app.type(app.container.querySelector('.convo-ta'), 'can you send the pricing again\n\nyeah sending now');
@@ -289,14 +321,14 @@ await testAsync('an UNLABELLED thread refuses to guess and blocks saving', async
   /* and clicking it anyway writes nothing */
   await app.click(save);
   eq(app.db.writes.filter(w => w.op === 'upsertLead').length, 0);
-  await app.unmount();
 });
 
-await testAsync('a MALFORMED AI response degrades to a plain note and never crashes', async () => {
+await testAsync('a MALFORMED AI response degrades to a plain note and never crashes', async tc => {
   const app = await mount({
     leads: [LEAD()], settings: OWNER_SETTINGS(),
     api: { '/api/conversation': { ok: false, error: 'could not read the response' } },
   });
+  tc.after(() => app.unmount());
   await openLead(app);
   await app.click([...app.container.querySelectorAll('.act-t')].find(b => /Conversation/.test(b.textContent)));
   await app.type(app.container.querySelector('.convo-ta'), THREAD);
@@ -306,11 +338,11 @@ await testAsync('a MALFORMED AI response degrades to a plain note and never cras
   await app.click(btn(app, /Save as a plain note/));
   const note = app.db.writes.filter(w => w.op === 'upsertLead')[0].lead.activities.find(a => a.type === 'Note');
   ok(/following up on the site/.test(note.text), 'the fallback keeps the user’s own text rather than losing it');
-  await app.unmount();
 });
 
-await testAsync('no new activity type was invented — ACT_TYPES/ACT_ORDER/ACT_ICON stay in step', async () => {
+await testAsync('no new activity type was invented — ACT_TYPES/ACT_ORDER/ACT_ICON stay in step', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS(), api: { '/api/conversation': AI_OK } });
+  tc.after(() => app.unmount());
   await openLead(app);
   await app.click([...app.container.querySelectorAll('.act-t')].find(b => /Conversation/.test(b.textContent)));
   await app.type(app.container.querySelector('.convo-ta'), THREAD);
@@ -323,13 +355,13 @@ await testAsync('no new activity type was invented — ACT_TYPES/ACT_ORDER/ACT_I
   /* the feed filter must have no dead tab */
   const filters = [...app.container.querySelectorAll('.afilter button')].map(b => b.textContent.trim());
   ok(!filters.includes('Conversation'), 'a filter tab that matches nothing is worse than no tab');
-  await app.unmount();
 });
 
-await testAsync('MONTHLY AND ANNUAL TARGETS ARE SEPARATE BOXES', async () => {
+await testAsync('MONTHLY AND ANNUAL TARGETS ARE SEPARATE BOXES', async tc => {
   /* the reported bug: whatever went into Annual also appeared in Monthly, and
      editing Monthly overwrote Annual. One number wearing three labels. */
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS() });
+  tc.after(() => app.unmount());
   await app.click(btn(app, /^Settings$/));
   const revInput = () => [...app.container.querySelectorAll('.goal-row')]
     .find(r => /Revenue closed/.test(r.textContent)).querySelector('input');
@@ -350,11 +382,11 @@ await testAsync('MONTHLY AND ANNUAL TARGETS ARE SEPARATE BOXES', async () => {
   const s = app.db.writes.filter(w => w.op === 'saveSettings').pop().settings;
   eq(s.goalPlan.targets.year.team.revenue, 200000);
   eq(s.goalPlan.targets.month.team.revenue, 16000);
-  await app.unmount();
 });
 
-await testAsync('a non-monthly target says the plan is this month\'s share of it', async () => {
+await testAsync('a non-monthly target says the plan is this month\'s share of it', async tc => {
   const app = await mount({ leads: [LEAD()], settings: OWNER_SETTINGS() });
+  tc.after(() => app.unmount());
   await app.click(btn(app, /^Settings$/));
   await app.click(btn(app, /^Annual$/));
   const revRow = [...app.container.querySelectorAll('.goal-row')].find(r => /Revenue closed/.test(r.textContent));
@@ -365,5 +397,9 @@ await testAsync('a non-monthly target says the plan is this month\'s share of it
   /* and the sentence is labelled by the month it actually plans, not "2026" */
   ok(/August 2026/.test(app.container.querySelector('.gw-implies-t').textContent),
     app.container.querySelector('.gw-implies-t').textContent);
-  await app.unmount();
 });
+
+/* The tally and the exit code. Without this the file wrote dots to stdout and
+   then simply ended: a failing run and a clean run looked identical, and no
+   exit code ever told anyone which one had happened. */
+report('dom');

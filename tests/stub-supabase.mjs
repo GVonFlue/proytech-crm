@@ -48,6 +48,24 @@ export const db = {
   async upsertEvent(ev) { rec('upsertEvent', { id: ev.id }); S().events.push(clone(ev)); },
   async deleteEvent(id) { rec('deleteEvent', { id }); S().events = S().events.filter(e => e.id !== id); },
 
+  /* Meeting Log. Absent until now, which is why tests/dom.test.mjs hung rather
+     than failed: App.jsx boots with db.getMeetingLogs(), the missing method
+     threw inside a passive effect, <App> unmounted, and the runner sat waiting
+     for assertions against a tree that was no longer there. See the note at
+     the top of this file about App.jsx not knowing it is being tested — a stub
+     missing a method the app calls is the one way that promise breaks. */
+  async getMeetingLogs() { return clone(S().mlogs || []); },
+  async upsertMeetingLog(l) {
+    rec('upsertMeetingLog', { id: l.id, log: clone(l) });
+    S().mlogs = S().mlogs || [];
+    const i = S().mlogs.findIndex(x => x.id === l.id);
+    if (i >= 0) S().mlogs[i] = clone(l); else S().mlogs.unshift(clone(l));
+  },
+  async deleteMeetingLog(id) {
+    rec('deleteMeetingLog', { id });
+    S().mlogs = (S().mlogs || []).filter(x => x.id !== id);
+  },
+
   async getSettings() { return clone(S().settings); },
   async saveSettings(obj) { rec('saveSettings', { settings: clone(obj) }); S().settings = clone(obj); },
 
