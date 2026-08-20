@@ -79,6 +79,11 @@ let COLS = null;   // null = unknown, true = migrated, false = legacy schema
    failing to find the rpc in its schema cache, which looks the same to a user. */
 /* Same shape as kbMissing: POCKET-MIGRATION.sql has not been run on this
    install, so the feature degrades to absent rather than taking the app down. */
+/* Missing table or column — REP-PAY-MIGRATION.sql has not been run. */
+const payMissing = e =>
+  e?.code === '42P01' || e?.code === '42703' || e?.code === 'PGRST205' ||
+  /rep_payouts|appointment_rate/.test(`${e?.message || ''} ${e?.details || ''}`);
+
 const pocketMissing = e =>
   e?.code === '42P01' || e?.code === 'PGRST205' ||
   /pocket_recordings/.test(`${e?.message || ''} ${e?.details || ''} ${e?.hint || ''}`);
@@ -360,12 +365,22 @@ export const db = {
   async upsertUser(u) {
     const row = { id: u.id, name: u.name, email: u.email || null, role: u.role || 'rep', pools: u.pools || [],
       commission_pct: Number(u.commission_pct) || 0, active: u.active !== false, tabs: u.tabs || [],
+      appointment_rate: Number(u.appointment_rate) || 0,
       goal_conversions: Number(u.goal_conversions) || 0, nav_order: u.nav_order || [] };
     let { error } = await supabase.from('crm_users').upsert(row);
     /* Same fallback as getUsers. Without this, an install that hasn't re-run
        MIGRATION.sql would fail EVERY user save, not just the sidebar order. */
+    /* An install that has not run REP-PAY-MIGRATION.sql has no appointment_rate
+       column, and without this fallback EVERY user save would fail rather than
+       just the new field. Same shape as the nav_order fallback below it. */
     if (error && error.code === '42703') {
-      const { nav_order, ...rest } = row;
+      const { appointment_rate, ...noRate } = row;
+      const retry = await supabase.from('crm_users').upsert(noRate);
+      if (!retry.error) return;
+      error = retry.error;
+    }
+    if (error && error.code === '42703') {
+      const { nav_order, appointment_rate, ...rest } = row;
       ({ error } = await supabase.from('crm_users').upsert(rest));
     }
     if (error) throw error;
@@ -377,6 +392,29 @@ export const db = {
   /* Leaderboard counts. A rep can only READ their own leads, so the ranking
      cannot be computed in the browser — it comes from a security-definer
      function that returns names and conversion COUNTS only, never money. */
+  /* ---- rep payouts (REP-PAY-MIGRATION.sql) --------------------------------
+     RLS: a rep reads their OWN rows, an owner reads and writes all. A rep
+     paying themselves is impossible at the database, not behind a hidden
+     button — proved in VERIFY-RLS.md §8.
+     Degrades to empty if the migration has not been run, same posture as the
+     Playbook and Pocket helpers: a missing migration takes the FEATURE down,
+     never the app. */
+  async getPayouts() {
+    const { data, error } = await supabase.from('rep_payouts')
+      .select('id,rep_id,amount,paid_on,period,note,created_by,created_at')
+      .order('paid_on', { ascending: false });
+    if (error) { if (payMissing(error)) return []; throw error; }
+    return data || [];
+  },
+  async addPayout(row) {
+    const { error } = await supabase.from('rep_payouts').insert(row);
+    if (error) throw error;
+  },
+  async deletePayout(id) {
+    const { error } = await supabase.from('rep_payouts').delete().eq('id', id);
+    if (error) throw error;
+  },
+
   async leaderboard() {
     const { data, error } = await supabase.rpc('crm_leaderboard');
     if (error) { if (error.code === '42883' || error.code === 'PGRST202') return null; throw error; }

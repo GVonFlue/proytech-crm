@@ -52,6 +52,62 @@ payload for a rep entirely — deal values, retainers, payments and commission a
 absent from the request, not hidden in the answer — because a chat box walks
 around a hidden column. That is deliberate and it stays.
 
+## How a rep gets paid
+
+Two structures, per rep, **either or both**. A rep is on a model when its rate
+is non-zero — set both to zero and they are on no pay model yet, which is what a
+new hire looks like and what their dashboard says.
+
+| | |
+|---|---|
+| **Per appointment** | A flat fee for a meeting **marked held**. Cancelled and no-shows pay nothing. |
+| **Commission** | A share of the deal value at conversion. Unchanged from below. |
+
+Set both in **Settings → Team**.
+
+### The appointment fee
+
+**Paid on held, never on booked.** A meeting that did not happen is worth
+nothing, and paying on booked rewards setting appointments that never happen.
+
+**The fee follows whoever SET the appointment**, not whoever owns the lead. Leads
+get reassigned and a rep must not lose a fee they earned because you moved one.
+The setter is stamped on the meeting when it is created and never changes.
+
+**The rep marks it held, you approve.** Same three states as commission, on
+purpose — two pay models that behaved differently would be two things to learn.
+Marking held used to be neutral bookkeeping; it is now a claim for money, so the
+record carries **who marked it and when**.
+
+**Approval is a batch.** *"Dana · 12 held · $600 · Approve all."* One click a
+week, not twelve. Approving **freezes the rate**, so changing what a rep earns
+later never restates what you already agreed to.
+
+**One fee per appointment, not per attempt.** A meeting rescheduled three times
+and held once earns once.
+
+### If a held meeting stops being held
+
+| State | What happens |
+|---|---|
+| **Awaiting approval** | The fee is derived from the status. Unmark it and the fee simply stops existing. |
+| **Approved** | **Nothing reverses silently.** It is flagged — *"approved at $75, no longer marked held"* — and you void it or leave it. |
+| **Paid** | **Never reverses.** Money that has left is corrected with a new line, not rewritten. |
+
+### What you see
+
+**Settings → Rep pay** — per rep: what is awaiting approval, what is approved,
+what has been paid, and **Mark paid**, which records money you have sent. It does
+not send it.
+
+**The Money page** — *"Owed to reps"* beside *"Owed to you"*, and accrued pay in
+the 90-day view. Payouts land in the ledger as an expense, so rep pay finally
+reaches the month-by-month net and *Where it goes*. This is the biggest cost the
+business is taking on and it was invisible.
+
+**A rep sees their own** — awaiting approval, approved, and what has been paid
+out. Never another rep's.
+
 ## Commission — three states
 
 1. **Pending** — the rep hits *Convert to Client*. Their % × that lead's deal
