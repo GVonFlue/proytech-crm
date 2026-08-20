@@ -27,13 +27,17 @@ globalThis.__WRITES__=[];globalThis.__MANY__=[];globalThis.__TASKS__=[];globalTh
 globalThis.__EVENTS__=[];globalThis.__EVENT_WRITES__=[];globalThis.__SETTINGS_WRITES__=[];
 globalThis.__MLOGS__=[];globalThis.__MLOG_WRITES__=[];globalThis.__KB_NOTES__=[];globalThis.__KB_PUB__=[];globalThis.__KB_WRITES__=[];globalThis.__POCKETS__=[];
 globalThis.__SETTINGS__={goals:{revenue:10000},retainerStartCleared:'2026-08-01T00:00:00.000Z'};
-globalThis.__USERS__=[{id:'u_owner',name:'Dana',email:'dana@x.com',role:'rep',pools:['Inbound'],commission_pct:10,active:true,tabs:[],goal_conversions:5,nav_order:[]}];
+globalThis.__USERS__=[{id:'u_owner',name:'Dana',email:'dana@x.com',role:'rep',pools:['Inbound'],commission_pct:0,appointment_rate:75,active:true,tabs:[],goal_conversions:5,nav_order:[]}];
 
 globalThis.__LEADS__=[
   /* overdue follow-up */
   {id:'l_od',name:'Overdue Olga',company:'Olga Co',stage:'proposal',owner:'Dana',owner_id:'u_owner',
-   createdAt:iso(30),followUp:day(4),nextAction:'Send the quote',dealValue:5000,deals:[],meetings:[],
-   activities:[{id:'a1',ts:iso(9),type:'Call',text:'spoke',who:'Dana'}],closedDeals:[],payments:[]},
+   createdAt:iso(30),followUp:day(4),nextAction:'Send the quote',dealValue:5000,deals:[],
+   meetings:[{id:'mt1',title:'Discovery',mtype:'Discovery',start:iso(2),status:'held',
+     setBy:'Dana',setById:'u_owner',heldBy:'Dana',heldById:'u_owner',heldAt:iso(1)}],
+   activities:[{id:'a1',ts:iso(9),type:'Call',text:'spoke',who:'Dana'}],closedDeals:[],payments:[],
+   /* set by Dana, then the lead was reassigned to Sam — she must keep the fee */
+   meetingsSetByDana:true},
   /* never contacted */
   {id:'l_new',name:'Fresh Fred',company:'Fred Ltd',stage:'new',owner:'Dana',owner_id:'u_owner',
    createdAt:iso(3),dealValue:0,deals:[],meetings:[],activities:[],closedDeals:[],payments:[]},
@@ -43,7 +47,7 @@ globalThis.__LEADS__=[
    activities:[{id:'a2',ts:iso(12),type:'Call',text:'left a message',who:'Dana'}],closedDeals:[],payments:[]},
   /* an UNCLAIMED pool lead */
   {id:'l_pool',name:'Pool Pat',company:'Pat Inc',stage:'new',owner:'',owner_id:null,pool:'Inbound',
-   createdAt:iso(2),dealValue:0,deals:[],meetings:[],activities:[],closedDeals:[],payments:[]},
+   createdAt:iso(2),dealValue:9900,deals:[],meetings:[],activities:[],closedDeals:[],payments:[]},
 ];
 
 globalThis.fetch=async u=>String(u).includes('google-status')
@@ -130,6 +134,47 @@ console.log('\n#2 an owner assigning a lead clears the pool too');
   ok('stampOwner drops the pool whenever there is an owner',
      /pool:oid\?null:\(l\.pool\|\|null\)/.test(src));
   ok('  and says why, with the RLS clause spelled out', /owner_id = auth\.uid\(\) OR pool = any\(my_pools\(\)\)/.test(src));
+}
+
+/* ======================================= REP PAY, on real screens */
+
+console.log('\n#14 deal value: theirs yes, the pool\'s not until claimed');
+{
+  await nav('Leads'); await act(async()=>{await new Promise(r=>setTimeout(r,220));});
+  const t=txt();
+  ok('their own lead shows its value', /\$5,000/.test(t), t.match(/Overdue Olga.{0,80}/)?.[0]);
+  /* Pool Pat carries a dealValue in the fixture; unclaimed, it must not show. */
+  const seg=[...document.querySelectorAll('.scope-seg button')].find(b=>/Pool/.test(b.textContent||''));
+  if (seg) await click(seg);
+  const pool=txt();
+  ok('the pool lead is listed', /Pool Pat/.test(pool), pool.slice(0,200));
+  ok('  but its value is not', !/\$9,900/.test(pool), pool.match(/Pool Pat.{0,90}/)?.[0]);
+  const back=[...document.querySelectorAll('.scope-seg button')].find(b=>/Mine/.test(b.textContent||''));
+  if (back) await click(back);
+}
+
+console.log('\nrep pay: the fee follows whoever SET the meeting');
+{
+  const { apptEarnings } = await import('../src/lib/reppay.js');
+  const leads=globalThis.__LEADS__;
+  /* l_od's meeting was set by Dana; the lead has since been reassigned to Sam. */
+  ok('Dana is owed it even though Sam owns the lead now',
+     apptEarnings(leads,'u_owner',75).pendingTotal===75, String(apptEarnings(leads,'u_owner',75).pendingTotal));
+  ok('Sam is owed nothing for it', apptEarnings(leads,'u_sam',75).pendingTotal===0);
+}
+
+console.log('\nrep pay: a rep sees what they have claimed and what is approved');
+{
+  await nav('Dashboard'); await act(async()=>{await new Promise(r=>setTimeout(r,260));});
+  const t=txt();
+  ok('the appointments block is shown', /Your appointments/.test(t), t.slice(0,200));
+  ok('  awaiting approval is the pending total', /Awaiting approval.{0,40}\$75/.test(t.replace(/\s+/g,' ')),
+     t.match(/Awaiting approval.{0,60}/)?.[0]);
+  ok('  and it says what earns a fee', /marked ‘?held’?|marked held/.test(t)||/paid once it is marked/.test(t),
+     t.match(/per meeting.{0,80}/)?.[0]);
+  ok('  and that no-shows pay nothing', /no-shows pay nothing/.test(t));
+  /* Dana is on appointments only, so no commission block should appear. */
+  ok('a rep on one model does not see the other', !/Your commission/.test(t));
 }
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');

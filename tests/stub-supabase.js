@@ -47,6 +47,12 @@ export const db = {
     const n=(globalThis.__KB_NOTES__||[]).find(x=>x.id===id); if(n) n.status='draft';
     globalThis.__KB_PUB__=(globalThis.__KB_PUB__||[]).filter(x=>x.id!==id); },
   kbAiContext: async () => JSON.parse(JSON.stringify(globalThis.__KB_PUB__ || [])),
+  /* rep payouts — money OUT to a person. Earnings are derived from held
+     meetings and never stored, so there is nothing to stub for those. */
+  getPayouts: async () => JSON.parse(JSON.stringify(globalThis.__PAYOUTS__ || [])),
+  addPayout: async (row) => { (globalThis.__PAYOUT_WRITES__ = globalThis.__PAYOUT_WRITES__ || []).push(row);
+    (globalThis.__PAYOUTS__ = globalThis.__PAYOUTS__ || []).unshift(row); },
+  deletePayout: async (id) => { globalThis.__PAYOUTS__ = (globalThis.__PAYOUTS__ || []).filter(x => x.id !== id); },
   /* Pocket recordings. The list deliberately omits the transcript, exactly as
      the real getPocketRecordings does — a test that hands the list a transcript
      would hide the bug where a screen reads it from the wrong place. */

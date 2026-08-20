@@ -394,6 +394,89 @@ Clean up: `delete from pocket_recordings where id = 'rec_test_1';`
 
 ---
 
+## 8. Rep pay (after REP-PAY-MIGRATION.sql)
+
+**Do this before a rep sees a number.** `rep_payouts` is the first thing in this
+database that is somebody's **wages**. A rep reading another rep's pay is worse
+than a rep reading another rep's pipeline, and a rep *writing* one would be
+paying themselves.
+
+Seed two payouts as superuser, one for each rep:
+
+```sql
+insert into rep_payouts (id, rep_id, amount, paid_on, period, note) values
+  ('po_a', '<REP-A-UUID>', 450, '2026-08-15', '2026-08', 'first half'),
+  ('po_b', '<REP-B-UUID>', 900, '2026-08-15', '2026-08', 'SENTINEL-REP-B-PAY');
+```
+
+### As Rep A
+
+```sql
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+
+  select count(*) as payouts_visible from rep_payouts;              -- MUST be 1
+  select count(*) as other_reps_pay  from rep_payouts
+   where note like '%SENTINEL-REP-B-PAY%';                          -- MUST be 0
+  select coalesce(sum(amount),0) as total_visible from rep_payouts; -- MUST be 450
+rollback;
+```
+
+- [ ] `payouts_visible` = **1** — their own, and only their own.
+- [ ] `other_reps_pay` = **0**.
+- [ ] `total_visible` = **450**, not 1,350. A rep must not be able to work out
+      the wage bill by summing what they can see.
+
+### The write a rep must never make
+
+Its own block — the first exception aborts a transaction.
+
+```sql
+-- a rep cannot pay themselves
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  insert into rep_payouts (id, rep_id, amount, paid_on)
+    values ('po_self', '<REP-A-UUID>', 5000, '2026-08-20');   -- MUST raise
+rollback;
+
+-- nor edit one
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  update rep_payouts set amount = 5000 where id = 'po_a';     -- MUST report 0
+rollback;
+```
+
+- [ ] The insert **raises** `new row violates row-level security policy for
+      table "rep_payouts"`. This is the one that matters: paying yourself is
+      impossible at the database, not behind a hidden button.
+- [ ] The update reports **`UPDATE 0`** and raises nothing — the `using` clause
+      filters the row out before the write is considered, so from a rep's side
+      it does not exist to change. **That is a pass**, the same shape as
+      `pocket_recordings` in §7 and unlike the privilege-revoked refusals in §6.
+
+### As the owner
+
+- [ ] `payouts_visible` = **2**, `total_visible` = **1,350**.
+- [ ] The insert and the update both succeed.
+
+### Deactivation
+
+`crm_active()` is in the policy, so re-run Rep A's read block for a deactivated
+rep:
+
+- [ ] `payouts_visible` = **0**. Their pay history survives in the table — it is
+      their access that ends, not the record.
+
+Clean up: `delete from rep_payouts where id in ('po_a','po_b');`
+
+---
+
 ## What this test cannot prove
 
 `app_settings` is a single row per key holding team-wide blobs — tasks,

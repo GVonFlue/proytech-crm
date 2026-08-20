@@ -22,6 +22,8 @@ import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import Pocket from './Pocket';
+import { apptEarnings, payModels } from './lib/reppay';
+import RepPay from './RepPay';
 /* AUDIT #23. setupPaid vs retainerPaid vs allPaid — the three answers that used
    to be one. See src/lib/retainer.js for why they are separate arrays rather
    than one array with a kind. */
@@ -789,7 +791,13 @@ const monthLabel=k=>{const[y,m]=k.split('-');return new Date(+y,+m-1,1).toLocale
 const lastNMonths=n=>{const out=[];const d=new Date();d.setDate(1);for(let i=n-1;i>=0;i--){const x=new Date(d);x.setMonth(d.getMonth()-i);out.push(monthKey(x));}return out;};
 const sOf=(k,stages)=>stages.find(s=>s.key===k)||stages[0];
 const sIdx=(k,stages)=>{const i=stages.findIndex(s=>s.key===k);return i<0?0:i;};
-function leadColumnDefs(stages,customFields){
+/* REP-AUDIT #14. `rep` is threaded in for ONE column. A rep is paid on the deal
+   so they see its value on leads they OWN — but a sortable Deal column over an
+   UNCLAIMED pool turns the queue into a leaderboard: sort descending, claim the
+   top, and "first come, first served" quietly becomes "highest value first".
+   It is also the number least worth trusting there, since an unclaimed lead's
+   value is usually a guess typed at import or on a first call. */
+function leadColumnDefs(stages,customFields,rep){
   const d={
     businessType:{label:'Type',render:l=><span className="subcell">{l.businessType}</span>},
     company:{label:'Company',render:l=><span className="subcell">{l.company}</span>},
@@ -801,7 +809,9 @@ function leadColumnDefs(stages,customFields){
     lastContacted:{label:'Last Contact',render:l=>{const ds=daysSince(lastContact(l));return <span className="subcell" style={ds>=14?{color:RED,fontWeight:600}:undefined}>{ds===0?'Today':ds+'d ago'}</span>;}},
     followUp:{label:'Follow-up',render:l=><Due iso={l.followUp}/>},
     priority:{label:'Priority',render:l=><PriBadge p={l.priority}/>},
-    dealValue:{label:'Deal',render:l=><span style={{fontWeight:600,color:INK}}>{l.dealValue>0?usd(l.dealValue):'—'}</span>},
+    dealValue:{label:'Deal',render:l=>(rep&&isPoolLead(l))
+      ? <span className="subcell" title="Claim this lead to see what it is worth">—</span>
+      : <span style={{fontWeight:600,color:INK}}>{l.dealValue>0?usd(l.dealValue):'—'}</span>},
     owner:{label:'Owner',render:l=><span className="subcell">{l.owner}</span>},
     phone:{label:'Phone',render:l=><span className="subcell">{l.phone||'—'}</span>},
     email:{label:'Email',render:l=><span className="subcell">{l.email||'—'}</span>},
@@ -1885,6 +1895,20 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .an-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:14px 16px}
 .an-card.warn{border-color:#FFD59E;background:color-mix(in srgb,#FFA500 6%,#fff)}
 .pay-mrr{font-size:11.5px;color:#8b88a0;margin:-2px 0 8px}
+/* rep pay */
+.rp-rep{border:1px solid #EDEEF5;border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.rp-head{display:flex;align-items:center;gap:10px;cursor:pointer}
+.rp-nums{margin-left:auto;display:flex;gap:8px;align-items:center}
+.rp-pend{font-style:normal;font-size:11.5px;font-weight:700;color:#B45309;background:rgba(217,119,6,.10);border-radius:6px;padding:2px 7px}
+.rp-owed{font-style:normal;font-size:11.5px;font-weight:700;color:#2B4DE0;background:rgba(43,77,224,.09);border-radius:6px;padding:2px 7px}
+.rp-batch{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:10px 0;padding:10px 12px;border-radius:10px;background:#F6F8FE;border:1px solid #E3E8F7}
+.rp-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #F4F5FA}
+.rp-row.paid{opacity:.7}
+.rp-m{flex:1}
+.rp-m b{display:block}
+.rp-v{font-weight:700}
+.rp-stale{display:flex;gap:8px;margin:10px 0;padding:10px 12px;border-radius:10px;background:#FFF8EE;border:1px solid #FFD59E;font-size:12.5px}
+.rp-foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;padding-top:10px;border-top:1px solid #F4F5FA}
 .rate{font-variant-numeric:tabular-nums}
 .rate.warn{color:#B45309;font-weight:800}
 .rate.good{color:#2C7A4B;font-weight:800}
@@ -2653,6 +2677,9 @@ export default function App(){
   /* Pocket recordings. The LIST only — no transcripts, which is why
      db.getPocketRecordings selects named jsonb keys. The transcript arrives
      when one recording is opened. */
+  /* Rep pay. Payouts are money that LEFT — earnings are derived from held
+     meetings and never stored (REP-PAY-MIGRATION.sql explains why). */
+  const [payouts,setPayouts]=useState([]);
   const [pockets,setPockets]=useState([]);
   const [pocketId,setPocketId]=useState(null);
   const [importOpen,setImportOpen]=useState(false);
@@ -2669,6 +2696,7 @@ export default function App(){
     db.getKbPublished().then(r=>{ if(!dead) setKbPub(r||[]); }).catch(console.error);
     db.kbAiContext().then(r=>{ if(!dead) setKbAi(r||[]); }).catch(console.error);
     db.getPocketRecordings().then(r=>{ if(!dead) setPockets(r||[]); }).catch(console.error);
+    db.getPayouts().then(r=>{ if(!dead) setPayouts(r||[]); }).catch(console.error);
     return ()=>{dead=true;}; },[session]);
   const [navDrag,setNavDrag]=useState(null);
   const [navLocal,setNavLocal]=useState(null);  // keeps the order on screen if the save fails
@@ -2812,7 +2840,7 @@ export default function App(){
      with every other hook. Same predicate as before, still the only one. */
   /* a rep with no readable row (signed in, never added) is still a rep —
      never fall back to "not a rep", which would hand them every tab. */
-  const repUser=rep?(myUser||{id:myUid,name:me,role:'rep',pools:[],tabs:[],commission_pct:0,active:true}):null;
+  const repUser=rep?(myUser||{id:myUid,name:me,role:'rep',pools:[],tabs:[],commission_pct:0,appointment_rate:0,active:true}):null;
   /* a rep's world: their own leads, and the pools they've been given */
   const myPools=(repUser&&repUser.pools)||(myUser&&myUser.pools)||[];
   const inMyWorld=l=>!rep||l.owner_id===myUid||l.owner===me||(l.pool&&myPools.includes(l.pool));
@@ -2892,6 +2920,9 @@ export default function App(){
   /* Pocket. Nothing here writes an output — outputs go through saveMlog and
      saveKbNote, the same mutators every other screen uses, so an output made
      from a recording is indistinguishable from one typed by hand. */
+  const payoutRefresh=async()=>{ try{ setPayouts(await db.getPayouts()||[]); }catch(err){ console.error(err); } };
+  const addPayout=async row=>{ await db.addPayout(row); await payoutRefresh(); };
+  const deletePayout=async id=>{ await db.deletePayout(id); await payoutRefresh(); };
   const pocketRefresh=async()=>{ try{ setPockets(await db.getPocketRecordings()||[]); }catch(err){ console.error(err); } };
   const pocketStatus=async(id,status)=>{ await db.setPocketStatus(id,status); setPockets(p=>p.map(r=>r.id===id?{...r,status}:r)); if(status!=='open') setPocketId(null); };
   const pocketDelete=async id=>{ await db.deletePocketRecording(id); setPockets(p=>p.filter(r=>r.id!==id)); };
@@ -3077,7 +3108,13 @@ export default function App(){
       const already=(l.meetings||[]).some(m=>m.id===meetingId);
       const nextStatus=target.status===status?'':status;
       let meetings;
-      if(already){ meetings=(l.meetings||[]).map(m=>m.id===meetingId?{...m,status:nextStatus}:m); }
+      /* REP PAY. Marking held is now a claim for money, so it records who and
+         when — and clears that stamp if the mark is taken off, or a corrected
+         status leaves evidence behind for a fee that no longer exists. */
+      const stamp=m=>nextStatus==='held'
+        ? {...m,status:nextStatus,heldBy:me,heldById:myUid||'',heldAt:new Date().toISOString()}
+        : {...m,status:nextStatus,heldBy:'',heldById:'',heldAt:''};
+      if(already){ meetings=(l.meetings||[]).map(m=>m.id===meetingId?stamp(m):m); }
       else { meetings=[...(l.meetings||[]),{...target,status:nextStatus}]; }   // materialise the migrated one
       const logIt=nextStatus&&nextStatus!==target.status;
       const act=logIt?{id:uid(),ts:new Date().toISOString(),type:'Meeting',meetingId,
@@ -3439,7 +3476,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
+          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -3456,9 +3493,9 @@ export default function App(){
           view==='mlog'?<MeetingLog logs={mlogs} tasks={tasks} leads={scoped} saveLog={saveMlog} deleteLog={delMlog} saveTasks={saveTasks} publishToLead={publishLogToLead} me={me}/>:
           view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
-          view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} />:
+          view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} users={users} payouts={payouts} />:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
-            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh}/>}
+            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh} updateLead={updateLead} payouts={payouts} addPayout={addPayout}/>}
       </div>
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
@@ -3471,7 +3508,7 @@ export default function App(){
             saveLog={saveMlog} saveKbNote={saveKbNote} setStatus={pocketStatus}
             deleteRecording={pocketDelete} saveProposals={db.savePocketProposals}/>
         </div></div></div>; })()}
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -3807,7 +3844,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns}){
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings,txns);
   const [drill,setDrill]=useState(null);
@@ -3893,6 +3930,33 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
             </div>}
           </div>}
 
+      {/* REP PAY. The block a rep sees follows THEIR model. A rep on NEITHER
+          sees nothing at all — an honest blank for somebody not yet on a pay
+          model, rather than a row of zeros implying they are. */}
+      {payModels(myUser||{}).appointment&&(()=>{
+        const rate=num((myUser||{}).appointment_rate);
+        const appt=apptEarnings(leads,myUid,rate);
+        const paidSoFar=(payouts||[]).filter(p=>String(p.rep_id)===String(myUid)).reduce((a,p)=>a+num(p.amount),0);
+        return (<>
+          <div className="kgroup">Your appointments</div>
+          <div className="cmsn-hero">
+            <div className="cmsn-main">
+              <div className="cmsn-l">Awaiting approval</div>
+              <div className="cmsn-v"><CountUp value={appt.pendingTotal} format={v=>usd(v)}/></div>
+              <div className="cmsn-d">{appt.pending.length} meeting{appt.pending.length===1?'':'s'} you marked held</div>
+            </div>
+            <div className="cmsn-main earned">
+              <div className="cmsn-l">Approved</div>
+              <div className="cmsn-v"><CountUp value={appt.approvedTotal} format={v=>usd(v)}/></div>
+              <div className="cmsn-d">{paidSoFar>0?`${usd(paidSoFar)} paid out so far`:'approved — this is real money'}</div>
+            </div>
+          </div>
+          <div className="subcell" style={{margin:'-6px 0 16px'}}>
+            {usd(rate)} per meeting, paid once it is marked <b>held</b>. Cancelled and no-shows pay nothing.
+          </div>
+        </>); })()}
+
+      {payModels(myUser||{}).commission&&<>
       <div className="kgroup">Your commission</div>
       <div className="cmsn-hero">
         <div className="cmsn-main">
@@ -3905,7 +3969,14 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
           <div className="cmsn-v"><CountUp value={mine.earned} format={v=>usd(v)}/></div>
           <div className="cmsn-d">approved — this is real money</div>
         </div>
-      </div>
+      </div></>}
+
+      {payModels(myUser||{}).none&&<div className="card" style={{marginBottom:18}}>
+        <div className="ch-sub">You are not on a pay model yet. Your owner sets a per-appointment
+          rate or a commission percentage in <b>Settings → Team</b>, and your earnings appear here
+          the moment they do.</div>
+      </div>}
+
       <div className="kgroup">This month at a glance</div>
       <div className="kgrid">
         <Kpi variant="green" label="Clients Converted" value={<CountUp value={convMonth.length}/>} icon={<UserCheck size={14}/>} d={`${conv.length} all time`} goal={goal} current={convMonth.length}/>
@@ -5303,7 +5374,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   const toWorkCount=leads.filter(l=>recentFilter(l)&&untouched(l)).length;
   const claim=(e,l)=>{ e.stopPropagation(); if(updateLead) updateLead(l.id,{owner:me}); };
   const customFields=settings.customFields||[];
-  const defs=leadColumnDefs(stages,customFields);
+  const defs=leadColumnDefs(stages,customFields,rep);
   const cols=mergeLeadCols(settings.leadColumns||DEFAULT_LEAD_COLS,customFields).filter(c=>defs[c.key]);
   const visCols=cols.filter(c=>c.visible);
   const setCols=next=>saveSettings({...settings,leadColumns:next});
@@ -5341,7 +5412,12 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
-    const head=cols.join(',');const body=rows.map(l=>cols.map(c=>esc(c==='stage'?sOf(l.stage,stages).label:l[c])).join(',')).join('\n');
+    /* REP-AUDIT #14. Same rule in the export as on the screen — otherwise the
+       pool's deal values are one CSV button away from the leaderboard the
+       column was hidden to prevent. */
+    const cell=(l,c)=>(rep&&isPoolLead(l)&&(c==='dealValue'||c==='retainer'||c==='retainerActive'))
+      ? '' : (c==='stage'?sOf(l.stage,stages).label:l[c]);
+    const head=cols.join(',');const body=rows.map(l=>cols.map(c=>esc(cell(l,c))).join(',')).join('\n');
     const blob=new Blob([head+'\n'+body],{type:'text/csv'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download='proytech-leads.csv';a.click();URL.revokeObjectURL(u);
   };
   const Th=({k,children})=>(<th className={sortK===k?'sorted':''} onClick={()=>toggleSort(k)}>{children}<span className="ar">{sortK===k?(dir==='asc'?'▲':'▼'):'↕'}</span></th>);
@@ -6251,6 +6327,15 @@ function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
    dollar you collected was invisible here. */
 /* The ledger shows CASH, so it reads both arrays — a retainer payment is a line
    on a bank statement like any other. Tagged, so the screen can say which. */
+/* REP PAY. A payout is money that LEFT, so it belongs in the ledger like any
+   other expense — otherwise the biggest cost in the business never reaches the
+   month-by-month net or "Where it goes". Derived from rep_payouts the same way
+   client payments derive from leads. */
+const payoutTxns=(payouts,users)=>(payouts||[]).map(p=>({
+  id:'rp_'+p.id, date:String(p.paid_on||'').slice(0,10), type:'expense', amount:num(p.amount),
+  who:((users||[]).find(u=>String(u.id)===String(p.rep_id))||{}).name||'Rep',
+  note:p.note||'', category:'Rep pay', derived:true,
+}));
 const paymentTxns=leads=>(leads||[]).flatMap(l=>paymentRows(l).map(p=>({
   id:'pay_'+l.id+'_'+p.id, date:p.date||'', type:'income', amount:num(p.amount),
   who:l.name||l.company||'Client', note:p.note||'', leadId:l.id, derived:true,
@@ -6263,7 +6348,7 @@ const paymentTxns=leads=>(leads||[]).flatMap(l=>paymentRows(l).map(p=>({
      Coming   — committed cash over 90 days (contractual only, never pipeline)
      History  — profit and loss by month
      Where    — expenses by category, and which clients are worth it           */
-function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSettings,stages}){
+function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSettings,stages,users,payouts}){
   const [tab,setTab]=useState('now');
   /* computed here rather than passed in — `metrics` is local to Dashboard and
      Money, so threading it through the router would mean lifting it for one
@@ -6271,7 +6356,7 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSetting
   const m=useMetrics(leads,stages,settings,txns);
   const burn=monthlyBurn(settings);
   const mKey=isoOf(new Date()).slice(0,7);
-  const all=useMemo(()=>[...txns,...paymentTxns(leads)],[txns,leads]);
+  const all=useMemo(()=>[...txns,...paymentTxns(leads),...payoutTxns(payouts,users)],[txns,leads,payouts,users]);
   const inMonth=k=>all.filter(t=>(t.date||'').slice(0,7)===k);
   const sum=(rows,dir)=>rows.filter(t=>((TX_TYPES[t.type]||{}).dir)===dir)
     .reduce((a,t)=>a+num(t.amount),0);
@@ -6298,6 +6383,18 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSetting
   /* retainers are contractual, so three months of them is a fact, not a guess */
   const mrr=(leads||[]).filter(billsMrr).reduce((a,l)=>a+num(l.retainer),0);
   const owedNow=(leads||[]).reduce((a,l)=>a+owedBy(l,stages),0);
+  /* REP PAY. The biggest expense this business is taking on, and it was
+     invisible here — accrued pay is committed money in exactly the way a signed
+     retainer is committed income, so it belongs on this page BEFORE it is paid,
+     not after. Approved-and-unpaid is the debt; pending is a claim the owner has
+     not agreed to yet and is shown separately rather than folded in. */
+  const repRows=(users||[]).filter(u=>u.role==='rep'&&u.active!==false&&num(u.appointment_rate)>0)
+    .map(u=>{ const e=apptEarnings(leads,u.id,num(u.appointment_rate));
+      const paid=(payouts||[]).filter(p=>String(p.rep_id)===String(u.id)).reduce((a,p)=>a+num(p.amount),0);
+      return {u,e,paid,owed:Math.max(0,e.approvedTotal-paid)}; });
+  const repOwed=repRows.reduce((a,r)=>a+r.owed,0);
+  const repPending=repRows.reduce((a,r)=>a+r.e.pendingTotal,0);
+  const repPaidMonth=(payouts||[]).filter(p=>String(p.paid_on||'').slice(0,7)===mKey).reduce((a,p)=>a+num(p.amount),0);
 
   const setRec=list=>saveSettings({...settings,recurring:list});
   const addRec=()=>{ const name=(window.prompt('What is the bill? (e.g. Supabase Pro)','')||'').trim();
@@ -6328,6 +6425,9 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSetting
         d={burn>0?`covers burn ${mrr>=burn?'✓':`· ${usd(burn-mrr)} short`}`:'no burn recorded'}/>
       <Kpi variant={owedNow>0?'gold':undefined} label="Owed to you" value={usd(owedNow)} icon={<Clock size={14}/>}
         d={owedNow>0?'sold, not collected':'all collected'}/>
+      <Kpi variant={repOwed>0?'gold':undefined} label="Owed to reps" value={usd(repOwed)} icon={<Wallet size={14}/>}
+        d={repOwed>0?`approved, not yet paid${repPending>0?` · ${usd(repPending)} awaiting your approval`:''}`
+          :(repPending>0?`${usd(repPending)} awaiting your approval`:'nothing outstanding')}/>
     </div>
 
     <div className="seg" style={{marginBottom:14}}>
@@ -6350,6 +6450,8 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSetting
           <div className="td-h"><ArrowDownLeft size={13}/>Expected in · {usd(mrr*3)}</div>
           <div className="mn-row"><span>Retainers, 3 months</span><b className="in">{usd(mrr*3)}</b></div>
           {owedNow>0&&<div className="mn-row"><span>Invoiced, not yet paid</span><b className="in">{usd(owedNow)}</b></div>}
+          {repOwed>0&&<div className="mn-row"><span>Rep pay approved, not yet sent</span><b className="out">{usd(repOwed)}</b></div>}
+          {repPending>0&&<div className="mn-row"><span>Rep pay awaiting your approval</span><b className="out">{usd(repPending)}</b></div>}
         </div>
         <div>
           <div className="td-h"><ArrowUpRight size={13}/>Going out · {usd(dueTotal)}</div>
@@ -6676,7 +6778,10 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
   const [adding,setAdding]=useState(false);
   const [busy,setBusy]=useState(false);
   const [msg,setMsg]=useState(null);
-  const blank={name:'',email:'',role:'rep',commission_pct:10,pools:[],tabs:REP_DEFAULT_TABS,password:'',goal_conversions:0};
+  /* REP PAY. Both rates default to ZERO on a new hire — "on no pay model yet"
+     is the honest starting state, and a rate you meant to set is better as a
+     blank you notice than a 10% you did not choose. */
+  const blank={name:'',email:'',role:'rep',commission_pct:0,appointment_rate:0,pools:[],tabs:REP_DEFAULT_TABS,password:'',goal_conversions:0};
   const [f,setF]=useState(blank);
   const pools=poolList(settings);
   const setPools=next=>saveSettings({...settings,pools:next});
@@ -6692,7 +6797,7 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
     try{
       const {id,needsConfirm}=await auth.createLogin(email,pw);
       if(!id||needsConfirm) throw new Error('Supabase created the login but did not return a user id — switch "Confirm email" OFF in Authentication → Providers → Email, then add them again.');
-      await saveUser({id,name,email,role:f.role,pools:f.pools,commission_pct:num(f.commission_pct),active:true,
+      await saveUser({id,name,email,role:f.role,pools:f.pools,commission_pct:num(f.commission_pct),appointment_rate:num(f.appointment_rate),active:true,
         tabs:f.role==='rep'?f.tabs:[],goal_conversions:num(f.goal_conversions)});
       setMsg({t:`${name} can sign in with ${email} and the temporary password ${pw} — give it to them, or send a reset email below.`,pw,email});
       setF(blank); setAdding(false);
@@ -6726,7 +6831,14 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
             <div className="fgrid">
               <div className="field"><label>Name</label><input value={u.name||''} onChange={e=>set({name:e.target.value})}/></div>
               <div className="field"><label>Role</label><select value={u.role} onChange={e=>set({role:e.target.value})}><option value="owner">Owner</option><option value="rep">Sales Rep</option></select></div>
-              {isR&&<div className="field"><label>Commission %</label><input type="number" min="0" step="0.5" value={u.commission_pct??0} onChange={e=>set({commission_pct:num(e.target.value)})}/></div>}
+              {/* REP PAY. Two rates, either or both. A rep is ON a model when its
+                  rate is non-zero, so there is no third field to keep in sync
+                  with two numbers that already say everything. Both blank is a
+                  valid, quiet state — it is what a new hire looks like. */}
+              {isR&&<div className="field"><label>Per appointment $</label><input type="number" min="0" step="5" value={u.appointment_rate??0} onChange={e=>set({appointment_rate:num(e.target.value)})}/>
+                <div className="subcell" style={{marginTop:4}}>Paid when a meeting they set is marked <b>held</b>. Cancelled and no-shows pay nothing.</div></div>}
+              {isR&&<div className="field"><label>Commission %</label><input type="number" min="0" step="0.5" value={u.commission_pct??0} onChange={e=>set({commission_pct:num(e.target.value)})}/>
+                <div className="subcell" style={{marginTop:4}}>Paid on the deal value at conversion.</div></div>}
               {isR&&<div className="field"><label>Monthly conversion goal</label><input type="number" min="0" value={u.goal_conversions??0} onChange={e=>set({goal_conversions:num(e.target.value)})}/></div>}
             </div>
             {isR&&<>
@@ -6767,6 +6879,7 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
         <div className="field"><label>Name</label><input autoFocus value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></div>
         <div className="field"><label>Email (this is their login)</label><input type="email" value={f.email} onChange={e=>setF({...f,email:e.target.value})}/></div>
         <div className="field"><label>Role</label><select value={f.role} onChange={e=>setF({...f,role:e.target.value})}><option value="rep">Sales Rep</option><option value="owner">Owner</option></select></div>
+        {f.role==='rep'&&<div className="field"><label>Per appointment $</label><input type="number" min="0" step="5" value={f.appointment_rate} onChange={e=>setF({...f,appointment_rate:e.target.value})}/></div>}
         {f.role==='rep'&&<div className="field"><label>Commission %</label><input type="number" min="0" step="0.5" value={f.commission_pct} onChange={e=>setF({...f,commission_pct:e.target.value})}/></div>}
         <div className="field full"><label>Temporary password (blank = generate one)</label><input value={f.password} onChange={e=>setF({...f,password:e.target.value})} placeholder="leave blank and we'll make one"/></div>
       </div>
@@ -6890,7 +7003,7 @@ function PocketImport({pockets,onDone}){
   </div>);
 }
 
-function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers,pockets,refreshPockets}){
+function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers,pockets,refreshPockets,updateLead,payouts,addPayout}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
@@ -6983,6 +7096,9 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
         there are no open recordings, so on a fresh install it could not be the
         way in. */}
     {isOwner&&<PocketImport pockets={pockets} onDone={refreshPockets}/>}
+
+    {isOwner&&<RepPay reps={(users||[]).filter(u=>u.role==='rep'&&u.active!==false)} leads={leads}
+      payouts={payouts} me={me} updateLead={updateLead} addPayout={addPayout}/>}
 
     {/* google calendar */}
     <div className="card" style={{marginBottom:18}}>
@@ -7407,7 +7523,7 @@ function MeetingBlock({r}){
   </div>);
 }
 
-function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,events,mlogs,goEvents}){
+function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,events,mlogs,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -7455,9 +7571,12 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
   const recentLocations=useMemo(()=>allMeetings(allLeads||[])
     .filter(r=>r.m.location).sort((a,b)=>(b.m.createdAt||'').localeCompare(a.m.createdAt||''))
     .map(r=>r.m.location),[allLeads]);
+  /* REP PAY. The appointment fee follows WHOEVER SET IT, not the lead's owner —
+   leads get reassigned and a rep must not lose a fee they earned because a lead
+   moved. Stamped once, at creation, and never changed. */
   const doSchedule=async(m)=>{ let ev={eventId:'',htmlLink:'',meetLink:''};
     if(gcalConnected) ev=await createCalendarEvent(m);
-    const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',location:m.location||'',createdAt:new Date().toISOString(),dateUnknown:false};
+    const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,setBy:me,setById:myUid||'',invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',location:m.location||'',createdAt:new Date().toISOString(),dateUnknown:false};
     const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',mtype:m.mtype||'Other',meetingId:meeting.id,text:`${m.mtype||'Meeting'} booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
     set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])],
       ...(m.saveEmail?{email:m.saveEmail}:{})}); return meeting; };
@@ -7465,7 +7584,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
      Lands in Needs a date, exactly where the dated-meeting fix puts them. */
   const doLogUndated=({mtype,title,notes})=>{ const now=new Date().toISOString(); const mid=uid();
     const meeting={id:mid,title:title||`${mtype} with ${draft.name||draft.company||'lead'}`,mtype:mtype||'Other',
-      start:now,end:now,status:'',who:me,createdAt:now,logged:true,dateUnknown:true,notes:notes||''};
+      start:now,end:now,status:'',who:me,setBy:me,setById:myUid||'',createdAt:now,logged:true,dateUnknown:true,notes:notes||''};
     const activity={id:uid(),ts:now,type:'Booked',mtype:mtype||'Other',meetingId:mid,
       text:`${mtype||'Meeting'} booked${notes?': '+notes:''} — no date set yet`,who:me};
     set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])]}); };
@@ -7477,7 +7596,13 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
       text:`Cancelled: ${mt.title||mt.mtype||'meeting'}${mt.start&&!datelessOf(mt)?` — ${fmtMeetingTime(mt.start)}`:''}`,who:me};
     set({meetings:(draft.meetings||[]).filter(x=>x.id!==mt.id),activities:[note,...acts]}); };
   /* did it actually happen? booked is a promise, held is the result. */
-  const doStatus=(mt,status)=>{ const next=(draft.meetings||[]).map(x=>x.id===mt.id?{...x,status:x.status===status?'':status}:x);
+  /* REP PAY. Marking held used to be neutral bookkeeping; with an appointment
+     fee attached it is a CLAIM FOR MONEY, so the record carries who said so and
+     when. Cleared when the mark is removed, or a corrected status would leave
+     evidence behind for a fee that no longer exists. */
+  const doStatus=(mt,status)=>{ const on=mt.status!==status; const now=new Date().toISOString();
+    const next=(draft.meetings||[]).map(x=>x.id===mt.id?{...x,status:on?status:'',
+      ...(status==='held'?(on?{heldBy:me,heldById:myUid||'',heldAt:now}:{heldBy:'',heldById:'',heldAt:''}):{})}:x);
     const was=(draft.meetings||[]).find(x=>x.id===mt.id); const flip=was&&was.status===status;
     const act=flip?null:{id:uid(),ts:new Date().toISOString(),type:'Meeting',text:`${status==='held'?'Met':'No-show'}: ${mt.title}`,who:me};
     set(act?{meetings:next,activities:[act,...(draft.activities||[])]}:{meetings:next}); };
@@ -7583,7 +7708,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
          for all of zero seconds) and out of Needs status (where it would turn
          up overdue a minute later). It lands in Needs a date instead. */
       const mid=uid(); const now=new Date().toISOString();
-      const meeting={id:mid,title:`${logMtype} with ${draft.name||'lead'}`,mtype:logMtype,start:now,end:now,status:'',who,createdAt:now,logged:true,dateUnknown:true};
+      const meeting={id:mid,title:`${logMtype} with ${draft.name||'lead'}`,mtype:logMtype,start:now,end:now,status:'',who,setBy:me,setById:myUid||'',createdAt:now,logged:true,dateUnknown:true};
       const act={id:uid(),ts:now,type:'Booked',mtype:logMtype,meetingId:mid,text:stripTagText(t,tags)||t,who,...(tags.length?{tags}:{})};
       const patch={meetings:[...(draft.meetings||[]),meeting],activities:[act,...(draft.activities||[])]};
       setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
@@ -7687,7 +7812,9 @@ function Modal({lead,isNew,settings,stages,addOption,me,allLeads,navList,onNav,c
               {k:'qual',  l:'Owner',    v:draft.owner||'—'},
               {k:'qual',  l:'Type',     v:draft.businessType&&draft.businessType!=='—'?draft.businessType:'—'},
               {k:'qual',  l:'Close',    v:draft.expectedClose?fmtDate(draft.expectedClose):'—'},
-              {k:'deal',l:'Deal',v:num(draft.dealValue)>0?usd(draft.dealValue):'—'},
+              /* REP-AUDIT #14, same rule in the modal: theirs yes, the pool's
+                 not until they claim it. */
+              (rep&&isPoolLead(draft))?null:{k:'deal',l:'Deal',v:num(draft.dealValue)>0?usd(draft.dealValue):'—'},
               (rep&&cmsnOf(draft))?{k:'mycmsn',l:'Your cut',v:usd(cmsnOf(draft).amount)}:null,
               {k:'meetings',l:'Meetings',v:next?fmtDate(next.start):(bc?bc+' booked':'—'),hot:!!next},
             ].filter(Boolean);
