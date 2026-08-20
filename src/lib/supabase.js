@@ -340,14 +340,27 @@ export const db = {
      Missing table (install hasn't run MIGRATION.sql) returns [] so the
      existing two-owner install keeps working untouched. */
   async getUsers() {
-    const cols = 'id,name,email,role,pools,commission_pct,active,tabs,goal_conversions,nav_order';
+    /* appointment_rate is READ here as well as written in upsertUser. It was
+       written and never read, so a rate you typed saved to the database, came
+       back undefined on the next load, and rendered as 0 — which looks exactly
+       like a field that does not work. Same shape as the settings loader that
+       silently dropped `recurring` in v36: a field written but not read is a
+       field that vanishes. */
+    const cols = 'id,name,email,role,pools,commission_pct,appointment_rate,active,tabs,goal_conversions,nav_order';
     let { data, error } = await supabase.from('crm_users').select(cols);
-    /* 42703 = column doesn't exist: an install that hasn't re-run MIGRATION.sql
-       since nav_order was added. Fall back rather than break sign-in. */
+    /* 42703 = column doesn't exist. Two of these can be missing independently —
+       nav_order on an install that hasn't re-run MIGRATION.sql, appointment_rate
+       on one that hasn't run REP-PAY-MIGRATION.sql — so drop them one at a time
+       rather than assuming which. */
+    if (error && error.code === '42703')
+      ({ data, error } = await supabase.from('crm_users').select(cols.replace(',appointment_rate', '')));
     if (error && error.code === '42703')
       ({ data, error } = await supabase.from('crm_users').select(cols.replace(',nav_order', '')));
+    if (error && error.code === '42703')
+      ({ data, error } = await supabase.from('crm_users').select(cols.replace(',appointment_rate', '').replace(',nav_order', '')));
     if (error) { if (error.code === '42P01') return []; throw error; }
-    return (data || []).map(u => ({ ...u, pools: u.pools || [], tabs: u.tabs || [], nav_order: u.nav_order || [] }));
+    return (data || []).map(u => ({ ...u, pools: u.pools || [], tabs: u.tabs || [], nav_order: u.nav_order || [],
+      commission_pct: Number(u.commission_pct) || 0, appointment_rate: Number(u.appointment_rate) || 0 }));
   },
   /* The definitive answer to "who am I". A rep can only SEE their own
      crm_users row, so the browser cannot tell "no owners exist" apart from

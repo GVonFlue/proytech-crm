@@ -85,6 +85,46 @@ to install.
 
 ---
 
+## 1b. A PREVIEW URL IS NOT A TEST ENVIRONMENT
+
+**Read this before you click a preview link.**
+
+Vercel builds a preview deployment for every branch and every pull request. It
+has its own URL, and it looks like a safe place to try something.
+
+**It is not.** A preview reads the same environment variables as production,
+which means it points at **the same Supabase database**. There is one database.
+
+So on a preview:
+
+- Editing a lead edits the real lead.
+- Logging a payment logs a real payment.
+- Running a migration screen migrates real data.
+- Deleting something deletes it.
+
+Nothing is sandboxed and nothing is undone when you close the tab.
+
+That is not always bad — it is sometimes exactly what you want, and it is how
+the payment classification screen fixed a real client's balance before its code
+had even been merged. But it means **"I'll just try it on the preview" is the
+same sentence as "I'll just try it in production"**, and it should be said that
+way.
+
+Two practical consequences:
+
+1. **Take a backup before trying anything on a preview** that writes — same
+   backup as §2 below.
+2. **A preview can write data that the merged app cannot yet read.** If a branch
+   adds a field and you use the preview, that field is now in your database
+   while `main` knows nothing about it. Merge the branch or expect the value to
+   sit there unread.
+
+If you ever want a genuine sandbox, it needs a second Supabase project and a
+second set of environment variables on the preview environment. There is no such
+thing today.
+
+---
+
 ## 2. Take a backup first (30 seconds, worth it)
 
 In the live CRM: **Settings → Backup & Restore → Export full backup (JSON)**.

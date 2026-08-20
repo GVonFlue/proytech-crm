@@ -1926,6 +1926,9 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .mtg-fee{font-weight:700;color:#B45309}
 .mtg-fee.approved{color:#2C7A4B}
 .mtg-fee.paid{color:#8b88a0}
+.tm-pay{display:flex;gap:6px;flex-wrap:wrap}
+.tm-pay em{font-style:normal;font-size:11px;font-weight:800;color:#2B4DE0;background:rgba(43,77,224,.09);border-radius:6px;padding:2px 7px}
+.tm-nopay{font-size:11px;font-weight:700;color:#8b88a0;background:#F1F2F8;border-radius:6px;padding:2px 7px}
 /* payment review */
 .pr-lead{border:1px solid #EDEEF5;border-radius:12px;padding:12px 14px;margin-bottom:12px}
 .pr-head{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:8px}
@@ -6878,7 +6881,15 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
             <span className="team-av">{(u.name||'?')[0]}</span>
             <span className="tm-name">{u.name}{u.id===myUid&&<i>you</i>}<span className="subcell">{u.email||'—'}</span></span>
             <span className={'tm-role '+u.role}>{u.role==='owner'?'Owner':'Sales Rep'}</span>
-            {isR&&<span className="tm-pct">{num(u.commission_pct)}%</span>}
+            {/* The pay model on the COLLAPSED row, so who is on what is visible
+                without opening anybody — which is how a leftover rate from an
+                old default gets noticed rather than discovered on a payslip. */}
+            {isR&&(()=>{ const c=num(u.commission_pct), a=num(u.appointment_rate);
+              if(!c&&!a) return <span className="tm-nopay">no pay model</span>;
+              return (<span className="tm-pay">
+                {a>0&&<em>{usd(a)}/appt</em>}
+                {c>0&&<em>{c}% commission</em>}
+              </span>); })()}
             {u.active===false&&<span className="tm-off">inactive</span>}
             <ChevronDown size={15} className={'msec-ch'+(open?' on':'')}/>
           </div>
@@ -6886,10 +6897,13 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
             <div className="fgrid">
               <div className="field"><label>Name</label><input value={u.name||''} onChange={e=>set({name:e.target.value})}/></div>
               <div className="field"><label>Role</label><select value={u.role} onChange={e=>set({role:e.target.value})}><option value="owner">Owner</option><option value="rep">Sales Rep</option></select></div>
-              {/* REP PAY. Two rates, either or both. A rep is ON a model when its
-                  rate is non-zero, so there is no third field to keep in sync
-                  with two numbers that already say everything. Both blank is a
-                  valid, quiet state — it is what a new hire looks like. */}
+              {/* REP PAY. Two rates, INDEPENDENT. A rep is on a model when its
+                  rate is non-zero — either, both, or neither — so there is no
+                  third field to keep in sync with two numbers that already say
+                  everything. Both zero is a valid, quiet state and is what a
+                  new hire looks like. */}
+              {isR&&<div className="field full"><div className="subcell" style={{fontWeight:700,color:'#181530'}}>How this rep is paid</div>
+                <div className="subcell">Set either, both, or neither. <b>Zero means they are not on that model.</b></div></div>}
               {isR&&<div className="field"><label>Per appointment $</label><input type="number" min="0" step="5" value={u.appointment_rate??0} onChange={e=>set({appointment_rate:num(e.target.value)})}/>
                 <div className="subcell" style={{marginTop:4}}>Paid when a meeting they set is marked <b>held</b>. Cancelled and no-shows pay nothing.</div></div>}
               {isR&&<div className="field"><label>Commission %</label><input type="number" min="0" step="0.5" value={u.commission_pct??0} onChange={e=>set({commission_pct:num(e.target.value)})}/>

@@ -171,5 +171,23 @@ console.log('\nrubbish in does not throw');
   ok('a string rate is money', apptEarnings([{ id: 'l', meetings: [mtg('m', { status: 'held' })] }], 'u_dana', '$75.50').pendingTotal === 75.5);
 }
 
+console.log('\nthe rate survives a round trip — written AND read');
+{
+  /* The bug behind "I cannot set the appointment rate": upsertUser wrote
+     appointment_rate and getUsers never selected it, so a rate saved fine, came
+     back undefined and rendered as 0. A field written but not read is a field
+     that vanishes — the same shape as the settings loader dropping `recurring`
+     in v36, and as normLog's own warning. */
+  const src = await (await import('node:fs/promises'))
+    .readFile(new URL('../src/lib/supabase.js', import.meta.url), 'utf8');
+  ok('upsertUser WRITES appointment_rate', /appointment_rate: Number\(u\.appointment_rate\)/.test(src));
+  ok('getUsers READS it', /commission_pct,appointment_rate,active/.test(src),
+     (src.match(/const cols = '[^']*'/)||[])[0]);
+  ok('  and coerces it, so undefined never renders as blank',
+     /appointment_rate: Number\(u\.appointment_rate\) \|\| 0/.test(src));
+  ok('  with a 42703 fallback, so an install without the migration still loads users',
+     /replace\(',appointment_rate', ''\)/.test(src));
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
