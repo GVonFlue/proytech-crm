@@ -2840,7 +2840,15 @@ export default function App(){
     if(!l.owner||l.owner===POOL_OWNER) oid=null;                       // unclaimed → pool
     else if(l.owner===me) oid=myUid||oid;                              // me, whoever I am
     else { const u=users.find(x=>x.name===l.owner); oid=u?u.id:null; } // someone else
-    return {...l,owner_id:oid,pool:l.pool||null};
+    /* REP-AUDIT #2. A claimed lead must NOT keep its pool. The RLS policy is
+       `owner_id = auth.uid() OR pool = any(my_pools())`, so a claimed lead that
+       still carries its pool stays readable by every OTHER rep who has that
+       pool — in Postgres, not merely on screen. ROLES.md defines a pool as a
+       bucket of UNCLAIMED leads, so an owned lead in one is a contradiction
+       that happened to be load-bearing.
+       Never showed up because VERIFY-RLS §2 gives its two test reps DISJOINT
+       pools, so the second clause can never fire there. */
+    return {...l,owner_id:oid,pool:oid?null:(l.pool||null)};
   };
   /* setLeads is async, so every mutator below used to read the array captured at
      render time. Two writes in one tick therefore both started from the SAME
@@ -3825,7 +3833,66 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     const ahead=myRank>1?ranked[myRank-2]:null;
     const openMine=leads.filter(l=>sOf(l.stage,stages).open);
     const fu=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
+    /* REP-AUDIT #6. A rep's dashboard was five zeros and two empty states with
+       NO next action anywhere — one open lead, and the page neither mentioned
+       nor linked to it. The owner has "Your day" doing exactly this job; reps
+       did not get it. Same shape, their scope: what is overdue, what is stale,
+       what is on today. */
+    const today=isoOf(new Date());
+    const overdue=m.overdue.slice().sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
+    const untouched=openMine.filter(l=>!(l.activities||[]).some(REAL_TOUCH))
+      .sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
+    const stale=openMine.filter(l=>!untouched.includes(l)&&daysSince(lastTouchTs(l)||l.createdAt||today)>=7)
+      .sort((a,b)=>daysSince(lastTouchTs(b)||b.createdAt||today)-daysSince(lastTouchTs(a)||a.createdAt||today));
+    const todayMtgs=allMeetings(leads).filter(r=>!r.m.status&&!needsDate(r.m)
+      &&String(r.m.start||'').slice(0,10)===today)
+      .sort((a,b)=>(a.m.start||'').localeCompare(b.m.start||''));
+    const dayTotal=overdue.length+untouched.length+stale.length+todayMtgs.length;
+
     return (<>
+      <div className="kgroup" style={{marginTop:4}}>Your day
+        {dayTotal>0&&<span className="td-n">{dayTotal} thing{dayTotal===1?'':'s'}</span>}</div>
+      {dayTotal===0
+        ? <div className="card today-clear"><CheckCircle2 size={16} color={GREEN}/>
+            Nothing waiting on you. No follow-ups overdue, nothing untouched, no meetings today.</div>
+        : <div className="card today">
+            {todayMtgs.length>0&&<div className="td-grp">
+              <div className="td-h"><CalendarClock size={13}/>Meetings today · {todayMtgs.length}</div>
+              {todayMtgs.slice(0,6).map(({lead,m:mt})=>(<div className="td-row" key={mt.id}>
+                <button className="td-name" onClick={()=>open(lead.id)}>{lead.name||lead.company}</button>
+                <span className="td-txt">{mt.title||mt.mtype}</span>
+                <span className="td-who">{fmtMeetingTime(mt.start).replace(/^.*?,\s*/,'')}</span>
+              </div>))}
+            </div>}
+            {overdue.length>0&&<div className="td-grp">
+              <div className="td-h"><Bell size={13}/>Follow-ups overdue · {overdue.length}</div>
+              {overdue.slice(0,6).map(l=>(<div className="td-row" key={l.id}>
+                <button className="td-name" onClick={()=>open(l.id)}>{l.name||l.company}</button>
+                <span className="td-txt">{l.nextSteps||l.nextAction||'Follow up'}</span>
+                <span className="td-who late">{-daysUntil(l.followUp)}d overdue</span>
+              </div>))}
+              {overdue.length>6&&<div className="subcell">+ {overdue.length-6} more</div>}
+            </div>}
+            {untouched.length>0&&<div className="td-grp">
+              <div className="td-h"><Zap size={13}/>Never contacted · {untouched.length}</div>
+              {untouched.slice(0,6).map(l=>(<div className="td-row" key={l.id}>
+                <button className="td-name" onClick={()=>open(l.id)}>{l.name||l.company}</button>
+                <span className="td-txt">{l.company||l.source||'new lead'}</span>
+                <span className="td-who late">{daysSince(l.createdAt)}d old</span>
+              </div>))}
+              {untouched.length>6&&<div className="subcell">+ {untouched.length-6} more</div>}
+            </div>}
+            {stale.length>0&&<div className="td-grp">
+              <div className="td-h"><Clock size={13}/>Gone quiet · {stale.length}</div>
+              {stale.slice(0,6).map(l=>(<div className="td-row" key={l.id}>
+                <button className="td-name" onClick={()=>open(l.id)}>{l.name||l.company}</button>
+                <span className="td-txt">{sOf(l.stage,stages).label}</span>
+                <span className="td-who">{daysSince(lastTouchTs(l)||l.createdAt)}d since a touch</span>
+              </div>))}
+              {stale.length>6&&<div className="subcell">+ {stale.length-6} more</div>}
+            </div>}
+          </div>}
+
       <div className="kgroup">Your commission</div>
       <div className="cmsn-hero">
         <div className="cmsn-main">
@@ -3843,7 +3910,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       <div className="kgrid">
         <Kpi variant="green" label="Clients Converted" value={<CountUp value={convMonth.length}/>} icon={<UserCheck size={14}/>} d={`${conv.length} all time`} goal={goal} current={convMonth.length}/>
         <Kpi label="Meetings Booked" value={<CountUp value={m.bookedMonth}/>} icon={<CalendarCheck size={14}/>} d={`${m.mtgUpcoming} upcoming`}/>
-        <Kpi label="Leads Worked" value={<CountUp value={worked}/>} icon={<Zap size={14}/>} d={`${openMine.length} open right now`}/>
+        <Kpi label="Leads Worked" value={<CountUp value={worked}/>} icon={<Zap size={14}/>} d={`touched this month · ${openMine.length} open`}/>
         <Kpi label="Follow-Ups Due" value={m.overdue.length+m.dueWeek.length} icon={<Bell size={14}/>} d={m.overdue.length?`${m.overdue.length} overdue`:'nothing overdue'} onClick={()=>tog('fu')} active={drill==='fu'}/>
       </div>
       {drill==='fu'&&<Drill title="Follow-ups due" sub={`${m.overdue.length} overdue`} onClose={()=>setDrill(null)}>
@@ -3859,7 +3926,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
             <div className="rank-big">#{myRank}<span> of {ranked.length}</span></div>
             <div className="ch-sub" style={{marginBottom:12}}>{myRank===1?'Top of the board this month. Hold it.':ahead?`${Math.max(1,ahead.month-(ranked[myRank-1]?.month||0))} more client${Math.max(1,ahead.month-(ranked[myRank-1]?.month||0))===1?'':'s'} to pass ${ahead.name}.`:'Convert a client to get on the board.'}</div>
             <button className="btn btn-g btn-sm" onClick={goBoard}><Trophy size={14}/>See the leaderboard</button>
-          </>):<div className="empty" style={{padding:'14px 0'}}>The leaderboard turns on once you're set up as a rep.</div>}
+          </>):<div className="empty" style={{padding:'14px 0'}}>Nothing on the board yet this month. Convert a client and you'll appear here.</div>}
         </div>
         <div className="card">
           <div className="sec-title" style={{margin:'0 0 12px'}}><DollarSign size={15}/>Your clients</div>
