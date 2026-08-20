@@ -12,6 +12,13 @@
 //   3. Input size — stops one request costing $2 by pasting a whole website
 //   4. Auth       — private endpoints shouldn't be reachable by strangers at all
 //
+// Auth has two strengths, and the difference matters. requireAuth proves there
+// is a REAL SESSION. requireOwner additionally proves that session is an OWNER,
+// by asking Postgres through crm_whoami() with the caller's own token — a
+// security-definer function that derives the role from auth.uid(), so a caller
+// cannot assert their own role. A role in the request body is a claim, not a
+// check, and is never used for this.
+//
 // State lives in Supabase because Vercel functions are stateless and there is
 // no shared memory between invocations. An in-memory counter would reset on
 // every cold start, which is exactly when you're being hit hardest.
@@ -75,6 +82,30 @@ async function bump(bucket, limit, windowMin) {
   return { ok: true, used: used + 1, of: limit };
 }
 
+/** Is the caller an owner? Asked of Postgres, using THEIR token, through the
+ *  function the app already trusts for exactly this question.
+ *
+ *  Fails CLOSED, unlike the rate limiter above: a failure to prove ownership is
+ *  not permission. The rate limiter fails open because a limiter that takes the
+ *  product down when its datastore blips is worse than the abuse it prevents;
+ *  an authorisation check that does the same is just a hole. */
+export async function isOwner(token) {
+  if (!SUPA || !KEY || !token) return false;
+  try {
+    const r = await fetch(`${SUPA}/rest/v1/rpc/crm_whoami`, {
+      method: 'POST',
+      headers: { apikey: KEY, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+      body: '{}',
+    });
+    if (!r.ok) return false;
+    const rows = await r.json();
+    const me = Array.isArray(rows) ? rows[0] : rows;
+    return !!(me && me.role === 'owner' && me.active !== false);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Guard an endpoint. Call it first thing in the handler:
  *
@@ -93,6 +124,8 @@ async function bump(bucket, limit, windowMin) {
  *             shared default is either a paste that fails for no visible
  *             reason or a hole big enough to run the bill up through.
  *   requireAuth  verify a Supabase JWT         (default false)
+ *   requireOwner verify the JWT AND that the caller's crm_users role is owner
+ *                (default false). Implies requireAuth.
  */
 export async function guard(req, res, opts = {}) {
   const {
@@ -102,7 +135,9 @@ export async function guard(req, res, opts = {}) {
     perDay = 2000,
     maxChars = 12000,
     requireAuth = false,
+    requireOwner = false,
   } = opts;
+  const needAuth = requireAuth || requireOwner;
 
   if (req.method === 'OPTIONS') { res.status(204).end(); return { ok: false }; }
   if (req.method !== 'POST') {
@@ -130,8 +165,10 @@ export async function guard(req, res, opts = {}) {
   }
 
   // --- 4. auth, for endpoints that should never be public -------------------
-  let user = null;
-  if (requireAuth) {
+  // Checked BEFORE the counters below on purpose: a caller who is not allowed
+  // in should not be able to spend the day's budget getting turned away.
+  let user = null, owner = false;
+  if (needAuth) {
     const tok = String(req.headers.authorization || '').replace(/^Bearer /i, '');
     if (!tok) { res.status(401).json({ error: 'Sign in required.' }); return { ok: false }; }
     const who = await fetch(`${SUPA}/auth/v1/user`, {
@@ -139,6 +176,17 @@ export async function guard(req, res, opts = {}) {
     }).then(r => (r.ok ? r.json() : null)).catch(() => null);
     if (!who || !who.id) { res.status(401).json({ error: 'Session expired.' }); return { ok: false }; }
     user = who;
+
+    if (requireOwner) {
+      owner = await isOwner(tok);
+      if (!owner) {
+        // 403, not 401: the session is fine, the person is not allowed. Telling
+        // a rep to sign in again when signing in again cannot help is the kind
+        // of error message that costs an afternoon.
+        res.status(403).json({ error: 'Only an owner can do that.' });
+        return { ok: false };
+      }
+    }
   }
 
   // --- 2. global cap FIRST. A botnet passes every per-IP check, so this is
@@ -165,7 +213,7 @@ export async function guard(req, res, opts = {}) {
     return { ok: false };
   }
 
-  return { ok: true, ip, user, used: one.used, of: one.of };
+  return { ok: true, ip, user, owner, used: one.used, of: one.of };
 }
 
 /** Best-effort cleanup so the table doesn't grow forever. Cheap, ~1% of calls. */

@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep, isOwner } from './_guard.js';
 import { str, asList, readTranscript, recordingIdOf, upsertMerge, findTranscriptIn, keyShape, TRANSCRIPT_MAX } from './_pocket.js';
 
 // api/pocket-backfill.js — pull recordings that predate the webhook.
@@ -44,33 +44,17 @@ import { str, asList, readTranscript, recordingIdOf, upsertMerge, findTranscript
 // only thing in this feature that spends money.
 
 const API  = 'https://public.heypocketai.com/api/v1';
-const SUPA = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const KEY  = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 const PK   = process.env.POCKET_API_KEY;
 
 /* Page one only. Six recordings exist; if that ever changes, `has_more` is
    surfaced so the screen can say so rather than quietly showing a subset. */
 const PAGE_LIMIT = 20;
 
-/** Is the caller an owner? Asked of Postgres, using their token, through the
- *  function the app already trusts for exactly this question. */
-async function isOwner(token) {
-  try {
-    const r = await fetch(`${SUPA}/rest/v1/rpc/crm_whoami`, {
-      method: 'POST',
-      headers: { apikey: KEY, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: '{}',
-    });
-    if (!r.ok) return false;
-    const rows = await r.json();
-    const me = Array.isArray(rows) ? rows[0] : rows;
-    return !!(me && me.role === 'owner' && me.active !== false);
-  } catch {
-    // A failure to PROVE ownership is not permission. Unlike the rate limiter,
-    // this one fails closed.
-    return false;
-  }
-}
+/* isOwner() now lives in api/_guard.js — google-disconnect.js needs the same
+   question answered and two copies of an authorisation check is one copy too
+   many. Behaviour here is unchanged; only the 403 message below is local, and
+   it stays local because "Only an owner can import recordings" beats the
+   generic one. */
 
 async function pocket(path) {
   const r = await fetch(`${API}${path}`, {
