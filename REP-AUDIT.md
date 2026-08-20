@@ -1,6 +1,7 @@
 # REP-AUDIT.md — the sales rep experience, before a real person is in it
 
-Read against `ROLES.md` and `VERIFY-RLS.md`. **Findings only. No code changed.**
+Read against `ROLES.md` and `VERIFY-RLS.md`. Originally **findings only**;
+fixes are now marked inline as they land.
 
 **Method.** I did not only read the code — I mounted the real app signed in as a
 rep (Dana, one pool, one lead worth $7,500) and read what actually rendered.
@@ -76,7 +77,7 @@ With **one** rep this is harmless. It becomes real the day there are two.
 one pool. Half a day. The database change is nothing — it is the app that must
 stop writing the pool back.
 
-## 3. A rep booking a meeting writes to *your* Google Calendar
+## 3. A rep booking a meeting writes to *your* Google Calendar — **FIXED**
 
 `ENGINEERING.md` §6: *"One OAuth token app-wide. **Not multi-tenant.**"*
 
@@ -90,6 +91,30 @@ Nothing in `ROLES.md` mentions this.
 **Fix:** either hide calendar sync from reps (they still get the CRM meeting
 record, which is what the counts read) or say plainly on the scheduler whose
 calendar it lands on. An hour for the honest version.
+
+**FIXED** — the honest version. The scheduler now has a rep variant on **both**
+branches, and the second one turned out to matter more than the first:
+
+- **Connected:** *"Goes on **Garrett**'s Google Calendar, not yours"*. The owner
+  still sees the connected Google address exactly as before.
+- **Disconnected:** the owner copy says *"Open **Settings → Google Calendar**"*
+  — and `canOpen()` refuses Settings to a rep **by role**, so that sentence
+  instructed a rep to do something the app will not let them do. The rep
+  version names who can do it, and says the meeting is saved in the CRM either
+  way.
+
+The name comes from `crm_users`, falling back to that row's email when the name
+is blank. Both from `crm_users` rather than from the Google account, because
+`gcalEmail` is empty on the disconnected branch and one rule has to work on
+both.
+
+With two owners it names the one whose CRM email matches the connected Google
+account — the only answer actually derivable — and otherwise says *"the
+owner's"* rather than picking. On this screen a wrong name reads as a fact
+about where the rep's work went, so guessing is worse than declining to.
+
+Covered by `tests/repdefaults.mjs`, including the owner view being unchanged on
+both branches.
 
 ## 4. JARVIS: the payload is clean; the exposure is whatever #2 leaks
 
@@ -169,7 +194,7 @@ as a bug.
 
 **Fix:** say what "worked" means — *"0 touched this month · 1 open"*.
 
-## 9. Logging a call takes four clicks and the default is the wrong type
+## 9. Logging a call takes four clicks and the default is the wrong type — **FIXED**
 
 The most common thing a rep does all day:
 
@@ -191,6 +216,20 @@ suggests next to a "log" flow.
 **Fix:** default the composer to `Call`, or offer one-tap type buttons that open
 the composer already set. An hour, and it is worth doing before a rep builds the
 habit of logging everything as a note.
+
+**FIXED** — the composer defaults to `Call`. The new-lead composer already did
+(`firstType`), so this also stops the two disagreeing.
+
+**No backfill.** The obvious worry is every call already logged as a note, so it
+was checked before assuming: 17 untouched leads of 140, and none of them carries
+a note that reads like a call. There is nothing to migrate, so nothing was
+migrated — a backfill that rewrites activity types on a guess is not reversible
+and would have been worse than the bug.
+
+Covered by `tests/repdefaults.mjs`, which asserts on the **write** rather than
+on which chip looks highlighted, because the write is what `REACHED_TYPES`
+reads. `tests/tags.mjs` reached the Note type through the old default without
+ever clicking it; it now picks Note deliberately.
 
 ## 10. Booking a meeting is behind a collapsed section on exactly the leads that need it
 
@@ -294,16 +333,17 @@ assume they do.
 
 # Suggested order
 
-**Done:** #2 (pool cleared on claim), #6 (a rep dashboard with a next action),
-#7 and #8 (the two strings). #1 resolved as a documentation fix.
+**Done:** #2 (pool cleared on claim), #3 (the scheduler names whose calendar it
+is), #6 (a rep dashboard with a next action), #7 and #8 (the two strings), #9
+(the composer defaults to Call), #11 (a Meetings tab). #1 resolved as a
+documentation fix.
 
 **Still open, in the order I would take them:**
 
-1. **#9**, **#10** — logging a call and booking a meeting, the two flows a rep
-   uses every day.
-2. **#3** — a rep's meeting writes to *your* calendar, and nothing says so.
-   Before they book anything.
-3. **#14** — the pool column decision. Cheap, and better made before a rep
+1. **#10** — the Meetings section is collapsed on exactly the leads you are
+   trying to book. One character of logic, and it was the other half of the
+   booking flow #3 just made honest.
+2. **#14** — the pool column decision. Cheap, and better made before a rep
    builds a habit around it.
 4. **#11** — a Meetings tab, which matters more once appointments are paid.
 5. **#4** — JARVIS is safe to enable now that #2 is fixed.

@@ -390,6 +390,32 @@ const navOrderOf=(user,navKeys)=>{
 const DEFAULT_POOLS=['General'];
 const poolList=settings=>{ const p=(settings&&settings.pools)||[]; return p.length?p:DEFAULT_POOLS; };
 const isRep=u=>!!u&&u.role==='rep';
+/* WHOSE CALENDAR A BOOKING ACTUALLY LANDS ON.
+   There is ONE Google connection per install (ENGINEERING §6 — not
+   multi-tenant), so when a rep schedules a meeting the event is created on
+   somebody else's primary calendar. They never see it appear anywhere and the
+   owner gets entries they did not make. The scheduler now says so, which means
+   it needs a name to say.
+
+   WHICH owner, when an install has two: the one whose CRM email matches the
+   connected Google account. That is the only answer actually derivable from
+   what we have. Failing that, a single active owner is unambiguous. Failing
+   THAT, return '' and let the caller say "the owner" — naming the wrong
+   person is worse than naming nobody, and on this screen a wrong name reads
+   as a fact about where the rep's work went.
+
+   Name first, email as the fallback, because a crm_users row can be created
+   with a blank name and a bold empty string is not a message. Both come from
+   crm_users rather than from the Google account: gcalEmail is empty on the
+   disconnected branch, and one rule has to work on both. */
+const calendarOwner=(users,gcalEmail)=>{
+  const norm=s=>String(s==null?'':s).trim().toLowerCase();
+  const owners=(users||[]).filter(u=>u&&u.role==='owner'&&u.active!==false);
+  const g=norm(gcalEmail);
+  const pick=(g&&owners.find(u=>norm(u.email)===g))||(owners.length===1?owners[0]:null);
+  if(!pick) return '';
+  return String(pick.name||'').trim()||String(pick.email||'').trim();
+};
 /* what THIS person can open: the install's global modules, narrowed by their
    own tab list. A rep can never see a tab the install has globally turned off. */
 const canOpen=(settings,user,k)=>{
@@ -7446,7 +7472,10 @@ function fmtMeetingTime(iso){ try{ const d=new Date(iso); return d.toLocaleStrin
    - "Invite client" was disabled with no visible reason whenever the lead had
      no email, which reads exactly like a broken checkbox. It now shows the
      field and writes the address back to the lead. */
-function MeetingScheduler({lead,gcalConnected,gcalEmail,onSchedule,onLogUndated,recentLocations}){
+/* `rep` and `calOwner` drive the two lines at the top of this form and nothing
+   else. Passed in rather than derived here: this component is presentational,
+   and Modal already holds both users[] and the role. */
+function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSchedule,onLogUndated,recentLocations}){
   const [date,setDate]=useState(todayISO());
   const [time,setTime]=useState('10:00');
   const [dur,setDur]=useState(30);
@@ -7498,9 +7527,22 @@ function MeetingScheduler({lead,gcalConnected,gcalEmail,onSchedule,onLogUndated,
     onLogUndated({mtype,title:title.trim(),notes:notes.trim()});
     setTitle('');setNotes(''); };
   return (<div className="mtg-form">
+    {/* Both branches say something different to a rep, and both have to.
+        CONNECTED: the event lands on the owner's calendar, not theirs. A rep
+        who is not told that assumes it appeared in their own Google account,
+        goes looking, and finds nothing.
+        DISCONNECTED: the owner copy says "Open Settings → Google Calendar",
+        and a rep cannot open Settings AT ALL (canOpen() refuses it by role).
+        Telling them to do something the app will not let them do is worse than
+        telling them nothing, so the rep version names who can do it instead.
+        The owner branches are untouched. */}
     {gcalConnected
-      ? <div className="mtg-acct"><CalendarClock size={12}/>Goes on <b>{gcalEmail||'the connected Google account'}</b>{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>
-      : <div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected, so this won’t reach a calendar. Open <b>Settings → Google Calendar</b> and hit Connect.</span></div>}
+      ? (rep
+          ? <div className="mtg-acct"><CalendarClock size={12}/>Goes on {calOwner?<><b>{calOwner}</b>’s</>:<>the owner’s</>} Google Calendar, not yours{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>
+          : <div className="mtg-acct"><CalendarClock size={12}/>Goes on <b>{gcalEmail||'the connected Google account'}</b>{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>)
+      : (rep
+          ? <div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected, so this won’t reach a calendar. {calOwner?<><b>{calOwner}</b> has to connect it</>:<>The owner has to connect it</>} — schedule anyway, the meeting is saved in the CRM either way.</span></div>
+          : <div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected, so this won’t reach a calendar. Open <b>Settings → Google Calendar</b> and hit Connect.</span></div>)}
     <div className="mtype-row">{MEETING_TYPES.map(t=><button key={t} type="button" className={'mtype'+(mtype===t?' on':'')} onClick={()=>setMtype(t)}>{t}</button>)}</div>
     <div className="fgrid">
       <div className="field full"><label>Title</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder={`${mtype} with ${lead.name||lead.company||'client'}`}/></div>
@@ -7629,7 +7671,18 @@ function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,o
   const opt=settings.options; const customFields=settings.customFields||[];
   const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',relTier:'',meetings:[],custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
-  const [atype,setAtype]=useState('Note');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
+  /* 'Call', not 'Note'. The button that opens this says "Log a call, note or
+     text" and then handed you a note, so logging the most common thing a rep
+     does all day cost an extra click every single time.
+
+     It is not only friction. REACHED_TYPES has 'Call' and not 'Note', and it
+     drives touch counts, the untouched filter and the conversion ratio — so a
+     call logged as a note is invisible to the numbers the rep is measured on.
+     The default was quietly corrupting them.
+
+     The new-lead composer below already defaults to 'Call' (firstType); this
+     just stops the two disagreeing. */
+  const [atype,setAtype]=useState('Call');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
   const [wideFeed,setWideFeed]=useState(()=>{ try{return localStorage.getItem('pt_widefeed')==='1';}catch{return false;} });
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
@@ -7671,6 +7724,9 @@ function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,o
   const recentLocations=useMemo(()=>allMeetings(allLeads||[])
     .filter(r=>r.m.location).sort((a,b)=>(b.m.createdAt||'').localeCompare(a.m.createdAt||''))
     .map(r=>r.m.location),[allLeads]);
+  /* Only a rep is ever shown this, but it is computed either way — a hook that
+     runs conditionally is a hook that changes the render's hook count. */
+  const calOwner=useMemo(()=>calendarOwner(users,gcalEmail),[users,gcalEmail]);
   /* REP PAY. The appointment fee follows WHOEVER SET IT, not the lead's owner —
    leads get reassigned and a rep must not lose a fee they earned because a lead
    moved. Stamped once, at creation, and never changed. */
@@ -8086,7 +8142,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,o
               (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
               <>
                 <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus} onTime={doTime} onType={(mt,v)=>{tagMeeting&&tagMeeting(draft.id,mt.id,v);setDraft(d=>({...d,meetings:(d.meetings||[]).map(x=>x.id===mt.id?{...x,mtype:v}:x)}));}}/>
-                <MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/>
+                <MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner} onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/>
               </>, (draft.meetings||[]).some(m=>new Date(m.end||m.start).getTime()>=Date.now()))}
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
               [draft.source,draft.businessType!=='—'?draft.businessType:null,sOf(draft.stage,stages)?.label,PRIORITIES[draft.priority]?.label].filter(Boolean).join(' · ')||'not set',
@@ -8514,7 +8570,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,o
               {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
             </div>
             {atype==='Booked'
-              ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail}
+              ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner}
                   onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/></div>
               : null}
             {atype==='Payment'
