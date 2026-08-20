@@ -2,47 +2,157 @@
    POST /api/notify — tells the owners something happened.
    Currently one event: a rep converted a lead to a client.
 
-   Deliberately fail-soft. If RESEND_API_KEY isn't set, this returns
+   TWO SEPARATE PROBLEMS WERE FIXED HERE, AND THE SECOND IS THE REAL ONE.
+
+   1. No session. Anyone who knew the path could send mail from a domain you
+      verified in Resend. guard({requireAuth}) closes that.
+
+   2. A SESSION DOES NOT CONSTRAIN THE RECIPIENT. `to` came off the request
+      body and was used as-is — the old comment here said "whatever is sent is
+      used" as though it were a feature. Guarding alone would have narrowed an
+      open relay to a relay any signed-in rep could aim anywhere, which is not
+      a fix: the damage is your sending domain's reputation, and it does not
+      matter whose session sent the mail that got you blacklisted.
+
+   So the recipient is now decided SERVER-SIDE. The caller may narrow the list;
+   it cannot extend it.
+
+   WHERE THE ALLOWLIST COMES FROM, AND WHY NOT FROM SETTINGS
+
+   The obvious source is settings.notifyEmails, which is what the app sends.
+   It is the wrong source: app_settings is writable by ANY listed user
+   (MIGRATION.sql, settings_write → crm_listed()), so a rep can set it to
+   whatever they like and the "allowlist" checks a value the attacker controls.
+
+   Both real sources are ones a rep cannot touch:
+     - NOTIFY_TO           a Vercel env var, owner-only by construction
+     - crm_users.email     for role='owner' AND active — crm_users is
+                           owner-managed (users_manage → is_owner())
+
+   settings.notifyEmails still works exactly as before for any address that is
+   on that list. An address that is not is dropped, and the drop is logged.
+
+   Deliberately fail-soft on DELIVERY. If RESEND_API_KEY isn't set this returns
    {ok:false, reason:'not_configured'} and the app carries on — the in-app
    "Awaiting onboarding" queue is the source of truth either way. An email
-   provider being down must never break a conversion.
+   provider being down must never break a conversion. Note the asymmetry: the
+   provider failing is soft, the allowlist failing is hard. A send with no
+   provable recipient does not go out.
 
    Vercel → Settings → Environment Variables:
      RESEND_API_KEY   re_...            (from resend.com)
      NOTIFY_FROM      "ProyTech CRM <crm@getproytech.com>"   — the domain must
                       be verified in Resend, or delivery fails
-     NOTIFY_TO        garrett@…,logan@…  (comma separated; the app can also
-                      pass recipients, and they're intersected with nothing —
-                      whatever is sent is used, this is just the default)
+     NOTIFY_TO        garrett@…,logan@…  (comma separated) — the default
+                      recipients AND part of the allowlist above
+     APP_URL          https://…          — the only origin a link may point at.
+                      Shared with the Google flow; api/_google.js holds the
+                      default if it is unset.
    ========================================================================== */
+import { guard, sweep } from './_guard.js';
+// appUrl(), not a second copy of the app's URL and its fallback. Two spellings
+// of "where this app lives" drift, and the one that drifts here silently drops
+// the only link in the email.
+import { appUrl } from './_google.js';
+
+const SUPA = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+const KEY  = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 const usd = v => '$' + Math.round(Number(v) || 0).toLocaleString();
+const norm = s => String(s == null ? '' : s).trim().toLowerCase();
+
+/** The caller may NARROW the allowlist. It cannot extend it.
+ *
+ *  Exported so the rule is tested for what it does rather than matched for how
+ *  it is spelled — same reason sheet-read.js exports sheetIdFrom.
+ *
+ *  An unknown address is dropped, not fatal: one stale entry in
+ *  settings.notifyEmails must not silently stop the owners being told. */
+export function pickRecipients(asked, allowed) {
+  const want = (Array.isArray(asked) ? asked : []).map(norm).filter(e => e.includes('@'));
+  if (!want.length) return { to: allowed.slice(), dropped: [] };
+  return {
+    to: want.filter(e => allowed.includes(e)),
+    dropped: want.filter(e => !allowed.includes(e)),
+  };
+}
+
+/** The link is an anchor in mail leaving a domain you verified, so it is pinned
+ *  to the app's own origin rather than to "starts with http". Anything else
+ *  falls back to the app URL — the button says "Open the CRM", so a link that
+ *  goes anywhere else was never correct, whoever sent it. */
+export function safeLink(wanted, app) {
+  const APP = String(app || '').replace(/\/+$/, '');
+  const w = typeof wanted === 'string' ? wanted.trim() : '';
+  return (APP && w && (w === APP || w.startsWith(APP + '/'))) ? w : APP;
+}
+
+/** Active owners' addresses, read with the service key because a rep's own
+ *  token cannot see anybody else's crm_users row. */
+async function ownerEmails() {
+  if (!SUPA || !KEY) return [];
+  try {
+    const r = await fetch(
+      `${SUPA}/rest/v1/crm_users?role=eq.owner&active=is.true&select=email`,
+      { headers: { apikey: KEY, authorization: `Bearer ${KEY}` } });
+    if (!r.ok) return [];
+    const rows = await r.json();
+    return (Array.isArray(rows) ? rows : []).map(u => norm(u && u.email)).filter(e => e.includes('@'));
+  } catch {
+    // Fails to EMPTY, not to open. NOTIFY_TO below still carries the common
+    // case, and an install with neither sends nothing rather than sending
+    // wherever it was told to.
+    return [];
+  }
+}
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ ok: false, error: 'POST only' });
+  // Signed-in only. Small body — a name, a client, a link. perDay is a real
+  // ceiling on how much mail can leave this domain in a day, which is the
+  // number that matters if something ever does go wrong here.
+  const gate = await guard(req, res, {
+    name: 'notify', perIp: 20, windowMin: 10, perDay: 300,
+    maxChars: 4000, requireAuth: true,
+  });
+  if (!gate.ok) return;
+  sweep();
 
-  const KEY = process.env.RESEND_API_KEY;
+  const RESEND = process.env.RESEND_API_KEY;
   const FROM = process.env.NOTIFY_FROM;
-  if (!KEY || !FROM) return res.status(200).json({ ok: false, reason: 'not_configured' });
+  if (!RESEND || !FROM) return res.status(200).json({ ok: false, reason: 'not_configured' });
 
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
   body = body || {};
 
-  const to = (Array.isArray(body.to) && body.to.length ? body.to : String(process.env.NOTIFY_TO || '').split(','))
-    .map(s => String(s).trim()).filter(s => s.includes('@'));
-  if (!to.length) return res.status(200).json({ ok: false, reason: 'no_recipients' });
+  // --- the allowlist. Built here, from sources the caller cannot write. -----
+  const envTo = String(process.env.NOTIFY_TO || '').split(',').map(norm).filter(e => e.includes('@'));
+  const allowed = [...new Set([...envTo, ...(await ownerEmails())])];
+  if (!allowed.length) {
+    console.error('[notify] no allowed recipients: NOTIFY_TO is unset and no active owner has an email on their crm_users row');
+    return res.status(200).json({ ok: false, reason: 'no_recipients' });
+  }
+
+  const { to, dropped } = pickRecipients(body.to, allowed);
+  if (dropped.length) {
+    // Loud on the server, quiet to the caller — same posture as guard()'s
+    // daily cap. The count goes back so a client can say "2 addresses were
+    // skipped" without being told which addresses would have worked.
+    console.error(`[notify] dropped ${dropped.length} recipient(s) not on the allowlist`);
+  }
+  if (!to.length) return res.status(200).json({ ok: false, reason: 'no_recipients', rejected: dropped.length });
 
   const kind = body.kind || 'conversion';
-  const rep = esc(body.rep || 'A rep');
-  const client = esc(body.client || 'a client');
-  const when = esc(body.when || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-  const link = typeof body.link === 'string' && /^https?:\/\//.test(body.link) ? body.link : '';
+  const rep = esc(String(body.rep || 'A rep').slice(0, 120));
+  const client = esc(String(body.client || 'a client').slice(0, 120));
+  const when = esc(String(body.when || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).slice(0, 60));
+
+  const link = safeLink(body.link, appUrl());
 
   const subject = kind === 'conversion'
     ? `${rep} converted ${client}`
-    : `ProyTech CRM — ${esc(kind)}`;
+    : `ProyTech CRM — ${esc(String(kind).slice(0, 60))}`;
 
   const lines = [`<p style="margin:0 0 12px"><b>${rep}</b> converted <b>${client}</b> on ${when}.</p>`];
   if (body.amount != null) lines.push(`<p style="margin:0 0 12px;color:#56527a">Commission pending: ${usd(body.amount)} — approve it in the CRM when the money lands.</p>`);
@@ -56,12 +166,12 @@ export default async function handler(req, res) {
   try {
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', Authorization: `Bearer ${KEY}` },
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${RESEND}` },
       body: JSON.stringify({ from: FROM, to, subject, html }),
     });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) return res.status(200).json({ ok: false, reason: 'send_failed', detail: j.message || j.name || r.status });
-    return res.status(200).json({ ok: true, id: j.id || null, to });
+    return res.status(200).json({ ok: true, id: j.id || null, to, rejected: dropped.length });
   } catch (e) {
     return res.status(200).json({ ok: false, reason: 'send_failed', detail: String(e.message || e) });
   }

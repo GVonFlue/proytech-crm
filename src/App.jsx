@@ -2669,21 +2669,34 @@ export default function App(){
   const [txns,setTxns]=useState([]);
   const [tasks,setTasks]=useState([]);
   const [gcal,setGcal]=useState({connected:false,email:'',loaded:false});
-  const refreshGcal=async()=>{ try{ const r=await fetch('/api/google-status'); const j=await r.json(); setGcal({connected:!!j.connected,email:j.email||'',loaded:true}); }catch{ setGcal(g=>({...g,loaded:true})); } };
+  /* apiPost, not a bare fetch: /api/google-status now requires a session,
+     because it hands out the email address of the Google account this install
+     writes to and did so to anybody who asked. apiPost is the helper that
+     attaches the Supabase token. */
+  const refreshGcal=async()=>{ try{ const r=await apiPost('/api/google-status'); const j=await r.json(); setGcal({connected:!!j.connected,email:j.email||'',loaded:true}); }catch{ setGcal(g=>({...g,loaded:true})); } };
   useEffect(()=>{ refreshGcal();
     const p=new URLSearchParams(window.location.search);
     if(p.get('gcal')){ const u=new URL(window.location.href); u.searchParams.delete('gcal'); u.searchParams.delete('reason'); window.history.replaceState({},'',u.pathname+u.search); }
   },[]);
-  const disconnectGcal=async()=>{ try{ await fetch('/api/google-disconnect',{method:'POST'}); }catch{} setGcal({connected:false,email:'',loaded:true}); };
+  /* apiPost for the same reason as google-status above: /api/google-disconnect
+     is now OWNER-ONLY. There is one Google connection for the whole install,
+     so severing it stops every rep booking — it was a one-line denial of
+     service for anyone who knew the path. A rep who reaches this gets a 403,
+     which is why the button below is owner-only in the UI too. */
+  const disconnectGcal=async()=>{ try{ await apiPost('/api/google-disconnect'); }catch{} setGcal({connected:false,email:'',loaded:true}); };
   /* creates the event on Google Calendar; returns {eventId,htmlLink,meetLink}. Persistence
      of the meeting onto the lead happens in the Modal (single patch) to avoid clobbering. */
   const createCalendarEvent=async(m)=>{
-    const r=await fetch('/api/calendar-event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({title:m.title,start:m.start,end:m.end,notes:m.notes,location:m.location||'',attendees:m.attendees,meet:m.meet,timezone:'America/Chicago'})});
+    /* apiPost: /api/calendar-event now requires a session. It writes to the
+       owner's calendar and mails invitations from their account, and it did
+       both for anyone who knew the URL. Signed-in, not owner-only — booking is
+       a rep's job. The server also caps the invite list; see the file. */
+    const r=await apiPost('/api/calendar-event',{title:m.title,start:m.start,end:m.end,notes:m.notes,location:m.location||'',attendees:m.attendees,meet:m.meet,timezone:'America/Chicago'});
     const j=await r.json().catch(()=>({ok:false,error:'bad response'}));
     if(!j.ok) throw new Error(j.error==='not_connected'?'Google Calendar isn’t connected — connect it in Settings.':(j.error||'Could not create the event'));
     return {eventId:j.eventId,htmlLink:j.htmlLink||'',meetLink:j.meetLink||''};
   };
-  const deleteCalendarEvent=async(eventId)=>{ if(!eventId)return; try{ await fetch('/api/calendar-event',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({action:'delete',eventId})}); }catch{} };
+  const deleteCalendarEvent=async(eventId)=>{ if(!eventId)return; try{ await apiPost('/api/calendar-event',{action:'delete',eventId}); }catch{} };
   /* ---- people & roles. Declared with every other hook, ABOVE the auth gates:
      a hook added below an early return blanks the app the moment someone
      signs in ("Rendered more hooks than during the previous render"). ---- */
@@ -3087,12 +3100,19 @@ export default function App(){
     if(patch.commission&&r.id===myUid) setTimeout(()=>setCelebrate({amount:patch.commission.amount,name:l.company||l.name||'that client'}),0);
     /* Email the owners too, if /api/notify has a provider configured. This is
        deliberately fire-and-forget: the in-app queue above is the real record,
-       and a mail failure must never interfere with closing a deal. */
+       and a mail failure must never interfere with closing a deal.
+
+       apiPost, not a bare fetch: /api/notify now requires a session. It sends
+       from a domain verified in Resend and it took its recipient list off the
+       request body, which made it an open mail relay. `to` is still sent and
+       still narrows the list, but the server decides what is ON it — these
+       addresses come from app_settings, which any listed user can write, so
+       the server cannot treat them as authorisation. Anything not on the
+       server's allowlist is dropped there. */
     const to=(settings.notifyEmails||'').split(',').map(x=>x.trim()).filter(x=>x.includes('@'));
-    try{ fetch('/api/notify',{method:'POST',headers:{'content-type':'application/json'},
-      body:JSON.stringify({kind:'conversion',rep:r.name,client:l.company||l.name||'a client',
-        when:fmtDate(todayISO()),amount:patch.commission?patch.commission.amount:null,
-        to,link:(typeof window!=='undefined'?window.location.origin:'')})}).catch(()=>{});
+    try{ apiPost('/api/notify',{kind:'conversion',rep:r.name,client:l.company||l.name||'a client',
+      when:fmtDate(todayISO()),amount:patch.commission?patch.commission.amount:null,
+      to,link:(typeof window!=='undefined'?window.location.origin:'')}).catch(()=>{});
     }catch{}
     return patch;
   };
