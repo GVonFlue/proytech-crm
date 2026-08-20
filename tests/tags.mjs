@@ -100,6 +100,12 @@ ok('you cannot tag yourself', ![...document.querySelectorAll('.tagchip')].some(b
 await click(chip); await settle();
 ok('it says where it will show', /Logan's dashboard/.test((document.querySelector('.tagpick-n')||{}).textContent||''),
    (document.querySelector('.tagpick-n')||{}).textContent);
+/* This test is about TAGGING, and it used to reach the Note type by accident —
+   the composer defaulted to Note, so it never clicked anything. The default is
+   Call now (REP-AUDIT #9), so pick Note deliberately. Same coverage, and the
+   test no longer silently depends on a default it does not care about. */
+const noteChip=[...document.querySelectorAll('.act-t')].find(b=>/^Note$/.test((b.textContent||'').trim()));
+await click(noteChip); await settle();
 const ta=document.querySelector('.act-input');
 await setV(ta,'Can you price this out @Logan');
 const logBtn=[...document.querySelectorAll('button')].find(b=>/^Log Note$/.test((b.textContent||'').trim()));
