@@ -340,19 +340,46 @@ export const db = {
      Missing table (install hasn't run MIGRATION.sql) returns [] so the
      existing two-owner install keeps working untouched. */
   async getUsers() {
-    const cols = 'id,name,email,role,pools,commission_pct,active,tabs,goal_conversions,nav_order';
-    let { data, error } = await supabase.from('crm_users').select(cols);
-    /* 42703 = column doesn't exist: an install that hasn't re-run MIGRATION.sql
-       since nav_order was added. Fall back rather than break sign-in. */
-    if (error && error.code === '42703')
-      ({ data, error } = await supabase.from('crm_users').select(cols.replace(',nav_order', '')));
+    /* appointment_rate is READ here as well as written in upsertUser. It was
+       written and never read, so a rate you typed saved to the database, came
+       back undefined on the next load, and rendered as 0 — which looks exactly
+       like a field that does not work. Same shape as the settings loader that
+       silently dropped `recurring` in v36: a field written but not read is a
+       field that vanishes. ENGINEERING §2. */
+    const OPTIONAL = ['appointment_rate', 'nav_order'];
+    const base = 'id,name,email,role,pools,commission_pct,appointment_rate,active,tabs,goal_conversions,nav_order';
+    /* 42703 = column doesn't exist. Two can be missing independently —
+       nav_order on an install that hasn't re-run MIGRATION.sql,
+       appointment_rate on one that hasn't run REP-PAY-MIGRATION.sql — so drop
+       them ONE AT A TIME and SAY WHICH.
+
+       Saying which is the whole point. A dropped appointment_rate arrives as
+       undefined, coerces to 0, and 0 is a legitimate rate for a rep who is not
+       on appointment pay. Silent, the missing column and the deliberate zero
+       are the same screen. This is the only place that can still tell them
+       apart, so it is the only place that can raise it. */
+    const dropped = [];
+    let cols = base, data = null, error = null;
+    for (;;) {
+      ({ data, error } = await supabase.from('crm_users').select(cols));
+      if (!error || error.code !== '42703') break;
+      const next = OPTIONAL.find(c => cols.includes(c) && !dropped.includes(c));
+      if (!next) break;
+      dropped.push(next);
+      cols = cols.replace(',' + next, '');
+    }
+    for (const c of dropped)
+      console.error(
+        `[crm_users] the column "${c}" does not exist in your database, so it was not read. ` +
+        (c === 'appointment_rate'
+          ? 'Every rep will read as $0 per appointment and no rep can be put on appointment pay. Run REP-PAY-MIGRATION.sql.'
+          : 'Custom sidebar order will not load. Re-run MIGRATION.sql.'));
     if (error) { if (error.code === '42P01') return []; throw error; }
-    return (data || []).map(u => ({ ...u, pools: u.pools || [], tabs: u.tabs || [], nav_order: u.nav_order || [] }));
+    return (data || []).map(u => ({ ...u, pools: u.pools || [], tabs: u.tabs || [], nav_order: u.nav_order || [],
+      commission_pct: Number(u.commission_pct) || 0, appointment_rate: Number(u.appointment_rate) || 0,
+      /* so a screen can tell "not on appointment pay" from "column never ran" */
+      _missingCols: dropped }));
   },
-  /* The definitive answer to "who am I". A rep can only SEE their own
-     crm_users row, so the browser cannot tell "no owners exist" apart from
-     "I'm not allowed to see the owners" — this function can.
-     Returns null on installs that haven't run MIGRATION.sql yet. */
   async whoami() {
     const { data, error } = await supabase.rpc('crm_whoami');
     if (error) { if (error.code === '42883' || error.code === 'PGRST202') return null; throw error; }
@@ -360,6 +387,12 @@ export const db = {
     if (!r) return null;
     return { role: r.role, active: r.active !== false, setup: !!r.setup, name: r.name || '',
       pools: r.pools || [], commission_pct: Number(r.commission_pct) || 0,
+      /* the SECOND read path for pay. It carried commission_pct and not
+         appointment_rate, so a rep rebuilt from whoami read as $0/appt while
+         Settings showed their real rate — two reads of one value disagreeing.
+         Older installs whose crm_whoami() predates the column return undefined
+         here, which is why upsertUser/getUsers stay the source of truth. */
+      appointment_rate: Number(r.appointment_rate) || 0,
       tabs: r.tabs || [], nav_order: r.nav_order || [], goal_conversions: Number(r.goal_conversions) || 0 };
   },
   async upsertUser(u) {

@@ -87,6 +87,47 @@ views counting the same thing differently.
 When you add a number, find every other place that number already appears and
 make them share one function.
 
+### The same failure, one layer down: write path vs read path
+
+**Every column written must be selected by every read path that uses it.**
+
+A field written but not read is a field that vanishes. This is the same bug as
+two screens disagreeing — the two disagreeing parties are just `upsert` and
+`select` instead of two tiles, and it is harder to see because only one of them
+is on screen.
+
+It has now happened three times:
+
+- **`recurring`** — written by the settings save, dropped by the settings load
+  (v36). The toggle worked until you reloaded.
+- **`appointment_rate`** — written by `upsertUser`, never in `getUsers`' select
+  list. A rate typed in reached Postgres, came back `undefined`, coerced to `0`,
+  and every screen agreed it was zero. Because `0` also means *not on
+  appointment pay*, the entire feature read as deliberately switched off: no
+  rep appeared in the owner's payout table, and no rep saw their own earnings
+  block. Nothing errored, and the value was in the database the whole time.
+- **`appointment_rate` again, in `crm_whoami()`** — the RPC carried
+  `commission_pct` and not the rate, so the rebuilt "my own row" disagreed with
+  Settings about the same rep. Two reads of one value.
+
+What makes this class nasty is that **the failure renders as a plausible
+value.** A missing string shows up blank and you notice. A missing number
+coerces to `0`, and `0` is usually legal. The bug and the intended state are
+pixel-identical.
+
+So:
+
+- After adding a column, grep for it. You should get the migration, the write,
+  **and every read**. Two hits means you are not finished.
+- Coerce on read (`Number(x) || 0`) so `undefined` never reaches arithmetic —
+  but coercion hides the fault, so it is not a substitute for selecting it.
+- A schema fallback that drops a column must **log which column**, by name.
+  Otherwise "the migration never ran" and "this rep isn't on appointment pay"
+  are the same screen forever.
+- One value gets one read. If a second path must exist (an RPC, a cached
+  identity), it carries **every** field the first one does, or it carries none
+  and defers.
+
 ---
 
 ## 3. Writes race

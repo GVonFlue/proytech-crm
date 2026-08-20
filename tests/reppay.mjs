@@ -171,5 +171,63 @@ console.log('\nrubbish in does not throw');
   ok('a string rate is money', apptEarnings([{ id: 'l', meetings: [mtg('m', { status: 'held' })] }], 'u_dana', '$75.50').pendingTotal === 75.5);
 }
 
+console.log('\nthe rate survives a round trip — written AND read');
+{
+  /* The bug behind "I cannot set the appointment rate": upsertUser wrote
+     appointment_rate and getUsers never selected it, so a rate saved fine, came
+     back undefined and rendered as 0. A field written but not read is a field
+     that vanishes — the same shape as the settings loader dropping `recurring`
+     in v36, and as normLog's own warning. */
+  const src = await (await import('node:fs/promises'))
+    .readFile(new URL('../src/lib/supabase.js', import.meta.url), 'utf8');
+  ok('upsertUser WRITES appointment_rate', /appointment_rate: Number\(u\.appointment_rate\)/.test(src));
+  ok('getUsers READS it', /commission_pct,appointment_rate,active/.test(src),
+     (src.match(/const cols = '[^']*'/)||[])[0]);
+  ok('  and coerces it, so undefined never renders as blank',
+     /appointment_rate: Number\(u\.appointment_rate\) \|\| 0/.test(src));
+  ok('  with a 42703 fallback, so an install without the migration still loads users',
+     /OPTIONAL = \['appointment_rate', 'nav_order'\]/.test(src));
+
+  /* The fallback's own hazard: a dropped column arrives as undefined, coerces
+     to 0, and 0 is a LEGITIMATE rate for a rep not on appointment pay. Silent,
+     "you never ran the migration" and "this rep is not on appointment pay" are
+     the same screen. getUsers is the last place that can still tell them
+     apart, so it is the only place that can say so. */
+  ok('a dropped column is NAMED in the console, not swallowed',
+     /console\.error\(/.test(src) && /the column "\$\{c\}" does not exist/.test(src));
+  ok('  and the message says which migration fixes it',
+     /REP-PAY-MIGRATION\.sql/.test(src));
+  ok('  and the rows carry _missingCols, so a screen can tell 0 from absent',
+     /_missingCols: dropped/.test(src));
+}
+
+console.log('\nevery read path for a pay rate reads the same value');
+{
+  /* ENGINEERING §2 applied to columns rather than screens. appointment_rate has
+     TWO readers: getUsers, and crm_whoami() via the rebuilt "my own row".
+     whoami carried commission_pct and not appointment_rate, so in the window
+     where crm_users is unreadable a rep read $0/appt while Settings showed
+     their real rate. One value, two reads, two answers. */
+  const fs2 = await import('node:fs/promises');
+  const src = await fs2.readFile(new URL('../src/lib/supabase.js', import.meta.url), 'utf8');
+  const app = await fs2.readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const sql = await fs2.readFile(new URL('../WHOAMI-RATE.sql', import.meta.url), 'utf8');
+
+  ok('whoami() reads appointment_rate too', /appointment_rate: Number\(r\.appointment_rate\) \|\| 0/.test(src));
+  ok('crm_whoami() actually returns it', /goal_conversions numeric,\s*\n\s*appointment_rate numeric/.test(sql));
+  ok('  from the signed-in row only, so it cannot widen', /auth\.uid\(\)/.test(sql));
+  ok('  and re-grants execute after the drop', /grant execute on function crm_whoami\(\) to authenticated/.test(sql));
+
+  const fb = (app.match(/const myUser=users\.find[^;]*;/)||[''])[0];
+  ok('the rebuilt-from-whoami row carries appointment_rate', /appointment_rate:who\.appointment_rate/.test(fb), fb.slice(0,180));
+  ok('  as well as commission_pct — both, or neither is trustworthy', /commission_pct:who\.commission_pct/.test(fb));
+
+  /* and the payout side reads it from one place */
+  ok('the owner payout table reads users, not a second query',
+     /const repRows=\(users\|\|\[\]\)\.filter\(u=>u\.role==='rep'/.test(app));
+  ok('approval SNAPSHOTS the rate so a later change cannot restate a payout',
+     /payRate: num\(rate\)/.test(await fs2.readFile(new URL('../src/lib/reppay.js', import.meta.url), 'utf8')));
+}
+
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

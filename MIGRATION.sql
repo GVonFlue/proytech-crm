@@ -137,6 +137,9 @@ language sql security definer stable as $$
     exists (select 1 from crm_users),
     u.name, coalesce(u.pools, '{}'), coalesce(u.commission_pct, 0),
     coalesce(u.tabs, '{}'), coalesce(u.goal_conversions, 0)
+    -- NOTE: appointment_rate is added by WHOAMI-RATE.sql, which runs after
+    -- REP-PAY-MIGRATION.sql adds the column. It is not here because this file
+    -- must stay runnable on a database that has neither.
   from (select 1) _ left join crm_users u on u.id = auth.uid();
 $$;
 revoke all on function crm_whoami() from public, anon;
