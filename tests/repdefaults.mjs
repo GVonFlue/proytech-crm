@@ -192,7 +192,14 @@ console.log('\n#3 CONNECTED — a rep is told whose calendar it lands on');
   const t = schedText();
   ok('it names the owner', /Garrett/.test(t), t);
   ok('  and says it is not theirs', /not yours/i.test(t), t);
-  ok('  the rep is not shown the raw Google address', !/garrett@getproytech\.com/.test(t), t);
+  /* REVERSED DELIBERATELY. This used to assert the rep was NOT shown the
+     account address. That was my invention, not the spec, and it was the thing
+     standing between a rep and a straight answer: gcalEmail is the only source
+     a rep can actually read (crm_users gives them one row — their own), so
+     hiding it left them with a nameless sentence. The address is the fact; the
+     name is the nicety. See TEAM-MIGRATION.sql. */
+  ok('  the rep IS shown the account, because it is the one thing always knowable',
+     /garrett@getproytech\.com/.test(t), t);
 }
 
 console.log('\n#3 CONNECTED — a blank crm_users name falls back to the email');
@@ -235,7 +242,10 @@ console.log('\n#3 — two owners and no way to tell them apart says "the owner"'
   await openLead(); await openComposer(); await openScheduler();
   const t = schedText();
   ok('it does not guess a name', !/Garrett/.test(t) && !/Logan/.test(t), t);
-  ok('  it says "the owner’s" instead', /the owner’s|the owner's/.test(t), t);
+  /* It still refuses to NAME one of two owners — guessing would state a
+     falsehood about where the rep's work went. But it now names the ACCOUNT,
+     so the sentence is useful rather than merely honest. */
+  ok('  it names the account instead of nobody', /someone-else@gmail\.com/.test(t), t);
 }
 
 console.log('\n#3 — two owners, one matching the connected account, IS resolvable');

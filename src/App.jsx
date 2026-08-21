@@ -408,9 +408,21 @@ const isRep=u=>!!u&&u.role==='rep';
    with a blank name and a bold empty string is not a message. Both come from
    crm_users rather than from the Google account: gcalEmail is empty on the
    disconnected branch, and one rule has to work on both. */
-const calendarOwner=(users,gcalEmail)=>{
+const calendarOwner=(roster,users,gcalEmail)=>{
   const norm=s=>String(s==null?'':s).trim().toLowerCase();
-  const owners=(users||[]).filter(u=>u&&u.role==='owner'&&u.active!==false);
+  /* TWO SOURCES, because neither is sufficient alone.
+     `users` reads crm_users, which carries emails but which RLS narrows to a
+     REP'S OWN ROW — so for a rep it contains no owners at all and this
+     function could never resolve, whatever the emails said.
+     `roster` is crm_team(), which carries every active person's name and role
+     and deliberately no email. Merge them: emails where we have them, names
+     where we do not. */
+  const byId=new Map();
+  (roster||[]).forEach(u=>{ if(u&&u.id) byId.set(u.id,{id:u.id,name:u.name,role:u.role,email:''}); });
+  (users||[]).forEach(u=>{ if(!u||!u.id) return;
+    if(u.active===false){ byId.delete(u.id); return; }
+    byId.set(u.id,{...(byId.get(u.id)||{}),id:u.id,name:u.name,role:u.role,email:u.email||''}); });
+  const owners=[...byId.values()].filter(u=>u.role==='owner');
   const g=norm(gcalEmail);
   const pick=(g&&owners.find(u=>norm(u.email)===g))||(owners.length===1?owners[0]:null);
   if(!pick) return '';
@@ -2775,6 +2787,11 @@ export default function App(){
      a hook added below an early return blanks the app the moment someone
      signs in ("Rendered more hooks than during the previous render"). ---- */
   const [users,setUsers]=useState([]);
+  /* WHO ELSE IS ON THE TEAM — names and roles only, from crm_team().
+     Deliberately NOT derived from `users`: RLS gives a rep exactly one row
+     there (their own), so every feature that needed "the team" was quietly
+     working from a list of one. See TEAM-MIGRATION.sql. */
+  const [team,setTeam]=useState([]);
   /* arrived from a password-reset link? checked from the URL on the very first
      render, because supabase-js consumes the fragment as soon as it boots. */
   const [recovery,setRecovery]=useState(()=>auth.isRecoveryUrl&&auth.isRecoveryUrl());
@@ -2831,12 +2848,17 @@ export default function App(){
     const wd=setTimeout(()=>{ if(!sessionResolved.current) setBootErr(true); },8000);
     return ()=>{clearTimeout(wd);sub?.subscription?.unsubscribe?.();}; },[]);
 
-  useEffect(()=>{ if(!session){setLoaded(false);setUsers([]);setWho(null);setBoard(null);return;} (async()=>{
+  useEffect(()=>{ if(!session){setLoaded(false);setUsers([]);setTeam([]);setWho(null);setBoard(null);return;} (async()=>{
     try{
       /* who am I, before anything else — a rep must never trigger a demo seed */
       let me1=null; try{ me1=await db.whoami(); }catch(err){ console.error('whoami failed',err); }
       let people=[]; try{ people=await db.getUsers(); }catch(err){ console.error('users load failed',err); }
-      setUsers(people); setWho(me1);
+      /* Never fatal and never blocking: an install that has not run
+         TEAM-MIGRATION.sql gets [], and every consumer below falls back to
+         exactly the behaviour it has today. */
+      let roster=[]; try{ roster=(typeof db.team==='function')?await db.team():[]; }
+      catch(err){ console.error('team load failed',err); }
+      setUsers(people); setTeam(roster); setWho(me1);
       const myRow=people.find(u=>u.id===auth.uid(session))||null;
       /* whoami is the truth when the migration has been run. Before it has,
          fall back to what we can see: an install with no crm_users at all
@@ -3689,7 +3711,7 @@ export default function App(){
             saveLog={saveMlog} saveKbNote={saveKbNote} setStatus={pocketStatus}
             deleteRecording={pocketDelete} saveProposals={db.savePocketProposals}/>
         </div></div></div>; })()}
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -7853,7 +7875,19 @@ function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSchedule,
         The owner branches are untouched. */}
     {gcalConnected
       ? (rep
-          ? <div className="mtg-acct"><CalendarClock size={12}/>Goes on {calOwner?<><b>{calOwner}</b>’s</>:<>the owner’s</>} Google Calendar, not yours{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>
+          /* Name the ACCOUNT, and prefix the person only when we can prove
+             who it is. gcalEmail comes from /api/google-status, which any
+             signed-in user may call — so it is the one answer a rep can always
+             be given, and it is the literal truth about where the event goes.
+             The name is the nicety; the address is the fact. Two owners with
+             no matching email means we decline to name one rather than guess,
+             but the rep is no longer left with a nameless sentence. */
+          ? <div className="mtg-acct"><CalendarClock size={12}/>Goes on {
+              calOwner&&gcalEmail ? <><b>{calOwner}</b>’s calendar — <b>{gcalEmail}</b></>
+              : calOwner ? <><b>{calOwner}</b>’s Google Calendar</>
+              : gcalEmail ? <><b>{gcalEmail}</b></>
+              : <>the owner’s Google Calendar</>
+            }, not yours{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>
           : <div className="mtg-acct"><CalendarClock size={12}/>Goes on <b>{gcalEmail||'the connected Google account'}</b>{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>)
       : (rep
           ? <div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected, so this won’t reach a calendar. {calOwner?<><b>{calOwner}</b> has to connect it</>:<>The owner has to connect it</>} — schedule anyway, the meeting is saved in the CRM either way.</span></div>
@@ -7980,7 +8014,7 @@ function MeetingBlock({r}){
   </div>);
 }
 
-function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,events,mlogs,goEvents}){
+function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -8041,7 +8075,7 @@ function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,o
     .map(r=>r.m.location),[allLeads]);
   /* Only a rep is ever shown this, but it is computed either way — a hook that
      runs conditionally is a hook that changes the render's hook count. */
-  const calOwner=useMemo(()=>calendarOwner(users,gcalEmail),[users,gcalEmail]);
+  const calOwner=useMemo(()=>calendarOwner(teamRoster,users,gcalEmail),[teamRoster,users,gcalEmail]);
   /* REP PAY. The appointment fee follows WHOEVER SET IT, not the lead's owner —
    leads get reassigned and a rep must not lose a fee they earned because a lead
    moved. Stamped once, at creation, and never changed. */
@@ -8897,10 +8931,19 @@ function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,o
                 </div>
               : atype==='Booked' ? null
               : <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
-            {/* Who needs to see this. Names come from the team, so it can't
-                drift from who actually has a login. */}
-            {(()=>{ const team=(users&&users.length?users.filter(u=>u.active!==false).map(u=>u.name):BRAND.team)
+            {/* Who needs to see this. Names come from crm_team(), so it can't
+                drift from who actually has a login.
+                It used to come from `users`, which RLS narrows to a REP'S OWN
+                ROW — so for a rep the list was [me], minus me, empty, and the
+                whole control returned null. A rep has never been able to tag
+                anybody, which is the one thing REP-AUDIT #3 says is most worth
+                their while. crm_team() carries names and roles and no money.
+                Falls back to `users` then BRAND.team so an install without
+                TEAM-MIGRATION.sql behaves exactly as it does today. */}
+            {(()=>{ const roster=(teamRoster&&teamRoster.length?teamRoster.map(u=>u.name)
+                : (users&&users.length?users.filter(u=>u.active!==false).map(u=>u.name):BRAND.team))
                 .filter(n=>n&&n!==me);
+              const team=[...new Set(roster)];
               if(!team.length) return null;
               return (<div className="tagpick">
                 <span>Tag</span>

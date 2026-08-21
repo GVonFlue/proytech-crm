@@ -116,6 +116,45 @@ about where the rep's work went, so guessing is worse than declining to.
 Covered by `tests/repdefaults.mjs`, including the owner view being unchanged on
 both branches.
 
+## 3b. A rep could not @mention anyone, and was never told whose calendar — **FIXED**
+
+Found while designing the lead-view redesign, and it is one bug wearing two
+faces. `crm_users` has:
+
+```sql
+create policy users_read on crm_users
+  for select using (id = auth.uid() or is_owner());
+```
+
+So a rep selecting `crm_users` gets **exactly one row: their own**. The browser
+treated that array as "the team" in two places:
+
+- **The @mention picker.** It built `team = users.filter(active).map(name)`,
+  removed the signed-in person, got `[]`, and hit `if (!team.length) return
+  null`. The control did not render **at all**. #3 above calls flagging
+  something to the owner the most useful thing a rep can do, and it has never
+  once been reachable by one.
+- **`calendarOwner()`.** It looked for `role='owner'` in that same array,
+  found none, and fell back to "the owner's Google Calendar" with no name.
+  This was reported as an email-mapping problem in the account cleanup. It was
+  not — it would have failed the same way after the mapping was corrected.
+
+**Fix:** `crm_team()` in `TEAM-MIGRATION.sql` — a security-definer RPC
+returning `id, name, role` for every active person and nothing else. Same trade
+`crm_leaderboard()` already makes, for the same stated reason. **No money
+crosses it by construction: there is no amount column.** Widening `users_read`
+instead would have handed every rep the whole row, rates included.
+
+The scheduler now names the **account** (`gcalEmail`, which any signed-in user
+may read via `/api/google-status`) and prefixes the **person** only when one
+owner is unambiguous. Two owners with no matching email still refuses to guess
+— naming the wrong person states a falsehood about where a rep's work went —
+but the sentence is now useful rather than merely honest.
+
+Covered by `tests/repteam.mjs`, written from the rep's side, including that the
+roster does not become a back door to pay and that an install without the
+migration degrades rather than crashes.
+
 ## 4. JARVIS: the payload is clean; the exposure is whatever #2 leaks
 
 Checked directly rather than assumed. For a rep:
@@ -334,7 +373,7 @@ assume they do.
 # Suggested order
 
 **Done:** #2 (pool cleared on claim), #3 (the scheduler names whose calendar it
-is), #6 (a rep dashboard with a next action), #7 and #8 (the two strings), #9
+is), #3b (a rep can tag a colleague, and is told which account a booking hits), #6 (a rep dashboard with a next action), #7 and #8 (the two strings), #9
 (the composer defaults to Call), #11 (a Meetings tab). #1 resolved as a
 documentation fix.
 

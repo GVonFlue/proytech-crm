@@ -380,6 +380,25 @@ export const db = {
       /* so a screen can tell "not on appointment pay" from "column never ran" */
       _missingCols: dropped }));
   },
+  /* WHO ELSE IS ON THE TEAM — names and roles only.
+     Separate from getUsers() on purpose. getUsers() reads crm_users directly,
+     and RLS (users_read) gives a REP exactly one row: their own. Anything in
+     the app that needs "the team" — the @mention picker, naming the owner
+     whose calendar a booking lands on — was therefore getting a list of one
+     and silently degrading.
+     crm_team() is a security-definer RPC in TEAM-MIGRATION.sql returning
+     id/name/role and nothing else. No money crosses it, by construction.
+     Falls back to [] on an install that has not run the migration, so the
+     callers degrade exactly as they do today rather than throwing. */
+  async team() {
+    const { data, error } = await supabase.rpc('crm_team');
+    if (error) {
+      /* 42883 / PGRST202 = the function does not exist yet */
+      if (error.code === '42883' || error.code === 'PGRST202') return [];
+      throw error;
+    }
+    return (data || []).map(u => ({ id: u.id, name: u.name || '', role: u.role || 'rep' }));
+  },
   async whoami() {
     const { data, error } = await supabase.rpc('crm_whoami');
     if (error) { if (error.code === '42883' || error.code === 'PGRST202') return null; throw error; }
