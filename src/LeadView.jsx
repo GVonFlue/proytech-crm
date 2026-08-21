@@ -24,7 +24,7 @@
 import React, { Fragment, useEffect, useMemo, useState } from 'react';
 import { BRAND } from './lib/brand';
 import {
-  ACT_TYPES, CMSN_STATE, DATE_LEAD_DEFAULT, DEFAULT_DELIVERY_TRACKS, GOLD, GREEN,
+  ACT_TYPES, CMSN_STATE, DATE_LEAD_DEFAULT, DEFAULT_DELIVERY_TRACKS,
   MEETING_TYPES, OWNERS, PRIORITIES, REL_TIERS, actLabel, activeTracks, allMeetings,
   blankFirst, bookedCount, calendarOwner, clientOverall, closedDealsTotal, cmsnAmount,
   cmsnOf, dateVocab, datelessOf, dayLabel, daysToDate, daysUntil, dealsOf, depositPaidAt,
@@ -242,8 +242,8 @@ export function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
 export function MLogRow({label,children}){
   return (<div style={{display:'flex',gap:8,marginTop:5,alignItems:'baseline'}}>
     <span style={{flex:'none',width:86,fontSize:10.5,fontWeight:800,letterSpacing:'.04em',
-      textTransform:'uppercase',color:'#A6A2BC'}}>{label}</span>
-    <span style={{flex:1,minWidth:0,fontSize:12.5,lineHeight:1.5,color:'#56527a'}}>{children}</span>
+      textTransform:'uppercase',color:'var(--ink-mid)'}}>{label}</span>
+    <span style={{flex:1,minWidth:0,fontSize:12.5,lineHeight:1.5,color:'var(--dim)'}}>{children}</span>
   </div>);
 }
 export function MeetingBlock({r}){
@@ -262,7 +262,7 @@ export function MeetingBlock({r}){
         {w.quote?<i style={{opacity:.8}}> &ldquo;{w.quote}&rdquo;</i>:null}</span>))}
     </MLogRow>}
     {objections.length>0&&<MLogRow label="Held back">
-      {objections.map((o,i)=>(<span key={i}>{i?'  ·  ':''}<b style={{color:'#3a3658'}}>{o.objection}</b>
+      {objections.map((o,i)=>(<span key={i}>{i?'  ·  ':''}<b style={{color:'var(--ink-hi)'}}>{o.objection}</b>
         {o.detail?' — '+o.detail:''}</span>))}
     </MLogRow>}
     {!!money&&<MLogRow label="Money">{money}</MLogRow>}
@@ -272,7 +272,7 @@ export function MeetingBlock({r}){
       {people.map(x=>x.name+(x.role?' ('+x.role+')':'')+(x.influence==='decides'?' · decides':'')).join('  ·  ')}
     </MLogRow>}
     {!!ns.what&&<MLogRow label="Next">
-      <b style={{color:'#3a3658'}}>{ns.what}</b>{ns.who?' — '+ns.who:''}{ns.when?' · '+ns.when:''}
+      <b style={{color:'var(--ink-hi)'}}>{ns.what}</b>{ns.who?' — '+ns.who:''}{ns.when?' · '+ns.when:''}
     </MLogRow>}
     {t&&<MLogRow label="Read">
       <span className="pill" style={{background:t.bg,color:t.fg,marginRight:6}}>{t.label}</span>
@@ -696,7 +696,7 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             {!isNew&&_list.length>1&&<>
               <button className="m-x" disabled={!prevId} onClick={()=>prevId&&onNav(prevId)} title="Previous lead"><ChevronLeft size={18}/></button>
-              <span style={{fontSize:12,fontWeight:600,color:'#928DAD',minWidth:46,textAlign:'center'}}>{_idx+1} / {_list.length}</span>
+              <span style={{fontSize:12,fontWeight:600,color:'var(--dim)',minWidth:46,textAlign:'center'}}>{_idx+1} / {_list.length}</span>
               <button className="m-x" disabled={!nextId} onClick={()=>nextId&&onNav(nextId)} title="Next lead"><ChevronRight size={18}/></button>
             </>}
             <button className="m-x" onClick={onClose}><X size={18}/></button>
@@ -1045,7 +1045,7 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
             <div className="fn-block">
               <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(firstType===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setFirstType(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
               <textarea className="fu-note" style={{marginTop:9}} rows={3} placeholder={`How'd the ${firstType.toLowerCase()} go? What did they say?`} value={firstNote} onChange={e=>setFirstNote(e.target.value)}/>
-              <div className="fn-hint">{firstNote.trim()?<><CheckCircle2 size={12} color={GREEN}/>Logs as a {firstType} from {who} the moment you save</>:'Optional — but log it now while it\u2019s fresh'}</div>
+              <div className="fn-hint">{firstNote.trim()?<><CheckCircle2 size={12} color="var(--ok2)"/>Logs as a {firstType} from {who} the moment you save</>:'Optional — but log it now while it\u2019s fresh'}</div>
             </div>
 
             <button className="morebtn" onClick={()=>setShowMore(!showMore)}>
@@ -1066,18 +1066,18 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
           {/* ---------- 4. DELIVERY (clients only) ---------- */}
           {!isNew&&draft.isClient&&(()=>{ const tracks=activeTracks(draft,settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const ov=clientOverall(draft,settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS);
             return (<div className="dr-sec deliv">
-              <div className="dh" style={{justifyContent:'space-between',display:'flex'}}><span style={{display:'flex',alignItems:'center',gap:8}}><Rocket size={13}/>Delivery</span><span style={{fontSize:11,color:'#928DAD',fontWeight:600}}>Client since {fmtDate(draft.convertedAt)}</span></div>
+              <div className="dh" style={{justifyContent:'space-between',display:'flex'}}><span style={{display:'flex',alignItems:'center',gap:8}}><Rocket size={13}/>Delivery</span><span style={{fontSize:11,color:'var(--dim)',fontWeight:600}}>Client since {fmtDate(draft.convertedAt)}</span></div>
               {tracks.map(tr=>{ const p=trackProgress(draft,tr); return (<div className="track" key={tr.key}>
                 <div className="track-h"><b>{tr.label}</b>{p.overdue>0?<span className="phase od">{p.overdue} overdue</span>:p.nextDue?<span className="phase">Next due {fmtDate(p.nextDue)}</span>:<span className="phase">{p.current?p.current:'Delivered ✓'}</span>}</div>
                 <div className="pbar"><div style={{width:Math.round(p.pct*100)+'%'}}/></div>
                 <div className="mslist">{p.ms.map(m=>{ const e=p.entries[m]; const done=!!e.done; const od=!done&&e.due&&daysUntil(e.due)<0; return (<div className={'ms'+(done?' on':'')+(od?' over':'')} key={m}>
-                  <span className="mcheck" onClick={()=>toggleMilestone(draft.id,tr.key,m)}>{done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color={od?'#D14343':'#C9C5D9'}/>}<span className="mtxt">{m}</span></span>
+                  <span className="mcheck" onClick={()=>toggleMilestone(draft.id,tr.key,m)}>{done?<CheckCircle2 size={17} color="var(--ok2)"/>:<Circle size={17} color={od?'#D14343':'#C9C5D9'}/>}<span className="mtxt">{m}</span></span>
                   {done
                     ? <span className="mdate done">✓ {fmtDate(e.done)}</span>
                     : <label className="msdue-w"><span className="msdue-l">{od?'overdue':'due'}</span><input type="date" className={'msdue'+(od?' over':'')} value={e.due||''} onClick={ev=>ev.stopPropagation()} onChange={ev=>setMilestoneDue(draft.id,tr.key,m,ev.target.value)}/></label>}
                 </div>); })}</div>
               </div>); })}
-              {ov.delivered&&<div className="deliv-done"><CheckCircle2 size={15} color={GREEN}/>All delivery steps complete{ov.doneDate?` · ${fmtDate(ov.doneDate)}`:''} — client marked completed.</div>}
+              {ov.delivered&&<div className="deliv-done"><CheckCircle2 size={15} color="var(--ok2)"/>All delivery steps complete{ov.doneDate?` · ${fmtDate(ov.doneDate)}`:''} — client marked completed.</div>}
               <button className="linkbtn" onClick={()=>{ if(window.confirm(
                 'Revert this client back to a lead?\n\n'+
                 '· They come off the client board and out of closed-deal counts\n'+
@@ -1205,9 +1205,9 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
               (<div className="cmsn-box">
                 <div className="cmsn-row"><span>Appointments you set</span><b>{myAppts.count}</b></div>
                 {myAppts.pending.length>0&&<div className="cmsn-row"><span>Awaiting approval</span>
-                  <b style={{color:GOLD}}>{myAppts.pending.length} · {usd(myAppts.pendingTotal)}</b></div>}
+                  <b style={{color:'var(--gold2)'}}>{myAppts.pending.length} · {usd(myAppts.pendingTotal)}</b></div>}
                 {myAppts.approved.length>0&&<div className="cmsn-row"><span>Approved</span>
-                  <b style={{color:GREEN}}>{myAppts.approved.length} · {usd(myAppts.approvedTotal)}</b></div>}
+                  <b style={{color:'var(--ok2)'}}>{myAppts.approved.length} · {usd(myAppts.approvedTotal)}</b></div>}
                 {myAppts.paid.length>0&&<div className="cmsn-row"><span>Paid</span>
                   <b>{myAppts.paid.length} · {usd(myAppts.paidTotal)}</b></div>}
                 <div className="subcell" style={{marginTop:6}}>
@@ -1381,7 +1381,7 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
               wrong question, and it was the loudest thing at the bottom of
               their record. Same for the close-tracking prompt below. */}
           {!isNew&&!draft.isClient&&!draft.isRelationship&&<div className="convert-banner">
-            <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'#56527a',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
+            <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'var(--dim)',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
             <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
           </div>}
 
@@ -1401,8 +1401,8 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
             return (<div className={'client-bar'+(paid?' paid':'')}>
               <div className="cb-l">
                 {noSetup&&!paid
-                  ? <><CheckCircle2 size={14} color={GREEN}/><span><b>Monthly only — no setup fee</b>{draft.retainerActive?` · ${usd(num(draft.retainer))}/mo`:''} · nothing held back</span></>
-                  : paid?<><CheckCircle2 size={14} color={GREEN}/><span><b>Payment confirmed {fmtDate(paid)}</b> · counting in your numbers</span></>
+                  ? <><CheckCircle2 size={14} color="var(--ok2)"/><span><b>Monthly only — no setup fee</b>{draft.retainerActive?` · ${usd(num(draft.retainer))}/mo`:''} · nothing held back</span></>
+                  : paid?<><CheckCircle2 size={14} color="var(--ok2)"/><span><b>Payment confirmed {fmtDate(paid)}</b> · counting in your numbers</span></>
                      :<><Clock size={14} color="#D97706"/><span><b>Client, payment not collected yet</b> · {usd(num(draft.dealValue))} counts once you tick <i>Deposit / first payment collected</i></span></>}
               </div>
               {/* The tick lives here, not just on the Clients page. Gating
@@ -1462,7 +1462,7 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
             const counted=inWon&&draft.closedAt;
             if(counted) return null;
             return (<div className="convert-banner fix">
-              <div><b>Not counted in your numbers</b><div style={{fontSize:12.5,color:'#56527a',marginTop:2}}>This client has no close date{!inWon?' and isn’t in your won stage':''}, so deals-closed and revenue skip them. Set the date the deal actually closed.</div></div>
+              <div><b>Not counted in your numbers</b><div style={{fontSize:12.5,color:'var(--dim)',marginTop:2}}>This client has no close date{!inWon?' and isn’t in your won stage':''}, so deals-closed and revenue skip them. Set the date the deal actually closed.</div></div>
               <button className="btn btn-p" onClick={()=>{
                 const d=window.prompt('What date did this deal close? (YYYY-MM-DD)', draft.convertedAt||draft.closedAt||todayISO());
                 if(d===null) return; const clean=String(d).trim().slice(0,10);
@@ -1478,7 +1478,7 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
         <button className="btn btn-p" onClick={create}><Plus size={16}/>Create Lead</button>
         <button className="btn btn-g" onClick={onClose}>Cancel</button>
         <span className="m-foot-n">{draft.name.trim()
-          ? <><CheckCircle2 size={13} color={GREEN}/>{draft.name}{draft.company?' · '+draft.company:''} &rarr; {draft.owner}</>
+          ? <><CheckCircle2 size={13} color="var(--ok2)"/>{draft.name}{draft.company?' · '+draft.company:''} &rarr; {draft.owner}</>
           : 'Name is the only thing required'}</span>
       </div>}
     </div>
