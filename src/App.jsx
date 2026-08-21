@@ -918,6 +918,134 @@ const CSS=`
 .fu-chip:hover{border-color:${COBALT};color:${COBALT}}
 .fu-chip.clear{margin-left:auto;color:#8b88a0}
 .fu-chip.clear:hover{border-color:${RED};color:${RED}}
+/* a folded run of machine-written notes: quiet, one tap to open, never hidden */
+.sysrun{display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;
+  background:#F7F8FC;border:1px dashed #DFE1EE;border-radius:9px;padding:7px 11px;margin:2px 0;
+  font-family:inherit;font-size:12px;color:#8b88a0}
+.sysrun:hover{border-color:#C7CBE0;color:#56527a}
+.sysrun b{color:#56527a;font-weight:700}
+.sysrun em{font-style:normal;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.75}
+.sysrun-ch{flex:none;transition:transform .15s}
+.sysrun.open .sysrun-ch{transform:rotate(180deg)}
+.fitem.sys{opacity:.72}
+
+/* ============================================================================
+   THE LEAD VIEW, PAINTED.  Scoped entirely under .modal.lead — every rule below
+   needs that ancestor, so the five other modals and every page keep the light
+   CRM they have always had.
+
+   THE PALETTE IS NOT NEW. It is the token set already shipping in
+   src/Jarvis.jsx, which itself borrows the sidebar's: the deep navy plate, the
+   26px circuit grid, right-angle traces in cobalt-to-cyan. Dark here is the
+   THIRD instance of a language this app already speaks, not a fourth idea —
+   which is the whole reason it reads as deliberate next to a light Leads table
+   rather than as a bug.
+
+   The one rule that carries the look: an active or important thing is a LIT
+   EDGE plus a soft outer glow, never a solid slab. Cyan is the machine. Gold is
+   anything that needs a person — which is why the follow-up module is gold and
+   turns red once it is overdue.
+   ========================================================================== */
+.modal.lead{
+  --arc:#38BDF8; --arc2:#7FD8FF; --arc3:#EAFBFF; --cob:#2B4DE0;
+  --gold:#E0A22B; --gold2:#F2C55C; --hot:#C1352B; --ok:#3FB978;
+  --plate:#0F1433; --plate2:#0A0E27; --plate3:#05071A;
+  --ink:#DCF3FB; --ink-hi:#F2FCFF; --ink-mid:#BDEAFA;
+  --dim:rgba(127,216,255,.52); --faint:rgba(127,216,255,.3);
+  --line:rgba(56,189,248,.16); --line-hi:rgba(56,189,248,.34);
+  color:var(--ink);
+  background:radial-gradient(1200px 460px at 50% -14%,rgba(56,189,248,.17),transparent 64%),
+             linear-gradient(180deg,var(--plate) 0%,var(--plate2) 55%,var(--plate3) 100%);
+  border:1px solid rgba(56,189,248,.22);
+  box-shadow:0 26px 70px -34px rgba(0,0,0,.9),inset 0 1px 0 rgba(127,216,255,.12)}
+.modal.lead::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.5;
+  background-image:linear-gradient(rgba(56,189,248,.055) 1px,transparent 1px),
+                   linear-gradient(90deg,rgba(56,189,248,.055) 1px,transparent 1px);
+  background-size:26px 26px}
+.modal.lead::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.18;
+  background:repeating-linear-gradient(0deg,rgba(56,189,248,.06) 0 1px,transparent 1px 3px)}
+.modal.lead>*{position:relative;z-index:1}
+
+/* --- head, jump bar, rails ------------------------------------------------ */
+.modal.lead .m-head{background:linear-gradient(180deg,rgba(5,7,26,.62),rgba(5,7,26,.28));border-bottom:1px solid var(--line)}
+.modal.lead .m-head h2{color:var(--ink-hi)}
+.modal.lead .m-head .co,.modal.lead .m-head .meta{color:var(--dim)}
+.modal.lead .m-jump{background:linear-gradient(180deg,rgba(5,7,26,.5),rgba(5,7,26,.22));border-bottom:1px solid var(--line)}
+.modal.lead .mj-l{color:var(--dim)}
+.modal.lead .m-prep{background:rgba(5,7,26,.24);border-right:1px solid var(--line)}
+.modal.lead .m-right{background:rgba(5,7,26,.1);border-right:1px solid var(--line);border-left:0}
+.modal.lead .m-left{background:transparent}
+.modal.lead .dh{color:var(--ink-mid)}
+.modal.lead .subcell,.modal.lead .fmeta{color:var(--dim)}
+
+/* --- controls ------------------------------------------------------------- */
+.modal.lead input,.modal.lead select,.modal.lead textarea{
+  background:rgba(56,189,248,.05);border:1px solid var(--line-hi);color:var(--ink-hi)}
+.modal.lead input:focus,.modal.lead select:focus,.modal.lead textarea:focus{
+  outline:none;border-color:rgba(56,189,248,.6);box-shadow:0 0 0 3px rgba(56,189,248,.12)}
+.modal.lead input::placeholder,.modal.lead textarea::placeholder{color:var(--faint)}
+.modal.lead label{color:var(--dim)}
+.modal.lead .m-x{color:var(--arc2);border-color:var(--line-hi);background:rgba(56,189,248,.05)}
+.modal.lead .m-x:hover{background:rgba(56,189,248,.14)}
+
+/* --- the fact strip and jump chips: lit edge, not slab -------------------- */
+.modal.lead .mf{background:linear-gradient(90deg,rgba(43,77,224,.16),rgba(43,77,224,.04));
+  border:1px solid var(--line);box-shadow:inset 2px 0 0 rgba(56,189,248,.5);color:var(--ink)}
+.modal.lead .mf i{color:var(--dim)}
+.modal.lead .mf b{color:var(--ink-hi)}
+.modal.lead .mf.hot{border-color:rgba(224,162,43,.4);box-shadow:inset 2px 0 0 var(--gold)}
+.modal.lead .mj{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .mj.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
+  border-color:rgba(56,189,248,.55);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(56,189,248,.9)}
+
+/* --- FOLLOW-UP: gold, because a promise is a person's ---------------------- */
+.modal.lead .m-prep .fu-block{border:1px solid rgba(224,162,43,.34);border-radius:12px;padding:12px;
+  background:linear-gradient(180deg,rgba(224,162,43,.13),rgba(224,162,43,.03));
+  box-shadow:inset 2px 0 0 var(--gold),0 0 30px -14px rgba(224,162,43,.75)}
+.modal.lead .m-prep .fu-block label{color:rgba(241,223,187,.72)}
+.modal.lead .fu-chip{background:rgba(224,162,43,.09);border:1px solid rgba(224,162,43,.32);color:#F1DFBB}
+.modal.lead .fu-chip:hover{border-color:var(--gold2);color:#FFF3DC}
+.modal.lead .fu-chip.clear{color:rgba(241,223,187,.6)}
+.modal.lead .fu-when{color:#F6E7C8}
+.modal.lead .fu-when.od{color:#FFC9C2}
+/* overdue turns the whole module red — the state you must not scroll past */
+.modal.lead .m-prep .fu-block:has(.fu-when.od){border-color:rgba(193,53,43,.46);
+  background:linear-gradient(180deg,rgba(193,53,43,.16),rgba(193,53,43,.04));
+  box-shadow:inset 2px 0 0 var(--hot),0 0 30px -14px rgba(193,53,43,.8)}
+.modal.lead .touchbar{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink)}
+.modal.lead .touchbar b{color:var(--ink-hi)}
+.modal.lead .touchbar span,.modal.lead .touchbar em{color:var(--dim)}
+
+/* --- sections ------------------------------------------------------------- */
+.modal.lead .msec{background:linear-gradient(180deg,rgba(15,20,51,.72),rgba(10,14,39,.5));
+  border:1px solid var(--line)}
+.modal.lead .msec-t{color:var(--ink-mid)}
+.modal.lead .msec-s{color:var(--dim)}
+.modal.lead .msec.open{border-color:var(--line-hi);box-shadow:inset 2px 0 0 var(--arc)}
+
+/* --- the feed: cyan for the machine, gold for a person -------------------- */
+.modal.lead .fday{color:var(--dim)}
+.modal.lead .fitem{background:linear-gradient(90deg,rgba(43,77,224,.15),rgba(43,77,224,.03));
+  border:1px solid var(--line);box-shadow:inset 2px 0 0 var(--arc)}
+.modal.lead .fitem .ftxt{color:var(--ink)}
+.modal.lead .fitem.note{background:linear-gradient(90deg,rgba(224,162,43,.11),rgba(224,162,43,.02));
+  border-color:rgba(224,162,43,.24);box-shadow:inset 2px 0 0 var(--gold)}
+.modal.lead .fic{color:var(--arc2)}
+.modal.lead .fitem.note .fic{color:var(--gold2)}
+.modal.lead .sysrun{background:rgba(5,7,26,.4);border:1px dashed rgba(56,189,248,.26);color:var(--faint)}
+.modal.lead .sysrun:hover{border-color:var(--line-hi);color:var(--dim)}
+.modal.lead .sysrun b{color:var(--ink-mid)}
+.modal.lead .ftag{background:rgba(56,189,248,.12);border:1px solid var(--line-hi);color:var(--ink-mid)}
+.modal.lead .afilter button{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .afilter button.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
+  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+.modal.lead .act-t{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .act-t.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
+  border-color:rgba(56,189,248,.55);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(56,189,248,.9)}
+.modal.lead .compose-open{background:rgba(56,189,248,.06);border:1px dashed var(--line-hi);color:var(--ink-mid)}
+.modal.lead .compose-open:hover{border-style:solid;color:var(--ink-hi)}
+.modal.lead .empty{color:var(--dim)}
+@media (prefers-reduced-motion:reduce){.modal.lead,.modal.lead *{animation:none!important;transition:none!important}}
 /* Expand still gives the feed the whole surface; the rails step aside. */
 .m-grid.lead3.wide{grid-template-columns:minmax(0,1fr)}
 @media (max-width:1240px){
