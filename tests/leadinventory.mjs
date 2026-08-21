@@ -84,6 +84,13 @@ const MARCUS = { id:'rel1', name:'Marcus Webb', company:'Webb Lending', stage:'n
   owner:'Garrett', owner_id:'u_owner', createdAt:ago(400), isRelationship:true,
   relTier:'inner', activities:[], meetings:[], custom:{} };
 
+/* Marcus with a ledger: one entry linked to a lead that exists, and one linked
+   to a lead id that does not — the shape a deleted record leaves behind. */
+const MARCUS_WITH_LEDGER = () => ({ ...MARCUS, referralsOut:[
+  { id:'r1', leadId:'L1', name:'Sarah Chen', note:'warm, wants a site', sentAt:'2026-07-02' },
+  { id:'r2', leadId:'gone-9', name:'Dana Ruiz', note:'', sentAt:'2026-06-11' },
+] });
+
 /* One lead carrying one of everything the view can render. */
 const RICH = over => ({
   id:'L1', name:'Sarah Chen', company:'Chen Realty', businessType:'Real Estate',
@@ -424,6 +431,32 @@ await boot({ users:[OWNER], leads:[MARCUS, FILLER, RICH()] });
 await openRel('Marcus Webb');
 await openAllSecs();
 ok('G4h','people introduced by this contact', q('.rel-gave'), T().slice(0, 160));
+
+/* G4R — the referral ledger. Marcus introduced Sarah in this fixture, so the
+   inbound side has something real in it rather than a zero that would pass
+   whether or not the derivation works. */
+ok('G4Ra','ledger headline: given · received · collected', qa('.rl-stat').length === 3,
+   qa('.rl-stat').map(e => (e.textContent||'').trim()).join(' | '));
+ok('G4Rb','"collected" says it is not pipeline',
+   qa('.rl-stat').some(e => /not pipeline/i.test(e.getAttribute('title')||'')),
+   qa('.rl-stat').map(e => e.getAttribute('title')||'—').join(' | '));
+ok('G4Rf','inbound list — who they sent',
+   qa('.rl-link').some(b => /Sarah Chen/.test(b.textContent||'')),
+   qa('.rl-link').map(b => b.textContent).join(', '));
+ok('G4Re','add form opens', q('.rl-add'), T().slice(0, 120));
+await click(qa('.rl-add')[0]);
+await settle(80);
+ok('G4Re','  and takes a name that was never a lead', q('.rl-form .rl-in'));
+
+/* an outbound entry of each shape, straight into the fixture, so the row
+   rendering is asserted rather than the writing of it */
+await boot({ users:[OWNER], leads:[MARCUS_WITH_LEDGER(), FILLER, RICH()] });
+await openRel('Marcus Webb');
+await openAllSecs();
+ok('G4Rc','outbound rows: name, note, date, remove',
+   qa('.rl-row').length >= 2 && q('.rl-row .ex-del'), String(qa('.rl-row').length));
+ok('G4Rd','a dangling link reads as removed',
+   /record removed/.test(T()), T().slice(0, 200));
 
 console.log(`\n${pass} present, ${fail} MISSING\n`);
 if (fail) { console.log('Missing inventory items:'); missing.forEach(m => console.log('  · ' + m)); console.log(); }

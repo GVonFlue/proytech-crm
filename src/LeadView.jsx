@@ -32,7 +32,8 @@ import {
   keyDatesOf, labelVocab, labelsOf, lastContact, manualSponsorships, needsDate, normEntry,
   num, nurtureDaysOf, onbSkipped, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
   stdPhases, stripTagText, tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc,
-  gmailCompose, isSystemNote, yearsAt
+  gmailCompose, isSystemNote, yearsAt,
+  referralsOut, mkReferral, introducedLeads, referralTarget,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import {
@@ -58,6 +59,7 @@ import {
   FileText,
   Gift,
   Globe,
+  Handshake,
   Loader2,
   Mail,
   MapPin,
@@ -305,7 +307,42 @@ function ContactAct({ icon, label, value, href, missing, blank }){
   </div>);
 }
 
-export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
+
+/* ADDING AN OUTBOUND REFERRAL.
+
+   Two shapes, one control. Either it is a lead already on file — pick it, and
+   the entry carries the link plus the name as it stands today — or it is a name
+   that was never your lead, typed in. The picker is a datalist rather than a
+   select so typing a name nobody has on file is a first-class outcome instead
+   of a dead end: what you type becomes the unlinked shape.
+
+   No outcome field, on purpose. See lib/lead's note. */
+function ReferralAdd({leads,onAdd}){
+  const [who,setWho]=useState('');
+  const [note,setNote]=useState('');
+  const [when,setWhen]=useState(todayISO());
+  const [open,setOpen]=useState(false);
+  const match=(leads||[]).find(l=>((l.name||l.company||'').toLowerCase())===who.trim().toLowerCase());
+  const add=()=>{ const name=who.trim(); if(!name) return;
+    onAdd({leadId:match?match.id:'',name:match?(match.name||match.company||name):name,note,sentAt:when||todayISO()});
+    setWho(''); setNote(''); setWhen(todayISO()); setOpen(false); };
+  if(!open) return (<button className="rl-add" onClick={()=>setOpen(true)}><Plus size={13}/>Log one you sent</button>);
+  return (<div className="rl-form">
+    <input list="rl-leads" className="rl-in" autoFocus placeholder="Who did you send them?"
+      value={who} onChange={e=>setWho(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()}/>
+    <datalist id="rl-leads">{(leads||[]).map(l=><option key={l.id} value={l.name||l.company||''}/>)}</datalist>
+    <input className="rl-in" placeholder="Note (optional)" value={note} onChange={e=>setNote(e.target.value)}
+      onKeyDown={e=>e.key==='Enter'&&add()}/>
+    <input type="date" className="rl-in rl-date" value={when} onChange={e=>setWhen(e.target.value)}/>
+    <div className="rl-acts">
+      <span className="rl-hint">{match?<>links to <b>{match.name||match.company}</b></>:who.trim()?'not a lead on file — saved as a name':'\u00a0'}</span>
+      <button className="btn btn-p btn-sm" disabled={!who.trim()} onClick={add}>Add</button>
+      <button className="btn btn-g btn-sm" onClick={()=>{setOpen(false);setWho('');setNote('');}}>Cancel</button>
+    </div>
+  </div>);
+}
+
+export function Modal({lead,isNew,inbound,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -1161,6 +1198,66 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
 
           {!draft.isRelationship&&typeSection}
 
+            {/* THE REFERRAL LEDGER — relationships only.
+
+                Asymmetric on purpose. Received is a count and a dollar figure,
+                because those are leads of yours and you know what they closed
+                for. Given is a count of favours with no outcome: you will never
+                reliably learn what a referral was worth to them, and a field
+                nobody fills is worse than no field.
+
+                The money comes in as a prop from useMetrics — the same hook the
+                Dashboard runs — rather than being summed here, so the two
+                screens cannot disagree about what a closed deal is worth. */}
+            {draft.isRelationship&&Sec('refer',<Handshake size={13}/>,'Referrals',
+              (()=>{ const g=referralsOut(draft).length; const r=(inbound&&inbound.count)||0;
+                return g||r?`${g} given · ${r} received`:'none yet'; })(),
+              <>
+                <div className="rl-head">
+                  <div className="rl-stat"><b>{referralsOut(draft).length}</b><span>given</span></div>
+                  <div className="rl-sep"/>
+                  <div className="rl-stat"><b>{(inbound&&inbound.count)||0}</b><span>received</span></div>
+                  <div className="rl-sep"/>
+                  <div className="rl-stat" title="Won and collected — not pipeline. The same figure the Dashboard counts as revenue.">
+                    <b>{usdc((inbound&&inbound.value)||0)}</b><span>collected</span></div>
+                </div>
+
+                <div className="dh mt"><UserPlus size={13}/>Sent to them</div>
+                {referralsOut(draft).length===0
+                  ? <div className="rl-empty">Nothing logged yet. Add the last person you passed their way.</div>
+                  : <div className="rl-list">
+                      {[...referralsOut(draft)].sort((a,b)=>String(b.sentAt).localeCompare(String(a.sentAt))).map(r=>{
+                        const t=referralTarget(r,allLeads||[]);
+                        return (<div className="rl-row" key={r.id}>
+                          <div className="rl-who">
+                            {t.lead
+                              ? <button className="rl-link" onClick={()=>onNav&&onNav(t.lead.id)}>{t.name}</button>
+                              : <span className="rl-name">{t.name}{t.gone?<em> · record removed</em>:null}</span>}
+                            {r.note?<span className="rl-note">{r.note}</span>:null}
+                          </div>
+                          <span className="rl-when">{fmtDate(r.sentAt)}</span>
+                          <button className="ex-del" title="Remove from the ledger" onClick={()=>
+                            set({referralsOut:referralsOut(draft).filter(x=>x.id!==r.id)})}><X size={13}/></button>
+                        </div>);
+                      })}
+                    </div>}
+                <ReferralAdd leads={(allLeads||[]).filter(l=>!l.isRelationship)}
+                  onAdd={e=>set({referralsOut:[...referralsOut(draft),mkReferral(e)]})}/>
+
+                <div className="dh mt"><Users size={13}/>Sent to you</div>
+                {(()=>{ const got=introducedLeads(draft,allLeads||[]);
+                  if(!got.length) return <div className="rl-empty">No one yet.</div>;
+                  return (<div className="rl-list">
+                    {got.map(l=>(<div className="rl-row" key={l.id}>
+                      <div className="rl-who">
+                        <button className="rl-link" onClick={()=>onNav&&onNav(l.id)}>{l.name||l.company||'(unnamed)'}</button>
+                        {l.company&&l.name?<span className="rl-note">{l.company}</span>:null}
+                      </div>
+                      <span className="rl-when">{fmtDate(l.createdAt)}</span>
+                    </div>))}
+                  </div>); })()}
+              </>
+            )}
             {Sec('spon',<Award size={13}/>,'Sponsorship',
               draft.pastSponsor?'Past sponsor':draft.potentialSponsor?'Potential sponsor':'no',
               <>

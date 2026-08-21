@@ -184,8 +184,17 @@ await boot({ users:[REP], leads:[{ ...LEAD, owner:'Tony Porter', owner_id:'u_rep
 await openLead('Sarah Chen'); await openAll();
 scan('rep');
 
-await boot({ users:[OWNER], leads:[{ ...LEAD, isRelationship:true, isClient:false }, FILLER] });
+/* the relationship carries a populated referral ledger, one linked entry and
+   one dangling, because an empty section paints nothing and would have let the
+   ledger through the way the empty meeting list would have hidden the card */
+await boot({ users:[OWNER], leads:[{ ...LEAD, isRelationship:true, isClient:false,
+  referralsOut:[
+    { id:'r1', leadId:'l2', name:'Marcus Webb', note:'warm, wants a site', sentAt:'2026-07-02' },
+    { id:'r2', leadId:'gone-9', name:'Dana Ruiz', note:'', sentAt:'2026-06-11' },
+  ] }, { ...FILLER, introducedBy:'l1' }] });
 await openRel('Sarah Chen'); await openAll();
+/* and the add form open, which is a surface of its own */
+{ const b = curEl.querySelector('.rl-add'); if (b) { await click(b); await settle(90); } }
 scan('relationship');
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
