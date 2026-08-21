@@ -486,3 +486,13 @@ export const sponsorshipsOf=(lead,events)=>{
 /* ===================== RELATIONSHIPS ===================== */
 export const REL_TIERS=[['champion','Champions','#C8A24A'],['b','B Tier','#2B4DE0'],['new','New Relationships','#1F9D55']];
 export function fmtMeetingTime(iso){ try{ const d=new Date(iso); return d.toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch{ return iso; } }
+
+/* Meeting shape — moved here in the LeadView extraction (PR 1b) rather than
+   copied into it. MEETING_TYPES and needsDate are read by BOTH the Meetings
+   page and the lead view's scheduler; isDateless is what needsDate asks. */
+/* meeting types — coffee and discovery are different motions, track them apart */
+export const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboarding','Check-in','Other'];
+
+export const isDateless=m=>!!m&&!!m.dateUnknown;
+
+export const needsDate=m=>!m.status&&isDateless(m);
