@@ -32,7 +32,7 @@ import {
   keyDatesOf, labelVocab, labelsOf, lastContact, manualSponsorships, needsDate, normEntry,
   num, nurtureDaysOf, onbSkipped, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
   stdPhases, stripTagText, tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc,
-  gmailCompose, yearsAt
+  gmailCompose, isSystemNote, yearsAt
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import {
@@ -612,8 +612,9 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
      else: not what is stored, not any count. The Notes chip and the contact
      tally are still inflated by these, which is a separate and real bug —
      written up in TOUCH-COUNT-FINDING.md and deliberately not fixed here. */
-  const SYS_NOTE=/^(Lead created\.|Follow-up cleared\.|Follow-up done —|Stage moved:|Deal value set to|Phase →|Close date set to|Commission approved|Commission voided|Converted to client|Signed — onboarding|Reverted to lead|Invoice |Payment confirmed |Payment marked as not collected|Deal closed:|New build started:|Sponsorship logged:|Dated:)/;
-  const isSysNote=a=>!!a&&a.type==='Note'&&!a.derived&&SYS_NOTE.test(String(a.text||''));
+  /* isSystemNote lives in lib/lead now — the fold and anything that counts
+     notes have to agree, and they cannot agree while each keeps its own list. */
+  const isSysNote=isSystemNote;
   /* Runs of them collapse into one line. A single one is left alone — hiding
      it behind a disclosure would cost a click to read one sentence. */
   const feedRuns=useMemo(()=>{

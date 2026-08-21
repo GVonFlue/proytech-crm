@@ -137,6 +137,59 @@ export const dayLabel=iso=>{ const t=isoOf(new Date());
 /* what counts as real outreach — shared by the untouched filter and the
    batch-delete warning so the two can't drift apart */
 export const REACHED_TYPES=new Set(['Call','Text','Email','Meeting','Booked','Payment']);
+
+/* ---- machine notes, and what actually counts as contact --------------------
+
+   The app writes notes about itself. Every one of them is stored as
+   type:'Note', identical in shape to a note a person typed, so anything that
+   counts notes counts the app talking to itself as human contact.
+
+   ONE PREDICATE, not a copy per caller. This regex previously lived as a local
+   inside LeadView, read only by the feed's fold, while two counters on the same
+   screen each did their own thing — which is how All (6) and Notes (7) ended up
+   disagreeing on one lead.
+
+   THE LIST WAS VERIFIED AGAINST THE WRITERS, not inherited. Doing that turned
+   up two families TOUCH-COUNT-FINDING.md never had: `Reassigned from X to Y.`
+   (added later, by the batch-reassign work) and `Checklist: "X"...`. A list of
+   prefixes maintained by hand goes stale the moment someone adds a note, and
+   this one already had — so tests/systemnotes.mjs scans the source for note
+   writers and fails the build when one appears that this does not match.
+   The list is the fallback for rows already in the database; the test is what
+   keeps it honest. */
+export const SYS_NOTE=/^(Lead created\.|Follow-up cleared\.|Follow-up done —|Stage moved:|Deal value set to|Phase →|Close date set to|Commission approved|Commission voided|Converted to client|Signed — onboarding|Reverted to lead|Invoice |Payment confirmed |Payment marked as not collected|Deal closed:|New build started:|Sponsorship logged:|Dated:|Reassigned from |Checklist: )/;
+export const isSystemNote=a=>!!a&&a.type==='Note'&&!a.derived&&SYS_NOTE.test(String(a.text||''));
+
+/* A REAL TOUCH is a reached type, or a note a person actually wrote.
+   Excluding notes wholesale would be as wrong as including everything: on a
+   relationship, "saw him at the chamber lunch" is the touch. */
+export const isRealTouch=a=>!!a&&(REACHED_TYPES.has(a.type)||(a.type==='Note'&&!isSystemNote(a)));
+
+/* The last time a person and this record were actually in contact.
+
+   NOT lastContact(), which takes the newest activity of ANY type and falls back
+   to createdAt. That reads a "Follow-up cleared." as contact, so a record you
+   have not spoken to in eight months can look like yesterday, and it reads an
+   untouched record as contacted on the day it was created.
+
+   Returns null when there has been no real touch. That is a true answer and a
+   useful row — "never contacted" is precisely who you are looking for — so it
+   is deliberately not softened into a date. */
+export const lastTouch=l=>{
+  let best=null;
+  for(const a of ((l&&l.activities)||[])){
+    if(!isRealTouch(a)||!a.ts) continue;
+    if(best===null||String(a.ts)>String(best)) best=a.ts;
+  }
+  return best;
+};
+/* Whole days since the last real touch; null when there has never been one. */
+export const daysSinceTouch=(l,from)=>{
+  const t=lastTouch(l); if(!t) return null;
+  const then=new Date(t).getTime(); if(isNaN(then)) return null;
+  const now=(from?new Date(from):new Date()).getTime();
+  return Math.max(0,Math.floor((now-then)/864e5));
+};
 export const labelsOf=l=>Array.isArray(l&&l.labels)?l.labels:[];
 /* ---- birthdays and key dates ---------------------------------------------
    Stored as {id,label,date,annual,lead}. `date` is YYYY-MM-DD; the year is kept
