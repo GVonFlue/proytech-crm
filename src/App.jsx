@@ -58,6 +58,7 @@ import {
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
   tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt,
   gmailIndex, setGmailIndex,
+  introducedLeads,
 } from './lib/lead';
 
 const PIE=[COBALT,INDIGO,GOLD,'#5C76EE','#8E86C9',GREEN,'#D98A3D','#7AA0F0'];
@@ -1171,6 +1172,11 @@ const CSS=`
 .modal.lead .tagchip{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink-mid)}
 .modal.lead .tagchip.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
   border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+/* .btn-g is the generic secondary button and was only ever converted inside
+   .m-danger, so every other use of it in this view was a light slab with dark
+   text on it. Converted at the source; the danger row still overrides below. */
+.modal.lead .btn-g{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);color:var(--ink-mid)}
+.modal.lead .btn-g:hover{border-color:var(--line-hi);color:var(--ink-hi);background:rgba(56,189,248,.08)}
 /* the destructive row: a lit edge, not a grey slab */
 .modal.lead .m-danger .btn-g{background:rgba(193,53,43,.08);border:1px solid rgba(193,53,43,.38);color:#FFC9C2}
 .modal.lead .m-danger .btn-g:hover{background:rgba(193,53,43,.16);border-color:rgba(193,53,43,.6);color:#FFE1DC}
@@ -1323,6 +1329,45 @@ const CSS=`
 .modal.lead .m-right{padding:20px 22px 24px}
 .modal.lead .m-prep .dh:first-child{margin-top:0}
 .modal.lead .m-right .fday{padding:14px 0 6px}
+
+/* ---- the referral ledger --------------------------------------------------
+   The headline is signal: it is the app telling you what this relationship has
+   been worth in both directions. The list and the form under it are work. */
+.modal.lead .rl-head{display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:12px;
+  background:linear-gradient(180deg,rgba(56,189,248,.12),rgba(56,189,248,.03));
+  border:1px solid var(--line-hi);box-shadow:0 0 26px -18px var(--arc)}
+.modal.lead .rl-stat{display:flex;flex-direction:column;gap:1px;min-width:0}
+.modal.lead .rl-stat b{font-size:19px;font-weight:800;color:var(--ink-hi);
+  font-family:'Space Grotesk',sans-serif;line-height:1.1}
+.modal.lead .rl-stat span{font-size:10.5px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--dim)}
+.modal.lead .rl-sep{width:1px;align-self:stretch;background:var(--line)}
+.modal.lead .rl-list{display:flex;flex-direction:column;gap:6px}
+.modal.lead .rl-row{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;
+  background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13)}
+.modal.lead .rl-who{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.modal.lead .rl-link{background:none;border:0;padding:0;text-align:left;cursor:pointer;
+  font:inherit;font-size:13.5px;font-weight:650;color:var(--arc2)}
+.modal.lead .rl-link:hover{color:var(--ink-hi);text-decoration:underline}
+.modal.lead .rl-name{font-size:13.5px;font-weight:650;color:var(--ink-hi)}
+.modal.lead .rl-name em{font-style:normal;font-weight:600;color:var(--dim)}
+.modal.lead .rl-note{font-size:11.5px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal.lead .rl-when{flex:none;font-size:11.5px;font-weight:600;color:var(--dim)}
+.modal.lead .rl-empty{font-size:12.5px;color:var(--dim);padding:8px 0 4px}
+.modal.lead .rl-add{display:flex;align-items:center;gap:7px;width:100%;justify-content:center;
+  margin-top:8px;padding:9px;border-radius:10px;border:1px dashed var(--line-hi);
+  background:transparent;color:var(--arc2);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.modal.lead .rl-add:hover{border-style:solid;color:var(--ink-hi);background:rgba(56,189,248,.07)}
+.modal.lead .rl-form{display:flex;flex-direction:column;gap:7px;margin-top:8px;padding:11px;
+  border-radius:11px;background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13)}
+.modal.lead .rl-in{width:100%;padding:8px 10px;border-radius:9px;border:1px solid var(--line);
+  background:rgba(5,7,26,.5);color:var(--ink-hi);font:inherit;font-size:13px}
+.modal.lead .rl-in:focus{outline:none;border-color:var(--arc)}
+.modal.lead .rl-date{color-scheme:dark}
+.modal.lead .rl-acts{display:flex;align-items:center;gap:8px}
+.modal.lead .rl-hint{flex:1;min-width:0;font-size:11px;color:var(--dim);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal.lead .rl-hint b{color:var(--ink-mid)}
 .modal.lead .feed{gap:9px}
 @media (prefers-reduced-motion:reduce){.modal.lead,.modal.lead *{animation:none!important;transition:none!important}}
 /* Expand still gives the feed the whole surface; the rails step aside. */
@@ -3139,6 +3184,25 @@ export default function App(){
      the Dashboard uses, over the SAME scopedBiz list. Jarvis derives no money of
      its own. A rep gets null: the figures never enter the request at all. */
   const jvMetrics=useMetrics(scopedBiz,stages,settings,txns);
+  /* INBOUND REFERRAL VALUE, for whichever record is open.
+
+     Run through useMetrics — the SAME hook the Dashboard uses — over the leads
+     this relationship introduced, rather than summing deal values here.
+     ENGINEERING §2: two screens must never disagree, and they would the moment
+     this counted a won-but-unpaid lead that the Dashboard does not. What comes
+     out is won AND cash-confirmed, which is the honest reading of "what they
+     closed for" and is why the tile says collected rather than pipeline.
+
+     Unconditional, like every hook here: it computes over an empty list when
+     nothing is open, which costs nothing and keeps the hook order stable. */
+  const introSubset=useMemo(()=>{
+    if(!activeId||activeId==='new') return [];
+    const rel=leads.find(l=>l.id===activeId);
+    return rel?introducedLeads(rel,leads):[];
+  },[activeId,leads]);
+  const introMetrics=useMetrics(introSubset,stages,settings,txns);
+  const inbound=useMemo(()=>({count:introSubset.length,value:introMetrics.wonValue,
+    mrr:introMetrics.mrr,won:introMetrics.wonCount}),[introSubset,introMetrics]);
   const jvMoney=rep?null:{mrr:jvMetrics.mrr,openPipeline:jvMetrics.pipelineValue,revenueMonth:jvMetrics.revenueMonth,collectedMonth:jvMetrics.collectedMonth,outstanding:jvMetrics.outstanding,wonValue:jvMetrics.wonValue,avgDeal:jvMetrics.avgDeal,retainers:jvMetrics.retainers,winRate:jvMetrics.winRate};
   /* leaderboard: a rep cannot read other reps' leads, so the ranking comes
      from a security-definer DB function (names + counts, never dollars). */
@@ -3872,7 +3936,7 @@ export default function App(){
             saveLog={saveMlog} saveKbNote={saveKbNote} setStatus={pocketStatus}
             deleteRecording={pocketDelete} saveProposals={db.savePocketProposals}/>
         </div></div></div>; })()}
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting}/>}
+    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting} inbound={inbound}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }

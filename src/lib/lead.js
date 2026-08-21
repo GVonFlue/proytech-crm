@@ -441,6 +441,48 @@ export const DEFAULT_DELIVERY_TRACKS=[
     milestones:['Discovery & scoping','Integrations started','Build & configuration','Testing','Integrations delivered'] },
 ];
 export const activeTracks=(lead,tracks)=>{ const svc=lead.serviceInterest||[]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]); };
+/* ---- the referral ledger --------------------------------------------------
+
+   Two directions, deliberately asymmetric.
+
+   RECEIVED is already in the data and always was: a lead carries introducedBy
+   pointing at the relationship who sent them. Those are your leads, so you know
+   what they closed for, and the money is worth showing.
+
+   GIVEN is new, and it is a count of favours with no outcome attached. You will
+   never reliably learn what a referral was worth to the other person, and a
+   field nobody fills is worse than no field — so an entry is: sent, dated,
+   optionally linked to a lead of yours, and that is all.
+
+   An entry keeps BOTH the lead id and the name as it was at the time. The id is
+   the link; the name is what survives the lead being deleted. "I sent them
+   Marcus" stays true after Marcus's record is gone, and the entry degrades to
+   the unlinked shape rather than to a blank. introducedBy already behaves this
+   way on the receiving side — it renders "(removed contact)" — so both halves
+   of the ledger tolerate a dangling id by design rather than by accident.
+
+   Stored in the lead's jsonb, so it rides the same single patch every other
+   edit does. It inherits the leads RLS exactly: a relationship you own is
+   unreadable to a rep, which is what makes this owner-only in practice. NOT by
+   construction — put a relationship in a pool and the rep in that pool reads
+   the ledger with it. Enforcing it would take a table with its own policy;
+   that trade was made deliberately and is written down here so the next person
+   does not have to rediscover it. */
+export const referralsOut=l=>Array.isArray(l&&l.referralsOut)?l.referralsOut:[];
+export const mkReferral=o=>({id:uid(),leadId:(o&&o.leadId)||'',name:String((o&&o.name)||'').trim(),
+  note:String((o&&o.note)||'').trim(),sentAt:(o&&o.sentAt)||todayISO()});
+/* The leads this relationship sent you. Self-reference is excluded: a record
+   pointed at itself would otherwise count as its own introduction. */
+export const introducedLeads=(rel,all)=>!rel?[]:(all||[]).filter(l=>l&&l.id!==rel.id&&l.introducedBy===rel.id);
+/* What an outbound entry should render as, given the leads currently on file.
+   The stored name is the fallback, never the source of truth while the link
+   resolves — a lead that was renamed should read by its current name. */
+export const referralTarget=(r,all)=>{
+  const hit=r&&r.leadId?(all||[]).find(l=>l&&l.id===r.leadId):null;
+  return hit?{name:hit.name||hit.company||'(unnamed)',lead:hit,gone:false}
+            :{name:(r&&r.name)||'(unnamed)',lead:null,gone:!!(r&&r.leadId)};
+};
+
 /* ---- introduction network: who introduced whom ---- */
 /* returns [root, ..., directIntroducer] for a contact — cycle-safe */
 export function introChain(lead,all){

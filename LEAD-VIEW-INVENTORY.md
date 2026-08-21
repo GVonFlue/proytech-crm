@@ -143,6 +143,26 @@ don't".
 - [ ] **G4g** `It all traces back to X` — when the chain is longer than one
 - [ ] **G4h** `N people came from this contact` — when they introduced anyone
 
+### G4R Referral ledger — `isRelationship` only
+
+> **AMENDMENT — six items, seven assertions, deliberately.** This is new
+> capability rather than a reorganisation of something that already existed, so
+> the gate moves from **157 to 164** rather than being held at 157 by leaving
+> the new section unasserted. Everything on this list before is still on it and
+> still asserted.
+>
+> Seven assertions for six items because G4Re is checked twice — that the form
+> opens, and that it accepts a name that was never a lead, which is the half
+> that makes it useful. G4h already works this way, so the gate has always
+> counted assertions rather than bullet points.
+
+- [ ] **G4Ra** Headline: given · received · collected
+- [ ] **G4Rb** `collected` is won-and-collected, not pipeline — stated in its tooltip
+- [ ] **G4Rc** Outbound list, newest first: name, optional note, date, remove
+- [ ] **G4Rd** A linked entry opens that lead; a dangling one reads `record removed`
+- [ ] **G4Re** Add form: an existing lead by name, or a name that was never a lead
+- [ ] **G4Rf** Inbound list — the leads this contact introduced, each opening
+
 ### G5 Sponsorship
 - [ ] **G5a** Potential sponsor toggle · **G5b** Past sponsor toggle
 - [ ] **G5c** History rows: name (clickable to Events when it came from one), date, label, amount
