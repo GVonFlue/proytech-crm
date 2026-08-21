@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useReducer } from 'react';
 import {
   Send, Loader2, Cpu, Zap, X, Paperclip, Check, AlertTriangle,
   StickyNote, ListTodo, CalendarClock, AtSign, Trash2,
@@ -229,15 +229,54 @@ const REP_SEEDS = [
   'Draft a follow-up note for my newest lead',
 ];
 
+/* ---------------------------------------------------------------------------
+   THE CONVERSATION OUTLIVES THE COMPONENT.
+
+   Jarvis is mounted by a view ternary in App, so opening a lead unmounts it and
+   useState throws the thread away. The thread lives out here instead: module
+   scope, so it survives an unmount and dies on reload. A refresh starting fresh
+   is deliberate, and module scope gets exactly that for free — no clearing code
+   to write, and nothing persisted anywhere it would have to be cleaned up.
+
+   It is a small store rather than a plain object because a request can outlive
+   the mount: ask a question, click into a lead, and the answer lands while
+   nothing is rendering. Writes go to the store first and notify whoever is
+   listening, so that answer is waiting when you come back — and arrives on its
+   own if you are already back.
+
+   Keyed by uid. Two people sharing a browser must not inherit each other's
+   thread: it quotes leads by name, and a rep's leads are not the owner's.
+   -------------------------------------------------------------------------- */
+const BLANK = { uid: null, msgs: [], pins: [], deep: false, q: '', busy: false };
+let S = { ...BLANK };
+const subs = new Set();
+const put = patch => { S = { ...S, ...patch }; for (const f of [...subs]) f(); };
+/* exported for sign-out, and so a test can start from a known thread */
+export const resetJarvis = () => put({ ...BLANK });
+
 export default function Jarvis({
   leads, stages, settings, tasks, me, myUid, rep, myPools, teamNames,
   money, addActivity, upsertTask, updateLead, openLead, kb,
 }) {
-  const [msgs, setMsgs] = useState([]);
-  const [q, setQ] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [deep, setDeep] = useState(false);
-  const [pins, setPins] = useState([]);
+  /* A different person is signed in now — the thread does not carry over.
+     Assigned rather than put(): this is render, so nobody else may be told. */
+  if (S.uid !== (myUid ?? null)) S = { ...BLANK, uid: myUid ?? null };
+
+  const [, force] = useReducer(x => x + 1, 0);
+  useEffect(() => { subs.add(force); return () => { subs.delete(force); }; }, []);
+
+  /* Same names and the same shapes as the useState pair they replace, so every
+     call site below reads unchanged — including the functional updaters, which
+     a late answer depends on resolving against the store and not a closure. */
+  const { msgs, q, busy, deep, pins } = S;
+  const setMsgs = v => put({ msgs: typeof v === 'function' ? v(S.msgs) : v });
+  const setQ    = v => put({ q:    typeof v === 'function' ? v(S.q)    : v });
+  const setBusy = v => put({ busy: typeof v === 'function' ? v(S.busy) : v });
+  const setDeep = v => put({ deep: typeof v === 'function' ? v(S.deep) : v });
+  const setPins = v => put({ pins: typeof v === 'function' ? v(S.pins) : v });
+
+  /* Transient: a half-open lead picker or a spend readout is not conversation,
+     and restoring it on the way back in would be noise, not continuity. */
   const [picker, setPicker] = useState(false);
   const [pq, setPq] = useState('');
   const [spend, setSpend] = useState(null);
