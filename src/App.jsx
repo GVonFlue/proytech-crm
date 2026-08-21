@@ -1246,6 +1246,23 @@ const CSS=`
 .modal{width:960px;max-width:96vw;max-height:90vh;background:#F4F6FB;border-radius:22px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 40px 100px -30px rgba(0,0,0,.6);animation:pop .18s ease}
 @keyframes pop{from{transform:scale(.97);opacity:.5}to{transform:none;opacity:1}}
 .m-head{background:#fff;border-bottom:1px solid #E8E9F2;padding:18px 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+/* THE SCROLLING BODY OF A MODAL, and the reason it needs saying:
+   .modal is a flex COLUMN with max-height:90vh and overflow:hidden. A flex item
+   defaults to min-height:auto, which refuses to shrink below its own content —
+   so a tall body grew past the modal, .modal clipped it, and there was NO
+   SCROLLBAR ANYWHERE. Content below the fold became unreachable rather than
+   merely off-screen. A 21-column CSV import put the Import button there.
+   min-height:0 is what lets the item shrink; overflow-y:auto is what then makes
+   the overflow reachable. Neither works without the other.
+   Four modals shared the inline style this replaces (account, import, task,
+   transaction) and all four had the bug. The lead modal (.m-grid/.m-left) and
+   the invoice modal (.inv-body) already did this correctly.
+
+   Named m-scroll and not m-body because the Pocket recording modal already
+   carries className="m-body" as a DEAD class with no rule behind it — reusing
+   the name would have silently started styling a component this change never
+   looked at. */
+.m-scroll{padding:4px 22px 22px;min-height:0;overflow-y:auto}
 .m-head h2{font-size:21px;color:${INK}}.m-head .co{font-size:16px;font-weight:500;color:#5A5680;margin-top:4px}
 .m-head .meta{font-size:11.5px;color:#A6A2BC;margin-top:6px}
 .m-head .qa{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
@@ -2072,7 +2089,11 @@ tbody tr.picked:hover{background:#E9EDFD}
 .imp-row{display:flex;align-items:center;gap:7px;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 10px}
 .imp-h{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .imp-row select{border:1px solid #E1E2EC;border-radius:7px;padding:5px 7px;font-size:12px;color:${INK};background:#fff;max-width:130px}
-.imp-warn{display:flex;align-items:center;gap:6px;font-size:12px;color:#9a5a16;background:#FFF7ED;border:1px solid #FCD9B6;border-radius:8px;padding:8px 11px;margin-top:10px}
+.imp-warn{display:flex;align-items:flex-start;gap:6px;font-size:12px;color:#9a5a16;background:#FFF7ED;border:1px solid #FCD9B6;border-radius:8px;padding:8px 11px;margin-top:10px}
+.imp-warn svg,.imp-note svg{flex:none;margin-top:1px}
+/* the neutral twin of .imp-warn: two columns onto Name or Notes is a FEATURE
+   (they get joined), so it must not wear the colour that means data loss */
+.imp-note{display:flex;align-items:flex-start;gap:6px;font-size:12px;color:#4a4763;background:#F1F3FB;border:1px solid #DDE1F0;border-radius:8px;padding:8px 11px;margin-top:10px}
 @media(max-width:640px){.imp-map{grid-template-columns:1fr}}
 .act-types{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
 .act-t{font-size:12px;font-weight:600;padding:6px 10px;border-radius:9px;border:1px solid #DEDFEA;background:#fff;color:#56527a;cursor:pointer;display:flex;align-items:center;gap:5px}
@@ -2680,7 +2701,7 @@ function AccountModal({name,email,role,onClose}){
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:460}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>My account</h2><div className="meta">{role==='owner'?'Owner':'Sales Rep'}</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
-      <div style={{padding:'4px 22px 22px'}}>
+      <div className="m-scroll">
         <div className="fgrid">
           <div className="field"><label>Name</label><input value={name||''} disabled/></div>
           <div className="field"><label>Sign-in email</label><input value={email||''} disabled/></div>
@@ -5920,11 +5941,28 @@ function ImportModal({onClose,onImport,businessTypes}){
   const skipped=headers?rows.filter(r=>!usable(r)).length:0;
   const preview=headers?rows.filter(r=>usable(r)).slice(0,6).map(buildLead):[];
   const mapped=k=>headers?headers.filter(h=>mapping[h]===k).length:0;
+  /* TWO COLUMNS ONTO ONE FIELD. buildLead treats three cases differently and
+     the UI said nothing about any of them:
+       name  -> joined with a space   (deliberate: first name + last name)
+       note  -> joined with ' | '     (deliberate)
+       everything else -> f[t]=v, so the LAST column silently wins and the
+                          earlier one is dropped with no warning at all.
+     Naming which of the three is about to happen is the whole fix — the
+     concatenating pair are a feature, the rest is data loss. */
+  const JOINS={name:'joined with a space',note:"joined with ' | '"};
+  const dupes=headers
+    ? [...new Set(Object.values(mapping))]
+        .filter(k=>k&&k!=='ignore'&&mapped(k)>1)
+        .map(k=>({field:k,
+          label:(IMPORT_FIELDS.find(f=>f[0]===k)||[k,k])[1],
+          cols:headers.filter(h=>mapping[h]===k),
+          join:JOINS[k]||''}))
+    : [];
   const doImport=()=>{ const built=rows.filter(usable).map(buildLead); onImport(built); };
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:720}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>Import leads from CSV</h2><div className="meta">AI maps your columns — you review, then import</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
-      <div style={{padding:'4px 22px 22px'}}>
+      <div className="m-scroll">
         {!headers?(<>
           <div className="seg" style={{marginBottom:14}}>
             <button className={'seg-b '+(src==='file'?'on':'')} onClick={()=>setSrc('file')}>File or paste</button>
@@ -5963,15 +6001,30 @@ function ImportModal({onClose,onImport,businessTypes}){
           <div className="imp-sub">{rows.length} row{rows.length===1?'':'s'} found{fileName?' · '+fileName:''}. Map each column:</div>
           <div className="imp-map">{headers.map(h=>(<div className="imp-row" key={h}><span className="imp-h" title={h}>{h||'(blank)'}</span><ChevronRight size={13} color="#c7c5d4"/><select value={mapping[h]||'ignore'} onChange={e=>setMapping(m=>({...m,[h]:e.target.value}))}>{IMPORT_FIELDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>))}</div>
           {!mapped('name')&&<div className="imp-warn"><AlertTriangle size={13}/>No column is mapped to <b>Name</b> — those rows will fall back to the company name.</div>}
-          <label className="spon-tog" style={{marginTop:12}}><input type="checkbox" checked={markSponsor} onChange={e=>setMarkSponsor(e.target.checked)}/>Mark all imported leads as <b>potential sponsors</b></label>
+          {dupes.map(d=>(
+            <div key={d.field} className={d.join?'imp-note':'imp-warn'}>
+              {d.join?<Layers size={13}/>:<AlertTriangle size={13}/>}
+              <span><b>{d.cols.length}</b> columns are mapped to <b>{d.label}</b> ({d.cols.join(', ')}) — {d.join
+                ? <>they will be {d.join}.</>
+                : <>only <b>{d.cols[d.cols.length-1]}</b> will be kept. Mapping two columns to {d.label} is not supported, so the others are dropped.</>}</span>
+            </div>))}
+          {/* The label text is ONE flex item, not three. .spon-tog is inline-flex with
+              gap:8px, so a bare text node followed by <b> put an 8px gap on top of
+              the space already inside the text — which reads as a double space. */}
+          <label className="spon-tog" style={{marginTop:12}}><input type="checkbox" checked={markSponsor} onChange={e=>setMarkSponsor(e.target.checked)}/><span>Mark all imported leads as <b>potential sponsors</b></span></label>
           <div className="imp-sub" style={{marginTop:16}}>Preview (first {preview.length}):</div>
           <div className="tbl-wrap" style={{maxHeight:200,overflow:'auto'}}><table className="tbl"><thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Email</th></tr></thead><tbody>{preview.map((l,i)=>(<tr key={i}><td className="namecell">{l.name}</td><td className="subcell">{l.company||'—'}</td><td className="subcell">{l.phone||'—'}</td><td className="subcell">{l.email||'—'}</td></tr>))}</tbody></table></div>
-          <div style={{display:'flex',gap:8,marginTop:16,alignItems:'center'}}>
-            <button className="btn btn-p" onClick={doImport}><CheckCircle2 size={15}/>Import {rows.length} lead{rows.length===1?'':'s'}</button>
-            <button className="btn btn-s btn-sm" onClick={()=>{setHeaders(null);setRows([]);setAi(null);setFileName('');}}>Start over</button>
-          </div>
         </>)}
       </div>
+      {/* PINNED, and outside the scrolling body on purpose. Making the body
+          scroll already puts Import within reach at any column count; keeping
+          the action row out of it means you do not have to scroll past 21
+          column mappings to find the button in the first place. */}
+      {headers&&<div className="m-foot">
+        <button className="btn btn-p" onClick={doImport}><CheckCircle2 size={15}/>Import {rows.length} lead{rows.length===1?'':'s'}</button>
+        <button className="btn btn-s btn-sm" onClick={()=>{setHeaders(null);setRows([]);setAi(null);setFileName('');}}>Start over</button>
+        {skipped>0&&<span className="m-foot-n">{skipped} row{skipped===1?'':'s'} skipped — no name or company</span>}
+      </div>}
     </div>
   </div>);
 }
@@ -6647,7 +6700,7 @@ function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:520}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>Edit task</h2><div className="meta">Tune the knobs so the AI ranks it right</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
-      <div style={{padding:'4px 22px 22px'}}>
+      <div className="m-scroll">
         <div className="field"><label>Task</label><input value={d.title||''} onChange={e=>set({title:e.target.value})} placeholder="What needs doing?"/></div>
         <div className="fgrid">
           <div className="field"><label>Owner</label>{rep
@@ -6997,7 +7050,7 @@ function TxnModal({txn,file,onSave,onDelete,onClose}){
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:560}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>{txn?'Edit transaction':'New transaction'}</h2><div className="meta">The Books</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
-      <div style={{padding:'4px 22px 22px'}}>
+      <div className="m-scroll">
         {ai==='reading'&&<div className="ai-banner ai-reading"><Loader2 size={15} className="spin"/>Reading the receipt…</div>}
         {ai==='done'&&<div className="ai-banner ai-done"><Sparkles size={15}/>Filled in from your receipt — review and tweak below.</div>}
         {ai==='off'&&<div className="ai-banner ai-off"><AlertTriangle size={15}/>AI read-back isn't on yet — type the details (your file is still attached). </div>}
