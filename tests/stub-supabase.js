@@ -108,7 +108,14 @@ export const db = {
   team: async () => (globalThis.__TEAM__ === undefined ? [] :
     JSON.parse(JSON.stringify(globalThis.__TEAM__ || []))
       .map(u => ({ id: u.id, name: u.name, role: u.role }))),
-  whoami: async () => { const u=(globalThis.__USERS__||[])[0]; return u?{role:u.role,active:true,setup:true,name:u.name,pools:u.pools||[],commission_pct:0,tabs:u.tabs||[],nav_order:u.nav_order||[],goal_conversions:0}:null; },
+  /* crm_whoami(). By default it answers from __USERS__[0], exactly as before.
+     __WHOAMI__ overrides it outright — including with null — because the three
+     states a signed-in user can be in (no row / fresh install / whoami failed)
+     are answered by this function and CANNOT be modelled by varying __USERS__:
+     an empty __USERS__ returns null, which is only one of the three. */
+  whoami: async () => {
+    if (Object.prototype.hasOwnProperty.call(globalThis, '__WHOAMI__')) return globalThis.__WHOAMI__;
+    const u=(globalThis.__USERS__||[])[0]; return u?{role:u.role,active:true,setup:true,name:u.name,pools:u.pools||[],commission_pct:0,tabs:u.tabs||[],nav_order:u.nav_order||[],goal_conversions:0}:null; },
   upsertUser: async (u) => { if(globalThis.__USER_SAVE_FAILS__) throw new Error('column nav_order does not exist');
     globalThis.__USER_WRITES__.push(JSON.parse(JSON.stringify(u)));
     const arr=globalThis.__USERS__||[]; const i=arr.findIndex(x=>x.id===u.id); if(i>=0) arr[i]={...arr[i],...u}; },
