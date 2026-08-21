@@ -912,6 +912,10 @@ const CSS=`
 .m-grid.lead3 .m-right{border-left:0;border-right:1px solid #E8E9F2;background:#fff}
 .m-grid.lead3 .m-left{background:#F4F6FB}
 .touchbar.prep{flex-direction:column;align-items:flex-start;gap:3px}
+/* key dates read in the prep rail: no add form, no remove — this is the
+   reading copy; Contact stays the place they are edited */
+.kd-list.prep .kd-row{padding:5px 0}
+.kd-list.prep .kd-row .ev-x{display:none}
 /* the follow-up presets: one tap for the four answers people actually give */
 .fu-set{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
 .fu-chip{border:1px solid #D9DCEC;background:#fff;color:#4a4763;border-radius:7px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit}
