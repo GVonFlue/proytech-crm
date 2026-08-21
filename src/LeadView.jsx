@@ -24,66 +24,15 @@
 import React, { Fragment, useEffect, useMemo, useState } from 'react';
 import { BRAND } from './lib/brand';
 import {
-  ACT_TYPES,
-  CMSN_STATE,
-  DATE_LEAD_DEFAULT,
-  DEFAULT_DELIVERY_TRACKS,
-  GREEN,
-  MEETING_TYPES,
-  OWNERS,
-  PRIORITIES,
-  REL_TIERS,
-  actLabel,
-  activeTracks,
-  allMeetings,
-  blankFirst,
-  bookedCount,
-  calendarOwner,
-  clientOverall,
-  closedDealsTotal,
-  cmsnAmount,
-  cmsnOf,
-  dateVocab,
-  datelessOf,
-  dayLabel,
-  daysToDate,
-  daysUntil,
-  dealsOf,
-  depositPaidAt,
-  evNum,
-  fmtDate,
-  fmtMeetingTime,
-  fmtStamp,
-  introChain,
-  isPoolLead,
-  isUpsellDeal,
-  isoOf,
-  keyDatesOf,
-  labelVocab,
-  labelsOf,
-  lastContact,
-  manualSponsorships,
-  needsDate,
-  normEntry,
-  num,
-  nurtureDaysOf,
-  onbSkipped,
-  owedBy,
-  pct,
-  poolList,
-  sOf,
-  seedOnboarding,
-  sponsorshipsOf,
-  stdPhases,
-  stripTagText,
-  tagCleared,
-  tagsOn,
-  todayISO,
-  trackProgress,
-  uid,
-  usd,
-  usdc,
-  yearsAt,
+  ACT_TYPES, CMSN_STATE, DATE_LEAD_DEFAULT, DEFAULT_DELIVERY_TRACKS, GOLD, GREEN,
+  MEETING_TYPES, OWNERS, PRIORITIES, REL_TIERS, actLabel, activeTracks, allMeetings,
+  blankFirst, bookedCount, calendarOwner, clientOverall, closedDealsTotal, cmsnAmount,
+  cmsnOf, dateVocab, datelessOf, dayLabel, daysToDate, daysUntil, dealsOf, depositPaidAt,
+  evNum, fmtDate, fmtMeetingTime, fmtStamp, introChain, isPoolLead, isUpsellDeal, isoOf,
+  keyDatesOf, labelVocab, labelsOf, lastContact, manualSponsorships, needsDate, normEntry,
+  num, nurtureDaysOf, onbSkipped, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
+  stdPhases, stripTagText, tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc,
+  yearsAt
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import {
@@ -128,6 +77,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
+import { apptEarnings, payModels } from './lib/reppay';
 import { DateFix, PriBadge, StageBadge } from './LeadBits';
 
 /* The ONE place a meeting gets booked. The Meetings section and the activity
@@ -653,6 +603,20 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
     return out;
   },[feed]);
   const [openRuns,setOpenRuns]=useState({});
+  /* TONY'S SIDE OF THIS LEAD.
+     `users` is the rep's own crm_users row and nothing else — RLS narrows it
+     to `id = auth.uid()` — so his rate comes from there without a new prop and
+     without any chance of reading somebody else's.
+
+     apptEarnings() is the SAME function RepPay and the Money page call, handed
+     an array of one lead. Not a reimplementation, not a per-lead variant: the
+     figure here and the figure on his pay screen come from one place, which is
+     the only way they cannot disagree. */
+  const myRow=useMemo(()=>(users||[]).find(u=>u&&u.id===myUid)||null,[users,myUid]);
+  const myPay=useMemo(()=>payModels(myRow||{}),[myRow]);
+  const myAppts=useMemo(()=>(rep&&!isNew&&myPay.appointment)
+    ? apptEarnings([draft],myUid,num(myRow&&myRow.appointment_rate))
+    : null,[rep,isNew,myPay,draft,myUid,myRow]);
   const noteCount=(lead?.activities||[]).filter(a=>a.type==='Note').length;
   /* How much contact there has actually been, by type. The filter chips already
      existed but only Notes carried a count — so the answer to "how many times
@@ -1194,6 +1158,35 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
 
             {/* A rep never sees the deal value, the base, or anyone's numbers
                 but their own — they get their commission and its state. */}
+            {/* ---------- YOUR WORK ON THIS LEAD (a rep only) ----------
+                Tony's screen is composed, not redacted. The owner's Commission
+                section — rate, base, approve, void — is absent for him, and
+                rather than leaving the gap where it was, what he DOES have is
+                gathered under one heading: his cut, and the appointments he set
+                on this lead. Both are his own money and neither exists on the
+                owner's version of this rail, so the two screens are different
+                compositions rather than one with holes punched in it. */}
+            {/* the heading only exists if something is under it — apptEarnings
+                returns an object with count 0 for a rep on a rate who has set
+                no appointments here, which is truthy and would have left the
+                heading standing over nothing */}
+            {rep&&!isNew&&(cmsnOf(draft)||(myAppts&&myAppts.count>0))&&
+              <div className="dh mt"><DollarSign size={13}/>Your work on this lead</div>}
+            {rep&&myAppts&&myAppts.count>0&&Sec('myappt',<CalendarCheck size={13}/>,'Your appointments',
+              `${myAppts.count} · ${usd(myAppts.pendingTotal+myAppts.approvedTotal+myAppts.paidTotal)}`,
+              (<div className="cmsn-box">
+                <div className="cmsn-row"><span>Appointments you set</span><b>{myAppts.count}</b></div>
+                {myAppts.pending.length>0&&<div className="cmsn-row"><span>Awaiting approval</span>
+                  <b style={{color:GOLD}}>{myAppts.pending.length} · {usd(myAppts.pendingTotal)}</b></div>}
+                {myAppts.approved.length>0&&<div className="cmsn-row"><span>Approved</span>
+                  <b style={{color:GREEN}}>{myAppts.approved.length} · {usd(myAppts.approvedTotal)}</b></div>}
+                {myAppts.paid.length>0&&<div className="cmsn-row"><span>Paid</span>
+                  <b>{myAppts.paid.length} · {usd(myAppts.paidTotal)}</b></div>}
+                <div className="subcell" style={{marginTop:6}}>
+                  Counted once a meeting is marked <b>held</b>. Cancelled and no-shows pay nothing.
+                  These are your own appointments on this lead — your full total is on Your Pay.
+                </div>
+              </div>),true)}
             {rep&&cmsnOf(draft)&&Sec('mycmsn',<DollarSign size={13}/>,'Your commission',
               (CMSN_STATE[cmsnOf(draft).status]||CMSN_STATE.pending).label,
               (()=>{ const c=cmsnOf(draft); const st=CMSN_STATE[c.status]||CMSN_STATE.pending;
