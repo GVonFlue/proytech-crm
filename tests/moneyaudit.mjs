@@ -10,6 +10,30 @@ import fs from 'fs'; import path from 'path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
 
+/* THE APP'S SOURCE, ALL OF IT.
+   These assertions are about code, not behaviour — "the cutoff is a named
+   constant", "the panel reads owedBy() rather than summing its own". They used
+   to read src/App.jsx alone, which was true right up until the helpers moved to
+   src/lib/lead.js and three of them started failing for a refactor that changed
+   nothing they were checking.
+   Reading every app source file makes the assertion say what it always meant:
+   somewhere in this application, not in one particular file. It also survives
+   the lead view moving to src/LeadView.jsx next. */
+const appSource = async () => {
+  const { readFile, readdir } = await import('node:fs/promises');
+  const here = new URL('../src/', import.meta.url);
+  const out = [];
+  for (const f of (await readdir(here)).sort()) {
+    if (!/\.(jsx?|mjs)$/.test(f)) continue;
+    out.push(await readFile(new URL(f, here), 'utf8'));
+  }
+  for (const f of (await readdir(new URL('lib/', here))).sort()) {
+    if (!/\.(jsx?|mjs)$/.test(f)) continue;
+    out.push(await readFile(new URL('lib/' + f, here), 'utf8'));
+  }
+  return out.join('\n');
+};
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '..');
 
@@ -356,7 +380,7 @@ console.log('\n#22 but a close from BEFORE payment tracking still counts');
   /* The whole reason the fallback exists (ENGINEERING §4): switching payment
      tracking on must not delete history. Last Year Co closed in July, before
      PAYMENTS_FROM, so it keeps counting at its close date. */
-  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const src=await appSource();
   ok('the cutoff is a named, documented constant', /const PAYMENTS_FROM='\d{4}-\d{2}-\d{2}'/.test(src));
   /* anyPayments, not paymentsOf: after AUDIT #23 "has any cash been logged"
      has to see BOTH arrays, or a client whose only payment was a retainer would
@@ -403,7 +427,7 @@ console.log('\n#21 the lead panel and the dashboard agree on what is owed');
 
 console.log('\n#21 the retainer is shown beside the balance, never inside it');
 {
-  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const src=await appSource();
   ok('the panel reads owedBy() rather than summing its own', /const remaining=owedBy\(draft,stages\)/.test(src));
   ok('no firstMonth in the balance', !/const owed=openDealsTotal\+closedDealsTotal\(draft\)\+firstMonth/.test(src));
   ok('the retainer is still surfaced, so nothing is hidden', /plus \{usdc\(firstMonth\)\}\/mo recurring/.test(src));
@@ -503,7 +527,7 @@ console.log('\n#26 a quoted rate is not MRR');
 
 console.log('\n#25 setting a rate no longer stamps a start date');
 {
-  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const src=await appSource();
   ok('the auto-stamp is gone', !/retainerStart=todayISO\(\)/.test(src));
   ok('  and the reason is recorded where it was', /Setting a price is not starting/.test(src));
   ok('a one-off clear exists for the dates it already wrote',
@@ -513,7 +537,7 @@ console.log('\n#25 setting a rate no longer stamps a start date');
 
 console.log('\n#23 the unqualified sum has no name left to call');
 {
-  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const src=await appSource();
   ok('paidTotal is deleted', !/const paidTotal=/.test(src));
   ok('paymentsPaid is deleted', !/const paymentsPaid=/.test(src));
   ok('owedBy asks the setup question', /contractedTotal\(l\)-setupPaid\(l\)/.test(src));
@@ -625,7 +649,7 @@ console.log('\n#8 a close worth $0 is still listed, not silently dropped');
 
 console.log('\n#7 no rate is rendered by hand any more');
 {
-  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const src=await appSource();
   /* THE PATTERN GUARD. This is the assertion that stops #7 coming back: not
      "the current sites are fixed" but "a new site cannot be written the old
      way without failing the suite". */
@@ -698,7 +722,7 @@ console.log('\n#7 the Pipeline Moving CARD cannot alarm while its rate refuses t
 
 console.log('\n#19 the duplicate Money screen no longer exists');
 {
-  const src=await (await import('node:fs/promises')).readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  const src=await appSource();
   ok('function Money() is deleted', !/^function Money\(/m.test(src));
   ok('MoneyPage — the live one — is untouched', /^function MoneyPage\(/m.test(src));
   /* It carried its own Closed Setup Rev, Win Rate and Avg Retainer tiles. A
