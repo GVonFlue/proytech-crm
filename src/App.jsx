@@ -2341,6 +2341,8 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .fu-done p{font-size:14px;color:#6a6788;max-width:420px;line-height:1.5}
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
 .linkbtn.q:hover{color:${COBALT}}
+/* inline inside a sentence — the block variant's padding/margin push it onto its own line */
+.linkbtn.inl{padding:0;margin:0;color:${COBALT};text-decoration:underline;font-size:inherit}.linkbtn.inl:hover{color:${INK}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
 .rmap-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(152px,1fr);gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:18px}
@@ -3570,7 +3572,7 @@ export default function App(){
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
           view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
           view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
-          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen} delBatch={delBatch}/>:
+          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen} delBatch={delBatch} users={users}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
@@ -5449,7 +5451,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen,delBatch}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen,delBatch,users}){
   /* importOpen is owned by App so the sidebar's "Import a list" can open it.
      A local useState here would shadow the prop: the sidebar sets one piece of
      state and the page renders off another, so the modal never appears. */
@@ -5459,7 +5461,36 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   const [view,setView]=useState('mine');
   const [recent,setRecent]=useState(null);   // null | '1' | '7' | batch id
   const [label,setLabel]=useState('all');
+  /* OWNER FILTER. 'all' | a crm_users id | 'none' (nobody owns it).
+     Not a new screen: an owner could already see every rep's leads on All, and
+     the Owner column is on by default and sortable. The only thing missing was
+     going straight to one person's book. */
+  const [ownerF,setOwnerF]=useState('all');
+  /* Only active people are worth offering — a deactivated rep's leads should be
+     found through Unassigned or by name, not by picking a person who cannot
+     sign in. */
+  const ownerOpts=useMemo(()=>(users||[]).filter(u=>u&&u.active!==false)
+    .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''))),[users]);
+  /* MATCHES ON owner_id, THE SAME FIELD RLS USES, and deliberately not on the
+     owner NAME. A lead carrying a rep's name with a null owner_id is NOT that
+     rep's — Postgres will not return it to them — so listing it under their
+     name would state the opposite of what the database does. Those leads show
+     under "Unassigned", which is the truth, and the hint below counts them. */
+  const ownerMatch=l=>{
+    if(ownerF==='all') return true;
+    if(ownerF==='none') return !l.owner_id;
+    return l.owner_id===ownerF;
+  };
+  /* THE SILENT-NULL DETECTOR, read side. stampOwner() resolves owner_id by
+     exact NAME match against crm_users; a miss writes null and the lead lands
+     in nobody's book without a word. This counts leads wearing the selected
+     person's name that never got their id, so the drift is visible on the same
+     screen that caused it rather than in a support conversation weeks later. */
+  const ownerSel=ownerOpts.find(u=>u.id===ownerF)||null;
+  const orphanedForOwner=useMemo(()=>!ownerSel?0:(leads||[])
+    .filter(l=>!l.owner_id&&String(l.owner||'').trim()===String(ownerSel.name||'').trim()).length,[leads,ownerSel]);
   useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
+  useEffect(()=>{ if(!canAll&&ownerF!=='all') setOwnerF('all'); },[canAll,ownerF]);
   const counts={mine:leads.filter(l=>l.owner===me).length,pool:leads.filter(l=>isPoolLead(l,rep?myPools:null)).length,all:leads.length};
   /* One chip per import, newest first — "the list I loaded this morning" is a
      click rather than a date guess. createdAt alone can't separate an import
@@ -5506,6 +5537,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   const rows=useMemo(()=>{
     let r=scopeLeads(leads,view,me,rep?myPools:null).filter(l=>{
       if(!recentFilter(l))return false;
+      if(!ownerMatch(l))return false;
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
       if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
@@ -5518,7 +5550,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
     });
     r.sort((a,b)=>{const av=sortVal(a,sortK),bv=sortVal(b,sortK);const c=av<bv?-1:av>bv?1:0;return dir==='asc'?c:-c;});
     return r;
-  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me,recent,label]);
+  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me,recent,label,ownerF]);
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
@@ -5554,6 +5586,20 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       </div>)}
     <div className="toolbar">
       <ScopeSeg view={view} setView={setView} counts={counts} canAll={canAll}/>
+      {/* Owners only. A rep has exactly one owner's leads — their own — so the
+          control would be a dropdown with one entry that changes nothing. */}
+      {canAll&&ownerOpts.length>0&&(
+        <select className="selctl" value={ownerF} onChange={e=>{
+          const v=e.target.value; setOwnerF(v);
+          /* Picking a person means "show me their book", which cannot be true
+             on Mine or Pool. Switching the scope is the only reading of that
+             click that returns rows instead of an empty table. */
+          if(v!=='all') setView('all');
+        }}>
+          <option value="all">All owners</option>
+          {ownerOpts.map(u=><option key={u.id} value={u.id}>{u.name}{u.role==='owner'?' · owner':''}</option>)}
+          <option value="none">Unassigned</option>
+        </select>)}
       {/* only shown once something is actually labelled — an empty filter is
           clutter on a fresh install */}
       {(()=>{ const used=[...new Set((leads||[]).flatMap(labelsOf))].sort();
@@ -5578,6 +5624,17 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       <button className="btn btn-g" onClick={csv}><Download size={15}/>CSV</button>
       {importLeads&&<button className="btn btn-p" onClick={()=>setImportOpen(true)}><Upload size={15}/>Import</button>}
     </div>
+    {/* Drift, said out loud on the screen that causes it. stampOwner() resolves
+        owner_id by exact name match; a miss writes null and the lead silently
+        belongs to nobody. Counting it here is the difference between noticing
+        in ten seconds and noticing when a rep asks where their leads went. */}
+    {ownerSel&&orphanedForOwner>0&&(
+      <div className="pool-note"><AlertTriangle size={14}/>
+        {orphanedForOwner} more {orphanedForOwner===1?'lead carries':'leads carry'} <b>{ownerSel.name}</b>'s name but no owner id, so {orphanedForOwner===1?'it is':'they are'} in nobody's book and {ownerSel.name} cannot see {orphanedForOwner===1?'it':'them'}.
+        {' '}<button className="linkbtn inl" onClick={()=>{setOwnerF("none");setView("all");}}>Show unassigned</button>
+      </div>)}
+    {ownerF==='none'&&(
+      <div className="pool-note"><Users size={14}/>Leads with no owner id. Nobody but an owner can see these — a rep is shown leads by owner id, never by the name written on them.</div>)}
     {view==='pool'&&<div className="pool-note"><Users size={14}/>{rep?`Unclaimed leads in ${(myPools&&myPools.length)?myPools.join(', '):'your pools'}. Claim one and it becomes yours.`:'Unclaimed leads owned by '+POOL_OWNER+'. Claim one and it moves to your list.'}</div>}
     <div className="tbl-wrap"><table className="tbl"><thead><tr>
       <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}{view==='pool'&&<th></th>}
