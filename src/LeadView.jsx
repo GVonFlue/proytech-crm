@@ -358,6 +358,22 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
   const canLogPayment=!rep||(settings&&settings.repPayments);
   const [firstType,setFirstType]=useState('Call');
   useEffect(()=>{if(!isNew&&lead)setDraft(lead);},[lead,isNew]);
+  /* Escape closes. A full-viewport surface reads as a page, and Escape is what
+     people press to leave one — the X moved a long way from where it sat on a
+     960px card. Ignored while a text field has focus, or Escape would throw
+     away a half-written note; the browser's own "revert this input" behaviour
+     wins there. */
+  useEffect(()=>{
+    if(typeof window==='undefined') return;
+    const h=e=>{
+      if(e.key!=='Escape') return;
+      const t=e.target||{}; const tag=(t.tagName||'').toUpperCase();
+      if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||t.isContentEditable) return;
+      onClose&&onClose();
+    };
+    window.addEventListener('keydown',h);
+    return ()=>window.removeEventListener('keydown',h);
+  },[onClose]);
   /* functional form so two set() calls in one tick compose instead of the second
      spreading a stale draft over the first */
   const set=patch=>{
@@ -598,8 +614,11 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
     const total=Object.values(by).reduce((x,y)=>x+y,0);
     return {by,first,last,total,spoken};
   },[lead]);
-  return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
-    <div className="modal" onMouseDown={e=>e.stopPropagation()}>
+  /* `lead` is what widens this to the full viewport; every other modal in the
+     app keeps the 960px card. Structure below is untouched — this PR moves no
+     element and renames no class. */
+  return (<div className="scrim2 lead" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal lead" onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head">
         <div style={{minWidth:0}}>
           <h2>{draft.name||draft.company||'New Lead'}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}

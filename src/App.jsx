@@ -859,6 +859,22 @@ const CSS=`
 /* modal */
 .scrim2{position:fixed;inset:0;background:rgba(24,21,48,.5);z-index:50;display:flex;align-items:center;justify-content:center;padding:24px}
 .modal{width:960px;max-width:96vw;max-height:90vh;background:#F4F6FB;border-radius:22px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 40px 100px -30px rgba(0,0,0,.6);animation:pop .18s ease}
+/* THE LEAD VIEW IS A SURFACE, NOT A DIALOG.
+   Scoped with .lead so the five other modals keep the 960px card above — this
+   is the screen you spend the day in, and 960px is what made it cramped.
+   It behaves like a page and does NOT unmount the page behind it, which is the
+   whole reason it stays a modal: closing it returns the Leads table with its
+   filters, its sort, its scroll position and its multi-select untouched. A
+   route cannot do that.
+   Inset rather than a true 100vw so the scrim still reads as depth and the
+   Escape target stays obvious. */
+.scrim2.lead{padding:0}
+.modal.lead{width:100%;max-width:none;max-height:none;height:100%;border-radius:0;animation:leadin .16s ease}
+@keyframes leadin{from{opacity:0;transform:scale(.995)}to{opacity:1;transform:none}}
+@media (min-width:1080px){
+  .scrim2.lead{padding:18px}
+  .modal.lead{border-radius:18px;height:100%}
+}
 @keyframes pop{from{transform:scale(.97);opacity:.5}to{transform:none;opacity:1}}
 .m-head{background:#fff;border-bottom:1px solid #E8E9F2;padding:18px 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 /* THE SCROLLING BODY OF A MODAL, and the reason it needs saying:
@@ -2431,7 +2447,57 @@ export default function App(){
     return ()=>{dead=true;}; },[session]);
   const [navDrag,setNavDrag]=useState(null);
   const [navLocal,setNavLocal]=useState(null);  // keeps the order on screen if the save fails
+  /* ---------------------------------------------------------------- URL SYNC
+     The lead view is a full-viewport surface, so it reads as a page — and the
+     two things people do to a page are press Back and paste the link. Both work
+     now, WITHOUT a router.
+
+     Why not a real route. There is none in this app: `page` and `activeId` are
+     useState, and eleven callers reach openLead(id, order) passing an ORDERED
+     LIST of ids — the filtered, sorted rows of whatever screen you came from —
+     which is what drives prev/next through the lead. A route carries an id; it
+     cannot carry a 200-item ordering, so that would stay in state anyway. And
+     unmounting the Leads table to navigate would throw away its filters, its
+     sort, its scroll position and its multi-select. Closing a lead has to put
+     you back exactly where you were; a route is the one thing that cannot.
+
+     So: pushState on open, popstate closes, and the id is read back on boot.
+     Deliberately ONE history entry for the whole lead view — prev/next replace
+     rather than push, or escaping a lead you paged through forty times would
+     take forty Backs. */
   const openLead=(id,order)=>{ setActiveId(id); setNavIds(order&&order.length?order:null); };
+  /* Push on open, replace while paging, pop on close. skipPop guards the one
+     case that would otherwise loop: our own back() firing popstate. */
+  const leadUrlRef=React.useRef({on:false});
+  useEffect(()=>{
+    if(typeof window==='undefined'||!window.history) return;
+    const st=leadUrlRef.current;
+    const id=activeId&&activeId!=='new'?activeId:null;
+    try{
+      const u=new URL(window.location.href);
+      if(id){
+        u.searchParams.set('lead',id);
+        /* first open pushes so Back has somewhere to go; paging replaces */
+        if(st.on) window.history.replaceState({lead:id},'',u.pathname+u.search);
+        else window.history.pushState({lead:id},'',u.pathname+u.search);
+        st.on=true;
+      }else if(st.on){
+        u.searchParams.delete('lead');
+        window.history.replaceState({},'',u.pathname+u.search);
+        st.on=false;
+      }
+    }catch{ /* a browser that refuses history is not a reason to break the app */ }
+  },[activeId]);
+  useEffect(()=>{
+    if(typeof window==='undefined') return;
+    const onPop=()=>{ const p=new URLSearchParams(window.location.search); const id=p.get('lead');
+      leadUrlRef.current.on=!!id;
+      /* Back out of a lead closes it; Forward back into one reopens it. The
+         nav order is gone by then, so prev/next simply stops offering — the
+         lead itself is still correct, which is the part that matters. */
+      setActiveId(id||null); if(!id) setNavIds(null); };
+    window.addEventListener('popstate',onPop);
+    return ()=>window.removeEventListener('popstate',onPop); },[]);
 
   useEffect(()=>{ const ok=s=>{sessionResolved.current=true;setSession(s||null);};
     auth.session().then(ok).catch(()=>ok(null));
@@ -3156,6 +3222,22 @@ export default function App(){
   const removeCustomPhase=(id,key)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cps=(l.customPhases||[]).filter(c=>c.key!==key); updated={...l,customPhases:cps,clientPhase:l.clientPhase===key?'build':l.clientPhase}; return updated; })); if(updated) putLead(updated); };
   const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done?null:todayISO(),due:cur.due||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; const patch={delivery:d}; const o=clientOverall({...l,delivery:d},settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const won=(stages||[]).find(s=>s.won); if(o.delivered&&won&&l.stage!==won.key) patch.stage=won.key; updateLead(id,patch); };
   const setMilestoneDue=(id,trackKey,milestone,date)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done||null,due:date||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; updateLead(id,{delivery:d}); };
+  /* COLD LOAD. A pasted ?lead=… link cannot open anything until the leads are
+     in memory, so this waits for `loaded` and runs exactly once.
+     An id that is not in the set does NOTHING — deleted, or a rep handed an
+     owner's link, and Postgres simply did not return it. Silence is the right
+     answer to both: there is no error to show that would not be a guess about
+     which one happened. The stale ?lead= is cleaned off the URL either way. */
+  const coldOpen=React.useRef(false);
+  useEffect(()=>{
+    if(coldOpen.current||!loaded||typeof window==='undefined') return;
+    coldOpen.current=true;
+    let id=null; try{ id=new URLSearchParams(window.location.search).get('lead'); }catch{}
+    if(!id) return;
+    if(leads.some(l=>l.id===id)){ leadUrlRef.current.on=true; setActiveId(id); }
+    else{ try{ const u=new URL(window.location.href); u.searchParams.delete('lead');
+      window.history.replaceState({},'',u.pathname+u.search); }catch{} }
+  },[loaded,leads]);
   const active=activeId&&activeId!=='new'?leads.find(l=>l.id===activeId):null;
 
   if(!configured) return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
