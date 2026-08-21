@@ -1,0 +1,65 @@
+# Build the app and run every test, on every pull request and every push to main.
+#
+# WHY THIS EXISTS
+#
+#   `npm test` used to run ONE of the fifty-seven suites. The rest were run by
+#   hand, which is how main sat red across two merges without anyone noticing.
+#   Nothing was watching. This is what watches.
+#
+# WHAT IT PROVES THAT A LOCAL RUN CANNOT
+#
+#   That the repository is self-contained. Twenty-four suites once reached their
+#   Supabase stub through `t/` — a symlink that existed only in one working
+#   tree, was never committed, and so could only ever have worked on the machine
+#   where somebody had created it by hand. A clean `git clone` on a runner that
+#   has never seen this project is the only thing that catches that shape.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# A superseded run tells you about code nobody is looking at any more. Cancel
+# it and keep the minutes for the commit that is actually being reviewed —
+# except on main, where every commit's result is worth having on the record.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    # A hung suite is the failure mode this project has actually shipped, so the
+    # job gets its own ceiling as well as the per-file one inside tests/all.mjs.
+    # The whole sweep is well under two minutes locally.
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Matches the version this is developed against. A CI that runs a
+          # different major is a CI that can disagree with the machine the code
+          # was written on, which is the argument it is supposed to settle.
+          node-version: '24'
+          cache: npm
+
+      # `ci`, not `install`: it installs exactly what package-lock.json pins and
+      # fails rather than silently resolving something newer.
+      - name: Install
+        run: npm ci
+
+      # First, because a broken build is the fastest and clearest failure there
+      # is — and because every suite esbuilds src/App.jsx itself, so a build
+      # error would otherwise arrive fifty-seven times at once.
+      - name: Build
+        run: npm run build
+
+      # tests/all.mjs runs every suite, gives each one its own timeout, prints
+      # the tail of anything that failed, and exits non-zero if any did — which
+      # is what fails the check on the pull request.
+      - name: Test
+        run: npm test
