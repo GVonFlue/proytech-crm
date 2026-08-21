@@ -79,6 +79,14 @@ export const db = {
   saveTxns: async (l) => { globalThis.__TXNS__ = l; },
   getTasks: async () => JSON.parse(JSON.stringify(globalThis.__TASKS__ || [])), saveTasks: async () => {},
   getUsers: async () => JSON.parse(JSON.stringify(globalThis.__USERS__ || [])),
+  /* crm_team(): names and roles for every ACTIVE person, and no money. The
+     stub mirrors the boundary rather than the convenience — getUsers() above
+     is what RLS narrows to one row for a rep, and team() is what does not.
+     __TEAM__ unset means the install has not run TEAM-MIGRATION.sql, which
+     returns [] and makes every caller fall back to its old behaviour. */
+  team: async () => (globalThis.__TEAM__ === undefined ? [] :
+    JSON.parse(JSON.stringify(globalThis.__TEAM__ || []))
+      .map(u => ({ id: u.id, name: u.name, role: u.role }))),
   whoami: async () => { const u=(globalThis.__USERS__||[])[0]; return u?{role:u.role,active:true,setup:true,name:u.name,pools:u.pools||[],commission_pct:0,tabs:u.tabs||[],nav_order:u.nav_order||[],goal_conversions:0}:null; },
   upsertUser: async (u) => { if(globalThis.__USER_SAVE_FAILS__) throw new Error('column nav_order does not exist');
     globalThis.__USER_WRITES__.push(JSON.parse(JSON.stringify(u)));
