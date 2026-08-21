@@ -625,6 +625,34 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
     if(feedFilter!=='All'||!logRows.length) return acts;
     return [...acts,...logRows].sort((a,b)=>String(b.ts||'').localeCompare(String(a.ts||'')));
   },[lead,isNew,feedFilter,logRows]);
+  /* WHICH NOTES THE APP WROTE ABOUT ITSELF.
+     Eighteen distinct texts are written by the CRM rather than by a person —
+     "Stage moved: …", "Follow-up cleared.", "Payment confirmed …" and the rest.
+     They are real history and are never hidden; they are just not what anyone
+     opens a lead to read, and on a lead worked for a month they arrive in runs
+     that push the actual conversation off the screen.
+
+     PRESENTATION ONLY. This changes which rows are collapsed together, nothing
+     else: not what is stored, not any count. The Notes chip and the contact
+     tally are still inflated by these, which is a separate and real bug —
+     written up in TOUCH-COUNT-FINDING.md and deliberately not fixed here. */
+  const SYS_NOTE=/^(Lead created\.|Follow-up cleared\.|Follow-up done —|Stage moved:|Deal value set to|Phase →|Close date set to|Commission approved|Commission voided|Converted to client|Signed — onboarding|Reverted to lead|Invoice |Payment confirmed |Payment marked as not collected|Deal closed:|New build started:|Sponsorship logged:|Dated:)/;
+  const isSysNote=a=>!!a&&a.type==='Note'&&!a.derived&&SYS_NOTE.test(String(a.text||''));
+  /* Runs of them collapse into one line. A single one is left alone — hiding
+     it behind a disclosure would cost a click to read one sentence. */
+  const feedRuns=useMemo(()=>{
+    const out=[]; let run=[];
+    const flush=()=>{ if(!run.length) return;
+      out.push(run.length>1?{kind:'sysrun',items:run,id:'run-'+run[0].id}:{kind:'row',a:run[0],id:run[0].id});
+      run=[]; };
+    for(const a of feed){
+      if(isSysNote(a)){ run.push(a); continue; }
+      flush(); out.push({kind:'row',a,id:a.id});
+    }
+    flush();
+    return out;
+  },[feed]);
+  const [openRuns,setOpenRuns]=useState({});
   const noteCount=(lead?.activities||[]).filter(a=>a.type==='Note').length;
   /* How much contact there has actually been, by type. The filter chips already
      existed but only Notes carried a count — so the answer to "how many times
@@ -848,9 +876,35 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
             {/* A day heading whenever the date changes. Without it a long feed
                 is one undifferentiated wall and you can't tell a call from
                 yesterday from one in March without reading every timestamp. */}
-            <div className="feed">{feed.map((a,i)=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;
+            <div className="feed">{feedRuns.map((r,ri)=>{
+              /* A RUN OF MACHINE NOTES, folded. Quiet by default and never
+                 hidden: one tap opens every line in it, and the day heading is
+                 still drawn so the timeline does not skip. */
+              if(r.kind==='sysrun'){
+                const open=!!openRuns[r.id];
+                const rd=String(r.items[0].ts||'').slice(0,10);
+                const rprev=ri>0?String((feedRuns[ri-1].a||feedRuns[ri-1].items[feedRuns[ri-1].items.length-1]).ts||'').slice(0,10):null;
+                return (<Fragment key={r.id}>
+                  {rd&&rd!==rprev&&<div className="fday">{dayLabel(rd)}</div>}
+                  <button className={'sysrun'+(open?' open':'')} onClick={()=>setOpenRuns(o=>({...o,[r.id]:!open}))}>
+                    <ChevronDown size={13} className="sysrun-ch"/>
+                    <span><b>{r.items.length}</b> automatic {r.items.length===1?'note':'notes'}</span>
+                    <em>{r.items[0].text}</em>
+                  </button>
+                  {open&&r.items.map(a=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;
+                    return (<div className="fitem note sys" key={a.id}>
+                      <div className="fic"><Ic size={14}/></div>
+                      <div style={{minWidth:0}}><div className="ftxt">{a.text}</div>
+                        <div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
+                      <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button>
+                    </div>); })}
+                </Fragment>);
+              }
+              const a=r.a; const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;
               const d=String(a.ts||'').slice(0,10);
-              const prev=i>0?String(feed[i-1].ts||'').slice(0,10):null;
+              const pr=ri>0?feedRuns[ri-1]:null;
+              const prevA=pr?(pr.a||pr.items[pr.items.length-1]):null;
+              const prev=prevA?String(prevA.ts||'').slice(0,10):null;
               const head=d&&d!==prev?d:null;
               /* A meeting log, read through from its own table. Deliberately
                  not a .fitem: it is not an activity, it has no delete button
@@ -884,7 +938,7 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
                 set({activities:(draft.activities||[]).map(x=>x.id===a.id?{...x,tagsDone:next}:x)}); }}>
               <AtSign size={10}/>{n}{done?' ✓':''}</span>); })}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
               <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div></Fragment>);})}
-              {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
+              {!feedRuns.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
             {/* pinned under the feed, never scrolls, never grows */}
             <div className="m-danger">{rep
               ? (()=>{ const lost=(stages||[]).find(x=>x.lost);
