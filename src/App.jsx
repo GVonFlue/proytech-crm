@@ -2817,7 +2817,18 @@ export default function App(){
      writes to and did so to anybody who asked. apiPost is the helper that
      attaches the Supabase token. */
   const refreshGcal=async()=>{ try{ const r=await apiPost('/api/google-status'); const j=await r.json(); setGcal({connected:!!j.connected,email:j.email||'',loaded:true}); }catch{ setGcal(g=>({...g,loaded:true})); } };
-  useEffect(()=>{ refreshGcal();
+  /* Keyed on the session, NOT on mount.
+     /api/google-status requires a session — it hands out the address of the
+     Google account this whole install writes to. Hooks run before the auth
+     early-returns, so on mount this fired while the sign-in screen was still
+     up: no token, no answer, connected=false. App does not remount when you
+     sign in — the session lands in state below — so an empty dependency array
+     never asked again, and the warning stayed wrong for the rest of the
+     session on every load that started signed out. Which is every sign-in. */
+  useEffect(()=>{ if(session) refreshGcal(); },[session]);
+  /* The callback's query string is cleaned up once, on mount, because that is
+     when it is there. */
+  useEffect(()=>{
     const p=new URLSearchParams(window.location.search);
     if(p.get('gcal')){ const u=new URL(window.location.href); u.searchParams.delete('gcal'); u.searchParams.delete('reason'); window.history.replaceState({},'',u.pathname+u.search); }
   },[]);

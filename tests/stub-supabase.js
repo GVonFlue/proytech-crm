@@ -4,15 +4,30 @@ export const supabase = {};
 /* The signed-in identity. Fixed at u_owner unless a test says otherwise —
    __UID__/__EMAIL__ let a test sign a DIFFERENT person in without a reload,
    which is the only way to exercise anything keyed on who is signed in. */
-const SESSION = { user: {
+const SESSION = {
+  /* apiPost reads this to attach the bearer token, so a test can tell an
+     authenticated call from an unauthenticated one — which is the whole
+     difference the guarded endpoints care about. */
+  access_token: 'test-access-token',
+  user: {
   get id() { return globalThis.__UID__ || 'u_owner'; },
   get email() { return globalThis.__EMAIL__ || 'garrett@getproytech.com'; },
 } };
 export const auth = {
   login: async () => ({ data: { session: SESSION }, error: null }),
   logout: async () => {},
-  session: async () => SESSION,
-  onChange: (cb) => { setTimeout(() => cb(SESSION, 'SIGNED_IN'), 0); return { data: { subscription: { unsubscribe(){} } } }; },
+  /* A test can start the app SIGNED OUT and sign in later. That is the only way
+     to exercise anything whose correctness depends on WHEN the session arrives
+     — an effect keyed on mount looks identical to one keyed on the session
+     until the two happen in a different order. Default is unchanged: signed in
+     immediately, so no existing test sees a difference. */
+  session: async () => (globalThis.__SIGNED_OUT__ ? null : SESSION),
+  onChange: (cb) => {
+    (globalThis.__AUTH_SUBS__ || (globalThis.__AUTH_SUBS__ = new Set())).add(cb);
+    setTimeout(() => cb(globalThis.__SIGNED_OUT__ ? null : SESSION,
+      globalThis.__SIGNED_OUT__ ? 'SIGNED_OUT' : 'SIGNED_IN'), 0);
+    return { data: { subscription: { unsubscribe(){ globalThis.__AUTH_SUBS__.delete(cb); } } } };
+  },
   isRecoveryUrl: () => false,
   setPassword: async () => true,
   username: s => (s?.user?.email || '').split('@')[0],
