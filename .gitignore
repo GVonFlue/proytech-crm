@@ -1,4 +1,15 @@
+# Dependencies and build output. Neither belongs in the repository and both
+# were committed by accident on 21 Aug 2026 by a `git add -A` — 11,043 files.
+# Untracked in the same change that added these lines.
+node_modules/
+dist/
+
+# The `tests` symlink some local tooling creates. `t/` alone does NOT match it:
+# it is a symlink, not a directory, so git tests the name against the pattern
+# without the trailing slash and never matches. Both forms are listed.
+t
+t/
+
 # Test bundles. Each jsdom suite esbuilds src/App.jsx to a dotfile beside
 # itself and imports it; they are rebuilt on every run and never committed.
 tests/.b*.mjs
-t/
