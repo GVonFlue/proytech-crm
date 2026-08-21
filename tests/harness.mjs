@@ -29,7 +29,8 @@ export function resetDb(initial = {}) {
   globalThis.__DB__ = {
     leads: initial.leads || [],
     settings: initial.settings || null,
-    invoices: [], txns: [], tasks: [], events: [], users: initial.users || [],
+    invoices: [], txns: [], tasks: [], events: [], mlogs: initial.mlogs || [],
+    users: initial.users || [],
     whoami: initial.whoami !== undefined ? initial.whoami : { role: 'owner', active: true, setup: true, name: 'Garrett' },
     session: { user: { id: 'uid-owner', email: 'garrett@proytech.io' } },
     /* every write, in order */

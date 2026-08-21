@@ -4,7 +4,7 @@
      a labelled thread, an unlabelled thread, and a thread where the model
      should refuse to guess; plus a malformed AI response degrading to a plain
      note rather than crashing. */
-import { test, eq, near, ok } from './assert.mjs';
+import { test, eq, near, ok, report } from './assert.mjs';
 import {
   splitTurns, speakerSignals, localConfidence, chunkTurns, turnsToText,
   normalizeExtract, normalizeSpeakers, mergeExtracts, toNoteText, fallbackNote,
@@ -270,3 +270,8 @@ test('field updates are offered as a diff and flag conflicts', () => {
 test('a fact identical to what is already on the lead is not offered as an update', () => {
   eq(fieldDiffs([{ label: 'Email', value: 'SARAH@OLD.COM', field: 'email' }], LEAD), []);
 });
+
+/* The tally and the exit code. Without this the file wrote dots to stdout and
+   exited 0 no matter what: a failing assertion printed an 'F' that nothing
+   read, so this suite could never break a build. */
+report('convo');

@@ -9,7 +9,7 @@
    Dates are constructed with new Date(y, m, d) — LOCAL midnight — because
    new Date('2026-08-09') is UTC midnight, which is the previous evening in
    America/Chicago and shifts every working-day count by one. */
-import { test, eq, near, ok } from './assert.mjs';
+import { test, eq, near, ok, report } from './assert.mjs';
 import {
   normalizeGoals, goalsToSettings, periodRange, workingDays, remainingWorkingDays,
   periodPace, distributeAnnual, monthlyTargets, wilson, proportion, mean, ratesFrom,
@@ -492,3 +492,8 @@ test('the legacy settings.goals mirror follows the ACTIVE period', () => {
   p = setTarget(p, 'revenue', 15000);
   eq(goalsToSettings({}, p, AUG9).goals.revenue, 15000);
 });
+
+/* The tally and the exit code. Without this the file wrote dots to stdout and
+   exited 0 no matter what: a failing assertion printed an 'F' that nothing
+   read, so this suite could never break a build. */
+report('goals');
