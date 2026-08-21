@@ -129,10 +129,12 @@ await settle(60);
 await nav('Leads');
 /* match on the NAME cell specifically — "Waiting Co" is both the name and the
    company, and other rows can contain the substring in other columns */
+/* .namecell, not the first <td>: an owner now gets a batch-select checkbox in
+   that slot, and the name is what this was always reaching for. */
 const row2=[...document.querySelectorAll('tbody tr')]
-  .find(e=>/^Waiting Co/.test(((e.querySelector('td')||{}).textContent||'').trim()));
+  .find(e=>/^Waiting Co/.test(((e.querySelector('.namecell')||{}).textContent||'').trim()));
 ok('found the Waiting Co row', !!row2,
-   [...document.querySelectorAll('tbody tr td:first-child')].map(e=>e.textContent.slice(0,14)).join(' | '));
+   [...document.querySelectorAll('tbody tr .namecell')].map(e=>e.textContent.slice(0,14)).join(' | '));
 if(row2) await click(row2); await settle(140);
 /* the modal may still be showing the previous lead if the row order shifted —
    confirm we're on Waiting Co before asserting on its tags */

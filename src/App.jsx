@@ -1246,6 +1246,23 @@ const CSS=`
 .modal{width:960px;max-width:96vw;max-height:90vh;background:#F4F6FB;border-radius:22px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 40px 100px -30px rgba(0,0,0,.6);animation:pop .18s ease}
 @keyframes pop{from{transform:scale(.97);opacity:.5}to{transform:none;opacity:1}}
 .m-head{background:#fff;border-bottom:1px solid #E8E9F2;padding:18px 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+/* THE SCROLLING BODY OF A MODAL, and the reason it needs saying:
+   .modal is a flex COLUMN with max-height:90vh and overflow:hidden. A flex item
+   defaults to min-height:auto, which refuses to shrink below its own content —
+   so a tall body grew past the modal, .modal clipped it, and there was NO
+   SCROLLBAR ANYWHERE. Content below the fold became unreachable rather than
+   merely off-screen. A 21-column CSV import put the Import button there.
+   min-height:0 is what lets the item shrink; overflow-y:auto is what then makes
+   the overflow reachable. Neither works without the other.
+   Four modals shared the inline style this replaces (account, import, task,
+   transaction) and all four had the bug. The lead modal (.m-grid/.m-left) and
+   the invoice modal (.inv-body) already did this correctly.
+
+   Named m-scroll and not m-body because the Pocket recording modal already
+   carries className="m-body" as a DEAD class with no rule behind it — reusing
+   the name would have silently started styling a component this change never
+   looked at. */
+.m-scroll{padding:4px 22px 22px;min-height:0;overflow-y:auto}
 .m-head h2{font-size:21px;color:${INK}}.m-head .co{font-size:16px;font-weight:500;color:#5A5680;margin-top:4px}
 .m-head .meta{font-size:11.5px;color:#A6A2BC;margin-top:6px}
 .m-head .qa{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
@@ -2041,6 +2058,22 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .claim-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid ${COBALT};background:rgba(43,77,224,.06);color:${COBALT};font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:20px;cursor:pointer;white-space:nowrap}
 .claim-btn:hover{background:${COBALT};color:#fff}
 .pool-note{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#56527a;background:#F4F5FA;border:1px solid #E5E6F0;border-radius:9px;padding:9px 12px;margin-bottom:12px}
+/* batch reassign on the Leads table */
+.selcol{width:34px;padding-right:0!important;text-align:center}
+.selcol input{cursor:pointer;width:15px;height:15px;accent-color:${COBALT}}
+tbody tr.picked{background:#F2F4FE}
+tbody tr.picked:hover{background:#E9EDFD}
+.bulkbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#EEF1FD;border:1px solid #D6DDF8;border-radius:10px;padding:9px 12px;margin-bottom:12px}
+.bulkbar .bb-n{font-size:13px;color:${INK}}
+.bulkbar .bb-n b{font-size:14px}
+.bulk-confirm{border:1px solid #E7D9A8;background:#FDFAEF;border-radius:11px;padding:13px 14px;margin-bottom:12px}
+.bulk-confirm .bc-h{display:flex;align-items:center;gap:8px;font-size:14px;color:${INK};margin-bottom:9px}
+.bulk-confirm .bc-p{font-size:12.5px;color:#56527a;line-height:1.5;margin:0 0 9px}
+.bulk-confirm .bc-tip{margin-bottom:0;color:#7a7590}
+.bulk-confirm .bc-list{margin:0 0 10px;padding-left:18px;font-size:12.5px;color:#56527a;line-height:1.7}
+.bulk-confirm .bc-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+.bulk-result{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;line-height:1.5;border-radius:9px;padding:9px 12px;margin-bottom:12px;border:1px solid #E7C9CD;background:#FDF4F5;color:#7d4a50}
+.bulk-result.good{border-color:#CFE7D6;background:#F3FAF5;color:#2f6b45}
 .own-badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#EEF0F7;color:#4a4763}
 .fu-scope{margin-bottom:14px}
 .fu-owner{margin-top:8px}
@@ -2056,7 +2089,11 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .imp-row{display:flex;align-items:center;gap:7px;background:#F7F8FC;border:1px solid #EDEEF5;border-radius:9px;padding:7px 10px}
 .imp-h{flex:1;min-width:0;font-size:12.5px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .imp-row select{border:1px solid #E1E2EC;border-radius:7px;padding:5px 7px;font-size:12px;color:${INK};background:#fff;max-width:130px}
-.imp-warn{display:flex;align-items:center;gap:6px;font-size:12px;color:#9a5a16;background:#FFF7ED;border:1px solid #FCD9B6;border-radius:8px;padding:8px 11px;margin-top:10px}
+.imp-warn{display:flex;align-items:flex-start;gap:6px;font-size:12px;color:#9a5a16;background:#FFF7ED;border:1px solid #FCD9B6;border-radius:8px;padding:8px 11px;margin-top:10px}
+.imp-warn svg,.imp-note svg{flex:none;margin-top:1px}
+/* the neutral twin of .imp-warn: two columns onto Name or Notes is a FEATURE
+   (they get joined), so it must not wear the colour that means data loss */
+.imp-note{display:flex;align-items:flex-start;gap:6px;font-size:12px;color:#4a4763;background:#F1F3FB;border:1px solid #DDE1F0;border-radius:8px;padding:8px 11px;margin-top:10px}
 @media(max-width:640px){.imp-map{grid-template-columns:1fr}}
 .act-types{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
 .act-t{font-size:12px;font-weight:600;padding:6px 10px;border-radius:9px;border:1px solid #DEDFEA;background:#fff;color:#56527a;cursor:pointer;display:flex;align-items:center;gap:5px}
@@ -2341,6 +2378,8 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .fu-done p{font-size:14px;color:#6a6788;max-width:420px;line-height:1.5}
 .linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
 .linkbtn.q:hover{color:${COBALT}}
+/* inline inside a sentence — the block variant's padding/margin push it onto its own line */
+.linkbtn.inl{padding:0;margin:0;color:${COBALT};text-decoration:underline;font-size:inherit}.linkbtn.inl:hover{color:${INK}}
 .cli-prog{display:flex;align-items:center;gap:10px;min-width:160px}
 .cli-prog .pbar{flex:1;margin-bottom:0}.cli-prog .pp{font-size:12px;font-weight:600;color:${INK};min-width:34px}
 .rmap-board{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(152px,1fr);gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:18px}
@@ -2662,7 +2701,7 @@ function AccountModal({name,email,role,onClose}){
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:460}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>My account</h2><div className="meta">{role==='owner'?'Owner':'Sales Rep'}</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
-      <div style={{padding:'4px 22px 22px'}}>
+      <div className="m-scroll">
         <div className="fgrid">
           <div className="field"><label>Name</label><input value={name||''} disabled/></div>
           <div className="field"><label>Sign-in email</label><input value={email||''} disabled/></div>
@@ -3355,6 +3394,51 @@ export default function App(){
     try{ await putMany(moved); }catch(e){ console.error(e); window.alert('Some leads may not have moved: '+(e.message||e)); }
     return moved.length;
   };
+  /* BATCH REASSIGN, driven from a selection on the Leads table.
+     Mirrors reassignLeads above deliberately — same "Reassigned from X to Y."
+     note, same single putMany write — so two paths that move ownership cannot
+     drift into behaving differently.
+
+     Returns a RESULT OBJECT instead of throwing or alerting. A refusal has to
+     be able to name the person it could not resolve, and window.alert cannot
+     be rendered next to the button that caused it. */
+  const reassignMany=async(ids,toUser)=>{
+    if(!isOwner) return {ok:false,reason:'not_owner'};
+    const idSet=new Set(ids||[]);
+    const picked=leadsRef.current.filter(l=>idSet.has(l.id));
+    if(!picked.length) return {ok:false,reason:'nothing_selected'};
+    const toName=toUser?toUser.name:POOL_OWNER;
+
+    /* TWO PEOPLE, ONE NAME. stampOwner resolves ownership with
+       users.find(x => x.name === l.owner), which returns the FIRST match — so
+       a duplicated name quietly assigns every lead to whichever row happens to
+       come first. Refuse, and say whose name is doubled. */
+    if(toUser){
+      const sameName=(users||[]).filter(u=>u&&u.active!==false&&String(u.name||'').trim()===String(toName).trim());
+      if(sameName.length>1) return {ok:false,reason:'ambiguous_name',name:toName,count:sameName.length};
+    }
+
+    const ts=new Date().toISOString();
+    const moved=picked.map(l=>({...l,owner:toName,owner_id:toUser?toUser.id:null,
+      activities:[{id:uid(),ts,type:'Note',who:me,
+        text:`Reassigned from ${l.owner||'nobody'} to ${toName}.`},...(l.activities||[])]}));
+
+    /* THE SILENT-NULL CHECK, and it asks stampOwner rather than trusting the
+       owner_id set two lines up. stampOwner is what actually decides the value
+       that reaches Postgres, so running it here — same function, same users
+       array, before anything is written — is the only check that cannot
+       disagree with the write. A null means these leads would have landed in
+       nobody's book, readable by no rep, with no error anywhere. */
+    if(toUser){
+      const unresolved=moved.map(stampOwner).filter(l=>!l.owner_id);
+      if(unresolved.length) return {ok:false,reason:'unresolved',name:toName,count:unresolved.length};
+    }
+
+    commitLeads(leadsRef.current.map(l=>moved.find(m=>m.id===l.id)||l));
+    try{ await putMany(moved); }
+    catch(e){ return {ok:false,reason:'write_failed',error:e.message||String(e)}; }
+    return {ok:true,n:moved.length,name:toName};
+  };
   /* first-run bootstrap: the person standing here becomes the owner */
   const claimOwner=async()=>{ if(!myUid) return;
     await saveUser({id:myUid,name:me,email:auth.email(session),role:'owner',pools:[],commission_pct:0,active:true,tabs:[],goal_conversions:0}); };
@@ -3570,7 +3654,7 @@ export default function App(){
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
           view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
           view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
-          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen} delBatch={delBatch}/>:
+          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen} delBatch={delBatch} users={users} reassignMany={reassignMany}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
@@ -5449,7 +5533,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen,delBatch}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen,delBatch,users,reassignMany}){
   /* importOpen is owned by App so the sidebar's "Import a list" can open it.
      A local useState here would shadow the prop: the sidebar sets one piece of
      state and the page renders off another, so the modal never appears. */
@@ -5459,7 +5543,44 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   const [view,setView]=useState('mine');
   const [recent,setRecent]=useState(null);   // null | '1' | '7' | batch id
   const [label,setLabel]=useState('all');
+  /* OWNER FILTER. 'all' | a crm_users id | 'none' (nobody owns it).
+     Not a new screen: an owner could already see every rep's leads on All, and
+     the Owner column is on by default and sortable. The only thing missing was
+     going straight to one person's book. */
+  const [ownerF,setOwnerF]=useState('all');
+  /* Only active people are worth offering — a deactivated rep's leads should be
+     found through Unassigned or by name, not by picking a person who cannot
+     sign in. */
+  const ownerOpts=useMemo(()=>(users||[]).filter(u=>u&&u.active!==false)
+    .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''))),[users]);
+  /* MATCHES ON owner_id, THE SAME FIELD RLS USES, and deliberately not on the
+     owner NAME. A lead carrying a rep's name with a null owner_id is NOT that
+     rep's — Postgres will not return it to them — so listing it under their
+     name would state the opposite of what the database does. Those leads show
+     under "Unassigned", which is the truth, and the hint below counts them. */
+  const ownerMatch=l=>{
+    if(ownerF==='all') return true;
+    if(ownerF==='none') return !l.owner_id;
+    return l.owner_id===ownerF;
+  };
+  /* THE SILENT-NULL DETECTOR, read side. stampOwner() resolves owner_id by
+     exact NAME match against crm_users; a miss writes null and the lead lands
+     in nobody's book without a word. This counts leads wearing the selected
+     person's name that never got their id, so the drift is visible on the same
+     screen that caused it rather than in a support conversation weeks later. */
+  const ownerSel=ownerOpts.find(u=>u.id===ownerF)||null;
+  const orphanedForOwner=useMemo(()=>!ownerSel?0:(leads||[])
+    .filter(l=>!l.owner_id&&String(l.owner||'').trim()===String(ownerSel.name||'').trim()).length,[leads,ownerSel]);
   useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
+  useEffect(()=>{ if(!canAll&&ownerF!=='all') setOwnerF('all'); },[canAll,ownerF]);
+  /* BATCH SELECTION. Owner-only: moving ownership is an owner action every
+     other place it exists (reassignLeads is gated on isOwner). */
+  const canBatch=!rep&&typeof reassignMany==='function';
+  const [sel,setSel]=useState(()=>new Set());
+  const [target,setTarget]=useState('');
+  const [confirming,setConfirming]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [result,setResult]=useState(null);
   const counts={mine:leads.filter(l=>l.owner===me).length,pool:leads.filter(l=>isPoolLead(l,rep?myPools:null)).length,all:leads.length};
   /* One chip per import, newest first — "the list I loaded this morning" is a
      click rather than a date guess. createdAt alone can't separate an import
@@ -5506,6 +5627,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   const rows=useMemo(()=>{
     let r=scopeLeads(leads,view,me,rep?myPools:null).filter(l=>{
       if(!recentFilter(l))return false;
+      if(!ownerMatch(l))return false;
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
       if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
@@ -5518,7 +5640,67 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
     });
     r.sort((a,b)=>{const av=sortVal(a,sortK),bv=sortVal(b,sortK);const c=av<bv?-1:av>bv?1:0;return dir==='asc'?c:-c;});
     return r;
-  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me,recent,label]);
+  },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me,recent,label,ownerF]);
+  /* Clear the selection whenever the visible set changes. Acting on rows you
+     can no longer see is the one way a batch tool does something you did not
+     intend, and it is silent when it happens. */
+  useEffect(()=>{ setSel(new Set()); setConfirming(false); setResult(null); },
+    [view,ownerF,q,stage,pri,cold,spon,label,recent]);
+  const rowIds=useMemo(()=>rows.map(l=>l.id),[rows]);
+  const allShown=rowIds.length>0&&rowIds.every(id=>sel.has(id));
+  const toggleOne=(e,id)=>{ e.stopPropagation();
+    setSel(p=>{ const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n; }); };
+  /* Selects what is ON SCREEN, never the whole table — the header checkbox sits
+     above a filtered list and "all" has to mean the list under it. */
+  const toggleAllShown=e=>{ e.stopPropagation();
+    setSel(p=>{ if(rowIds.every(id=>p.has(id))) { const n=new Set(p); rowIds.forEach(id=>n.delete(id)); return n; }
+      return new Set([...p,...rowIds]); }); };
+  const picked=useMemo(()=>rows.filter(l=>sel.has(l.id)),[rows,sel]);
+  const targetUser=ownerOpts.find(u=>u.id===target)||null;
+
+  /* WHAT THE CURRENT OWNERS LOSE SIGHT OF.
+     Not what they lose — the commission snapshot and the meeting stamps stay
+     on the lead, and rep_payouts is a separate table keyed by rep_id. But both
+     of a rep's own earnings screens compute over the leads Postgres returns to
+     THEM (myCommissions(leads,myUid) and apptEarnings(leads,myUid,rate)), so a
+     lead that moves takes its pending money off their screen while still being
+     owed. Naming it in the confirm is the difference between a decision and a
+     surprise on payday. */
+  const impact=useMemo(()=>{
+    const by=new Map();
+    const at=(id,name)=>{ const k=id||('name:'+name);
+      if(!by.has(k)) by.set(k,{id,name:name||'someone',cmsn:0,cmsnN:0,fee:0,feeN:0});
+      return by.get(k); };
+    picked.forEach(l=>{
+      const c=l.commission;
+      if(c&&typeof c==='object'&&c.status==='pending'&&num(c.amount)>0){
+        const r=at(c.repId,c.repName); r.cmsn+=num(c.amount); r.cmsnN++;
+      }
+      (l.meetings||[]).forEach(m=>{
+        if(feeState(m)!=='pending') return;
+        const sid=setterOf(m); if(!sid) return;
+        const u=(users||[]).find(x=>x.id===sid);
+        /* the rate this meeting actually pays at — frozen once approved, so
+           rateOf and not the person's current rate */
+        const amt=feeRateOf(m,num(u&&u.appointment_rate));
+        if(!(amt>0)) return;
+        const r=at(sid,(u&&u.name)||m.setBy); r.fee+=amt; r.feeN++;
+      });
+    });
+    /* only people who are actually losing sight of something, and never the
+       person receiving the leads — nothing moves away from them */
+    return [...by.values()]
+      .filter(r=>(r.cmsnN>0||r.feeN>0)&&(!targetUser||r.id!==targetUser.id))
+      .sort((a,b)=>(b.cmsn+b.fee)-(a.cmsn+a.fee));
+  },[picked,users,targetUser]);
+
+  const doReassign=async()=>{
+    setBusy(true);
+    const r=await reassignMany([...sel],targetUser);
+    setBusy(false); setConfirming(false); setResult(r);
+    if(r&&r.ok){ setSel(new Set()); setTarget(''); }
+  };
+
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
@@ -5554,6 +5736,20 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       </div>)}
     <div className="toolbar">
       <ScopeSeg view={view} setView={setView} counts={counts} canAll={canAll}/>
+      {/* Owners only. A rep has exactly one owner's leads — their own — so the
+          control would be a dropdown with one entry that changes nothing. */}
+      {canAll&&ownerOpts.length>0&&(
+        <select className="selctl" value={ownerF} onChange={e=>{
+          const v=e.target.value; setOwnerF(v);
+          /* Picking a person means "show me their book", which cannot be true
+             on Mine or Pool. Switching the scope is the only reading of that
+             click that returns rows instead of an empty table. */
+          if(v!=='all') setView('all');
+        }}>
+          <option value="all">All owners</option>
+          {ownerOpts.map(u=><option key={u.id} value={u.id}>{u.name}{u.role==='owner'?' · owner':''}</option>)}
+          <option value="none">Unassigned</option>
+        </select>)}
       {/* only shown once something is actually labelled — an empty filter is
           clutter on a fresh install */}
       {(()=>{ const used=[...new Set((leads||[]).flatMap(labelsOf))].sort();
@@ -5578,10 +5774,88 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       <button className="btn btn-g" onClick={csv}><Download size={15}/>CSV</button>
       {importLeads&&<button className="btn btn-p" onClick={()=>setImportOpen(true)}><Upload size={15}/>Import</button>}
     </div>
+    {/* Drift, said out loud on the screen that causes it. stampOwner() resolves
+        owner_id by exact name match; a miss writes null and the lead silently
+        belongs to nobody. Counting it here is the difference between noticing
+        in ten seconds and noticing when a rep asks where their leads went. */}
+    {ownerSel&&orphanedForOwner>0&&(
+      <div className="pool-note"><AlertTriangle size={14}/>
+        {orphanedForOwner} more {orphanedForOwner===1?'lead carries':'leads carry'} <b>{ownerSel.name}</b>'s name but no owner id, so {orphanedForOwner===1?'it is':'they are'} in nobody's book and {ownerSel.name} cannot see {orphanedForOwner===1?'it':'them'}.
+        {' '}<button className="linkbtn inl" onClick={()=>{setOwnerF("none");setView("all");}}>Show unassigned</button>
+      </div>)}
+    {ownerF==='none'&&(
+      <div className="pool-note"><Users size={14}/>Leads with no owner id. Nobody but an owner can see these — a rep is shown leads by owner id, never by the name written on them.</div>)}
+    {canBatch&&sel.size>0&&(
+      <div className="bulkbar">
+        <span className="bb-n"><b>{sel.size}</b> selected</span>
+        <select className="selctl" value={target} onChange={e=>{setTarget(e.target.value);setResult(null);}}>
+          <option value="">Assign to…</option>
+          {ownerOpts.map(u=><option key={u.id} value={u.id}>{u.name}{u.role==='owner'?' · owner':''}</option>)}
+          <option value="__pool">Unassign — back to the pool</option>
+        </select>
+        <button className="btn btn-p btn-sm" disabled={!target||busy} onClick={()=>{setResult(null);setConfirming(true);}}>
+          <UserCheck size={14}/>Reassign
+        </button>
+        <button className="linkbtn inl" onClick={()=>{setSel(new Set());setConfirming(false);}}>Clear selection</button>
+      </div>)}
+
+    {/* THE CONFIRM. A styled panel rather than window.confirm because the whole
+        point is to NAME what is about to be moved off someone's screen, and a
+        browser dialog is one line of unstyled text. */}
+    {confirming&&(
+      <div className="bulk-confirm">
+        <div className="bc-h"><AlertTriangle size={15}/>
+          Move <b>{sel.size}</b> {sel.size===1?'lead':'leads'} to <b>{target==='__pool'?POOL_OWNER:(targetUser&&targetUser.name)||'—'}</b>?
+        </div>
+        {impact.length>0?(
+          <div className="bc-body">
+            <p className="bc-p">These people keep the money — the commission snapshot and the meeting stamps stay on the lead, and payouts are a separate table. What they lose is <b>sight of it</b>: a rep&rsquo;s earnings screens only show leads the database still returns to them.</p>
+            <ul className="bc-list">
+              {impact.map(r=>(<li key={r.id||r.name}>
+                <b>{r.name}</b>
+                {r.cmsnN>0&&<> · {r.cmsnN} pending {r.cmsnN===1?'commission':'commissions'} <b>{usd(r.cmsn)}</b></>}
+                {r.feeN>0&&<> · {r.feeN} held {r.feeN===1?'meeting':'meetings'} awaiting approval <b>{usd(r.fee)}</b></>}
+              </li>))}
+            </ul>
+            <p className="bc-p bc-tip">Approving these before moving them keeps them on the rep&rsquo;s screen.</p>
+          </div>
+        ):(
+          <div className="bc-body"><p className="bc-p">Nothing selected carries pending commission or an unapproved held meeting.</p></div>
+        )}
+        <div className="bc-acts">
+          <button className="btn btn-g btn-sm" onClick={()=>setConfirming(false)}>Cancel</button>
+          <button className="btn btn-p btn-sm" disabled={busy} onClick={doReassign}>
+            {busy?<Loader2 size={14} className="spin"/>:<UserCheck size={14}/>}{busy?'Moving…':`Move ${sel.size}`}
+          </button>
+        </div>
+      </div>)}
+
+    {result&&(
+      <div className={'bulk-result'+(result.ok?' good':'')}>
+        {result.ok
+          ? <><CheckCircle2 size={14}/>Moved {result.n} {result.n===1?'lead':'leads'} to <b>{result.name}</b>.</>
+          : <><AlertTriangle size={14}/>{
+              result.reason==='ambiguous_name'
+                ? <>Nothing was moved. <b>{result.count}</b> active people are named <b>{result.name}</b>, and ownership is resolved by name — assigning would have picked one of them at random. Rename one in Settings → Team first.</>
+              : result.reason==='unresolved'
+                ? <>Nothing was moved. The name <b>{result.name}</b> did not resolve to a person the database knows, so {result.count===1?'that lead':`all ${result.count} leads`} would have been left owned by nobody and invisible to every rep. Check that <b>{result.name}</b> is an active row in Settings → Team, spelled exactly.</>
+              : result.reason==='write_failed'
+                ? <>The move failed and nothing was saved: {result.error}</>
+              : result.reason==='not_owner' ? <>Only an owner can reassign leads.</>
+              : <>Nothing was selected.</>
+            }</>}
+        <button className="linkbtn inl" onClick={()=>setResult(null)}>Dismiss</button>
+      </div>)}
+
     {view==='pool'&&<div className="pool-note"><Users size={14}/>{rep?`Unclaimed leads in ${(myPools&&myPools.length)?myPools.join(', '):'your pools'}. Claim one and it becomes yours.`:'Unclaimed leads owned by '+POOL_OWNER+'. Claim one and it moves to your list.'}</div>}
     <div className="tbl-wrap"><table className="tbl"><thead><tr>
+      {canBatch&&<th className="selcol"><input type="checkbox" checked={allShown} onChange={toggleAllShown} onClick={e=>e.stopPropagation()} title={allShown?'Clear these':'Select the '+rowIds.length+' shown'}/></th>}
       <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}{view==='pool'&&<th></th>}
-    </tr></thead><tbody>{rows.map(l=>(<tr key={l.id} onClick={()=>open(l.id,rows.map(r=>r.id))}>
+    </tr></thead><tbody>{rows.map(l=>(<tr key={l.id} className={sel.has(l.id)?'picked':''} onClick={()=>open(l.id,rows.map(r=>r.id))}>
+      {/* stopPropagation on the CELL as well as the box: the whole row opens
+          the lead, and a click that lands on the padding around the checkbox
+          would otherwise open a modal instead of ticking it. */}
+      {canBatch&&<td className="selcol" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={sel.has(l.id)} onChange={e=>toggleOne(e,l.id)}/></td>}
       <td><div className="namecell">{l.name}</div><div className="subcell">{l.company}</div></td>
       {visCols.map(c=><td key={c.key}>{defs[c.key].render(l)}</td>)}
       {view==='pool'&&<td style={{textAlign:'right'}}><button className="claim-btn" onClick={e=>claim(e,l)}><UserCheck size={13}/>Claim</button></td>}
@@ -5667,11 +5941,28 @@ function ImportModal({onClose,onImport,businessTypes}){
   const skipped=headers?rows.filter(r=>!usable(r)).length:0;
   const preview=headers?rows.filter(r=>usable(r)).slice(0,6).map(buildLead):[];
   const mapped=k=>headers?headers.filter(h=>mapping[h]===k).length:0;
+  /* TWO COLUMNS ONTO ONE FIELD. buildLead treats three cases differently and
+     the UI said nothing about any of them:
+       name  -> joined with a space   (deliberate: first name + last name)
+       note  -> joined with ' | '     (deliberate)
+       everything else -> f[t]=v, so the LAST column silently wins and the
+                          earlier one is dropped with no warning at all.
+     Naming which of the three is about to happen is the whole fix — the
+     concatenating pair are a feature, the rest is data loss. */
+  const JOINS={name:'joined with a space',note:"joined with ' | '"};
+  const dupes=headers
+    ? [...new Set(Object.values(mapping))]
+        .filter(k=>k&&k!=='ignore'&&mapped(k)>1)
+        .map(k=>({field:k,
+          label:(IMPORT_FIELDS.find(f=>f[0]===k)||[k,k])[1],
+          cols:headers.filter(h=>mapping[h]===k),
+          join:JOINS[k]||''}))
+    : [];
   const doImport=()=>{ const built=rows.filter(usable).map(buildLead); onImport(built); };
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:720}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>Import leads from CSV</h2><div className="meta">AI maps your columns — you review, then import</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
-      <div style={{padding:'4px 22px 22px'}}>
+      <div className="m-scroll">
         {!headers?(<>
           <div className="seg" style={{marginBottom:14}}>
             <button className={'seg-b '+(src==='file'?'on':'')} onClick={()=>setSrc('file')}>File or paste</button>
@@ -5710,15 +6001,30 @@ function ImportModal({onClose,onImport,businessTypes}){
           <div className="imp-sub">{rows.length} row{rows.length===1?'':'s'} found{fileName?' · '+fileName:''}. Map each column:</div>
           <div className="imp-map">{headers.map(h=>(<div className="imp-row" key={h}><span className="imp-h" title={h}>{h||'(blank)'}</span><ChevronRight size={13} color="#c7c5d4"/><select value={mapping[h]||'ignore'} onChange={e=>setMapping(m=>({...m,[h]:e.target.value}))}>{IMPORT_FIELDS.map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>))}</div>
           {!mapped('name')&&<div className="imp-warn"><AlertTriangle size={13}/>No column is mapped to <b>Name</b> — those rows will fall back to the company name.</div>}
-          <label className="spon-tog" style={{marginTop:12}}><input type="checkbox" checked={markSponsor} onChange={e=>setMarkSponsor(e.target.checked)}/>Mark all imported leads as <b>potential sponsors</b></label>
+          {dupes.map(d=>(
+            <div key={d.field} className={d.join?'imp-note':'imp-warn'}>
+              {d.join?<Layers size={13}/>:<AlertTriangle size={13}/>}
+              <span><b>{d.cols.length}</b> columns are mapped to <b>{d.label}</b> ({d.cols.join(', ')}) — {d.join
+                ? <>they will be {d.join}.</>
+                : <>only <b>{d.cols[d.cols.length-1]}</b> will be kept. Mapping two columns to {d.label} is not supported, so the others are dropped.</>}</span>
+            </div>))}
+          {/* The label text is ONE flex item, not three. .spon-tog is inline-flex with
+              gap:8px, so a bare text node followed by <b> put an 8px gap on top of
+              the space already inside the text — which reads as a double space. */}
+          <label className="spon-tog" style={{marginTop:12}}><input type="checkbox" checked={markSponsor} onChange={e=>setMarkSponsor(e.target.checked)}/><span>Mark all imported leads as <b>potential sponsors</b></span></label>
           <div className="imp-sub" style={{marginTop:16}}>Preview (first {preview.length}):</div>
           <div className="tbl-wrap" style={{maxHeight:200,overflow:'auto'}}><table className="tbl"><thead><tr><th>Name</th><th>Company</th><th>Phone</th><th>Email</th></tr></thead><tbody>{preview.map((l,i)=>(<tr key={i}><td className="namecell">{l.name}</td><td className="subcell">{l.company||'—'}</td><td className="subcell">{l.phone||'—'}</td><td className="subcell">{l.email||'—'}</td></tr>))}</tbody></table></div>
-          <div style={{display:'flex',gap:8,marginTop:16,alignItems:'center'}}>
-            <button className="btn btn-p" onClick={doImport}><CheckCircle2 size={15}/>Import {rows.length} lead{rows.length===1?'':'s'}</button>
-            <button className="btn btn-s btn-sm" onClick={()=>{setHeaders(null);setRows([]);setAi(null);setFileName('');}}>Start over</button>
-          </div>
         </>)}
       </div>
+      {/* PINNED, and outside the scrolling body on purpose. Making the body
+          scroll already puts Import within reach at any column count; keeping
+          the action row out of it means you do not have to scroll past 21
+          column mappings to find the button in the first place. */}
+      {headers&&<div className="m-foot">
+        <button className="btn btn-p" onClick={doImport}><CheckCircle2 size={15}/>Import {rows.length} lead{rows.length===1?'':'s'}</button>
+        <button className="btn btn-s btn-sm" onClick={()=>{setHeaders(null);setRows([]);setAi(null);setFileName('');}}>Start over</button>
+        {skipped>0&&<span className="m-foot-n">{skipped} row{skipped===1?'':'s'} skipped — no name or company</span>}
+      </div>}
     </div>
   </div>);
 }
@@ -6394,7 +6700,7 @@ function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:520}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>Edit task</h2><div className="meta">Tune the knobs so the AI ranks it right</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
-      <div style={{padding:'4px 22px 22px'}}>
+      <div className="m-scroll">
         <div className="field"><label>Task</label><input value={d.title||''} onChange={e=>set({title:e.target.value})} placeholder="What needs doing?"/></div>
         <div className="fgrid">
           <div className="field"><label>Owner</label>{rep
@@ -6744,7 +7050,7 @@ function TxnModal({txn,file,onSave,onDelete,onClose}){
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:560}} onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head"><div><h2>{txn?'Edit transaction':'New transaction'}</h2><div className="meta">The Books</div></div><button className="m-x" onClick={onClose}><X size={18}/></button></div>
-      <div style={{padding:'4px 22px 22px'}}>
+      <div className="m-scroll">
         {ai==='reading'&&<div className="ai-banner ai-reading"><Loader2 size={15} className="spin"/>Reading the receipt…</div>}
         {ai==='done'&&<div className="ai-banner ai-done"><Sparkles size={15}/>Filled in from your receipt — review and tweak below.</div>}
         {ai==='off'&&<div className="ai-banner ai-off"><AlertTriangle size={15}/>AI read-back isn't on yet — type the details (your file is still attached). </div>}
