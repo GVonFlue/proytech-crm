@@ -901,6 +901,33 @@ const CSS=`
 .qbtn:hover{background:rgba(43,77,224,.15)}
 .m-x{background:#F0F1F7;border:none;border-radius:9px;width:34px;height:34px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#56527a;flex:none}.m-x:hover{background:#E6E7F1}.m-x:disabled{opacity:.35;cursor:default}
 .m-grid{display:grid;grid-template-columns:1.15fr .85fr;overflow:hidden;flex:1;min-height:0}
+/* THREE COLUMNS: prep · history · record.
+   The rails are FIXED and the middle takes every pixel of slack, because the
+   old 1.15fr/.85fr split shared the extra width out proportionally — which at
+   960px was fine and at 1800px gave a column of short text inputs half the
+   screen while the activity log, the thing this is opened for, stayed
+   compressed. Width belongs to the feed. */
+.m-grid.lead3{grid-template-columns:302px minmax(0,1fr) 344px}
+.m-prep{padding:18px 16px;overflow-y:auto;min-height:0;border-right:1px solid #E8E9F2;background:#FAFBFE}
+.m-grid.lead3 .m-right{border-left:0;border-right:1px solid #E8E9F2;background:#fff}
+.m-grid.lead3 .m-left{background:#F4F6FB}
+.touchbar.prep{flex-direction:column;align-items:flex-start;gap:3px}
+/* the follow-up presets: one tap for the four answers people actually give */
+.fu-set{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.fu-chip{border:1px solid #D9DCEC;background:#fff;color:#4a4763;border-radius:7px;padding:4px 10px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:inherit}
+.fu-chip:hover{border-color:${COBALT};color:${COBALT}}
+.fu-chip.clear{margin-left:auto;color:#8b88a0}
+.fu-chip.clear:hover{border-color:${RED};color:${RED}}
+/* Expand still gives the feed the whole surface; the rails step aside. */
+.m-grid.lead3.wide{grid-template-columns:minmax(0,1fr)}
+@media (max-width:1240px){
+  .m-grid.lead3{grid-template-columns:270px minmax(0,1fr)}
+  .m-grid.lead3 .m-left{grid-column:1 / -1;border-top:1px solid #E8E9F2}
+}
+@media (max-width:820px){
+  .m-grid.lead3{grid-template-columns:1fr;overflow-y:auto}
+  .m-prep{border-right:0;border-bottom:1px solid #E8E9F2}
+}
 .m-left{padding:20px 22px;overflow-y:auto}/* hidden, not auto — the column itself must not scroll, or you get the two
    nested scrollbars that caused this */
 .m-right{padding:20px 22px;overflow:hidden;background:#fff;border-left:1px solid #E8E9F2;display:flex;flex-direction:column;min-height:0}
@@ -1749,7 +1776,7 @@ tbody tr.picked:hover{background:#E9EDFD}
    refuses to go below its content and overflows instead. */
 /* wide mode: the left column collapses out and the log owns the window */
 .m-grid.wide{grid-template-columns:1fr}
-.m-grid.wide .m-left{display:none}
+.m-grid.wide .m-left,.m-grid.wide .m-prep{display:none}
 .m-grid.wide .m-right{border-left:0}
 .m-grid.wide .fitem{padding:13px 0}
 .m-grid.wide .ftxt{font-size:14px}

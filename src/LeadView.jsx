@@ -454,6 +454,36 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
   const toggleSvc=s=>{const cur=draft.serviceInterest||[];set({serviceInterest:cur.includes(s)?cur.filter(x=>x!==s):[...cur,s]});};
   const addCustomAction=()=>{const v=window.prompt('New Next Action:');if(v&&v.trim()){addOption('nextAction',v.trim());set({nextAction:v.trim()});}};
   const addCustomSvc=()=>{const v=window.prompt('New Service Interest:');if(v&&v.trim()){addOption('service',v.trim());toggleSvc(v.trim());}};
+  /* THE FOLLOW-UP BLOCK, DEFINED ONCE.
+     It used to exist twice — "Follow-up date" here and "Follow-up Date" in the
+     create form's extra details — the same field, the same write path, two
+     labels. That is the one duplication this redesign was allowed to collapse.
+     Rendered in both places from this definition, so they cannot drift again.
+
+     The presets write followUp through the same set() every other control uses.
+     No new field, no new calculation: "in 3 days" is a date, and this is the
+     date picker with the four answers people actually give. */
+  const fuPreset=(label,days)=>{
+    const d=new Date(); d.setDate(d.getDate()+days);
+    return (<button key={label} type="button" className="fu-chip"
+      onClick={()=>set({followUp:isoOf(d)})}>{label}</button>);
+  };
+  const FollowUpBlock=()=>(<div className="fu-block">
+    <div className="fu-set">
+      {[['Tomorrow',1],['+3 days',3],['Next week',7],['+2 weeks',14]].map(([l,n])=>fuPreset(l,n))}
+      {draft.followUp&&<button type="button" className="fu-chip clear"
+        onClick={()=>set({followUp:''})}>Clear</button>}
+    </div>
+    <div className="fgrid">
+      {F({label:'Follow-up date',k:'followUp',type:'date'})}
+      <div className="field"><label>Next action</label><select value={draft.nextAction} onChange={e=>set({nextAction:e.target.value})}>{opt.nextAction.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
+    </div>
+    <div className="field full" style={{marginTop:10}}>
+      <label>What to do on this follow-up</label>
+      <textarea className="fu-note" rows={2} placeholder="e.g. Ask about their listing site — he said call back after the 15th" value={draft.nextSteps||''} onChange={e=>set({nextSteps:e.target.value})}/>
+    </div>
+    {draft.followUp&&<div className={'fu-when'+(daysUntil(draft.followUp)<0?' od':'')}>{daysUntil(draft.followUp)<0?`${Math.abs(daysUntil(draft.followUp))} days overdue`:daysUntil(draft.followUp)===0?'Due today':`Due in ${daysUntil(draft.followUp)} days`} · {fmtDate(draft.followUp)}</div>}
+  </div>);
   const F=({label,k,type,full})=>(<div className={'field'+(full?' full':'')}><label>{label}</label><input type={type||'text'} value={draft[k]??''} onChange={e=>set({[k]:e.target.value})}/></div>);
   const dealSum=d=>num(d.setup)+num(d.website)+num(d.integration)+(d.extras||[]).reduce((a,e)=>a+num(e.amount),0);
   /* MULTI-DEAL MODEL. A client can have several deals running at once.
@@ -688,7 +718,183 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
           <button key={k} className={'mj'+(openSec[k]?' on':'')} onClick={()=>jumpTo(k)}><Ic size={13}/>{label}{badge!==''&&<i>{badge}</i>}</button>
         ))}
       </div>}
-      <div className={'m-grid'+(wideFeed?' wide':'')}>
+      {/* THREE COLUMNS, IN THE ORDER THE WORK HAPPENS.
+          prep · history · record. The old two-column split put a contact form
+          on the left and squeezed the activity log into the right — proportions
+          that made sense at 960px and became a form with a lot of empty space
+          beside a compressed feed once the surface went full width. History is
+          what this screen is opened for, so it takes the middle and all the
+          slack; the two rails are fixed and narrow. */}
+      <div className={'m-grid lead3'+(wideFeed?' wide':'')}>
+        {/* ---------- PREP: what you need before you call ---------- */}
+        {!isNew&&<div className="m-prep">
+          <div className="dh"><Bell size={13}/>Follow-up</div>
+          <FollowUpBlock/>
+          {touch.total>0&&<>
+            <div className="dh mt"><MessageSquare size={13}/>Contact so far</div>
+            <div className="touchbar prep">
+              <b>{touch.spoken>0?`${touch.spoken} conversation${touch.spoken===1?'':'s'}`:'No calls or meetings yet'}</b>
+              <span>
+                {[['Call','call'],['Text','text'],['Meeting','meeting'],['Booked','booked'],['Email','email']]
+                  .filter(([k])=>touch.by[k]>0)
+                  .map(([k,w])=>`${touch.by[k]} ${w}${touch.by[k]===1?'':'s'}`).join(' · ')||'notes only'}
+              </span>
+              {touch.first&&<em>since {fmtDate(touch.first)}</em>}
+            </div>
+          </>}
+        </div>}
+        <div className="m-right">
+          {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
+            {/* Follow Up Boss, HubSpot and Salesforce all treat the timeline as
+                the primary object, not a side rail — because reading history is
+                what you open a contact for. A two-column split can never give
+                the feed more than half the window, so this lets it take the
+                whole modal on demand and remembers the choice. */}
+            <div className="dh"><MessageSquare size={13}/>Activity Log
+              <button className="feed-wide" title={wideFeed?'Back to split view':'Give the log the full window'}
+                onClick={()=>{ setWideFeed(!wideFeed); try{localStorage.setItem('pt_widefeed',wideFeed?'0':'1');}catch{} }}>
+                {wideFeed?<><Minimize2 size={12}/>Split</>:<><Maximize2 size={12}/>Expand</>}
+              </button>
+            </div>
+            {/* A one-line answer to "how much have we actually talked", above
+                the fold. The composer used to fill the whole panel and push the
+                history out of sight, which is the opposite of what you open a
+                lead to see. */}
+            {/* the contact tally moved to the prep rail — it is something you
+                read BEFORE calling, not part of the history you scroll */}
+            {/* One tap for the most common cold-call outcome. Logs the call,
+                parks the lead out of the pipeline, and books the revisit — all
+                in ONE patch, because three separate writes in a tick overwrite
+                each other (see the v7 stale-write notes). */}
+            {!sOf(draft.stage,stages).nurture&&!sOf(draft.stage,stages).won&&(()=>{
+              const days=nurtureDaysOf(settings);
+              const park=()=>{
+                const d=new Date(); d.setDate(d.getDate()+days);
+                const back=isoOf(d);
+                const ts=new Date().toISOString();
+                set({ stage:(stages.find(x=>x.nurture)||{}).key||draft.stage,
+                  followUp:back,
+                  nextAction:'Check back in — said not right now',
+                  activities:[
+                    {id:uid(),ts,type:'Call',text:`Not interested right now. Parked until ${fmtDate(back)}.`,who:me},
+                    ...(draft.activities||[])] });
+              };
+              return (<button className="notnow" onClick={park}>
+                <Clock size={13}/>Not right now
+                <span>logs the call · revisit {fmtDate((()=>{const d=new Date();d.setDate(d.getDate()+days);return isoOf(d);})())}</span>
+              </button>);
+            })()}
+            {/* collapsed to a single row until you actually want to write
+                something — the feed is what you came for */}
+            {!composeOpen&&!isNew&&<button className="compose-open" onClick={()=>setComposeOpen(true)}>
+              <Plus size={14}/>Log a call, note or text</button>}
+            {(composeOpen||isNew)&&<>
+            <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
+              {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
+            </div>
+            {atype==='Booked'
+              ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner}
+                  onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/></div>
+              : null}
+            {atype==='Payment'
+              ? <div className="pay-compose">
+                  <div className="pay-compose-row">
+                    <div className="pc-amt"><span>$</span><input type="number" inputMode="decimal" placeholder="0.00" value={payAmt} onChange={e=>setPayAmt(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/></div>
+                    <input className="pc-note" placeholder="Note (e.g. Square deposit)" value={payNote} onChange={e=>setPayNote(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/>
+                  </div>
+                </div>
+              : atype==='Booked' ? null
+              : <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
+            {/* Who needs to see this. Names come from crm_team(), so it can't
+                drift from who actually has a login.
+                It used to come from `users`, which RLS narrows to a REP'S OWN
+                ROW — so for a rep the list was [me], minus me, empty, and the
+                whole control returned null. A rep has never been able to tag
+                anybody, which is the one thing REP-AUDIT #3 says is most worth
+                their while. crm_team() carries names and roles and no money.
+                Falls back to `users` then BRAND.team so an install without
+                TEAM-MIGRATION.sql behaves exactly as it does today. */}
+            {(()=>{ const roster=(teamRoster&&teamRoster.length?teamRoster.map(u=>u.name)
+                : (users&&users.length?users.filter(u=>u.active!==false).map(u=>u.name):BRAND.team))
+                .filter(n=>n&&n!==me);
+              const team=[...new Set(roster)];
+              if(!team.length) return null;
+              return (<div className="tagpick">
+                <span>Tag</span>
+                {team.map(n=>(<button key={n} type="button"
+                  className={'tagchip'+(pendTags.includes(n)?' on':'')}
+                  onClick={()=>setPendTags(t=>t.includes(n)?t.filter(x=>x!==n):[...t,n])}>
+                  <AtSign size={11}/>{n}</button>))}
+                {pendTags.length>0&&<span className="tagpick-n">shows on {pendTags.join(' and ')}{pendTags.length===1?"'s":"'"} dashboard</span>}
+              </div>); })()}
+            {atype!=='Booked'&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
+              {rep
+                ? <span className="subcell" style={{fontWeight:600}}>logging as {me}</span>
+                : <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>}
+              {atype==='Payment'
+                ? <button className="btn btn-g" style={{padding:'8px 16px'}} onClick={logPaymentFromComposer}><DollarSign size={14}/>Log Payment</button>
+                : <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>}
+            </div>}
+            </>}
+            <div className="afilter" style={{marginTop:14}}>
+              {/* every chip carries its count, so the filter row doubles as the
+                  contact tally — one place, not two things to keep in sync */}
+              <button className={feedFilter==='All'?'on':''} onClick={()=>setFeedFilter('All')}>All{touch.total?` (${touch.total})`:''}</button>
+              <button className={feedFilter==='Note'?'on':''} onClick={()=>setFeedFilter('Note')}>Notes{noteCount?` (${noteCount})`:''}</button>
+              {ACT_TYPES.filter(t=>t.key!=='Note').map(t=>{ const n=touch.by[t.key]||0;
+                return (<button key={t.key} className={(feedFilter===t.key?'on':'')+(n?'':' none')}
+                  onClick={()=>setFeedFilter(t.key)}>{actLabel(t.key)}{n?` (${n})`:''}</button>); })}
+            </div>
+            {/* A day heading whenever the date changes. Without it a long feed
+                is one undifferentiated wall and you can't tell a call from
+                yesterday from one in March without reading every timestamp. */}
+            <div className="feed">{feed.map((a,i)=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;
+              const d=String(a.ts||'').slice(0,10);
+              const prev=i>0?String(feed[i-1].ts||'').slice(0,10):null;
+              const head=d&&d!==prev?d:null;
+              /* A meeting log, read through from its own table. Deliberately
+                 not a .fitem: it is not an activity, it has no delete button
+                 here (delete the log, not the row), and it must not be
+                 mistaken for something a rep can see. */
+              if(a.derived) return (<Fragment key={a.id}>
+                {head&&<div className="fday">{dayLabel(head)}</div>}
+                <div className="fitem" style={{background:'rgba(43,77,224,.04)',borderLeft:'2px solid #2B4DE0',paddingLeft:10,borderRadius:6}}>
+                  <div className="fic"><FileText size={14}/></div>
+                  <div style={{minWidth:0}}>
+                    <div className="ftxt"><b>{a.title}</b>{a.headline?' — '+a.headline:''}</div>
+                    {a.summary&&<div className="fmeta" style={{marginTop:4,lineHeight:1.55,whiteSpace:'normal'}}>{a.summary}</div>}
+                    <MeetingBlock r={a}/>
+                    <div className="fmeta" style={{marginTop:6}}>
+                      Meeting log · {a.source}{a.attendees.length?' · '+a.attendees.join(', '):''} · {fmtStamp(a.ts)}
+                      {' · '}<span style={{color:a.published?'#2B4DE0':'#8b88a0',fontWeight:600}}>
+                        {a.published?'a line is on this lead':'owner only'}</span>
+                    </div>
+                  </div>
+                </div>
+              </Fragment>);
+              return (<Fragment key={a.id}>
+              {head&&<div className="fday">{dayLabel(head)}</div>}
+              <div className={'fitem'+(a.type==='Note'?' note':'')}>
+              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className={'ftxt'+(a.cancelled?' cancelled':'')}>{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}
+          {tagsOn(a).map(n=>{ const done=tagCleared(a).includes(n);
+            return (<span key={n} className={'ftag'+(done?' done':'')}
+              title={done?`${n} cleared this`:(n===me?'Tap to clear':`Waiting on ${n}`)}
+              onClick={e=>{ e.stopPropagation(); if(n!==me) return;
+                const next=done?tagCleared(a).filter(x=>x!==n):[...tagCleared(a),n];
+                set({activities:(draft.activities||[]).map(x=>x.id===a.id?{...x,tagsDone:next}:x)}); }}>
+              <AtSign size={10}/>{n}{done?' ✓':''}</span>); })}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
+              <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div></Fragment>);})}
+              {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
+            {/* pinned under the feed, never scrolls, never grows */}
+            <div className="m-danger">{rep
+              ? (()=>{ const lost=(stages||[]).find(x=>x.lost);
+                  return lost&&draft.stage!==lost.key
+                    ? <><button className="btn btn-g" onClick={()=>{ if(window.confirm(`Mark ${draft.name||'this lead'} as ${lost.label}? Nothing is deleted — an owner can bring it back.`)) set({stage:lost.key}); }}><Ban size={15}/>Mark {lost.label}</button>
+                        <div className="subcell" style={{marginTop:8}}>Leads are never deleted — mark it {lost.label.toLowerCase()} and it stays on the record.</div></>
+                    : <div className="subcell">Only an owner can delete a lead. Nothing here is ever lost.</div>; })()
+              : <button className="btn btn-d" onClick={()=>{if(window.confirm('Delete this lead permanently?'))delLead(draft.id);}}><Trash2 size={15}/>Delete lead</button>}</div>
+          </>}
+        </div>
         <div className="m-left">
           {/* ---------- 1. CONTACT — always first, always open ---------- */}
           <div className="dh"><Contact2 size={13}/>{isNew?'New lead':'Contact'}</div>
@@ -756,22 +962,6 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
             return dupes.length?(<div className="dupe-warn"><AlertTriangle size={14}/><span>Already in the CRM: <b onClick={()=>onNav&&onNav(dupes[0].id)}>{dupes[0].name}</b>{dupes[0].company?` · ${dupes[0].company}`:''}{dupes[0].owner?` · owned by ${dupes[0].owner}`:''}</span></div>):null;
           })()}
 
-          {/* ---------- 2. FOLLOW-UP — the note lives with the date ---------- */}
-          {!isNew&&<>
-            <div className="dh mt"><Bell size={13}/>Follow-up</div>
-            <div className="fu-block">
-              <div className="fgrid">
-                {F({label:'Follow-up date',k:'followUp',type:'date'})}
-                <div className="field"><label>Next action</label><select value={draft.nextAction} onChange={e=>set({nextAction:e.target.value})}>{opt.nextAction.map(o=><option key={o} value={o}>{o}</option>)}</select></div>
-              </div>
-              <div className="field full" style={{marginTop:10}}>
-                <label>What to do on this follow-up</label>
-                <textarea className="fu-note" rows={2} placeholder="e.g. Ask about their listing site — he said call back after the 15th" value={draft.nextSteps||''} onChange={e=>set({nextSteps:e.target.value})}/>
-              </div>
-              {draft.followUp&&<div className={'fu-when'+(daysUntil(draft.followUp)<0?' od':'')}>{daysUntil(draft.followUp)<0?`${Math.abs(daysUntil(draft.followUp))} days overdue`:daysUntil(draft.followUp)===0?'Due today':`Due in ${daysUntil(draft.followUp)} days`} · {fmtDate(draft.followUp)}</div>}
-            </div>
-          </>}
-
           {/* ---------- 3. QUICK ADD: everything else behind one tap ---------- */}
           {isNew&&<>
             <div className="dh mt"><MessageSquare size={13}/>First note</div>
@@ -785,12 +975,13 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
               <ChevronDown size={14} className={'mb-ch'+(showMore?' on':'')}/>{showMore?'Hide extra details':'Add more details'}
               {!showMore&&<i>optional — {draft.owner} · {draft.nextAction}</i>}
             </button>
+            {showMore&&<><div className="dh mt"><Bell size={13}/>Follow-up</div><FollowUpBlock/></>}
             {showMore&&<div className="fgrid" style={{marginTop:12}}>
               {Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
               {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
               {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}
               {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
-              {F({label:'Follow-up Date',k:'followUp',type:'date'})}{F({label:'Expected Close',k:'expectedClose',type:'date'})}
+              {F({label:'Expected Close',k:'expectedClose',type:'date'})}
               {F({label:'Notes for the follow-up',k:'nextSteps',full:true})}
             </div>}
           </>}
@@ -1196,165 +1387,6 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
           })()}
         </div>
 
-        <div className="m-right">
-          {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
-            {/* Follow Up Boss, HubSpot and Salesforce all treat the timeline as
-                the primary object, not a side rail — because reading history is
-                what you open a contact for. A two-column split can never give
-                the feed more than half the window, so this lets it take the
-                whole modal on demand and remembers the choice. */}
-            <div className="dh"><MessageSquare size={13}/>Activity Log
-              <button className="feed-wide" title={wideFeed?'Back to split view':'Give the log the full window'}
-                onClick={()=>{ setWideFeed(!wideFeed); try{localStorage.setItem('pt_widefeed',wideFeed?'0':'1');}catch{} }}>
-                {wideFeed?<><Minimize2 size={12}/>Split</>:<><Maximize2 size={12}/>Expand</>}
-              </button>
-            </div>
-            {/* A one-line answer to "how much have we actually talked", above
-                the fold. The composer used to fill the whole panel and push the
-                history out of sight, which is the opposite of what you open a
-                lead to see. */}
-            {!isNew&&touch.total>0&&<div className="touchbar">
-              <b>{touch.spoken>0?`${touch.spoken} conversation${touch.spoken===1?'':'s'}`:'No calls or meetings yet'}</b>
-              <span>
-                {[['Call','call'],['Text','text'],['Meeting','meeting'],['Booked','booked'],['Email','email']]
-                  .filter(([k])=>touch.by[k]>0)
-                  .map(([k,w])=>`${touch.by[k]} ${w}${touch.by[k]===1?'':'s'}`).join(' · ')||'notes only'}
-              </span>
-              {touch.first&&<em>since {fmtDate(touch.first)}</em>}
-            </div>}
-            {/* One tap for the most common cold-call outcome. Logs the call,
-                parks the lead out of the pipeline, and books the revisit — all
-                in ONE patch, because three separate writes in a tick overwrite
-                each other (see the v7 stale-write notes). */}
-            {!sOf(draft.stage,stages).nurture&&!sOf(draft.stage,stages).won&&(()=>{
-              const days=nurtureDaysOf(settings);
-              const park=()=>{
-                const d=new Date(); d.setDate(d.getDate()+days);
-                const back=isoOf(d);
-                const ts=new Date().toISOString();
-                set({ stage:(stages.find(x=>x.nurture)||{}).key||draft.stage,
-                  followUp:back,
-                  nextAction:'Check back in — said not right now',
-                  activities:[
-                    {id:uid(),ts,type:'Call',text:`Not interested right now. Parked until ${fmtDate(back)}.`,who:me},
-                    ...(draft.activities||[])] });
-              };
-              return (<button className="notnow" onClick={park}>
-                <Clock size={13}/>Not right now
-                <span>logs the call · revisit {fmtDate((()=>{const d=new Date();d.setDate(d.getDate()+days);return isoOf(d);})())}</span>
-              </button>);
-            })()}
-            {/* collapsed to a single row until you actually want to write
-                something — the feed is what you came for */}
-            {!composeOpen&&!isNew&&<button className="compose-open" onClick={()=>setComposeOpen(true)}>
-              <Plus size={14}/>Log a call, note or text</button>}
-            {(composeOpen||isNew)&&<>
-            <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
-              {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
-            </div>
-            {atype==='Booked'
-              ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner}
-                  onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/></div>
-              : null}
-            {atype==='Payment'
-              ? <div className="pay-compose">
-                  <div className="pay-compose-row">
-                    <div className="pc-amt"><span>$</span><input type="number" inputMode="decimal" placeholder="0.00" value={payAmt} onChange={e=>setPayAmt(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/></div>
-                    <input className="pc-note" placeholder="Note (e.g. Square deposit)" value={payNote} onChange={e=>setPayNote(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/>
-                  </div>
-                </div>
-              : atype==='Booked' ? null
-              : <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
-            {/* Who needs to see this. Names come from crm_team(), so it can't
-                drift from who actually has a login.
-                It used to come from `users`, which RLS narrows to a REP'S OWN
-                ROW — so for a rep the list was [me], minus me, empty, and the
-                whole control returned null. A rep has never been able to tag
-                anybody, which is the one thing REP-AUDIT #3 says is most worth
-                their while. crm_team() carries names and roles and no money.
-                Falls back to `users` then BRAND.team so an install without
-                TEAM-MIGRATION.sql behaves exactly as it does today. */}
-            {(()=>{ const roster=(teamRoster&&teamRoster.length?teamRoster.map(u=>u.name)
-                : (users&&users.length?users.filter(u=>u.active!==false).map(u=>u.name):BRAND.team))
-                .filter(n=>n&&n!==me);
-              const team=[...new Set(roster)];
-              if(!team.length) return null;
-              return (<div className="tagpick">
-                <span>Tag</span>
-                {team.map(n=>(<button key={n} type="button"
-                  className={'tagchip'+(pendTags.includes(n)?' on':'')}
-                  onClick={()=>setPendTags(t=>t.includes(n)?t.filter(x=>x!==n):[...t,n])}>
-                  <AtSign size={11}/>{n}</button>))}
-                {pendTags.length>0&&<span className="tagpick-n">shows on {pendTags.join(' and ')}{pendTags.length===1?"'s":"'"} dashboard</span>}
-              </div>); })()}
-            {atype!=='Booked'&&<div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,gap:8}}>
-              {rep
-                ? <span className="subcell" style={{fontWeight:600}}>logging as {me}</span>
-                : <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>}
-              {atype==='Payment'
-                ? <button className="btn btn-g" style={{padding:'8px 16px'}} onClick={logPaymentFromComposer}><DollarSign size={14}/>Log Payment</button>
-                : <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>}
-            </div>}
-            </>}
-            <div className="afilter" style={{marginTop:14}}>
-              {/* every chip carries its count, so the filter row doubles as the
-                  contact tally — one place, not two things to keep in sync */}
-              <button className={feedFilter==='All'?'on':''} onClick={()=>setFeedFilter('All')}>All{touch.total?` (${touch.total})`:''}</button>
-              <button className={feedFilter==='Note'?'on':''} onClick={()=>setFeedFilter('Note')}>Notes{noteCount?` (${noteCount})`:''}</button>
-              {ACT_TYPES.filter(t=>t.key!=='Note').map(t=>{ const n=touch.by[t.key]||0;
-                return (<button key={t.key} className={(feedFilter===t.key?'on':'')+(n?'':' none')}
-                  onClick={()=>setFeedFilter(t.key)}>{actLabel(t.key)}{n?` (${n})`:''}</button>); })}
-            </div>
-            {/* A day heading whenever the date changes. Without it a long feed
-                is one undifferentiated wall and you can't tell a call from
-                yesterday from one in March without reading every timestamp. */}
-            <div className="feed">{feed.map((a,i)=>{const T=ACT_TYPES.find(t=>t.key===a.type);const Ic=T?T.icon:StickyNote;
-              const d=String(a.ts||'').slice(0,10);
-              const prev=i>0?String(feed[i-1].ts||'').slice(0,10):null;
-              const head=d&&d!==prev?d:null;
-              /* A meeting log, read through from its own table. Deliberately
-                 not a .fitem: it is not an activity, it has no delete button
-                 here (delete the log, not the row), and it must not be
-                 mistaken for something a rep can see. */
-              if(a.derived) return (<Fragment key={a.id}>
-                {head&&<div className="fday">{dayLabel(head)}</div>}
-                <div className="fitem" style={{background:'rgba(43,77,224,.04)',borderLeft:'2px solid #2B4DE0',paddingLeft:10,borderRadius:6}}>
-                  <div className="fic"><FileText size={14}/></div>
-                  <div style={{minWidth:0}}>
-                    <div className="ftxt"><b>{a.title}</b>{a.headline?' — '+a.headline:''}</div>
-                    {a.summary&&<div className="fmeta" style={{marginTop:4,lineHeight:1.55,whiteSpace:'normal'}}>{a.summary}</div>}
-                    <MeetingBlock r={a}/>
-                    <div className="fmeta" style={{marginTop:6}}>
-                      Meeting log · {a.source}{a.attendees.length?' · '+a.attendees.join(', '):''} · {fmtStamp(a.ts)}
-                      {' · '}<span style={{color:a.published?'#2B4DE0':'#8b88a0',fontWeight:600}}>
-                        {a.published?'a line is on this lead':'owner only'}</span>
-                    </div>
-                  </div>
-                </div>
-              </Fragment>);
-              return (<Fragment key={a.id}>
-              {head&&<div className="fday">{dayLabel(head)}</div>}
-              <div className={'fitem'+(a.type==='Note'?' note':'')}>
-              <div className="fic"><Ic size={14}/></div><div style={{minWidth:0}}><div className={'ftxt'+(a.cancelled?' cancelled':'')}>{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}
-          {tagsOn(a).map(n=>{ const done=tagCleared(a).includes(n);
-            return (<span key={n} className={'ftag'+(done?' done':'')}
-              title={done?`${n} cleared this`:(n===me?'Tap to clear':`Waiting on ${n}`)}
-              onClick={e=>{ e.stopPropagation(); if(n!==me) return;
-                const next=done?tagCleared(a).filter(x=>x!==n):[...tagCleared(a),n];
-                set({activities:(draft.activities||[]).map(x=>x.id===a.id?{...x,tagsDone:next}:x)}); }}>
-              <AtSign size={10}/>{n}{done?' ✓':''}</span>); })}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
-              <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div></Fragment>);})}
-              {!feed.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
-            {/* pinned under the feed, never scrolls, never grows */}
-            <div className="m-danger">{rep
-              ? (()=>{ const lost=(stages||[]).find(x=>x.lost);
-                  return lost&&draft.stage!==lost.key
-                    ? <><button className="btn btn-g" onClick={()=>{ if(window.confirm(`Mark ${draft.name||'this lead'} as ${lost.label}? Nothing is deleted — an owner can bring it back.`)) set({stage:lost.key}); }}><Ban size={15}/>Mark {lost.label}</button>
-                        <div className="subcell" style={{marginTop:8}}>Leads are never deleted — mark it {lost.label.toLowerCase()} and it stays on the record.</div></>
-                    : <div className="subcell">Only an owner can delete a lead. Nothing here is ever lost.</div>; })()
-              : <button className="btn btn-d" onClick={()=>{if(window.confirm('Delete this lead permanently?'))delLead(draft.id);}}><Trash2 size={15}/>Delete lead</button>}</div>
-          </>}
-        </div>
       </div>
       {isNew&&<div className="m-foot">
         <button className="btn btn-p" onClick={create}><Plus size={16}/>Create Lead</button>
