@@ -37,9 +37,9 @@ globalThis.__LEADS__[3].meetings[0].start=globalThis.__LEADS__[3].meetings[0].cr
 const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:false,format:'esm',jsx:'automatic',
  loader:{'.js':'jsx','.jsx':'jsx'},external:['react','react-dom','react-dom/client','react/jsx-runtime'],
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
- plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('t/stub-supabase.js')}));}}],
+ plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('t/.bd.mjs',out.outputFiles[0].text);
+fs.writeFileSync('tests/.bd.mjs',out.outputFiles[0].text);
 const mod=await import('./.bd.mjs?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');

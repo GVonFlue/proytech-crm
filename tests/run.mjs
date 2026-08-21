@@ -49,11 +49,11 @@ const out = await esbuild.build({
   entryPoints:[entry], bundle:true, write:false, format:'esm', jsx:'automatic',
   loader:{'.js':'jsx','.jsx':'jsx'}, external:['react','react-dom','react-dom/client','react/jsx-runtime'], define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   plugins:[{ name:'stub-supabase', setup(b){
-    b.onResolve({ filter: /(^|\/)lib\/supabase$/ }, () => ({ path: path.resolve('t/stub-supabase.js') }));
+    b.onResolve({ filter: /(^|\/)lib\/supabase$/ }, () => ({ path: path.resolve('tests/stub-supabase.js') }));
   }}], logLevel:'silent',
 });
 const code = out.outputFiles[0].text;
-fs.writeFileSync('t/.bundle.mjs', code);
+fs.writeFileSync('tests/.bundle.mjs', code);
 const mod = await import('./.bundle.mjs?v=' + Date.now());
 
 const React = (await import('react')).default;
