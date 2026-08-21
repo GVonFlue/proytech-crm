@@ -54,6 +54,7 @@ import {
   DollarSign,
   Expand,
   FileText,
+  Gift,
   Globe,
   Loader2,
   Mail,
@@ -617,6 +618,44 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
   const myAppts=useMemo(()=>(rep&&!isNew&&myPay.appointment)
     ? apptEarnings([draft],myUid,num(myRow&&myRow.appointment_rate))
     : null,[rep,isNew,myPay,draft,myUid,myRow]);
+          /* Computed once and rendered in ONE of two places. For a
+     relationship it is the FIRST thing in the record rail and opens by
+     default; for a lead it stays where it was, collapsed, at the bottom.
+     Same JSX either way — a second copy is how the two drift. */
+  const typeSection=(()=>{ const candidates=(allLeads||[]).filter(x=>x.id!==draft.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+      const intros=(allLeads||[]).filter(x=>x.introducedBy===draft.id);
+      const chain=introChain(draft,allLeads||[]);
+      const root=chain.length?chain[0]:null;
+      const summary=[draft.isRelationship?'Relationship':'Lead',chain.length?`via ${chain[chain.length-1].name}`:null].filter(Boolean).join(' · ');
+      return Sec('type',<Users size={13}/>,draft.isRelationship?'The relationship':'Type & Introduction',summary,<>
+        <div className="spon-row">
+          <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?'Relationship — not a ProyTech lead':'ProyTech lead'}</label>
+        </div>
+        {draft.isRelationship&&<div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>}
+        {draft.isRelationship&&<div className="tier-btns">{REL_TIERS.map(([k,l,c])=><button key={k} type="button" className={'tier-btn'+((draft.relTier||'new')===k?' on':'')} style={{'--tc':c}} onClick={()=>set({relTier:k})}><span className="tier-dot"/>{l}</button>)}</div>}
+        <div className="fgrid" style={{marginTop:10}}>
+          <div className="field"><label>Introduced by</label>
+            <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
+              <option value="">— nobody / direct —</option>
+              {candidates.map(x=><option key={x.id} value={x.id}>{x.name}{x.company?' · '+x.company:''}</option>)}
+            </select>
+          </div>
+          {F({label:'How you know them',k:'relNote'})}
+        </div>
+        {chain.length>0&&<div className="rel-chain">
+          <div className="rc-lbl">Intro chain</div>
+          <div className="rc-path">
+            {chain.map((pp,i)=>(<React.Fragment key={pp.id}>
+              <span className={'rc-node'+(i===0?' root':'')} onClick={()=>onNav&&onNav(pp.id)}>{pp.name}</span>
+              <ChevronRight size={12} className="rc-arrow"/>
+            </React.Fragment>))}
+            <span className="rc-node self">{draft.name||'this contact'}</span>
+          </div>
+          {chain.length>1&&root&&<div className="rc-root">It all traces back to <b onClick={()=>onNav&&onNav(root.id)}>{root.name}</b></div>}
+        </div>}
+        {intros.length>0&&<div className="rel-gave"><UserPlus size={13}/><span><b>{intros.length}</b> {intros.length===1?'person':'people'} in your CRM came from {draft.name||'this contact'}</span></div>}
+      </>,draft.isRelationship);
+    })();
   const noteCount=(lead?.activities||[]).filter(a=>a.type==='Note').length;
   /* How much contact there has actually been, by type. The filter chips already
      existed but only Notes carried a count — so the answer to "how many times
@@ -722,6 +761,26 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
         {!isNew&&<div className="m-prep">
           <div className="dh"><Bell size={13}/>Follow-up</div>
           <FollowUpBlock/>
+          {/* KEY DATES, for a relationship, in the prep rail.
+              A birthday is the reason you call a referral partner — it is prep,
+              not a form field, and on their record it was three sections down
+              inside Contact. Same keyDatesOf() the Contact block edits; this
+              only reads it, and only for a relationship, so a lead's layout is
+              untouched. */}
+          {draft.isRelationship&&keyDatesOf(draft).length>0&&<>
+            <div className="dh mt"><Gift size={13}/>Key dates</div>
+            <div className="kd-list prep">
+              {keyDatesOf(draft).map(d=>{ const days=daysToDate(d.date,d.annual!==false);
+                const yrs=d.annual!==false?yearsAt(d.date,true):null;
+                const soon=days!==null&&days<=(num(d.lead)||DATE_LEAD_DEFAULT);
+                return (<div className={'kd-row'+(soon?' soon':'')} key={d.id}>
+                  <span className="kd-l">{d.label}</span>
+                  <span className="kd-d">{fmtDate(d.date)}
+                    {days===0?<b> · today</b>:days!==null?<b> · in {days}d</b>:null}
+                    {yrs?<em> · turns {yrs}</em>:null}</span>
+                </div>); })}
+            </div>
+          </>}
           {touch.total>0&&<>
             <div className="dh mt"><MessageSquare size={13}/>Contact so far</div>
             <div className="touchbar prep">
@@ -1030,6 +1089,8 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
 
           {/* ---------- 5. EVERYTHING ELSE — collapsed ---------- */}
           {!isNew&&<div className="msecs">
+            {/* a relationship leads with what it is, not with what it is not */}
+            {draft.isRelationship&&typeSection}
             {Sec('meetings',<CalendarClock size={13}/>,'Meetings',
               (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
               <>
@@ -1052,40 +1113,7 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
               (draft.serviceInterest||[]).length?`${(draft.serviceInterest||[]).length} selected`:'none',
               <div className="chips">{opt.service.map(s=><span key={s} className={'chip '+((draft.serviceInterest||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(s)}>{s}</span>)}<span className="chip add" onClick={addCustomSvc}><Plus size={12}/>Custom</span></div>)}
 
-            {(()=>{ const candidates=(allLeads||[]).filter(x=>x.id!==draft.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
-              const intros=(allLeads||[]).filter(x=>x.introducedBy===draft.id);
-              const chain=introChain(draft,allLeads||[]);
-              const root=chain.length?chain[0]:null;
-              const summary=[draft.isRelationship?'Relationship':'Lead',chain.length?`via ${chain[chain.length-1].name}`:null].filter(Boolean).join(' · ');
-              return Sec('type',<Users size={13}/>,'Type & Introduction',summary,<>
-                <div className="spon-row">
-                  <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?'Relationship — not a ProyTech lead':'ProyTech lead'}</label>
-                </div>
-                {draft.isRelationship&&<div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>}
-                {draft.isRelationship&&<div className="tier-btns">{REL_TIERS.map(([k,l,c])=><button key={k} type="button" className={'tier-btn'+((draft.relTier||'new')===k?' on':'')} style={{'--tc':c}} onClick={()=>set({relTier:k})}><span className="tier-dot"/>{l}</button>)}</div>}
-                <div className="fgrid" style={{marginTop:10}}>
-                  <div className="field"><label>Introduced by</label>
-                    <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
-                      <option value="">— nobody / direct —</option>
-                      {candidates.map(x=><option key={x.id} value={x.id}>{x.name}{x.company?' · '+x.company:''}</option>)}
-                    </select>
-                  </div>
-                  {F({label:'How you know them',k:'relNote'})}
-                </div>
-                {chain.length>0&&<div className="rel-chain">
-                  <div className="rc-lbl">Intro chain</div>
-                  <div className="rc-path">
-                    {chain.map((pp,i)=>(<React.Fragment key={pp.id}>
-                      <span className={'rc-node'+(i===0?' root':'')} onClick={()=>onNav&&onNav(pp.id)}>{pp.name}</span>
-                      <ChevronRight size={12} className="rc-arrow"/>
-                    </React.Fragment>))}
-                    <span className="rc-node self">{draft.name||'this contact'}</span>
-                  </div>
-                  {chain.length>1&&root&&<div className="rc-root">It all traces back to <b onClick={()=>onNav&&onNav(root.id)}>{root.name}</b></div>}
-                </div>}
-                {intros.length>0&&<div className="rel-gave"><UserPlus size={13}/><span><b>{intros.length}</b> {intros.length===1?'person':'people'} in your CRM came from {draft.name||'this contact'}</span></div>}
-              </>);
-            })()}
+          {!draft.isRelationship&&typeSection}
 
             {Sec('spon',<Award size={13}/>,'Sponsorship',
               draft.pastSponsor?'Past sponsor':draft.potentialSponsor?'Potential sponsor':'no',
@@ -1216,7 +1244,14 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
                   <div className="subcell" style={{marginTop:8}}>{locked?'Approved and voided commissions are frozen — put it back to pending to edit the numbers.':'Edit the base if the deal value changed before approval. Changing this rep’s % in Settings later will NOT touch this record.'}</div>
                 </div>); })(),true)}
 
-            {Sec('deal',<DollarSign size={13}/>,'Deal',
+            {/* Hidden on a relationship — but only when it is EMPTY. Somebody
+                who flips a lead carrying a live deal into a relationship must
+                not lose the panel that edits it; hiding data a person entered
+                is worse than a slightly odd-looking screen. */}
+            {(!draft.isRelationship
+              ||openDealsTotal>0||(draft.closedDeals||[]).length>0
+              ||num(draft.retainer)>0||(Array.isArray(draft.payments)&&draft.payments.length>0))
+              &&Sec('deal',<DollarSign size={13}/>,'Deal',
               (openDealsTotal>0||num(draft.retainer)>0)?[openDealsTotal>0?usd(openDealsTotal):null,openDeals.length>1?`${openDeals.length} deals`:null,num(draft.retainer)>0?usd(draft.retainer)+'/mo':null].filter(Boolean).join(' · '):'not set',
               <>
                 {(draft.closedDeals||[]).length>0&&(()=>{ const hist=draft.closedDeals||[];
@@ -1341,7 +1376,11 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
           </div>}
 
           {/* ---------- 6. CONVERT — the last thing, not the first ---------- */}
-          {!isNew&&!draft.isClient&&<div className="convert-banner">
+          {/* A relationship is not a deal you are trying to win. "Won the deal?
+              Convert to Client" on a referral partner is the app asking the
+              wrong question, and it was the loudest thing at the bottom of
+              their record. Same for the close-tracking prompt below. */}
+          {!isNew&&!draft.isClient&&!draft.isRelationship&&<div className="convert-banner">
             <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'#56527a',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
             <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
           </div>}
