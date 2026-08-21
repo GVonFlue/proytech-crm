@@ -842,7 +842,16 @@ function leadColumnDefs(stages,customFields,rep){
     serviceInterest:{label:'Service',render:l=><span className="subcell">{(l.serviceInterest||[]).join(', ')||'—'}</span>},
     nextAction:{label:'Next Action',render:l=><span className="subcell">{l.nextAction}</span>},
     nextSteps:{label:'Next Steps',render:l=><span className="subcell">{l.nextSteps||'—'}</span>},
-    lastContacted:{label:'Last Contact',render:l=>{const ds=daysSince(lastContact(l));return <span className="subcell" style={ds>=14?{color:RED,fontWeight:600}:undefined}>{ds===0?'Today':ds+'d ago'}</span>;}},
+    /* A lead with no activities AND no createdAt has no date to count from —
+       new Date('') is Invalid Date, so daysSince() returns NaN and this rendered
+       the literal string "NaNd ago". Imports and hand-made rows both produce it.
+       An em-dash is the honest answer: not "today", which is a claim, and not a
+       zero, which would quietly satisfy the cold filters. Found by
+       tests/dom.test.mjs, which is the first thing that file has caught since it
+       was made able to report. */
+    lastContacted:{label:'Last Contact',render:l=>{const ds=daysSince(lastContact(l));
+      if(!Number.isFinite(ds)) return <span className="subcell">—</span>;
+      return <span className="subcell" style={ds>=14?{color:RED,fontWeight:600}:undefined}>{ds===0?'Today':ds+'d ago'}</span>;}},
     followUp:{label:'Follow-up',render:l=><Due iso={l.followUp}/>},
     priority:{label:'Priority',render:l=><PriBadge p={l.priority}/>},
     dealValue:{label:'Deal',render:l=>(rep&&isPoolLead(l))
