@@ -3096,6 +3096,25 @@ export default function App(){
   const isOwner=who?(who.role==='owner'||!who.setup):(users.length===0||(!!myUser&&myUser.role==='owner'));
   const rep=!isOwner;
   const blocked=(who&&who.active===false)||(!!myUser&&myUser.active===false);
+  /* SIGNED IN, NOT SET UP.
+
+     crm_whoami() answers 'none' for a login with no crm_users row, with
+     active:true — so `blocked` never caught it and the account fell straight
+     through into the app. RLS then returns nothing, and what you get is the
+     full chrome, rep navigation, your name in the corner off your email, and
+     zero of everything: an app that works perfectly and contains nothing,
+     which is indistinguishable from a broken one. That is what Logan saw.
+
+     Two conditions guard it, and both matter more than the gate does:
+
+       who.setup   — false means crm_users is EMPTY, which is a fresh install
+                     whose first login is deliberately treated as the owner.
+                     Gating that locks you out of your own new install.
+       who         — null means whoami failed, or the install predates
+                     TEAM-MIGRATION.sql. That path falls back to legacy
+                     single-tenant behaviour on purpose and must not be gated
+                     on the strength of a call that did not come back. */
+  const notSetUp=!!who&&who.setup===true&&who.role==='none';
   /* display name: their crm_users name when they have one, else the legacy
      username-derived name so single-tenant installs read exactly as before. */
   const me=(myUser&&myUser.name)||cap(auth.username(session))||BRAND.team[0]||'';
@@ -3718,6 +3737,14 @@ export default function App(){
     <span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/>
     <h2>{BRAND.title}</h2>
     <p style={{lineHeight:1.5}}>Your access has been switched off. Ask an owner to turn it back on.</p>
+    <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
+  </div></div></>);
+  /* signed in, no crm_users row — say so instead of showing an empty app */
+  if(notSetUp) return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
+    <span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/>
+    <h2>{BRAND.title}</h2>
+    <p style={{lineHeight:1.5}}>This account isn’t set up yet. Ask an owner to add <b>{auth.email(session)}</b> to the team, then sign in again.</p>
+    <p className="subcell" style={{marginTop:8}}>If you have another login, sign out and use that one.</p>
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
