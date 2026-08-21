@@ -1,7 +1,13 @@
 /* signed-in stub of ./lib/supabase — no network, no Postgres */
 export const configured = true;
 export const supabase = {};
-const SESSION = { user: { id: 'u_owner', email: 'garrett@getproytech.com' } };
+/* The signed-in identity. Fixed at u_owner unless a test says otherwise —
+   __UID__/__EMAIL__ let a test sign a DIFFERENT person in without a reload,
+   which is the only way to exercise anything keyed on who is signed in. */
+const SESSION = { user: {
+  get id() { return globalThis.__UID__ || 'u_owner'; },
+  get email() { return globalThis.__EMAIL__ || 'garrett@getproytech.com'; },
+} };
 export const auth = {
   login: async () => ({ data: { session: SESSION }, error: null }),
   logout: async () => {},
