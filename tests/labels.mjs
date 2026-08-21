@@ -44,7 +44,9 @@ const click=async el=>{await act(async()=>{el.dispatchEvent(new dom.window.Mouse
 const settle=async(ms=90)=>{await act(async()=>{await new Promise(r=>setTimeout(r,ms));});};
 const nav=async l=>{const b=[...document.querySelectorAll('.nav-i')].find(e=>(e.textContent||'').trim()===l);
   if(b) await click(b); await settle();};
-const rowNames=()=>[...document.querySelectorAll('tbody tr td:first-child')].map(e=>(e.textContent||'').trim());
+/* .namecell, not td:first-child — the first cell is the batch-select checkbox
+   for an owner, and "the first column" was never what this meant. */
+const rowNames=()=>[...document.querySelectorAll('tbody tr .namecell')].map(e=>(e.textContent||'').trim());
 const setSel=async(el,v)=>{const st=Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype,'value').set;
   await act(async()=>{st.call(el,v);el.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});};
 const setV=async(el,v)=>{const st=Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype,'value').set;

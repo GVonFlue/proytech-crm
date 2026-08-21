@@ -2041,6 +2041,22 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .claim-btn{display:inline-flex;align-items:center;gap:5px;border:1px solid ${COBALT};background:rgba(43,77,224,.06);color:${COBALT};font-size:11.5px;font-weight:700;padding:5px 11px;border-radius:20px;cursor:pointer;white-space:nowrap}
 .claim-btn:hover{background:${COBALT};color:#fff}
 .pool-note{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#56527a;background:#F4F5FA;border:1px solid #E5E6F0;border-radius:9px;padding:9px 12px;margin-bottom:12px}
+/* batch reassign on the Leads table */
+.selcol{width:34px;padding-right:0!important;text-align:center}
+.selcol input{cursor:pointer;width:15px;height:15px;accent-color:${COBALT}}
+tbody tr.picked{background:#F2F4FE}
+tbody tr.picked:hover{background:#E9EDFD}
+.bulkbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#EEF1FD;border:1px solid #D6DDF8;border-radius:10px;padding:9px 12px;margin-bottom:12px}
+.bulkbar .bb-n{font-size:13px;color:${INK}}
+.bulkbar .bb-n b{font-size:14px}
+.bulk-confirm{border:1px solid #E7D9A8;background:#FDFAEF;border-radius:11px;padding:13px 14px;margin-bottom:12px}
+.bulk-confirm .bc-h{display:flex;align-items:center;gap:8px;font-size:14px;color:${INK};margin-bottom:9px}
+.bulk-confirm .bc-p{font-size:12.5px;color:#56527a;line-height:1.5;margin:0 0 9px}
+.bulk-confirm .bc-tip{margin-bottom:0;color:#7a7590}
+.bulk-confirm .bc-list{margin:0 0 10px;padding-left:18px;font-size:12.5px;color:#56527a;line-height:1.7}
+.bulk-confirm .bc-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+.bulk-result{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;line-height:1.5;border-radius:9px;padding:9px 12px;margin-bottom:12px;border:1px solid #E7C9CD;background:#FDF4F5;color:#7d4a50}
+.bulk-result.good{border-color:#CFE7D6;background:#F3FAF5;color:#2f6b45}
 .own-badge{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:#EEF0F7;color:#4a4763}
 .fu-scope{margin-bottom:14px}
 .fu-owner{margin-top:8px}
@@ -3357,6 +3373,51 @@ export default function App(){
     try{ await putMany(moved); }catch(e){ console.error(e); window.alert('Some leads may not have moved: '+(e.message||e)); }
     return moved.length;
   };
+  /* BATCH REASSIGN, driven from a selection on the Leads table.
+     Mirrors reassignLeads above deliberately — same "Reassigned from X to Y."
+     note, same single putMany write — so two paths that move ownership cannot
+     drift into behaving differently.
+
+     Returns a RESULT OBJECT instead of throwing or alerting. A refusal has to
+     be able to name the person it could not resolve, and window.alert cannot
+     be rendered next to the button that caused it. */
+  const reassignMany=async(ids,toUser)=>{
+    if(!isOwner) return {ok:false,reason:'not_owner'};
+    const idSet=new Set(ids||[]);
+    const picked=leadsRef.current.filter(l=>idSet.has(l.id));
+    if(!picked.length) return {ok:false,reason:'nothing_selected'};
+    const toName=toUser?toUser.name:POOL_OWNER;
+
+    /* TWO PEOPLE, ONE NAME. stampOwner resolves ownership with
+       users.find(x => x.name === l.owner), which returns the FIRST match — so
+       a duplicated name quietly assigns every lead to whichever row happens to
+       come first. Refuse, and say whose name is doubled. */
+    if(toUser){
+      const sameName=(users||[]).filter(u=>u&&u.active!==false&&String(u.name||'').trim()===String(toName).trim());
+      if(sameName.length>1) return {ok:false,reason:'ambiguous_name',name:toName,count:sameName.length};
+    }
+
+    const ts=new Date().toISOString();
+    const moved=picked.map(l=>({...l,owner:toName,owner_id:toUser?toUser.id:null,
+      activities:[{id:uid(),ts,type:'Note',who:me,
+        text:`Reassigned from ${l.owner||'nobody'} to ${toName}.`},...(l.activities||[])]}));
+
+    /* THE SILENT-NULL CHECK, and it asks stampOwner rather than trusting the
+       owner_id set two lines up. stampOwner is what actually decides the value
+       that reaches Postgres, so running it here — same function, same users
+       array, before anything is written — is the only check that cannot
+       disagree with the write. A null means these leads would have landed in
+       nobody's book, readable by no rep, with no error anywhere. */
+    if(toUser){
+      const unresolved=moved.map(stampOwner).filter(l=>!l.owner_id);
+      if(unresolved.length) return {ok:false,reason:'unresolved',name:toName,count:unresolved.length};
+    }
+
+    commitLeads(leadsRef.current.map(l=>moved.find(m=>m.id===l.id)||l));
+    try{ await putMany(moved); }
+    catch(e){ return {ok:false,reason:'write_failed',error:e.message||String(e)}; }
+    return {ok:true,n:moved.length,name:toName};
+  };
   /* first-run bootstrap: the person standing here becomes the owner */
   const claimOwner=async()=>{ if(!myUid) return;
     await saveUser({id:myUid,name:me,email:auth.email(session),role:'owner',pools:[],commission_pct:0,active:true,tabs:[],goal_conversions:0}); };
@@ -3572,7 +3633,7 @@ export default function App(){
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
           view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
           view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
-          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen} delBatch={delBatch} users={users}/>:
+          view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen} delBatch={delBatch} users={users} reassignMany={reassignMany}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
@@ -5451,7 +5512,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen,delBatch,users}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen,delBatch,users,reassignMany}){
   /* importOpen is owned by App so the sidebar's "Import a list" can open it.
      A local useState here would shadow the prop: the sidebar sets one piece of
      state and the page renders off another, so the modal never appears. */
@@ -5491,6 +5552,14 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
     .filter(l=>!l.owner_id&&String(l.owner||'').trim()===String(ownerSel.name||'').trim()).length,[leads,ownerSel]);
   useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
   useEffect(()=>{ if(!canAll&&ownerF!=='all') setOwnerF('all'); },[canAll,ownerF]);
+  /* BATCH SELECTION. Owner-only: moving ownership is an owner action every
+     other place it exists (reassignLeads is gated on isOwner). */
+  const canBatch=!rep&&typeof reassignMany==='function';
+  const [sel,setSel]=useState(()=>new Set());
+  const [target,setTarget]=useState('');
+  const [confirming,setConfirming]=useState(false);
+  const [busy,setBusy]=useState(false);
+  const [result,setResult]=useState(null);
   const counts={mine:leads.filter(l=>l.owner===me).length,pool:leads.filter(l=>isPoolLead(l,rep?myPools:null)).length,all:leads.length};
   /* One chip per import, newest first — "the list I loaded this morning" is a
      click rather than a date guess. createdAt alone can't separate an import
@@ -5551,6 +5620,66 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
     r.sort((a,b)=>{const av=sortVal(a,sortK),bv=sortVal(b,sortK);const c=av<bv?-1:av>bv?1:0;return dir==='asc'?c:-c;});
     return r;
   },[leads,q,stage,pri,cold,spon,sortK,dir,stages,view,me,recent,label,ownerF]);
+  /* Clear the selection whenever the visible set changes. Acting on rows you
+     can no longer see is the one way a batch tool does something you did not
+     intend, and it is silent when it happens. */
+  useEffect(()=>{ setSel(new Set()); setConfirming(false); setResult(null); },
+    [view,ownerF,q,stage,pri,cold,spon,label,recent]);
+  const rowIds=useMemo(()=>rows.map(l=>l.id),[rows]);
+  const allShown=rowIds.length>0&&rowIds.every(id=>sel.has(id));
+  const toggleOne=(e,id)=>{ e.stopPropagation();
+    setSel(p=>{ const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n; }); };
+  /* Selects what is ON SCREEN, never the whole table — the header checkbox sits
+     above a filtered list and "all" has to mean the list under it. */
+  const toggleAllShown=e=>{ e.stopPropagation();
+    setSel(p=>{ if(rowIds.every(id=>p.has(id))) { const n=new Set(p); rowIds.forEach(id=>n.delete(id)); return n; }
+      return new Set([...p,...rowIds]); }); };
+  const picked=useMemo(()=>rows.filter(l=>sel.has(l.id)),[rows,sel]);
+  const targetUser=ownerOpts.find(u=>u.id===target)||null;
+
+  /* WHAT THE CURRENT OWNERS LOSE SIGHT OF.
+     Not what they lose — the commission snapshot and the meeting stamps stay
+     on the lead, and rep_payouts is a separate table keyed by rep_id. But both
+     of a rep's own earnings screens compute over the leads Postgres returns to
+     THEM (myCommissions(leads,myUid) and apptEarnings(leads,myUid,rate)), so a
+     lead that moves takes its pending money off their screen while still being
+     owed. Naming it in the confirm is the difference between a decision and a
+     surprise on payday. */
+  const impact=useMemo(()=>{
+    const by=new Map();
+    const at=(id,name)=>{ const k=id||('name:'+name);
+      if(!by.has(k)) by.set(k,{id,name:name||'someone',cmsn:0,cmsnN:0,fee:0,feeN:0});
+      return by.get(k); };
+    picked.forEach(l=>{
+      const c=l.commission;
+      if(c&&typeof c==='object'&&c.status==='pending'&&num(c.amount)>0){
+        const r=at(c.repId,c.repName); r.cmsn+=num(c.amount); r.cmsnN++;
+      }
+      (l.meetings||[]).forEach(m=>{
+        if(feeState(m)!=='pending') return;
+        const sid=setterOf(m); if(!sid) return;
+        const u=(users||[]).find(x=>x.id===sid);
+        /* the rate this meeting actually pays at — frozen once approved, so
+           rateOf and not the person's current rate */
+        const amt=feeRateOf(m,num(u&&u.appointment_rate));
+        if(!(amt>0)) return;
+        const r=at(sid,(u&&u.name)||m.setBy); r.fee+=amt; r.feeN++;
+      });
+    });
+    /* only people who are actually losing sight of something, and never the
+       person receiving the leads — nothing moves away from them */
+    return [...by.values()]
+      .filter(r=>(r.cmsnN>0||r.feeN>0)&&(!targetUser||r.id!==targetUser.id))
+      .sort((a,b)=>(b.cmsn+b.fee)-(a.cmsn+a.fee));
+  },[picked,users,targetUser]);
+
+  const doReassign=async()=>{
+    setBusy(true);
+    const r=await reassignMany([...sel],targetUser);
+    setBusy(false); setConfirming(false); setResult(r);
+    if(r&&r.ok){ setSel(new Set()); setTarget(''); }
+  };
+
   const csv=()=>{
     const cols=['name','company','businessType','phone','email','website','stage','priority','source','serviceInterest','nextAction','nextSteps','followUp','expectedClose','owner','dealValue','retainer','retainerActive'];
     const esc=v=>{v=Array.isArray(v)?v.join('; '):(v??'');v=String(v).replace(/"/g,'""');return /[",\n]/.test(v)?`"${v}"`:v;};
@@ -5635,10 +5764,77 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       </div>)}
     {ownerF==='none'&&(
       <div className="pool-note"><Users size={14}/>Leads with no owner id. Nobody but an owner can see these — a rep is shown leads by owner id, never by the name written on them.</div>)}
+    {canBatch&&sel.size>0&&(
+      <div className="bulkbar">
+        <span className="bb-n"><b>{sel.size}</b> selected</span>
+        <select className="selctl" value={target} onChange={e=>{setTarget(e.target.value);setResult(null);}}>
+          <option value="">Assign to…</option>
+          {ownerOpts.map(u=><option key={u.id} value={u.id}>{u.name}{u.role==='owner'?' · owner':''}</option>)}
+          <option value="__pool">Unassign — back to the pool</option>
+        </select>
+        <button className="btn btn-p btn-sm" disabled={!target||busy} onClick={()=>{setResult(null);setConfirming(true);}}>
+          <UserCheck size={14}/>Reassign
+        </button>
+        <button className="linkbtn inl" onClick={()=>{setSel(new Set());setConfirming(false);}}>Clear selection</button>
+      </div>)}
+
+    {/* THE CONFIRM. A styled panel rather than window.confirm because the whole
+        point is to NAME what is about to be moved off someone's screen, and a
+        browser dialog is one line of unstyled text. */}
+    {confirming&&(
+      <div className="bulk-confirm">
+        <div className="bc-h"><AlertTriangle size={15}/>
+          Move <b>{sel.size}</b> {sel.size===1?'lead':'leads'} to <b>{target==='__pool'?POOL_OWNER:(targetUser&&targetUser.name)||'—'}</b>?
+        </div>
+        {impact.length>0?(
+          <div className="bc-body">
+            <p className="bc-p">These people keep the money — the commission snapshot and the meeting stamps stay on the lead, and payouts are a separate table. What they lose is <b>sight of it</b>: a rep&rsquo;s earnings screens only show leads the database still returns to them.</p>
+            <ul className="bc-list">
+              {impact.map(r=>(<li key={r.id||r.name}>
+                <b>{r.name}</b>
+                {r.cmsnN>0&&<> · {r.cmsnN} pending {r.cmsnN===1?'commission':'commissions'} <b>{usd(r.cmsn)}</b></>}
+                {r.feeN>0&&<> · {r.feeN} held {r.feeN===1?'meeting':'meetings'} awaiting approval <b>{usd(r.fee)}</b></>}
+              </li>))}
+            </ul>
+            <p className="bc-p bc-tip">Approving these before moving them keeps them on the rep&rsquo;s screen.</p>
+          </div>
+        ):(
+          <div className="bc-body"><p className="bc-p">Nothing selected carries pending commission or an unapproved held meeting.</p></div>
+        )}
+        <div className="bc-acts">
+          <button className="btn btn-g btn-sm" onClick={()=>setConfirming(false)}>Cancel</button>
+          <button className="btn btn-p btn-sm" disabled={busy} onClick={doReassign}>
+            {busy?<Loader2 size={14} className="spin"/>:<UserCheck size={14}/>}{busy?'Moving…':`Move ${sel.size}`}
+          </button>
+        </div>
+      </div>)}
+
+    {result&&(
+      <div className={'bulk-result'+(result.ok?' good':'')}>
+        {result.ok
+          ? <><CheckCircle2 size={14}/>Moved {result.n} {result.n===1?'lead':'leads'} to <b>{result.name}</b>.</>
+          : <><AlertTriangle size={14}/>{
+              result.reason==='ambiguous_name'
+                ? <>Nothing was moved. <b>{result.count}</b> active people are named <b>{result.name}</b>, and ownership is resolved by name — assigning would have picked one of them at random. Rename one in Settings → Team first.</>
+              : result.reason==='unresolved'
+                ? <>Nothing was moved. The name <b>{result.name}</b> did not resolve to a person the database knows, so {result.count===1?'that lead':`all ${result.count} leads`} would have been left owned by nobody and invisible to every rep. Check that <b>{result.name}</b> is an active row in Settings → Team, spelled exactly.</>
+              : result.reason==='write_failed'
+                ? <>The move failed and nothing was saved: {result.error}</>
+              : result.reason==='not_owner' ? <>Only an owner can reassign leads.</>
+              : <>Nothing was selected.</>
+            }</>}
+        <button className="linkbtn inl" onClick={()=>setResult(null)}>Dismiss</button>
+      </div>)}
+
     {view==='pool'&&<div className="pool-note"><Users size={14}/>{rep?`Unclaimed leads in ${(myPools&&myPools.length)?myPools.join(', '):'your pools'}. Claim one and it becomes yours.`:'Unclaimed leads owned by '+POOL_OWNER+'. Claim one and it moves to your list.'}</div>}
     <div className="tbl-wrap"><table className="tbl"><thead><tr>
+      {canBatch&&<th className="selcol"><input type="checkbox" checked={allShown} onChange={toggleAllShown} onClick={e=>e.stopPropagation()} title={allShown?'Clear these':'Select the '+rowIds.length+' shown'}/></th>}
       <Th k="name">Name</Th>{visCols.map(c=><Th key={c.key} k={c.key}>{defs[c.key].label}</Th>)}{view==='pool'&&<th></th>}
-    </tr></thead><tbody>{rows.map(l=>(<tr key={l.id} onClick={()=>open(l.id,rows.map(r=>r.id))}>
+    </tr></thead><tbody>{rows.map(l=>(<tr key={l.id} className={sel.has(l.id)?'picked':''} onClick={()=>open(l.id,rows.map(r=>r.id))}>
+      {/* stopPropagation on the CELL as well as the box: the whole row opens
+          the lead, and a click that lands on the padding around the checkbox
+          would otherwise open a modal instead of ticking it. */}
+      {canBatch&&<td className="selcol" onClick={e=>e.stopPropagation()}><input type="checkbox" checked={sel.has(l.id)} onChange={e=>toggleOne(e,l.id)}/></td>}
       <td><div className="namecell">{l.name}</div><div className="subcell">{l.company}</div></td>
       {visCols.map(c=><td key={c.key}>{defs[c.key].render(l)}</td>)}
       {view==='pool'&&<td style={{textAlign:'right'}}><button className="claim-btn" onClick={e=>claim(e,l)}><UserCheck size={13}/>Claim</button></td>}
