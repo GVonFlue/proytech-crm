@@ -23,10 +23,18 @@ don't".
 - [ ] **A3** `Added {date} · Last contact {date}` — `!isNew`
 - [ ] **A4** Stage badge — `!isNew`
 - [ ] **A5** Priority badge — `!isNew`
-- [ ] **A6** Call link (`tel:`) — `!isNew && phone`
-- [ ] **A7** Text link (`sms:`) — `!isNew && phone`
-- [ ] **A8** Email link (`mailto:`) — `!isNew && email`
-- [ ] **A9** Website link (new tab) — `!isNew && website`
+- [ ] **A6** Call action (`tel:`) — `!isNew`; disabled, not hidden, when there is no phone
+- [ ] **A7** Text action (`sms:`) — `!isNew`; disabled, not hidden, when there is no phone
+- [ ] **A8** Email action (Gmail compose) — `!isNew`; disabled, not hidden, when there is no email
+- [ ] **A9** Website action (new tab) — `!isNew`; disabled, not hidden, when there is no website
+
+> **A6–A9 moved and A8 changed target.** They were 11px chips in the header;
+> they are the contact-action block at the top of the prep rail now, and they
+> render disabled rather than absent when the field is empty. A8 opened
+> `mailto:`, which does nothing on a machine with no mail client registered —
+> it opens Gmail compose now, with the account index read from localStorage.
+> The four items still exist and are still asserted; only their location, their
+> empty state, and A8's target changed. Count is unchanged at 157.
 - [ ] **A10** Previous lead button — `!isNew && navList.length > 1`
 - [ ] **A11** `N / M` position counter — same condition
 - [ ] **A12** Next lead button — same condition

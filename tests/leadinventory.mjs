@@ -217,7 +217,8 @@ ok('A4','stage badge', q('.qa') && has(/Signed/));
 ok('A5','priority badge', has(/High/));
 ok('A6','call link', qa('a').some(a => /^tel:/.test(a.getAttribute('href')||'')));
 ok('A7','text link', qa('a').some(a => /^sms:/.test(a.getAttribute('href')||'')));
-ok('A8','email link', qa('a').some(a => /^mailto:/.test(a.getAttribute('href')||'')));
+/* Gmail compose, not mailto: — see the note under A6-A9 in the inventory. */
+ok('A8','email link', qa('a').some(a => /mail\.google\.com\/mail\/u\/\d+\/\?view=cm/.test(a.getAttribute('href')||'')));
 ok('A9','website link', qa('a').some(a => /chenrealty\.com/.test(a.getAttribute('href')||'')));
 ok('A10','previous lead button', qa('.m-headright .m-x').length >= 3);
 ok('A11','N / M counter', /\d+ \/ \d+/.test(T()));

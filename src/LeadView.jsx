@@ -32,7 +32,7 @@ import {
   keyDatesOf, labelVocab, labelsOf, lastContact, manualSponsorships, needsDate, normEntry,
   num, nurtureDaysOf, onbSkipped, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
   stdPhases, stripTagText, tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc,
-  yearsAt
+  gmailCompose, yearsAt
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import {
@@ -44,7 +44,9 @@ import {
   Bell,
   CalendarCheck,
   CalendarClock,
+  Check,
   CheckCircle2,
+  Copy,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -280,6 +282,29 @@ export function MeetingBlock({r}){
     </MLogRow>}
   </div>);
 }
+
+/* One contact action. An <a> when there is somewhere to go, a disabled <button>
+   when there is not: an anchor without an href still focuses and still looks
+   live, which is the confusion this is meant to remove.
+
+   The value is shown, not just linked. On a desktop `tel:` hands off to
+   whatever the OS registered — FaceTime on a Mac, nothing at all where no
+   handler exists — so the number itself is often what you actually want. Copy
+   puts it on the clipboard without opening anything. */
+function ContactAct({ icon, label, value, href, missing, blank }){
+  const [copied,setCopied]=useState(false);
+  if(!href) return (<button className="m-act" disabled title={missing}>
+    <i>{icon}</i><b>{label}</b><span className="m-act-v">Not on file</span></button>);
+  return (<div className="m-act-row">
+    <a className="m-act" href={href} title={value} {...(blank?{target:'_blank',rel:'noreferrer'}:{})}>
+      <i>{icon}</i><b>{label}</b><span className="m-act-v">{value}</span></a>
+    <button className="m-act-copy" title={`Copy ${value}`} onClick={()=>{
+      try{ navigator.clipboard&&navigator.clipboard.writeText(String(value)); }catch{}
+      setCopied(true); setTimeout(()=>setCopied(false),1200); }}>
+      {copied?<Check size={13}/>:<Copy size={13}/>}</button>
+  </div>);
+}
+
 export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
@@ -686,10 +711,6 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
           {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · Last contact {fmtDate(lastContact(draft))}</div>}
           {!isNew&&<div className="qa">
             <StageBadge k={draft.stage} stages={stages}/><PriBadge p={draft.priority}/>
-            {draft.phone&&<a className="qbtn" href={`tel:${draft.phone}`}><Phone size={12}/>Call</a>}
-            {draft.phone&&<a className="qbtn" href={`sms:${draft.phone}`}><MessageSquare size={12}/>Text</a>}
-            {draft.email&&<a className="qbtn" href={`mailto:${draft.email}`}><Mail size={12}/>Email</a>}
-            {draft.website&&<a className="qbtn" href={draft.website.startsWith('http')?draft.website:'https://'+draft.website} target="_blank" rel="noreferrer"><Globe size={12}/>Site</a>}
           </div>}
         </div>
         <div className="m-headright">
@@ -759,7 +780,31 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
       <div className={'m-grid lead3'+(wideFeed?' wide':'')}>
         {/* ---------- PREP: what you need before you call ---------- */}
         {!isNew&&<div className="m-prep">
-          <div className="dh"><Bell size={13}/>Follow-up</div>
+          {/* CONTACT ACTIONS.
+
+              These were four 11px chips wedged between the badges in the header,
+              which is the smallest thing on screen given to the thing done most
+              often. They are the top of the prep rail now, at a real size.
+
+              DISABLED, NOT HIDDEN. Rendering only the ones with a value made a
+              missing phone number indistinguishable from a view that cannot
+              call: nothing to see either way. Disabled says which datum is
+              missing, and keeps the row the same shape on every lead, so the
+              button you want is always in the same place. */}
+          <div className="dh"><Phone size={13}/>Reach out</div>
+          <div className="m-acts">
+            <ContactAct icon={<Phone size={15}/>} label="Call" value={draft.phone}
+              href={draft.phone?`tel:${draft.phone}`:null} missing="No phone number on this record yet"/>
+            <ContactAct icon={<MessageSquare size={15}/>} label="Text" value={draft.phone}
+              href={draft.phone?`sms:${draft.phone}`:null} missing="No phone number on this record yet"/>
+            <ContactAct icon={<Mail size={15}/>} label="Email" value={draft.email}
+              href={draft.email?gmailCompose(draft.email):null} blank
+              missing="No email address on this record yet"/>
+            <ContactAct icon={<Globe size={15}/>} label="Site" value={draft.website}
+              href={draft.website?(draft.website.startsWith('http')?draft.website:'https://'+draft.website):null}
+              blank missing="No website on this record yet"/>
+          </div>
+          <div className="dh mt"><Bell size={13}/>Follow-up</div>
           <FollowUpBlock/>
           {/* KEY DATES, for a relationship, in the prep rail.
               A birthday is the reason you call a referral partner — it is prep,
