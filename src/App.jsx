@@ -58,7 +58,7 @@ import {
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
   tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt,
   gmailIndex, setGmailIndex,
-  introducedLeads,
+  introducedLeads, lastTouch, daysSinceTouch, referralsOut,
 } from './lib/lead';
 
 const PIE=[COBALT,INDIGO,GOLD,'#5C76EE','#8E86C9',GREEN,'#D98A3D','#7AA0F0'];
@@ -441,10 +441,25 @@ const fmtHrs=h=>h==null?'—':h<1?Math.round(h*60)+'m':h<48?Math.round(h)+'h':Ma
 const lastTouchTs=l=>{ const acts=(l.activities||[]).filter(a=>a&&a.ts); if(!acts.length) return l.createdAt||null;
   return acts.reduce((mx,a)=>(!mx||a.ts>mx)?a.ts:mx,null); };
 /* champions need watering more often than brand-new contacts */
-const COLD_DAYS={champion:30,b:60,new:90};
-const coldList=rels=>(rels||[]).map(r=>{ const tier=tierOf(r); const last=lastTouchTs(r);
-    return {r,tier,last,days:last?daysSince(last):9999,limit:COLD_DAYS[tier]||90}; })
-  .filter(x=>x.days>=x.limit).sort((a,b)=>b.days-a.days);
+export const COLD_DAYS={champion:30,b:60,new:90};
+/* COLD READS lastTouch(), NOT lastTouchTs().
+
+   The Monday Huddle and the Relationships page both answer "who has gone
+   quiet", and ENGINEERING §2 says they must not answer it differently. That
+   forced a choice rather than a copy, because lastTouchTs takes the newest
+   activity of ANY type and falls back to createdAt: a "Follow-up cleared." or
+   a stage change counts as contact, so somebody you have not spoken to in
+   eight months reads as touched yesterday and never appears on either list.
+
+   lastTouch counts reached types plus notes a person actually wrote, and
+   returns null when there has been none. That NULL is why the sort below is
+   written the way it is: never-contacted is the coldest thing there is, not a
+   missing value to be skipped. */
+const coldOf=(r,now)=>{ const tier=tierOf(r); const t=lastTouch(r);
+  return {r,tier,last:t,days:t?daysSinceTouch(r,now):null,limit:COLD_DAYS[tier]||90}; };
+const coldRank=x=>x.days===null?Infinity:x.days;
+const coldList=(rels,now)=>(rels||[]).map(r=>coldOf(r,now))
+  .filter(x=>coldRank(x)>=x.limit).sort((a,b)=>coldRank(b)-coldRank(a));
 /* ---- what a client owes and what has actually arrived ---------------------
    Revenue used to be attributed by CLOSE date: a deal closed 21 July put every
    dollar in July even if half the money arrived in August. That's accrual
@@ -1471,7 +1486,46 @@ const CSS=`
 .spon-tog.rel input{accent-color:#7A5CC8}
 .spon-tog.rel.on{border-color:#7A5CC8;background:rgba(122,92,200,.1);color:#5b3fa6}
 .rel-hint{font-size:11.5px;color:#8b88a0;margin-top:7px;line-height:1.45}
-.rel-tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px}
+/* minmax(0,1fr), not 1fr. A bare 1fr is minmax(AUTO,1fr), so a column whose content
+   is wider than its share expands and squeezes its neighbours — which is why
+   Champions was the narrowest column and New Relationships the widest, driven
+   by name length rather than by anything meaningful. */
+.rel-tiers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:12px}
+/* ---- needs attention -------------------------------------------------------
+   The actionable content, pinned above the grouping because it is the same
+   answer however the page below is arranged. */
+.needs-att{border:1.5px solid #E7D6B0;background:linear-gradient(180deg,#FFFCF4,#FFF9EC);
+  border-radius:14px;padding:12px 14px 13px;margin-bottom:12px}
+.na-top{display:flex;align-items:center;gap:8px;font-size:11.5px;font-weight:800;
+  letter-spacing:.05em;text-transform:uppercase;color:#8A6A1F;margin-bottom:10px}
+.na-top svg{color:#C8A24A}
+.na-tot{margin-left:auto;font-size:12px;background:#F3E4C0;color:#7A5C18;border-radius:20px;padding:1px 9px}
+.na-cols{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media(max-width:820px){.na-cols{grid-template-columns:1fr}}
+.na-col{min-width:0}
+.na-h{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:800;letter-spacing:.05em;
+  text-transform:uppercase;color:#8E89A8;margin-bottom:6px}
+.na-n{background:#EEF0F7;color:#56527a;border-radius:20px;padding:0 7px;font-size:11px}
+.na-col.over .na-h{color:#B03A2E}   .na-col.over .na-n{background:#F7DED9;color:#8E2B22}
+.na-col.today .na-h{color:#8A6A1F}  .na-col.today .na-n{background:#F3E4C0;color:#7A5C18}
+.na-col.quiet .na-h{color:#4A5A7A}  .na-col.quiet .na-n{background:#E3E9F4;color:#3B4A66}
+.na-list{display:flex;flex-direction:column;gap:4px}
+.na-row{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;
+  background:#fff;border:1px solid #EEEFF6;cursor:pointer;min-width:0}
+.na-row:hover{border-color:#D8D9E6}
+.na-dot{width:7px;height:7px;border-radius:50%;flex:none}
+.na-name{font-size:12.5px;font-weight:650;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.na-why{margin-left:auto;flex:none;font-size:11px;font-weight:600;color:#8E89A8}
+.na-more{font-size:11px;color:#8E89A8;padding:3px 8px}
+/* ---- how long since a real touch ---- */
+.since{font-size:12px;font-weight:650;color:#6B6885}
+.since.warm{color:#8A6A1F}
+.since.cold{color:#B03A2E}
+.since.never{color:#B03A2E;font-style:italic}
+.refct{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;color:#6B6885}
+.refct b{font-weight:800;color:${INK}}
+.refct i{font-style:normal;color:#8E89A8}
+.refct em{font-style:normal;color:#C9C5D9}
 .rel-tier{display:flex;flex-direction:column;min-height:280px;background:#fff;border:1.5px solid #EAEBF2;border-radius:14px;overflow:hidden;position:relative;transition:.14s}
 .rel-tier::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc);z-index:1}
 .rel-tier:hover{border-color:var(--tc)}
@@ -1484,6 +1538,7 @@ const CSS=`
 .rt-d{font-size:11.5px;color:#8b88a0;font-weight:500;margin-top:5px}
 .rt-people{flex:1;overflow-y:auto;padding:6px}
 .rt-person{display:flex;align-items:baseline;gap:8px;padding:7px 10px;border-radius:8px;cursor:pointer}
+.rt-person .since{margin-left:auto;flex:none;font-size:11px}
 .rt-person:hover{background:color-mix(in srgb,var(--tc) 8%,#fff)}
 .rt-pn{font-size:13px;font-weight:600;color:${INK};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rt-pc{font-size:11px;color:#928DAD;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1}
@@ -2978,7 +3033,7 @@ export default function App(){
   useEffect(()=>{
     if(typeof window==='undefined'||!window.history) return;
     const st=leadUrlRef.current;
-    const id=activeId&&activeId!=='new'?activeId:null;
+    const id=activeId&&activeId!=='new'&&activeId!=='new-rel'?activeId:null;
     try{
       const u=new URL(window.location.href);
       if(id){
@@ -3196,7 +3251,7 @@ export default function App(){
      Unconditional, like every hook here: it computes over an empty list when
      nothing is open, which costs nothing and keeps the hook order stable. */
   const introSubset=useMemo(()=>{
-    if(!activeId||activeId==='new') return [];
+    if(!activeId||activeId==='new'||activeId==='new-rel') return [];
     const rel=leads.find(l=>l.id===activeId);
     return rel?introducedLeads(rel,leads):[];
   },[activeId,leads]);
@@ -3782,7 +3837,7 @@ export default function App(){
     else{ try{ const u=new URL(window.location.href); u.searchParams.delete('lead');
       window.history.replaceState({},'',u.pathname+u.search); }catch{} }
   },[loaded,leads]);
-  const active=activeId&&activeId!=='new'?leads.find(l=>l.id===activeId):null;
+  const active=activeId&&activeId!=='new'&&activeId!=='new-rel'?leads.find(l=>l.id===activeId):null;
 
   if(!configured) return (<><style>{CSS}</style><div className="gate"><div className="gate-card">
     <span className="nucleus" style={{width:18,height:18,margin:'0 auto 10px',display:'block'}}/>
@@ -3898,7 +3953,11 @@ export default function App(){
           <button className="hamb" onClick={()=>setSbOpen(true)}><Menu size={22}/></button>
           <div><h1>{view==='dash'?`Welcome, ${(me||'').split(' ')[0]}`:(titles[view]||[view,''])[0]}</h1><div className="sub">{(titles[page]||['',''])[1]}</div></div>
         </div>
-        <button className="btn btn-p" onClick={()=>setActiveId('new')}><Plus size={16}/>New Lead</button>
+        {/* On Relationships the button used to create a LEAD, which is the
+            kind of thing you hit once and are annoyed by forever. It creates
+            the thing the page is about, and says so. */}
+        <button className="btn btn-p" onClick={()=>setActiveId(view==='rels'?'new-rel':'new')}>
+          <Plus size={16}/>{view==='rels'?'New Relationship':'New Lead'}</button>
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
@@ -3936,7 +3995,7 @@ export default function App(){
             saveLog={saveMlog} saveKbNote={saveKbNote} setStatus={pocketStatus}
             deleteRecording={pocketDelete} saveProposals={db.savePocketProposals}/>
         </div></div></div>; })()}
-    {(active||activeId==='new')&&<Modal key={activeId} lead={active} isNew={activeId==='new'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting} inbound={inbound}/>}
+    {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting} inbound={inbound}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
@@ -6331,6 +6390,50 @@ function NetworkWeb({contacts,open}){
 const REL_TIER_DESC={champion:'Your top referrers & hubs',b:'Warm — keep nurturing',new:'Just met — start farming'};
 const tierOf=r=>r.relTier||'new';
 const tierMeta=k=>REL_TIERS.find(t=>t[0]===k)||REL_TIERS[2];
+/* WHAT NEEDS ATTENTION, across every tier.
+
+   The tab was organised by tier — a label set once that never changes — while
+   the thing that actually decays is silence. Overdue dates were buried in the
+   fifth column of List and absent from Grouped entirely, so the actionable
+   content was the hardest thing on the page to see.
+
+   Three buckets, and the third is the point. Overdue and due-today read
+   followUp, so a relationship with NO follow-up date set can never appear in
+   them however long it has been quiet — which is exactly the failure this page
+   was supposed to fix. GONE QUIET catches those: no date set, and no real
+   touch in longer than the tier allows.
+
+   Thresholds are COLD_DAYS, the same 30/60/90 the Monday Huddle uses, so the
+   two screens cannot call different people cold. */
+function attentionBuckets(rels,now){
+  const over=[],today=[],quiet=[];
+  for(const r of (rels||[])){
+    const d=r.followUp?daysUntil(r.followUp):null;
+    if(d!==null&&d<0){ over.push({r,why:'Overdue · '+fmtDate(r.followUp),days:daysSinceTouch(r,now)}); continue; }
+    if(d===0){ today.push({r,why:'Due today',days:daysSinceTouch(r,now)}); continue; }
+    if(r.followUp) continue;              /* a date is set and it is ahead */
+    const days=daysSinceTouch(r,now); const limit=COLD_DAYS[tierOf(r)]||90;
+    if(days===null) quiet.push({r,why:'Never contacted',days:null});
+    else if(days>=limit) quiet.push({r,why:`${days}d quiet · ${tierMeta(tierOf(r))[1]} allows ${limit}`,days});
+  }
+  const rank=x=>x.days===null?Infinity:x.days;
+  over.sort((a,b)=>(a.r.followUp||'').localeCompare(b.r.followUp||''));
+  quiet.sort((a,b)=>rank(b)-rank(a));
+  return {over,today,quiet};
+}
+/* how long since a real touch, as a row reads it */
+const SinceTouch=({lead})=>{ const d=daysSinceTouch(lead);
+  if(d===null) return <span className="since never">never contacted</span>;
+  const limit=COLD_DAYS[tierOf(lead)]||90;
+  return <span className={'since'+(d>=limit?' cold':d>=limit*0.6?' warm':'')}>{d}d ago</span>; };
+/* given · received, per row. Money stays on the record itself: a dollar figure
+   on every row of a table would need a metrics run per row, and the one on the
+   record is already the Dashboard's own number. */
+const RefCount=({lead,all})=>{ const g=referralsOut(lead).length; const r=introducedLeads(lead,all).length;
+  if(!g&&!r) return <span className="subcell">—</span>;
+  return <span className="refct" title={`${g} sent to them · ${r} sent to you`}>
+    <b>{g}</b><i>given</i><em>·</em><b>{r}</b><i>received</i></span>; };
+
 function Relationships({leads,open,updateLead}){
   const [q,setQ]=useState('');
   const [src,setSrc]=useState('all');
@@ -6373,17 +6476,57 @@ function Relationships({leads,open,updateLead}){
     <span className="tier-dot"/>
     <select value={tierOf(r)} onChange={e=>updateLead&&updateLead(r.id,{relTier:e.target.value})}>{REL_TIERS.map(([k,l])=><option key={k} value={k}>{l}</option>)}</select>
   </span>);};
-  const Row=r=>(<tr key={r.id} onClick={()=>open(r.id,shown.map(x=>x.id))}>
+  /* `intro` is dropped inside a group that IS an introducer: a column reading
+     "Direct" on every row of a group headed "Direct / no intro" says nothing.
+     "How you know them" is gone entirely — it was relNote, empty on every row,
+     and it is still editable on the record where it belongs. */
+  const Row=(r,{intro=true}={})=>(<tr key={r.id} onClick={()=>open(r.id,shown.map(x=>x.id))}>
     <td><div className="namecell">{r.name}</div><div className="subcell">{r.company||'—'}</div></td>
     <td onClick={e=>e.stopPropagation()}><TierPick r={r}/></td>
-    <td className="subcell">{r.relNote||'—'}</td>
-    <td>{r.introducedBy?<span className="rel-chip"><Link2 size={11}/>{nameOf(r.introducedBy)||'—'}</span>:<span className="subcell">Direct</span>}</td>
+    <td><SinceTouch lead={r}/></td>
+    <td><RefCount lead={r} all={leads}/></td>
+    {intro?<td>{r.introducedBy?<span className="rel-chip"><Link2 size={11}/>{nameOf(r.introducedBy)||'—'}</span>:<span className="subcell">Direct</span>}</td>:null}
     <td><Due iso={r.followUp}/></td>
     <td className="subcell">{r.owner||'—'}</td>
   </tr>);
+  const Head=({intro=true})=>(<thead><tr><th>Name</th><th>Tier</th><th>Last contact</th><th>Referrals</th>
+    {intro?<th>Introduced by</th>:null}<th>Follow-up</th><th>Owner</th></tr></thead>);
+  const att=useMemo(()=>attentionBuckets(rels),[rels]);
+  const attTotal=att.over.length+att.today.length+att.quiet.length;
+  const AttGroup=({items,kind,label})=>items.length?(<div className={'na-col '+kind}>
+    <div className="na-h">{label}<span className="na-n">{items.length}</span></div>
+    <div className="na-list">{items.slice(0,6).map(({r,why,days})=>(
+      <div className="na-row" key={r.id} onClick={()=>open(r.id,rels.map(x=>x.id))}>
+        <span className="na-dot" style={{background:tierMeta(tierOf(r))[2]}}/>
+        <span className="na-name">{r.name||r.company||'(no name)'}</span>
+        <span className="na-why">{why}</span>
+      </div>))}
+      {items.length>6?<div className="na-more">+{items.length-6} more</div>:null}
+    </div>
+  </div>):null;
   return (<>
+    {/* PINNED ABOVE THE TIERS, and above the grouping, because it is the same
+        answer whichever way the page below is arranged. */}
+    {attTotal>0&&<div className="needs-att">
+      <div className="na-top"><AlertTriangle size={14}/>Needs attention<span className="na-tot">{attTotal}</span></div>
+      <div className="na-cols">
+        <AttGroup items={att.over} kind="over" label="Overdue"/>
+        <AttGroup items={att.today} kind="today" label="Due today"/>
+        <AttGroup items={att.quiet} kind="quiet" label="Gone quiet"/>
+      </div>
+    </div>}
     <div className="rel-tiers">
-      {REL_TIERS.map(([key,label,color])=>{const people=rels.filter(r=>tierOf(r)===key).sort((a,b)=>(a.name||'').localeCompare(b.name||''));const on=tier===key;
+      {REL_TIERS.map(([key,label,color])=>{
+        /* COLDEST FIRST. Alphabetical told you nothing you did not already
+           know; this puts whoever you have left longest at the top of the
+           column, which is the only ordering that makes the column actionable.
+           Never-contacted sorts above everyone, because it is the coldest
+           thing there is rather than a missing value. */
+        const people=rels.filter(r=>tierOf(r)===key).sort((a,b)=>{
+          const x=daysSinceTouch(a),y=daysSinceTouch(b);
+          const rx=x===null?Infinity:x, ry=y===null?Infinity:y;
+          return ry-rx||(a.name||'').localeCompare(b.name||'');
+        });const on=tier===key;
         const pick=()=>{ if(on){setTier(null);} else {setTier(key);setView('list');} };
         return (<div key={key} className={'rel-tier'+(on?' on':'')} style={{'--tc':color}}>
           <div className="rt-head" onClick={pick}>
@@ -6392,10 +6535,14 @@ function Relationships({leads,open,updateLead}){
           </div>
           <div className="rt-people">
             {people.length?people.map(r=>(<div key={r.id} className="rt-person" onClick={()=>open(r.id)}>
-              <span className="rt-pn">{r.name||'(no name)'}</span>{r.company?<span className="rt-pc">{r.company}</span>:null}
+              <span className="rt-pn">{r.name||'(no name)'}</span>
+              <SinceTouch lead={r}/>
             </div>)):<div className="rt-empty">No one here yet</div>}
           </div>
-          <div className="rt-foot" onClick={pick}>{on?'Listed below · tap to clear':`Tap to list all ${people.length}`}</div>
+          {/* It said "Tap to list all 7" while all 7 were already listed above
+              it. What it actually does is filter the table below to this tier,
+              so it says that instead. */}
+          <div className="rt-foot" onClick={pick}>{on?'Filtering the list · tap to clear':people.length?`Filter the list to these ${people.length}`:'Nobody to filter to'}</div>
         </div>);})}
     </div>
     <div className="rel-netline">
@@ -6419,13 +6566,13 @@ function Relationships({leads,open,updateLead}){
     {view==='web'?<NetworkWeb contacts={leads} open={open}/>
     :!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
     :!shown.length?<div className="card"><div className="empty">No relationships in {tier?tierMeta(tier)[1]:'this view'}{q?' matching that search':''}.</div></div>
-    :view==='list'?<div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>Tier</th><th>How you know them</th><th>Introduced by</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{shown.map(Row)}</tbody></table></div>
+    :view==='list'?<div className="tbl-wrap"><table className="tbl"><Head/><tbody>{shown.map(r=>Row(r))}</tbody></table></div>
     :<>{groups.map(g=>(<div className="card" style={{marginBottom:14}} key={g.id||'direct'}>
         <div className="rel-ghead">
           {g.id?<><span className="rel-gname" onClick={()=>open(g.id)}><Link2 size={13}/>{g.name}</span><span className="rel-gcount">{g.list.length} {g.list.length===1?'intro':'intros'}</span></>
               :<><span className="rel-gname plain"><Users size={13}/>Direct / no intro</span><span className="rel-gcount">{g.list.length}</span></>}
         </div>
-        <div className="tbl-wrap"><table className="tbl"><thead><tr><th>Name</th><th>Tier</th><th>How you know them</th><th>Introduced by</th><th>Follow-up</th><th>Owner</th></tr></thead><tbody>{g.list.map(Row)}</tbody></table></div>
+        <div className="tbl-wrap"><table className="tbl"><Head intro={false}/><tbody>{g.list.map(r=>Row(r,{intro:false}))}</tbody></table></div>
       </div>))}</>}
   </>);
 }

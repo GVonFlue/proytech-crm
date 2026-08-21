@@ -255,7 +255,18 @@ don't".
 
 ## J. Create footer — `isNew` only
 
-- [ ] **J1** `Create Lead`
+- [ ] **J1** `Create Lead` — or `Create Relationship` when opened from Relationships
+- [ ] **J1r** Opened from Relationships, the blank record has `isRelationship` set
+
+> **AMENDMENT — one item, four assertions.** The New button on the Relationships
+> page used to create a *lead*. It creates a relationship now, which is a
+> behaviour change and not a label: the intent is threaded as its own new-record
+> id so the blank record is seeded correctly, and the button, the header and the
+> footer all say what will be made. Gate moves from **164 to 168**.
+>
+> The last of the four asserts the WRITE — that the record created carries
+> `isRelationship` — because three labels agreeing proves nothing about what
+> lands in the database.
 - [ ] **J2** `Cancel`
 - [ ] **J3** Summary: `{name} · {company} → {owner}`, or `Name is the only thing required`
 

@@ -458,6 +458,36 @@ ok('G4Rc','outbound rows: name, note, date, remove',
 ok('G4Rd','a dangling link reads as removed',
    /record removed/.test(T()), T().slice(0, 200));
 
+/* J1r — the New button on Relationships creates a RELATIONSHIP, not a lead. */
+await boot({ users:[OWNER], leads:[MARCUS, FILLER, RICH()] });
+{
+  const relNav = qa('.nav-i').find(e => /^Relationships$/.test((e.textContent||'').trim()));
+  if (relNav) { await click(relNav); await settle(120); }
+  const btn = qa('.top .btn-p')[0];
+  ok('J1','New button names what it will make',
+     btn && /New Relationship/.test(btn.textContent||''), btn ? btn.textContent : 'no button');
+  await click(btn); await settle(180);
+  await openAllSecs();
+  ok('J1','  the header names it too', /New Relationship/.test(T()), T().slice(0, 80));
+  /* Asserted on the WRITE, not on a label: the point of this change is that the
+     record created is a relationship, and a heading proves nothing about that. */
+  const nameIn = qa('.modal.lead input').find(i => /name/i.test(i.getAttribute('placeholder')||'')) || qa('.modal.lead input')[0];
+  if (nameIn) {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+    await act(async () => { setter.call(nameIn, 'Dana Ruiz');
+      nameIn.dispatchEvent(new dom.window.Event('input', { bubbles: true })); });
+  }
+  globalThis.__WRITES__ = [];
+  const create = qa('.modal.lead .btn-p').find(b => /Create/.test(b.textContent||''));
+  ok('J1','  the footer says Create Relationship',
+     create && /Create Relationship/.test(create.textContent||''),
+     create ? create.textContent : 'no create button');
+  await click(create); await settle(200);
+  ok('J1r','and the record it writes is a relationship',
+     (globalThis.__WRITES__||[]).some(w => w && w.isRelationship === true),
+     JSON.stringify((globalThis.__WRITES__||[]).map(w => ({ n:w&&w.name, rel:w&&w.isRelationship }))).slice(0, 200));
+}
+
 console.log(`\n${pass} present, ${fail} MISSING\n`);
 if (fail) { console.log('Missing inventory items:'); missing.forEach(m => console.log('  · ' + m)); console.log(); }
 process.exit(fail ? 1 : 0);
