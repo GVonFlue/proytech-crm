@@ -1,0 +1,488 @@
+/* ============================================================================
+   src/lib/lead.js — the pure helpers a lead record is read and written through.
+   ----------------------------------------------------------------------------
+   WHY THIS FILE EXISTS
+
+   The lead view is being redesigned and moves to src/LeadView.jsx. It reads a
+   lead through most of these — cmsnOf, owedBy, clientOverall, closedDealsTotal,
+   dealsOf, trackProgress and the rest — and so do the Dashboard, the Leads
+   table, the Money page and the Clients board.
+
+   src/RepPay.jsx set the precedent of REDEFINING helpers locally (its own usd0,
+   num, uid). For formatting that survives. For a money helper it is exactly the
+   read-path duplication ENGINEERING §2 is about: two definitions of "what is
+   owed" that agree today and drift in six months. So the lead view IMPORTS
+   every one of these, and this file is what it imports from.
+
+   NOTHING HERE CHANGED IN THE MOVE. Every declaration is byte-identical to the
+   one it replaced in App.jsx, in the same order, carrying the comments that
+   documented it. The order is preserved deliberately rather than tidied: it is
+   the order known to initialise without a temporal-dead-zone crash, and this
+   codebase has shipped that bug before.
+
+   WHAT BELONGS HERE: a pure function or constant that reads or shapes a lead.
+   WHAT DOES NOT: anything that renders. No JSX is in this file, which is what
+   keeps it importable from anywhere without dragging a component tree behind
+   it. The icons below are values inside data tables (ACT_TYPES), not markup.
+   ========================================================================== */
+
+
+import {
+  CalendarCheck, CalendarClock, Mailbox, MessageSquare, PhoneCall, Send, StickyNote,
+} from 'lucide-react';
+import { BRAND } from './brand';
+/* AUDIT #23 — setupPaid and allPayments are the retainer module's answers to
+   "what has been paid", and stay there. Imported rather than reimplemented,
+   which is the whole reason this file exists. */
+import { setupPaid, allPayments as paymentRows } from './retainer';
+
+/* ===================== brand ===================== */
+export const COBALT=BRAND.colors.cobalt, INDIGO=BRAND.colors.indigo, INK=BRAND.colors.ink, GOLD=BRAND.colors.gold, GREEN=BRAND.colors.green, RED=BRAND.colors.red;
+/* ===================== editable defaults ===================== */
+export const DEFAULT_OPTIONS={
+  businessType:['—','Real Estate','Lending','Restaurant','Retail','Law Firm','Construction','Professional Services','Other'],
+  source:['Referral',...BRAND.team,'Cold Outreach','Instagram','Networking','Walk-in','Website','Other'],
+  service:['Web Design','AI Integration','Both','Unknown','Missed-Call Text-Back','AI Receptionist','Booking / Scheduling','CRM Setup','Full Front Office'],
+  nextAction:['Schedule Coffee','Schedule Sit Down','Text in 1 Week','Visit and Introduce','Send Proposal','Follow Up Call','Close','—'],
+  owner:[...BRAND.team,BRAND.pool],
+  /* Who someone IS, not what stage they're at — so you can reach every veteran
+     or first responder at once when something relevant comes up. Deliberately
+     separate from @mention tags, which mean "act on this". Editable in
+     Settings, so a client install ships whatever vocabulary fits them. */
+  labels:['Military','Veteran','Police','Fire / EMS','First Responder','Teacher',
+    'Healthcare','Small Business Owner','Chamber Member','Church','Alumni','VIP'],
+  keyDates:['Birthday','Spouse birthday','Work anniversary','Business anniversary',
+    'Home purchase anniversary','Closing anniversary','Client since','Wedding anniversary'],
+};
+/* ---- Layer 2: client phase + universal onboarding checklist ---- */
+export const CLIENT_PHASES=[
+  ['intake','Intake','#6B73C9'],['build','Build',COBALT],['launch','Launch','#7A5CC8'],
+  ['active','Active',GREEN],['atrisk','At Risk','#E0662B'],['churned','Churned','#8E89A8'],
+];
+/* editable standard phases (label/color/order in Settings; keys locked to the checklist) */
+export const DEFAULT_CLIENT_PHASES=[
+  {key:'intake',label:'Intake',color:'#6B73C9',flow:true},
+  {key:'build', label:'Build', color:COBALT,   flow:true},
+  {key:'launch',label:'Launch',color:'#7A5CC8',flow:true},
+  {key:'active',label:'Active',color:GREEN,    flow:true},
+  {key:'atrisk',label:'At Risk',color:'#E0662B',terminal:true},
+  {key:'churned',label:'Churned',color:'#8E89A8',terminal:true},
+];
+export const stdPhases=settings=>(settings&&settings.clientPhases&&settings.clientPhases.length)?settings.clientPhases:DEFAULT_CLIENT_PHASES;
+export const ONBOARDING=[
+  {phase:'intake',items:[
+    ['agreement_signed','Service agreement signed (Square)'],
+    ['deposit_paid','Deposit / first payment collected'],
+    ['drive_folder','Client folder created in Drive'],
+    ['welcome_sent','Welcome msg + /onboard link sent'],
+    ['intake_form','Intake form completed (/onboard)'],
+    ['logo_received','Logo received (vector/PNG)'],
+    ['headshot_received','Headshot(s) received'],
+    ['brand_assets','Brand colors / assets received'],
+    ['testimonials','Testimonials/reviews received or permission'],
+    ['access_dns','Access: domain / DNS'],
+    ['access_gbp','Access: Google Business Profile'],
+    ['access_social','Access: Facebook / Instagram'],
+    ['access_crm_host','Access: existing CRM / host (if any)'],
+    ['brand_voice_doc','Brand Voice Doc produced'],
+    ['kickoff_call','Kickoff call + voice memo done'],
+  ]},
+  {phase:'build',items:[
+    ['site_built','Website built (preview URL)'],
+    ['revision_round','Revision round collected (one consolidated list)'],
+    ['automations_config','Automations configured (GHL snapshot + Custom Values)'],
+    ['newsletter_setup','Newsletter set up (if sold)'],
+    ['qa_passed','Internal QA passed (forms, automations, mobile, links, license/brokerage disclosure, Equal Housing logo)'],
+  ]},
+  {phase:'launch',items:[
+    ['launch_call','Launch call completed'],
+    ['go_live','Go live (DNS flipped, automations on)'],
+    ['cheat_sheet_sent',"'How your system works' cheat sheet sent"],
+    ['review_scheduled','30-day review scheduled'],
+    ['testimonial_booked','Testimonial / case study booked (founding clients)'],
+    ['retainer_confirmed','First retainer auto-bill confirmed (Square)'],
+  ]},
+  {phase:'active',items:[
+    ['day30_review','Day-30 review call done (results, testimonial, 2 warm intros)'],
+  ]},
+];
+export const ONB_ITEMS=ONBOARDING.flatMap(g=>g.items.map(([key,label])=>({key,label,phase:g.phase})));
+/* Not every checklist item applies to every client. A monthly-only client has
+   no setup fee, so "Deposit / first payment collected" would sit unticked
+   forever and read like something is outstanding when nothing is. Skipped items
+   are hidden, excluded from the x/y progress, and — importantly — cannot hold
+   up anything that waits on them. Per client, because two clients on the same
+   plan can still be sold differently. */
+export const skippedOnb=l=>Array.isArray(l&&l.onbSkip)?l.onbSkip:[];
+export const onbSkipped=(l,key)=>skippedOnb(l).includes(key);
+export const seedOnboarding=()=>{const o={};ONB_ITEMS.forEach(i=>o[i.key]={done:null,due:null});return o;};
+export const PRIORITIES={high:{label:'High',color:'#E0662B',bg:'rgba(224,102,43,.12)',rank:0},medium:{label:'Medium',color:COBALT,bg:'rgba(43,77,224,.10)',rank:1},low:{label:'Low',color:'#8E89A8',bg:'#F0F1F7',rank:2}};
+export const OWNERS=[...BRAND.team,BRAND.pool];
+/* A dropdown with no empty option shows its FIRST entry, so a new lead silently
+   became whatever happened to be at the top — Real Estate. Installs that saved
+   their Business Type list before '—' existed have no blank to select, so one
+   is prepended at render rather than depending on saved settings. Lead Source
+   already did this; Business Type didn't. */
+export const blankFirst=list=>{ const a=Array.isArray(list)?list:[];
+  return a.some(x=>x===''||x==='—')?a:['—',...a]; };
+export const dayLabel=iso=>{ const t=isoOf(new Date());
+  if(iso===t) return 'Today';
+  const y=new Date(); y.setDate(y.getDate()-1);
+  if(iso===isoOf(y)) return 'Yesterday';
+  const d=new Date(iso+'T12:00:00'); if(isNaN(d)) return iso;
+  const sameYear=d.getFullYear()===new Date().getFullYear();
+  return d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',
+    ...(sameYear?{}:{year:'numeric'})});
+};
+/* what counts as real outreach — shared by the untouched filter and the
+   batch-delete warning so the two can't drift apart */
+export const REACHED_TYPES=new Set(['Call','Text','Email','Meeting','Booked','Payment']);
+export const labelsOf=l=>Array.isArray(l&&l.labels)?l.labels:[];
+/* ---- birthdays and key dates ---------------------------------------------
+   Stored as {id,label,date,annual,lead}. `date` is YYYY-MM-DD; the year is kept
+   when known (so "turns 40" is answerable) and set to 0000 when it isn't,
+   because plenty of people will give you a day and month and nothing else.
+   Recurring dates need the NEXT occurrence, not a comparison against a date
+   twenty years in the past — that's the whole reason this can't reuse followUp. */
+export const keyDatesOf=l=>Array.isArray(l&&l.keyDates)?l.keyDates:[];
+export const DATE_LABELS=['Birthday','Spouse birthday','Work anniversary','Business anniversary',
+  'Home purchase anniversary','Closing anniversary','Client since','Wedding anniversary'];
+export const dateVocab=settings=>{ const o=(settings&&settings.options&&settings.options.keyDates);
+  return Array.isArray(o)&&o.length?o:DATE_LABELS; };
+/* Next time this date comes around. Feb 29 is the trap: in a non-leap year
+   there is no Feb 29, and `new Date(2027,1,29)` silently rolls to March 1 —
+   so a leap-day birthday would quietly move. Pinned to Feb 28 instead, which
+   is what most people celebrate and, more importantly, is deliberate. */
+export const nextOccurrence=(iso,annual,from=new Date())=>{
+  const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m) return null;
+  const mo=+m[2]-1, dy=+m[3];
+  if(!annual){ const d=new Date(+m[1],mo,dy); return isNaN(d)?null:d; }
+  const base=new Date(from.getFullYear(),from.getMonth(),from.getDate());
+  const build=y=>{ const leapOK=(mo===1&&dy===29)&&!(new Date(y,1,29).getMonth()===1);
+    return new Date(y,mo,leapOK?28:dy); };
+  let d=build(base.getFullYear());
+  if(d<base) d=build(base.getFullYear()+1);
+  return d;
+};
+export const daysToDate=(iso,annual,from=new Date())=>{ const d=nextOccurrence(iso,annual,from);
+  if(!d) return null;
+  const base=new Date(from.getFullYear(),from.getMonth(),from.getDate());
+  return Math.round((d-base)/864e5); };
+/* how many years it will be, when a real year was given */
+export const yearsAt=(iso,annual)=>{ const m=String(iso||'').match(/^(\d{4})/); if(!m) return null;
+  const y=+m[1]; if(y<1900) return null;
+  const nx=nextOccurrence(iso,annual); return nx?nx.getFullYear()-y:null; };
+export const DATE_LEAD_DEFAULT=7;
+export const labelVocab=settings=>{ const o=(settings&&settings.options&&settings.options.labels);
+  return Array.isArray(o)&&o.length?o:DEFAULT_OPTIONS.labels; };
+/* ---- @mentions ------------------------------------------------------------
+   A tag is stored as a name on the activity, NOT parsed out of the text every
+   time it's read. Parsing would break the moment someone writes an email
+   address or renames themselves, and there'd be no way to mark one done.
+   Cleared is per-person: Logan ticking his tag off must not clear it for
+   Garrett, so it's an array of names rather than a boolean. */
+export const tagsOn=a=>Array.isArray(a&&a.tags)?a.tags:[];
+export const tagCleared=a=>Array.isArray(a&&a.tagsDone)?a.tagsDone:[];
+/* strips a trailing "@Name" the composer already turned into a real tag, so the
+   note doesn't read "call him @Logan @Logan" */
+export const stripTagText=(text,names)=>{ let t=String(text||'');
+  (names||[]).forEach(n=>{ t=t.replace(new RegExp('@'+n.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','gi'),''); });
+  return t.replace(/\s{2,}/g,' ').trim(); };
+/* ---- team scoping: everyone sees their own leads; "ProyTech" is the shared pool ---- */
+export const POOL_OWNER=BRAND.pool;
+/* "the pool" = anything nobody has claimed: the legacy company-owned leads,
+   plus any lead sitting in a named pool with no owner_id on it. */
+export const isPoolLead=(l,myPools)=>l.owner===POOL_OWNER||(!l.owner_id&&!!l.pool&&(!myPools||myPools.includes(l.pool)));
+export const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox}];
+/* named buckets of unclaimed leads. A rep sees the pools they're given. */
+export const DEFAULT_POOLS=['General'];
+export const poolList=settings=>{ const p=(settings&&settings.pools)||[]; return p.length?p:DEFAULT_POOLS; };
+/* WHOSE CALENDAR A BOOKING ACTUALLY LANDS ON.
+   There is ONE Google connection per install (ENGINEERING §6 — not
+   multi-tenant), so when a rep schedules a meeting the event is created on
+   somebody else's primary calendar. They never see it appear anywhere and the
+   owner gets entries they did not make. The scheduler now says so, which means
+   it needs a name to say.
+
+   WHICH owner, when an install has two: the one whose CRM email matches the
+   connected Google account. That is the only answer actually derivable from
+   what we have. Failing that, a single active owner is unambiguous. Failing
+   THAT, return '' and let the caller say "the owner" — naming the wrong
+   person is worse than naming nobody, and on this screen a wrong name reads
+   as a fact about where the rep's work went.
+
+   Name first, email as the fallback, because a crm_users row can be created
+   with a blank name and a bold empty string is not a message. Both come from
+   crm_users rather than from the Google account: gcalEmail is empty on the
+   disconnected branch, and one rule has to work on both. */
+export const calendarOwner=(roster,users,gcalEmail)=>{
+  const norm=s=>String(s==null?'':s).trim().toLowerCase();
+  /* TWO SOURCES, because neither is sufficient alone.
+     `users` reads crm_users, which carries emails but which RLS narrows to a
+     REP'S OWN ROW — so for a rep it contains no owners at all and this
+     function could never resolve, whatever the emails said.
+     `roster` is crm_team(), which carries every active person's name and role
+     and deliberately no email. Merge them: emails where we have them, names
+     where we do not. */
+  const byId=new Map();
+  (roster||[]).forEach(u=>{ if(u&&u.id) byId.set(u.id,{id:u.id,name:u.name,role:u.role,email:''}); });
+  (users||[]).forEach(u=>{ if(!u||!u.id) return;
+    if(u.active===false){ byId.delete(u.id); return; }
+    byId.set(u.id,{...(byId.get(u.id)||{}),id:u.id,name:u.name,role:u.role,email:u.email||''}); });
+  const owners=[...byId.values()].filter(u=>u.role==='owner');
+  const g=norm(gcalEmail);
+  const pick=(g&&owners.find(u=>norm(u.email)===g))||(owners.length===1?owners[0]:null);
+  if(!pick) return '';
+  return String(pick.name||'').trim()||String(pick.email||'').trim();
+};
+/* ---- commissions ----------------------------------------------------------
+   A commission is a flat % of the deal, SNAPSHOT onto the lead at conversion:
+   { repId, repName, pct, base, amount, status, convertedAt, approvedAt,
+     approvedBy, voidedAt }. Snapshotting is the point — editing a rep's % or
+   the deal value later must never silently rewrite history.
+   pending = counted in the rep's running total, not money yet.
+   earned  = an owner approved it. void = cancelled, out of every count.       */
+export const cmsnAmount=(base,pct)=>Math.round(num(base)*num(pct))/100;
+export const cmsnOf=l=>(l&&l.commission&&typeof l.commission==='object')?l.commission:null;
+export const CMSN_STATE={pending:{label:'Pending',color:'#C8A24A'},earned:{label:'Earned',color:GREEN},void:{label:'Voided',color:'#8E89A8'}};
+/* migrate any legacy 'Booked' activity that never became a meeting into one,
+   so old history shows up in the new unified views. Idempotent: an activity
+   already linked to a meeting (meetingId) is skipped. */
+/* A meeting can exist without anybody ever having said WHEN it is. Two ways in:
+   a legacy 'Booked' activity migrated below, and a meeting logged from the
+   activity composer. Both only ever knew the moment they were typed, so their
+   start is the log time, not the meeting time. Those carry dateUnknown and get
+   asked for a DATE, never for a status — "did this happen?" is the wrong
+   question about a meeting nobody has scheduled yet, and it is the reason a
+   batch of meetings entered in one sitting all turned up overdue five minutes
+   later. Backfill is a heuristic on existing rows (logged, and start never
+   moved off createdAt) and is written down for real the first time a date is
+   set, so it can never flip back. */
+export const datelessOf=m=>m.dateUnknown!==undefined&&m.dateUnknown!==null
+  ? !!m.dateUnknown
+  : (!!m.logged&&!!m.start&&m.start===m.createdAt);
+export const meetingsOf=l=>{
+  const existing=(l.meetings||[]).map(m=>({...m,status:m.status||'',dateUnknown:datelessOf(m)}));
+  const haveIds=new Set(existing.map(m=>m.id));
+  const linked=new Set(existing.map(m=>m.meetingId).filter(Boolean));
+  const fromActs=(l.activities||[])
+    .filter(a=>a&&a.type==='Booked'&&a.ts&&!a.meetingId&&!linked.has(a.id))
+    .map(a=>({ id:'m_'+a.id, fromActivity:a.id, title:(a.text||'Meeting').replace(/ booked:.*/i,'').replace(/ booked\.?$/i,'')||'Meeting',
+      mtype:a.mtype||'Other', start:a.ts, end:a.ts, status:a.status||'', who:a.who, createdAt:a.ts, logged:true, dateUnknown:true }))
+    .filter(m=>!haveIds.has(m.id));
+  return [...existing,...fromActs];
+};
+/* every meeting across every lead, flattened with its lead attached */
+export const allMeetings=leads=>(leads||[]).flatMap(l=>meetingsOf(l).map(m=>({lead:l,m})));
+/* how far out "Not right now" parks a lead. 45 days is the default because
+   that's roughly a sales quarter's patience — long enough not to annoy, short
+   enough that the trail is still warm. Editable per install. */
+export const NURTURE_DAYS_DEFAULT=45;
+export const nurtureDaysOf=settings=>{ const n=num(settings&&settings.nurtureDays);
+  return n>0?n:NURTURE_DAYS_DEFAULT; };
+/* how far each lead ever got, read back out of the logged stage moves.
+   rate = step conversion (this stage / previous). closeRate = share of leads
+   that reached this stage which ultimately CLOSED (the last stage in the flow). */
+/* archived (previously-closed) deals on a repeat client */
+export const closedDealsTotal=l=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+num(d.amount),0);
+/* AUDIT #23. paidTotal is GONE. It summed one array and was used to answer two
+   different questions — "how much cash arrived" and "is the balance settled" —
+   and a retainer payment silently settling a build is what that cost. The
+   unqualified question no longer has a name to call:
+     setupPaid(l)     against the work        -> balances
+     retainerPaid(l)  against the retainer    -> arrears
+     allPaid(l)       every dollar            -> revenue and the ledger
+   Any cash logged at all, for the legacy-fallback checks below. */
+export const anyPayments=l=>paymentRows(l);
+/* everything this client has been sold: open deals, archived closed deals, and
+   a bare dealValue for leads that never used deal rows */
+export const contractedTotal=l=>{
+  const closed=closedDealsTotal(l);
+  /* dealBits, not dealSum — dealSum is a local inside the lead modal, so calling
+     it from module scope crashed at render while building cleanly. Same shape,
+     module-level. */
+  const open=dealsOf(l).reduce((a,d)=>a+dealBits(d),0);
+  return closed+open;
+};
+/* What's still owed. A lead with NO payments logged but a confirmed deposit is
+   treated as settled, because that's exactly how revenue counts it — the legacy
+   fallback. Saying "revenue counted" and "still owes it" about the same client
+   would be two answers to one question. */
+export const owedBy=(l,stages)=>{
+  /* Only money you've actually WON can be owed. An open lead sitting at
+     Discovery hasn't bought anything, and counting its deal value as debt made
+     "still owed" read as roughly the whole open pipeline. Lost leads owe
+     nothing either. */
+  const won=!!(l&&(l.isClient||(stages&&sOf(l.stage,stages).won)));
+  if(!won) return 0;
+  /* AUDIT #21 + #22. This read `cashConfirmed(l) ? 0 : ...`, treating ANY
+     deposit-ticked client with no payment rows as settled — the mirror of the
+     revenue fallback, wrong the same way and for the same reason. Both read
+     legacySettled() now, so a lead closed since payment tracking began is "not
+     collected" AND "still owed": one coherent answer instead of two that
+     contradict each other.
+
+     RETAINERS ARE DELIBERATELY NOT IN HERE — see the note on the lead panel. */
+  if(!anyPayments(l).length) return legacySettled(l)?0:contractedTotal(l);
+  /* setupPaid, not every payment. This is the line Justus's $249 was going
+     through: a month of retainer paying down a $1,011.75 automations deal. */
+  return Math.max(0,contractedTotal(l)-setupPaid(l));
+};
+/* open deals on a lead, migrating legacy single-deal / bare-dealValue shapes.
+   Mirrors the modal's openDeals so the card and the modal always agree. */
+export const dealBits=d=>num(d.setup)+num(d.website)+num(d.integration)+((d.extras||[]).reduce((a,e)=>a+num(e.amount),0));
+/* paymentsPaid deleted with paidTotal — it was a second name for the same sum
+   (AUDIT #24), and its last caller went when the client card moved to owedBy. */
+/* A deal opened on somebody who is ALREADY a client is new business in progress,
+   not revenue already earned. It gets stamped at creation, because guessing after
+   the fact from dates is fragile. Deals with no stamp are every deal that existed
+   before this build plus every original sale, and they keep counting exactly as
+   they did — no historical number moves. */
+export const isUpsellDeal=d=>!!(d&&d.upsell);
+export const openSaleValue=l=>dealsOf(l).filter(d=>!isUpsellDeal(d)).reduce((a,d)=>a+dealBits(d),0);
+export const dealsOf=l=>{
+  /* An EMPTY deals array is not the same as "no deals" — a lead can carry a
+     dealValue with no itemised deal rows (imported, or typed straight into the
+     header). Returning [] for that made openSaleValue read $0 while
+     revenueMonth read the dealValue, so Revenue Closed and Avg Deal Size
+     disagreed about the same lead. Fall through to the legacy shapes instead. */
+  if(Array.isArray(l&&l.deals)&&l.deals.length) return l.deals;
+  /* Once a deal has been CLOSED, its money lives in closedDeals — and the old
+     `deal` object / bare dealValue it came from are still sitting on the record.
+     Falling through to them then counts the same money twice: Justus showed
+     $2,499 closed plus a $2,499 phantom open deal, so "still owed" read $2,250
+     against a client who had paid in full. A lead with closed deals has no
+     legacy open deal by definition. */
+  if((l&&l.closedDeals||[]).length) return [];
+  if(l&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return [{id:'d_legacy',label:'Deal',...l.deal}];
+  if(l&&num(l.dealValue)>0) return [{id:'d_legacy',label:'Deal',setup:l.dealValue}];
+  return [];
+};
+export const ACT_LABEL={Booked:'Meeting Booked'};
+export const actLabel=t=>ACT_LABEL[t]||t;
+/* Counts come from meetingsOf() and nowhere else. This used to count 'Booked'
+   ACTIVITIES instead, which is why cancelling a meeting left the header saying
+   "2 booked" over a list that said "No meetings yet" — the meeting was gone, the
+   activity that announced it wasn't. The activity feed is history and should
+   keep the cancelled booking; the count is state and must not. */
+export const bookedCount=l=>meetingsOf(l).length;
+/* ===================== helpers ===================== */
+export const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+export const num=v=>{const n=Number(v);return isNaN(n)?0:n;};
+export const usd=v=>(num(v)<0?'-$':'$')+Math.abs(Math.round(num(v))).toLocaleString();
+/* cents-aware money (payments can be $1,498.50) — shows cents only when non-zero */
+export const usdc=v=>{ const x=num(v); const cents=Math.round(Math.abs(x)*100)%100; return (x<0?'-$':'$')+Math.abs(x).toLocaleString(undefined,{minimumFractionDigits:cents?2:0,maximumFractionDigits:2}); };
+export const pct=v=>(num(v)*100).toFixed(0)+'%';
+export const isoOf=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+export const todayISO=()=>isoOf(new Date());
+export const fmtDate=iso=>{if(!iso)return '';const d=new Date(iso+(iso.length<=10?'T00:00:00':''));return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});};
+export const fmtStamp=ts=>{const d=new Date(ts);return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
+export const daysUntil=iso=>{if(!iso)return null;const a=new Date(iso+'T00:00:00'),b=new Date(todayISO()+'T00:00:00');return Math.round((a-b)/86400000);};
+export const lastContact=l=>{const ts=(l.activities||[]).map(a=>a.ts).sort().pop();return ts||l.createdAt;};
+export const sOf=(k,stages)=>stages.find(s=>s.key===k)||stages[0];
+/* ===================== delivery (post-sale fulfillment) ===================== */
+export const DEFAULT_DELIVERY_TRACKS=[
+  { key:'website', label:'Website', services:['Web Design','Website','Both','Full Front Office'],
+    milestones:['Discovery call complete','Website dev pending','Website V1 sent','Revisions','Final proof sent','Website approved by client'] },
+  { key:'ai', label:'AI / Integrations', services:['AI Integration','AI Receptionist','Missed-Call Text-Back','Booking / Scheduling','CRM Setup','Both','Full Front Office'],
+    milestones:['Discovery & scoping','Integrations started','Build & configuration','Testing','Integrations delivered'] },
+];
+export const activeTracks=(lead,tracks)=>{ const svc=lead.serviceInterest||[]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]); };
+/* ---- introduction network: who introduced whom ---- */
+/* returns [root, ..., directIntroducer] for a contact — cycle-safe */
+export function introChain(lead,all){
+  if(!lead) return [];
+  const byId={}; (all||[]).forEach(x=>byId[x.id]=x);
+  const chain=[]; const seen=new Set([lead.id]); let cur=lead;
+  while(cur&&cur.introducedBy){
+    const p=byId[cur.introducedBy];
+    if(!p||seen.has(p.id))break;
+    seen.add(p.id); chain.unshift(p); cur=p;
+  }
+  return chain;
+}
+export const normEntry=v=>{ if(!v) return {done:null,due:null,assignee:null,taskId:null}; if(typeof v==='string') return {done:v,due:null,assignee:null,taskId:null}; return {done:v.done||null,due:v.due||null,assignee:v.assignee||null,taskId:v.taskId||null}; };
+/* ---- when money counts -----------------------------------------------------
+   Converting somebody to a client means they SAID YES. It is not the same event
+   as money arriving, and treating it as one books revenue that hasn't landed —
+   which is exactly backwards for a business that converts on the yes and
+   collects at the discovery meeting a week later.
+   The onboarding checklist already has "Deposit / first payment collected".
+   That tick is now the thing revenue waits on. Nothing else about converting
+   changes: the stage moves, onboarding starts, the client appears on the board.
+   A closed DEAL (closedDeals) is unaffected — closing one is already an
+   explicit act, so it counts the moment you do it. */
+export const depositPaidAt=l=>normEntry((l&&l.onboarding||{}).deposit_paid).done||'';
+/* legacy: clients converted before this rule existed have no deposit tick, and
+   silently zeroing their revenue would rewrite history. They keep counting. */
+export const CASH_RULE_FROM='2026-08-01';
+/* ---- AUDIT #22 -------------------------------------------------------------
+   WHEN THE LEGACY FALLBACK IS ALLOWED TO FIRE.
+
+   The fallback exists so deals closed BEFORE payment rows existed still count
+   at their close date — otherwise switching payment tracking on would have
+   silently deleted every historical month (ENGINEERING §4).
+
+   It was never date-bound, so it kept firing forever: a deal closed last week
+   with the deposit box ticked and no payment logged was reported as COLLECTED.
+   That is the opposite of the rule it sits inside — revenue is cash, and
+   nothing is cash until a payment is logged against it.
+
+   Bounded here. A lead closed on or after this date needs a real payment row to
+   count as collected; before it, the fallback still protects history. Moving
+   this date FORWARD restates past revenue downward, which §4 calls worse than
+   the bug — so only move it once those months are genuinely backfilled. */
+export const PAYMENTS_FROM='2026-08-01';
+/* Closed before payment tracking, so missing payment rows are an artefact of
+   WHEN it happened rather than money that has not arrived. */
+export const preDatesPayments=l=>{ const c=String((l&&l.closedAt)||'').slice(0,10);
+  return !!c && c < PAYMENTS_FROM; };
+/* The one predicate BOTH revenue and owedBy read, so "we counted this as
+   collected" and "they still owe it" can never both be true of one lead — which
+   is the contradictory pair the unbounded fallback used to produce. */
+export const legacySettled=l=>!anyPayments(l).length && cashConfirmed(l) && preDatesPayments(l);
+export const cashConfirmed=l=>{ if(!l) return false;
+  if(depositPaidAt(l)) return true;
+  /* deposit switched off for this client — monthly-only, no setup fee to
+     collect — so there is nothing for revenue to wait on. Without this they'd
+     read "awaiting payment" forever over a $0 setup. */
+  if(onbSkipped(l,'deposit_paid')) return true;
+  const conv=String(l.convertedAt||l.closedAt||'').slice(0,10);
+  return !!conv && conv < CASH_RULE_FROM; };
+export const trackProgress=(lead,track)=>{ const raw=(lead.delivery&&lead.delivery[track.key])||{}; const ms=track.milestones||[]; const entries={}; let completed=0,overdue=0,nextDue=null;
+  ms.forEach(m=>{ const e=normEntry(raw[m]); entries[m]=e; if(e.done) completed++; else if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } });
+  const current=ms.find(m=>!entries[m].done)||null;
+  return {entries,ms,completedCount:completed,total:ms.length,pct:ms.length?completed/ms.length:0,current,overdue,nextDue}; };
+export const clientOverall=(lead,tracks)=>{ const ts=activeTracks(lead,tracks); let c=0,t=0,phase='',overdue=0,nextDue=null,lastDone=null; ts.forEach(tr=>{const p=trackProgress(lead,tr);c+=p.completedCount;t+=p.total;overdue+=p.overdue; if(p.nextDue&&(!nextDue||p.nextDue<nextDue))nextDue=p.nextDue; if(p.current&&!phase)phase=`${tr.label}: ${p.current}`; Object.values(p.entries).forEach(e=>{ if(e.done&&(!lastDone||e.done>lastDone)) lastDone=e.done; }); }); const delivered=t>0&&c>=t; return {pct:t?c/t:0,phase:phase||'Delivered',tracks:ts,overdue,nextDue,completed:c,total:t,delivered,doneDate:lastDone}; };
+export const evNum=v=>{const n=Number(v);return isNaN(n)?0:n;};
+/* ---- sponsorship history -------------------------------------------------
+   DERIVED from event slots, not stored twice. A filled slot already holds the
+   contact, the amount and whether it's paid, so a sponsorships[] array on the
+   lead would be a second copy of the same fact — and two records of one fact
+   drift the moment either is edited. That's the bug that produced $0 rows in
+   the Deals Closed panel.
+   Two exceptions are kept as MANUAL entries on the lead, clearly marked:
+   sponsorships from before the Events module existed, and sponsorships of
+   something that was never a CRM event. */
+export const manualSponsorships=l=>Array.isArray(l&&l.sponsorships)?l.sponsorships:[];
+export const sponsorshipsOf=(lead,events)=>{
+  if(!lead) return [];
+  const fromEvents=(events||[]).flatMap(ev=>(ev.slots||[])
+    .filter(sl=>sl.contactId===lead.id&&(sl.price!==''&&sl.price!=null))
+    .map(sl=>({ id:ev.id+'_'+sl.id, eventId:ev.id, eventName:ev.name||'Untitled event',
+      date:ev.date||ev.createdAt||'', label:sl.label||'Sponsorship',
+      amount:evNum(sl.price), paid:!!sl.paid, source:'event' })));
+  const manual=manualSponsorships(lead).map(m=>({ ...m, source:'manual',
+    amount:evNum(m.amount), eventName:m.eventName||m.label||'Sponsorship' }));
+  /* the legacy single-amount field, only when there's nothing better — so an
+     install that recorded one number before any of this keeps showing it */
+  const legacy=(!fromEvents.length&&!manual.length&&evNum(lead.sponsorAmount)>0&&lead.pastSponsor)
+    ? [{id:'legacy_'+lead.id,eventName:lead.sponsorTier||'Sponsorship',date:'',
+        label:'Recorded before events were tracked',amount:evNum(lead.sponsorAmount),
+        paid:true,source:'legacy'}] : [];
+  return [...fromEvents,...manual,...legacy]
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+};
+/* ===================== RELATIONSHIPS ===================== */
+export const REL_TIERS=[['champion','Champions','#C8A24A'],['b','B Tier','#2B4DE0'],['new','New Relationships','#1F9D55']];
+export function fmtMeetingTime(iso){ try{ const d=new Date(iso); return d.toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch{ return iso; } }

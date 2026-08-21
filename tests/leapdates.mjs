@@ -1,9 +1,12 @@
 import fs from 'fs';
-const src=fs.readFileSync('src/App.jsx','utf8');
-const i=src.indexOf('const nextOccurrence=');
-const j=src.indexOf('const DATE_LEAD_DEFAULT');
-const code=`const num=v=>{const n=Number(v);return isNaN(n)?0:n;};\n`+src.slice(i,j)+`
-export {nextOccurrence,daysToDate,yearsAt};`;
+/* These three moved from src/App.jsx to src/lib/lead.js, where they are already
+   exported — so the slice no longer needs a trailing re-export. Still sliced
+   rather than imported: src/lib/lead.js pulls in lucide-react and ./brand, and
+   brand.js reads import.meta.env, which does not exist outside a bundler. */
+const src=fs.readFileSync('src/lib/lead.js','utf8');
+const i=src.indexOf('export const nextOccurrence=');
+const j=src.indexOf('export const DATE_LEAD_DEFAULT');
+const code=`const num=v=>{const n=Number(v);return isNaN(n)?0:n;};\n`+src.slice(i,j);
 fs.writeFileSync('/tmp/_l.mjs',code);
 const m=await import('/tmp/_l.mjs');
 let pass=0,fail=0;
