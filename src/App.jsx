@@ -952,7 +952,7 @@ const CSS=`
    ========================================================================== */
 .modal.lead{
   --arc:#38BDF8; --arc2:#7FD8FF; --arc3:#EAFBFF; --cob:#2B4DE0;
-  --gold:#E0A22B; --gold2:#F2C55C; --hot:#C1352B; --ok:#3FB978;
+  --gold:#E0A22B; --gold2:#F2C55C; --hot:#C1352B; --ok:#3FB978; --ok2:#7FE3AC;
   --plate:#0F1433; --plate2:#0A0E27; --plate3:#05071A;
   --ink:#DCF3FB; --ink-hi:#F2FCFF; --ink-mid:#BDEAFA;
   --dim:rgba(127,216,255,.52); --faint:rgba(127,216,255,.3);
@@ -997,6 +997,14 @@ const CSS=`
   border:1px solid var(--line);box-shadow:inset 2px 0 0 rgba(56,189,248,.5);color:var(--ink)}
 .modal.lead .mf i{color:var(--dim)}
 .modal.lead .mf b{color:var(--ink-hi)}
+/* THE STAGE AND PRIORITY TILES PUT THEIR VALUE IN .mf-v, NOT IN <b>.
+   They are the only two that do — they are <label>s wrapping an invisible
+   <select>, so the value is a span the picker sits on top of. The paint block
+   restyled .mf b and never .mf-v, which left ${INK} — near-black — on the navy
+   plate. Legible before PR 4, invisible after it, and only on those two tiles,
+   which is why it read as "those two are broken" rather than as a whole row.
+   Asserted per-element now in tests/leadcontrast.mjs. */
+.modal.lead .mf-v{color:var(--ink-hi)}
 .modal.lead .mf.hot{border-color:rgba(224,162,43,.4);box-shadow:inset 2px 0 0 var(--gold)}
 .modal.lead .mj{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink-mid)}
 .modal.lead .mj.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
@@ -1026,6 +1034,24 @@ const CSS=`
 .modal.lead .msec-t{color:var(--ink-mid)}
 .modal.lead .msec-s{color:var(--dim)}
 .modal.lead .msec.open{border-color:var(--line-hi);box-shadow:inset 2px 0 0 var(--arc)}
+/* BREATHING ROOM IN THE RECORD RAIL.
+   In the light CRM a section is a flat row separated from the next by a
+   hairline — .msec has a bottom border and nothing else, which is right for a
+   compact list. The paint gave each one a plate and a border, and boxes with no
+   gap between them are not a list any more, they are one slab with lines drawn
+   on it. This gives them the space the treatment assumes.
+   Scoped, so the light modals keep the hairline list they were designed as. */
+.modal.lead .m-left{padding:22px 20px 26px}
+.modal.lead .msecs{margin-top:6px;border-top:0}
+.modal.lead .msec{border-bottom:0;border-radius:11px;margin-bottom:9px}
+.modal.lead .msec-h{padding:12px 13px}
+.modal.lead .msec-b{padding:0 13px 14px}
+/* the headings that group them get room above, not just below */
+.modal.lead .m-left .dh{margin-top:4px}
+.modal.lead .m-left .dh.mt{margin-top:20px}
+/* the same rhythm in the prep rail, so the two do not disagree */
+.modal.lead .m-prep{padding:20px 16px 26px}
+.modal.lead .m-prep .dh.mt{margin-top:20px}
 
 /* --- the feed: cyan for the machine, gold for a person -------------------- */
 .modal.lead .fday{color:var(--dim)}
@@ -1049,6 +1075,111 @@ const CSS=`
 .modal.lead .compose-open{background:rgba(56,189,248,.06);border:1px dashed var(--line-hi);color:var(--ink-mid)}
 .modal.lead .compose-open:hover{border-style:solid;color:var(--ink-hi)}
 .modal.lead .empty{color:var(--dim)}
+
+/* --- EVERYTHING ELSE THE PAINT MISSED ------------------------------------
+   PR 4 painted the containers and the main text tokens and stopped there.
+   Twenty-eight more elements kept a light-theme colour on the navy plate —
+   label chips and key-date labels at ${INK}, near-black and invisible; the
+   Call/Text/Email/Site links at cobalt on navy; meeting times, the "Not right
+   now" button, the jump-chip badges, and every piece of muted #8E89A8 prose.
+   Stage and Priority were simply the two anyone reads first.
+   Found by walking every element that renders text and checking its luminance,
+   not by looking — which is what tests/leadcontrast.mjs now does on every run. */
+.modal.lead .qbtn{color:var(--arc2);border-color:var(--line-hi);background:rgba(56,189,248,.06)}
+.modal.lead .qbtn:hover{background:rgba(56,189,248,.14);color:var(--ink-hi)}
+.modal.lead .lblchip{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .lblchip.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
+  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+.modal.lead .lblchip.add{color:var(--dim);border-style:dashed}
+.modal.lead .kd-row{border-color:var(--line)}
+.modal.lead .kd-l{color:var(--ink-hi)}
+.modal.lead .kd-d{color:var(--dim)}
+.modal.lead .kd-d b{color:var(--arc2)}
+.modal.lead .kd-d em{color:var(--dim)}
+.modal.lead .kd-row.soon .kd-l{color:var(--gold2)}
+.modal.lead .mtg-when{color:var(--ink-hi)}
+.modal.lead .mtg-band{color:var(--dim)}
+.modal.lead .mtg-row,.modal.lead .mtg-form{border-color:var(--line)}
+.modal.lead .notnow{background:rgba(224,162,43,.09);border:1px solid rgba(224,162,43,.3);color:#F1DFBB}
+.modal.lead .notnow span{color:rgba(241,223,187,.66)}
+.modal.lead .notnow:hover{border-color:var(--gold);color:#FFF3DC}
+.modal.lead .mj i{background:rgba(56,189,248,.18);color:var(--ink-hi)}
+.modal.lead .feed-wide{color:var(--dim)}
+.modal.lead .feed-wide:hover{color:var(--ink-hi)}
+/* danger stays red, but a red mixed for white ground disappears on navy */
+.modal.lead .btn-d{color:#FFC9C2;background:rgba(193,53,43,.16);border-color:rgba(193,53,43,.45)}
+.modal.lead .btn-d:hover{background:rgba(193,53,43,.28);color:#fff}
+/* Stage and priority pills carry an INLINE colour — a stage colour is
+   configurable, so there is no palette to swap to. Brightening what is there
+   keeps whatever the owner chose and makes it survive the dark ground. */
+/* StageBadge/PriBadge carry their colours inline and are shared with the light
+   screens, so they can't be restyled at the source. Drop the pale slab — which
+   breaks the lit-edge rule on navy anyway — and keep the hue as the lit edge and
+   the label, brightened for the dark plate. The colour still carries the state. */
+.modal.lead .pill{background:transparent!important;border:1px solid currentColor;
+  box-shadow:0 0 12px -5px currentColor,inset 0 0 12px -8px currentColor;
+  filter:brightness(1.6) saturate(1.05)}
+/* the two greys the light CRM uses for secondary prose */
+.modal.lead .cmsn-row span,.modal.lead .sp-h,.modal.lead .dh-note,
+.modal.lead .rc-lbl,.modal.lead .rc-root,.modal.lead .pay-nums,
+.modal.lead .fn-hint,.modal.lead .tagpick>span,.modal.lead .tagpick-n{color:var(--dim)}
+.modal.lead .cmsn-row b,.modal.lead .dh-v,.modal.lead .sp-amt{color:var(--ink-hi)}
+/* the chip and button families inside the sections — same treatment as the
+   activity type chips, which the paint did cover, so the two agree */
+.modal.lead .chip,.modal.lead .mtype,.modal.lead .ms-b,.modal.lead .tier-btn{
+  background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .chip.on,.modal.lead .mtype.on,.modal.lead .ms-b.on,.modal.lead .tier-btn.on{
+  background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
+  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+.modal.lead .chip.add{color:var(--dim);border-style:dashed}
+.modal.lead .ms-b.held.on{background:linear-gradient(180deg,rgba(63,185,120,.28),rgba(63,185,120,.1));
+  border-color:rgba(63,185,120,.5);color:#A8E9C4}
+.modal.lead .ms-b.no.on{background:linear-gradient(180deg,rgba(193,53,43,.26),rgba(193,53,43,.08));
+  border-color:rgba(193,53,43,.5);color:#FFC9C2}
+/* cobalt reads as a link on white and as nothing on navy */
+.modal.lead .addline,.modal.lead .deal-add-btn,.modal.lead .pay-add,
+.modal.lead .morebtn,.modal.lead .sp-name{color:var(--arc2)}
+.modal.lead .addline:hover,.modal.lead .deal-add-btn:hover,
+.modal.lead .pay-add:hover,.modal.lead .sp-name:hover{color:var(--ink-hi)}
+.modal.lead .mtg-title{color:var(--ink-hi)}
+.modal.lead .mtg-acct{color:var(--ink-mid)}
+/* the not-connected warning: amber mixed for a white card, on navy */
+.modal.lead .mtg-warn{background:rgba(224,162,43,.1);border-color:rgba(224,162,43,.32);color:#F1DFBB}
+.modal.lead .mtg-warn b,.modal.lead .mtg-warn span{color:#F6E7C8}
+.modal.lead .imp-warn,.modal.lead .dupe-warn{background:rgba(224,162,43,.1);
+  border-color:rgba(224,162,43,.32);color:#F1DFBB}
+.modal.lead .convert-banner,.modal.lead .client-bar{background:linear-gradient(180deg,rgba(15,20,51,.8),rgba(10,14,39,.55));
+  border-color:var(--line)}
+.modal.lead .convert-banner b,.modal.lead .client-bar b{color:var(--ink-hi)}
+.modal.lead .convert-banner div,.modal.lead .client-bar span{color:var(--dim)}
+.modal.lead .rel-hint,.modal.lead .rel-gave,.modal.lead .pool-note{color:var(--dim);
+  background:rgba(56,189,248,.06);border-color:var(--line)}
+.modal.lead .rel-gave b,.modal.lead .rc-node{color:var(--ink-hi)}
+.modal.lead .track-h b,.modal.lead .deal-card-v,.modal.lead .deal-total b,
+.modal.lead .pay-head b,.modal.lead .dh-head b{color:var(--ink-hi)}
+.modal.lead .phase,.modal.lead .mdate,.modal.lead .msdue-l,
+.modal.lead .pay-mon,.modal.lead .sp-tag{color:var(--dim)}
+/* the money panel was authored against a white card top to bottom */
+.modal.lead .toggle,.modal.lead .pay-m b{color:var(--ink-hi)}
+.modal.lead .pay-head,.modal.lead .pay-head span,.modal.lead .pay-mrr,
+.modal.lead .pay-m span,.modal.lead .pay-nums span,
+.modal.lead .deal-total span{color:var(--ink-mid)}
+.modal.lead .pay-nums span:first-child,.modal.lead .pay-head b.clear{color:var(--ok2)}
+.modal.lead .pay-head b.due{color:var(--gold2)}
+.modal.lead .deal-total{background:rgba(56,189,248,.07);border:1px solid var(--line)}
+.modal.lead .tagchip{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .tagchip.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
+  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+/* the destructive row: a lit edge, not a grey slab */
+.modal.lead .m-danger .btn-g{background:rgba(193,53,43,.08);border:1px solid rgba(193,53,43,.38);color:#FFC9C2}
+.modal.lead .m-danger .btn-g:hover{background:rgba(193,53,43,.16);border-color:rgba(193,53,43,.6);color:#FFE1DC}
+/* the three sponsor/relationship toggles keep their hues — they're how the
+   three states are told apart — lifted onto the plate rather than recoloured */
+.modal.lead .spon-tog{background:rgba(56,189,248,.05);border-color:var(--line);color:var(--ink-mid)}
+.modal.lead .spon-tog.on{background:rgba(56,189,248,.14);border-color:rgba(56,189,248,.5);color:var(--ink-hi)}
+.modal.lead .spon-tog.past.on{background:rgba(224,162,43,.14);border-color:rgba(224,162,43,.5);color:#F6E7C8}
+.modal.lead .spon-tog.rel.on{background:rgba(160,130,240,.16);border-color:rgba(160,130,240,.55);color:#DCCDFF}
+.modal.lead .spon-tog.rel input{accent-color:#A082F0}
 @media (prefers-reduced-motion:reduce){.modal.lead,.modal.lead *{animation:none!important;transition:none!important}}
 /* Expand still gives the feed the whole surface; the rails step aside. */
 .m-grid.lead3.wide{grid-template-columns:minmax(0,1fr)}
