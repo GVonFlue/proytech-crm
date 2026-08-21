@@ -1,5 +1,10 @@
 # "Google Calendar isn't connected" on an account that is connected
 
+> **RESOLVED.** Fixed by the PR that adds `tests/gcalstatus.mjs`: the effect is
+> keyed on the session rather than on mount. Kept rather than deleted because
+> the diagnosis is the useful part — the same shape (a `[]` effect that depends
+> on something arriving later) can happen again anywhere in App.
+
 Found during the hierarchy pass, 2026-08-21. **Not fixed in that PR** — it is a
 behaviour bug, not paint, and it gets its own change so the before and after are
 visible.
