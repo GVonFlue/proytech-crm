@@ -342,11 +342,11 @@ function ReferralAdd({leads,onAdd}){
   </div>);
 }
 
-export function Modal({lead,isNew,inbound,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
+export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
-  const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:false,introducedBy:'',relNote:'',relTier:'',meetings:[],custom:{},createdAt:new Date().toISOString(),activities:[]};
+  const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:!!newRel,introducedBy:'',relNote:'',relTier:'',meetings:[],custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
   /* 'Call', not 'Note'. The button that opens this says "Log a call, note or
      text" and then handed you a note, so logging the most common thing a rep
@@ -745,7 +745,7 @@ export function Modal({lead,isNew,inbound,settings,stages,addOption,me,myUid,all
     <div className="modal lead" onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head">
         <div style={{minWidth:0}}>
-          <h2>{draft.name||draft.company||'New Lead'}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
+          <h2>{draft.name||draft.company||(newRel?'New Relationship':'New Lead')}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
           {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · Last contact {fmtDate(lastContact(draft))}</div>}
           {!isNew&&<div className="qa">
             <StageBadge k={draft.stage} stages={stages}/><PriBadge p={draft.priority}/>
@@ -878,7 +878,7 @@ export function Modal({lead,isNew,inbound,settings,stages,addOption,me,myUid,all
           </>}
         </div>}
         <div className="m-right">
-          {isNew?<div className="empty">Save the lead to start logging activity.</div>:<>
+          {isNew?<div className="empty">{newRel?'Save the relationship to start logging activity.':'Save the lead to start logging activity.'}</div>:<>
             {/* Follow Up Boss, HubSpot and Salesforce all treat the timeline as
                 the primary object, not a side rail — because reading history is
                 what you open a contact for. A two-column split can never give
@@ -1618,7 +1618,7 @@ export function Modal({lead,isNew,inbound,settings,stages,addOption,me,myUid,all
 
       </div>
       {isNew&&<div className="m-foot">
-        <button className="btn btn-p" onClick={create}><Plus size={16}/>Create Lead</button>
+        <button className="btn btn-p" onClick={create}><Plus size={16}/>{newRel?'Create Relationship':'Create Lead'}</button>
         <button className="btn btn-g" onClick={onClose}>Cancel</button>
         <span className="m-foot-n">{draft.name.trim()
           ? <><CheckCircle2 size={13} color="var(--ok2)"/>{draft.name}{draft.company?' · '+draft.company:''} &rarr; {draft.owner}</>
