@@ -56,7 +56,8 @@ import {
   keyDatesOf, labelVocab, labelsOf, lastContact, manualSponsorships, meetingsOf, needsDate,
   normEntry, num, nurtureDaysOf, onbSkipped, openSaleValue, owedBy, pct, poolList,
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
-  tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt
+  tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt,
+  gmailIndex, setGmailIndex,
 } from './lib/lead';
 
 const PIE=[COBALT,INDIGO,GOLD,'#5C76EE','#8E86C9',GREEN,'#D98A3D','#7AA0F0'];
@@ -1180,6 +1181,29 @@ const CSS=`
 .modal.lead .spon-tog.past.on{background:rgba(224,162,43,.14);border-color:rgba(224,162,43,.5);color:#F6E7C8}
 .modal.lead .spon-tog.rel.on{background:rgba(160,130,240,.16);border-color:rgba(160,130,240,.55);color:#DCCDFF}
 .modal.lead .spon-tog.rel input{accent-color:#A082F0}
+/* ---- contact actions -------------------------------------------------------
+   The most-used controls in the view, so they get size and position rather
+   than more glow. Flat plate, lit edge only on hover — they are where work
+   starts, not something the app is telling you. */
+.modal.lead .m-acts{display:flex;flex-direction:column;gap:7px;margin:2px 0 4px}
+.modal.lead .m-act-row{display:flex;align-items:stretch;gap:6px}
+.modal.lead .m-act{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:10px 12px;
+  border-radius:11px;border:1px solid var(--line);background:rgba(5,7,26,.4);
+  color:var(--ink-hi);font:inherit;font-size:13.5px;font-weight:650;cursor:pointer;
+  text-decoration:none;text-align:left;transition:border-color .12s,background .12s}
+.modal.lead .m-act i{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;
+  background:rgba(56,189,248,.1);color:var(--arc2)}
+.modal.lead .m-act b{flex:none;font-weight:700}
+.modal.lead .m-act .m-act-v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  text-align:right;font-size:11.5px;font-weight:600;color:var(--dim)}
+.modal.lead .m-act:hover{border-color:var(--line-hi);background:rgba(56,189,248,.09)}
+.modal.lead .m-act:hover i{background:rgba(56,189,248,.2);color:var(--ink-hi)}
+.modal.lead button.m-act[disabled]{cursor:default;opacity:.55;background:rgba(5,7,26,.22);border-style:dashed}
+.modal.lead button.m-act[disabled] i{background:rgba(56,189,248,.05);color:var(--dim)}
+.modal.lead button.m-act[disabled]:hover{border-color:var(--line);background:rgba(5,7,26,.22)}
+.modal.lead .m-act-copy{flex:none;width:38px;border-radius:11px;border:1px solid var(--line);
+  background:rgba(5,7,26,.4);color:var(--dim);cursor:pointer;display:grid;place-items:center}
+.modal.lead .m-act-copy:hover{border-color:var(--line-hi);color:var(--ink-hi);background:rgba(56,189,248,.09)}
 @media (prefers-reduced-motion:reduce){.modal.lead,.modal.lead *{animation:none!important;transition:none!important}}
 /* Expand still gives the feed the whole surface; the rails step aside. */
 .m-grid.lead3.wide{grid-template-columns:minmax(0,1fr)}
@@ -2607,6 +2631,11 @@ function SetPassword({email,onDone,firstTime}){
 
 /* ===================== my account (everyone, including reps) ===================== */
 function AccountModal({name,email,role,onClose}){
+  /* Which Gmail account the Email action opens. Gmail numbers the accounts you
+     are signed into in the order you added them, so this belongs to the browser
+     profile rather than the CRM user — it lives in localStorage, and it is here
+     rather than in Settings because a rep has to be able to set their own. */
+  const [gmail,setGmail]=useState(()=>gmailIndex());
   const [p1,setP1]=useState('');const [p2,setP2]=useState('');const [err,setErr]=useState('');const [ok,setOk]=useState(false);const [busy,setBusy]=useState(false);
   const save=async()=>{
     if(p1.length<8){ setErr('Use at least 8 characters.'); return; }
@@ -2634,6 +2663,17 @@ function AccountModal({name,email,role,onClose}){
         <div className="tm-acts">
           <button className="btn btn-p btn-sm" disabled={busy} onClick={save}><KeyRound size={14}/>{busy?'Saving…':'Save password'}</button>
           <button className="btn btn-g btn-sm" onClick={onClose}>Close</button>
+        </div>
+        <div className="tm-sub">Email</div>
+        <div className="fgrid">
+          <div className="field"><label>Gmail account number</label>
+            <input type="number" min="0" value={gmail}
+              onChange={e=>{const n=Math.max(0,parseInt(e.target.value,10)||0);setGmail(n);setGmailIndex(n);}}/></div>
+        </div>
+        <div className="subcell" style={{marginTop:6}}>
+          The Email button on a lead opens Gmail at <b>mail.google.com/mail/u/{gmail}/</b>.
+          Gmail numbers your signed-in accounts in the order you added them — if Email opens
+          the wrong one, try the next number. Saved in this browser only.
         </div>
         <div className="subcell" style={{marginTop:10}}>Name and email are set by an owner in Settings → Team.</div>
       </div>

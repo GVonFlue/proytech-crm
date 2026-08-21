@@ -496,3 +496,22 @@ export const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboar
 export const isDateless=m=>!!m&&!!m.dateUnknown;
 
 export const needsDate=m=>!m.status&&isDateless(m);
+
+/* GMAIL COMPOSE.
+
+   Gmail numbers the accounts you are signed into in the order you added them,
+   so /u/0 is one person's work account and the next person's personal one.
+   That number is a property of THIS BROWSER PROFILE, not of the CRM user — the
+   same person on a second machine can have a different one — so it is read from
+   localStorage rather than settings or the crm_users row. Nothing to migrate,
+   nothing to sync, and no way for one person's choice to change another's. */
+export const GMAIL_KEY = 'gmailAccount';
+export const gmailIndex = () => {
+  try { const n = parseInt(localStorage.getItem(GMAIL_KEY) || '0', 10);
+    return Number.isFinite(n) && n >= 0 ? n : 0; } catch { return 0; }
+};
+export const setGmailIndex = n => {
+  try { localStorage.setItem(GMAIL_KEY, String(Math.max(0, parseInt(n, 10) || 0))); } catch {}
+};
+export const gmailCompose = (email, idx) =>
+  `https://mail.google.com/mail/u/${idx === undefined ? gmailIndex() : idx}/?view=cm&fs=1&to=${encodeURIComponent(email || '')}`;
