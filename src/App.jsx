@@ -1204,6 +1204,126 @@ const CSS=`
 .modal.lead .m-act-copy{flex:none;width:38px;border-radius:11px;border:1px solid var(--line);
   background:rgba(5,7,26,.4);color:var(--dim);cursor:pointer;display:grid;place-items:center}
 .modal.lead .m-act-copy:hover{border-color:var(--line-hi);color:var(--ink-hi);background:rgba(56,189,248,.09)}
+
+/* ===========================================================================
+   HIERARCHY.
+
+   Every panel had the tint and the lit edge, so nothing stood out and the eye
+   had nowhere to land. The rule, in the owner's words:
+
+     lit edge + glow  =  the app telling me something
+     flat, no glow    =  where I do work
+
+   Cyan is signal here, not wallpaper. Same tokens, same type, less of it.
+   Two values carry the whole work side, so a new panel picks a side rather
+   than inventing a third look:
+
+     background rgba(5,7,26,.34)      flat plate, no tint
+     border     rgba(56,189,248,.13)  barely there, structural
+
+   They are written out rather than held in custom properties because jsdom
+   drops background:var(--x) as unparseable — and a paint the test harness
+   cannot resolve is a paint that cannot be verified.
+   ======================================================================== */
+
+/* ---- WORK SURFACES --------------------------------------------------------
+   Contact, Qualifying, Service Interest, Labels, key dates, custom fields,
+   sponsorship, the section shells. Forms shouldn't shimmer. */
+.modal.lead .msec{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13)}
+/* the open-section lit bar goes: four open sections were four lit bars down
+   the rail, which is most of where "uniformly blue" came from */
+.modal.lead .msec.open{border-color:var(--line);box-shadow:none;background:rgba(5,7,26,.46)}
+.modal.lead .lblchip,.modal.lead .chip,.modal.lead .tagchip,.modal.lead .spon-tog,
+.modal.lead .qbtn,.modal.lead .mtype,.modal.lead .act-t{
+  background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13)}
+.modal.lead .kd-row{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13)}
+/* key dates flat throughout — the prep rail already surfaces what's coming up,
+   so a second highlight here says the same thing twice */
+.modal.lead .kd-row.soon{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13)}
+.modal.lead .kd-row.soon b{color:var(--ink-mid)}
+/* the fact row: flat, EXCEPT a tile carrying a state. That exception is the
+   only reason .mf.hot means anything. */
+.modal.lead .mf{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13);box-shadow:none}
+.modal.lead .mf:hover{border-color:var(--line);background:rgba(5,7,26,.5)}
+.modal.lead .mf.hot{border-color:rgba(224,162,43,.4);background:rgba(224,162,43,.07);
+  box-shadow:inset 2px 0 0 var(--gold)}
+/* destructive, not urgent: flat at rest, red on the way to clicking it */
+.modal.lead .m-danger .btn-g{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13);color:var(--ink-mid)}
+.modal.lead .m-danger .btn-g:hover{background:rgba(193,53,43,.16);
+  border-color:rgba(193,53,43,.6);color:#FFE1DC}
+
+/* ---- SIGNAL SURFACES ------------------------------------------------------
+   The feed, the log form, follow-up, the money, a rep's cut, what's coming up,
+   and anything the app is warning about. These keep the lit edge and the glow
+   — and now they are the only things that have it. */
+.modal.lead .fitem{box-shadow:inset 2px 0 0 rgba(56,189,248,.5)}
+.modal.lead .fitem.note{box-shadow:inset 2px 0 0 var(--gold)}
+/* logging is the second thing you're here to do: a live surface, not a form */
+.modal.lead .compose,.modal.lead .mtg-form{
+  background:linear-gradient(180deg,rgba(56,189,248,.11),rgba(56,189,248,.03));
+  border:1px solid var(--line-hi);border-radius:12px;
+  box-shadow:0 0 24px -16px var(--arc),inset 0 1px 0 rgba(127,216,255,.12)}
+.modal.lead .compose textarea,.modal.lead .compose input,
+.modal.lead .mtg-form input,.modal.lead .mtg-form textarea{
+  background:rgba(5,7,26,.5);border-color:var(--line);color:var(--ink-hi)}
+.modal.lead .compose-open{background:linear-gradient(180deg,rgba(56,189,248,.1),rgba(56,189,248,.02));
+  border:1px solid var(--line-hi);color:var(--ink-mid)}
+.modal.lead .compose-open:hover{border-color:var(--arc);color:var(--ink-hi);
+  box-shadow:0 0 20px -14px var(--arc)}
+.modal.lead .act-t.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
+  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+
+/* ---- LIGHT SURFACES THE PAINT NEVER CONVERTED -----------------------------
+   The meeting card, the deal card, the payments panel and the day dividers
+   kept their white from before the paint. They were never dark-on-dark, so the
+   text pass could not see them — they were white slabs floating in a dark view.
+   Worse, recolouring .mtg-title for the plate then put white text on that white
+   card, which is why the meeting title read as missing. leadcontrast.mjs checks
+   surfaces as well as text now, and found all of these at once. */
+.modal.lead .deal-card,.modal.lead .pay-panel,.modal.lead .cmsn-box{
+  background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13)}
+.modal.lead .fday{background:linear-gradient(180deg,rgba(5,7,26,.96),rgba(5,7,26,.82));
+  color:var(--dim)}
+.modal.lead .feed-wide{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13);color:var(--dim)}
+.modal.lead .feed-wide:hover{border-color:var(--line-hi);color:var(--ink-hi)}
+.modal.lead .deal-add-btn{background:transparent;border-color:var(--line);color:var(--arc2)}
+.modal.lead .deal-add-btn:hover{border-color:var(--arc);color:var(--ink-hi);background:rgba(56,189,248,.06)}
+.modal.lead .pay-bar{background:rgba(5,7,26,.6)}
+.modal.lead .ex-del{background:rgba(5,7,26,.34);color:var(--dim)}
+.modal.lead .ex-del:hover{background:rgba(193,53,43,.16);color:#FFC9C2}
+
+/* ---- THE MEETING CARD -----------------------------------------------------
+   Two lines, not one. The time and title read first; the type, the badges and
+   the actions sit under them on their own line, right-aligned, so Held /
+   No-show / Calendar read as actions ON this meeting rather than as controls
+   stacked on top of it. Upcoming is signal — it is the thing coming at you. */
+.modal.lead .mtg-row{display:block;background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);
+  padding:11px 12px;position:relative}
+.modal.lead .mtg-row.upcoming{border-color:var(--line-hi);
+  background:linear-gradient(180deg,rgba(56,189,248,.1),rgba(56,189,248,.02));
+  box-shadow:inset 2px 0 0 var(--arc)}
+.modal.lead .mtg-when{color:var(--arc2);font-size:11.5px;padding-right:30px}
+.modal.lead .mtg-mid{margin-top:3px}
+.modal.lead .mtg-title{color:var(--ink-hi);font-size:13.5px;white-space:normal}
+.modal.lead .mtg-badges{margin-top:8px;align-items:center}
+.modal.lead .mtg-status{margin-left:auto}
+.modal.lead .mtg-row>.m-x{position:absolute;top:8px;right:8px}
+.modal.lead .mtg-b{background:rgba(56,189,248,.1);color:var(--ink-mid)}
+.modal.lead .mtg-b.link{background:rgba(56,189,248,.14);color:var(--arc2)}
+.modal.lead .mtg-type{background:rgba(160,130,240,.16);border-color:rgba(160,130,240,.45);color:#DCCDFF}
+.modal.lead .mtg-type.unset{background:rgba(224,162,43,.14);border-color:rgba(224,162,43,.45);color:#F6E7C8}
+.modal.lead .mtg-row.held{border-color:rgba(63,185,120,.34);background:rgba(63,185,120,.07)}
+.modal.lead .mtg-row.noshow{border-color:rgba(193,53,43,.34);background:rgba(193,53,43,.06)}
+.modal.lead .mtg-loc{color:var(--dim)}
+
+/* ---- THE RAILS ------------------------------------------------------------
+   #29 gave the section column room. These two kept the padding they were given
+   for a white card in a narrower modal. */
+.modal.lead .m-prep{padding:20px 18px 26px}
+.modal.lead .m-right{padding:20px 22px 24px}
+.modal.lead .m-prep .dh:first-child{margin-top:0}
+.modal.lead .m-right .fday{padding:14px 0 6px}
+.modal.lead .feed{gap:9px}
 @media (prefers-reduced-motion:reduce){.modal.lead,.modal.lead *{animation:none!important;transition:none!important}}
 /* Expand still gives the feed the whole surface; the rails step aside. */
 .m-grid.lead3.wide{grid-template-columns:minmax(0,1fr)}

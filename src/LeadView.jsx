@@ -216,7 +216,7 @@ export function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
   const upcoming=dated.filter(m=>new Date(m.end||m.start).getTime()>=now);
   const past=dated.filter(m=>new Date(m.end||m.start).getTime()<now).reverse();
   if(!sorted.length) return <div className="mtg-empty">No meetings yet. Schedule one below.</div>;
-  const Row=m=>(<div className={'mtg-row'+(m.status==='held'?' held':'')+(m.status==='noshow'?' noshow':'')+(needsDate(m)?' undated':'')} key={m.id}>
+  const Row=(m,kind)=>(<div className={'mtg-row'+(kind?' '+kind:'')+(m.status==='held'?' held':'')+(m.status==='noshow'?' noshow':'')+(needsDate(m)?' undated':'')} key={m.id}>
     <div className="mtg-when"><CalendarClock size={13}/>{needsDate(m)?<span className="mtg-undated">no date set</span>:fmtMeetingTime(m.start)}
       {m.location&&<span className="mtg-loc"><MapPin size={11}/>{m.location}</span>}</div>
     <div className="mtg-mid"><div className="mtg-title">{m.title}</div><div className="mtg-badges">
@@ -236,9 +236,9 @@ export function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
     <button className="m-x" style={{width:28,height:28,flex:'none'}} title="Cancel + remove from calendar" onClick={()=>{if(window.confirm('Cancel this meeting and remove it from Google Calendar?'))onRemove(m);}}><X size={14}/></button>
   </div>);
   return (<div className="mtg-list">
-    {undated.length>0&&<><div className="mtg-band undated">Needs a date · {undated.length}</div>{undated.map(Row)}</>}
-    {upcoming.length>0&&<><div className="mtg-band">Upcoming · {upcoming.length}</div>{upcoming.map(Row)}</>}
-    {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(Row)}</>}
+    {undated.length>0&&<><div className="mtg-band undated">Needs a date · {undated.length}</div>{undated.map(m=>Row(m,'undated'))}</>}
+    {upcoming.length>0&&<><div className="mtg-band">Upcoming · {upcoming.length}</div>{upcoming.map(m=>Row(m,'upcoming'))}</>}
+    {past.length>0&&<><div className="mtg-band past">Past · {past.length}</div>{past.map(m=>Row(m,'past'))}</>}
   </div>);
 }
 export function MLogRow({label,children}){
@@ -884,7 +884,7 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
                 something — the feed is what you came for */}
             {!composeOpen&&!isNew&&<button className="compose-open" onClick={()=>setComposeOpen(true)}>
               <Plus size={14}/>Log a call, note or text</button>}
-            {(composeOpen||isNew)&&<>
+            {(composeOpen||isNew)&&<div className="compose">
             <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
               {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
             </div>
@@ -931,7 +931,7 @@ export function Modal({lead,isNew,settings,stages,addOption,me,myUid,allLeads,na
                 ? <button className="btn btn-g" style={{padding:'8px 16px'}} onClick={logPaymentFromComposer}><DollarSign size={14}/>Log Payment</button>
                 : <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>}
             </div>}
-            </>}
+            </div>}
             <div className="afilter" style={{marginTop:14}}>
               {/* every chip carries its count, so the filter row doubles as the
                   contact tally — one place, not two things to keep in sync */}

@@ -208,6 +208,39 @@ function scan(label) {
   }
   ok(`${label}: ${nodes.length} elements render text, none of it dark`,
      bad.length === 0, bad.join('\n        '));
+
+  /* AND NO LIGHT SURFACES.
+
+     Checking text colour alone missed a whole class of bug: the meeting card
+     kept its white background from before the paint, so its text was dark on
+     white — correct against its own surface, and invisible as a white slab in
+     a dark view. Then recolouring that text for the plate made the title white
+     on white. Neither pass could see it, because neither was looking at what
+     the text sits on.
+
+     Only an element's OWN background counts. A gradient resolves to
+     background-image and leaves background-color transparent, so the dark
+     plates and the lit-edge fills are correctly ignored here. */
+  const slabs = [];
+  for (const n of [...modal.querySelectorAll('*')]) {
+    if (n.closest('svg')) continue;
+    /* The one deliberate exception: .sw b is the knob of a toggle switch. A
+       white knob on a dark track is the control reading correctly, not a slab
+       of the old theme — it is the moving part, and it carries no text. Named
+       here rather than loosening the rule, so it stays the only one. */
+    if (n.closest('.sw')) continue;
+    const raw = cs(n).backgroundColor || '';
+    if (!raw || /transparent/.test(raw)) continue;
+    const al = /rgba\(\s*[\d.]+[,\s]+[\d.]+[,\s]+[\d.]+[,\s]+([\d.]+)/.exec(raw);
+    if (al && Number(al[1]) < 0.5) continue;   // a tint over the plate, not a slab
+    const rgb = rgbOf(raw, n);
+    if (!rgb) continue;
+    const L = lumOf(rgb);
+    if (L > 0.5) { const ch = []; for (let a = n.parentElement, i = 0; a && i < 2 && !a.classList.contains('modal'); a = a.parentElement, i++) ch.unshift(nm(a));
+      slabs.push(`${ch.join(' > ')} > ${nm(n)}  background=${raw}  L=${L.toFixed(3)}  text="${(n.textContent||'').trim().slice(0, 30)}"`); }
+  }
+  ok(`${label}: no element paints a light surface in the dark view`,
+     slabs.length === 0, slabs.join('\n        '));
 }
 
 /* Every mode, not just the one the bug was reported on. A rep sees a different
