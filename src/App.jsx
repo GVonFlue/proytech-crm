@@ -967,7 +967,18 @@ const CSS=`
    anything that needs a person — which is why the follow-up module is gold and
    turns red once it is overdue.
    ========================================================================== */
-.modal.lead{
+/* THE DARK RULE, applied to a second screen.
+
+   Dark when the app is telling you something; light when you are telling the
+   app. The lead view assembles a briefing, so it is dark. Relationships answers
+   "who is going quiet", which is judgment rather than a list you typed, so it
+   is dark too. The Leads table, Clients, Meetings, Money and Settings stay
+   light — you drive those.
+
+   The tokens are shared rather than copied, so a second surface cannot drift
+   into a slightly different navy. Each surface still paints its own ground:
+   .modal.lead fills a viewport, .relsurface sits inside the page body. */
+.modal.lead,.relsurface{
   --arc:#38BDF8; --arc2:#7FD8FF; --arc3:#EAFBFF; --cob:#2B4DE0;
   --gold:#E0A22B; --gold2:#F2C55C; --hot:#C1352B; --ok:#3FB978; --ok2:#7FE3AC;
   --plate:#0F1433; --plate2:#0A0E27; --plate3:#05071A;
@@ -975,6 +986,8 @@ const CSS=`
   --dim:rgba(127,216,255,.52); --faint:rgba(127,216,255,.3);
   --line:rgba(56,189,248,.16); --line-hi:rgba(56,189,248,.34);
   color:var(--ink);
+}
+.modal.lead{
   background:radial-gradient(1200px 460px at 50% -14%,rgba(56,189,248,.17),transparent 64%),
              linear-gradient(180deg,var(--plate) 0%,var(--plate2) 55%,var(--plate3) 100%);
   border:1px solid rgba(56,189,248,.22);
@@ -1526,6 +1539,112 @@ const CSS=`
 .refct b{font-weight:800;color:${INK}}
 .refct i{font-style:normal;color:#8E89A8}
 .refct em{font-style:normal;color:#C9C5D9}
+
+/* ===========================================================================
+   RELATIONSHIPS, PAINTED.
+
+   Same grammar as the lead view, same tokens, and the same split inside it:
+
+     lit edge + glow  =  the app telling you something
+     flat, no glow    =  where you do work
+
+   SIGNAL here is the needs-attention strip and nothing else. It is the whole
+   reason the page was rebuilt, and if the tier columns and the tables glowed
+   alongside it the page would be back where it started — uniformly blue with
+   nowhere for the eye to land.
+
+   WORK is the tier columns, the tables, the toolbar and the network line. They
+   are where you scan and edit, so they are flat plate with a structural edge.
+
+   The two work values are written out rather than held in custom properties,
+   because jsdom drops background:var(--x) as unparseable and a paint the
+   harness cannot resolve is a paint that cannot be verified. Learned the hard
+   way on the lead view, where the first cut silently changed nothing.
+   ======================================================================== */
+.relsurface{background:radial-gradient(900px 380px at 50% -18%,rgba(56,189,248,.14),transparent 62%),
+  linear-gradient(180deg,var(--plate) 0%,var(--plate2) 60%,var(--plate3) 100%);
+  border:1px solid var(--line);border-radius:16px;padding:16px;margin:-4px 0 0}
+
+/* ---- SIGNAL: needs attention ---- */
+.relsurface .needs-att{background:linear-gradient(180deg,rgba(224,162,43,.13),rgba(224,162,43,.03));
+  border:1px solid rgba(224,162,43,.34);box-shadow:0 0 34px -20px var(--gold)}
+.relsurface .na-top{color:#F1DFBB}
+.relsurface .na-top svg{color:var(--gold2)}
+.relsurface .na-tot{background:rgba(224,162,43,.2);color:#F6E7C8}
+.relsurface .na-h{color:var(--dim)}
+.relsurface .na-n{background:rgba(56,189,248,.14);color:var(--ink-mid)}
+.relsurface .na-col.over .na-h{color:#FFC9C2}
+.relsurface .na-col.over .na-n{background:rgba(193,53,43,.24);color:#FFC9C2}
+.relsurface .na-col.today .na-h{color:#F6E7C8}
+.relsurface .na-col.today .na-n{background:rgba(224,162,43,.22);color:#F6E7C8}
+.relsurface .na-col.quiet .na-h{color:var(--arc2)}
+.relsurface .na-col.quiet .na-n{background:rgba(56,189,248,.18);color:var(--ink-hi)}
+.relsurface .na-row{background:rgba(5,7,26,.42);border:1px solid rgba(56,189,248,.14)}
+.relsurface .na-row:hover{border-color:var(--line-hi);background:rgba(56,189,248,.09)}
+.relsurface .na-name{color:var(--ink-hi)}
+.relsurface .na-why{color:var(--dim)}
+.relsurface .na-more{color:var(--dim)}
+
+/* ---- WORK: the tier columns ---- */
+.relsurface .rel-tier{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
+.relsurface .rel-tier.on{border-color:var(--line-hi);background:rgba(5,7,26,.5)}
+.relsurface .rt-head{border-bottom:1px solid var(--line)}
+.relsurface .rt-top{color:var(--ink-hi)}
+.relsurface .rt-count{background:rgba(56,189,248,.14);color:var(--ink-mid)}
+.relsurface .rt-d{color:var(--dim)}
+.relsurface .rt-person:hover{background:rgba(56,189,248,.09)}
+.relsurface .rt-pn{color:var(--ink-hi)}
+.relsurface .rt-pc{color:var(--dim)}
+.relsurface .rt-empty{color:var(--dim)}
+.relsurface .rt-foot{border-top:1px solid var(--line);color:var(--dim);background:transparent}
+.relsurface .rt-foot:hover{color:var(--ink-hi)}
+
+/* ---- WORK: tables, toolbar, groups ---- */
+.relsurface .card{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
+/* .tbl-wrap paints its own white ground and a light drop shadow — the exact
+   shape that hid the meeting card in the lead view, caught here by the surface
+   pass rather than by looking. */
+.relsurface .tbl-wrap{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
+.relsurface .card .tbl-wrap{background:transparent;border:0}
+.relsurface .tbl th{background:rgba(5,7,26,.5);color:var(--dim);border-bottom-color:var(--line)}
+.relsurface .tbl td{border-bottom-color:rgba(56,189,248,.1);color:var(--ink-mid)}
+.relsurface .tbl tbody tr:hover{background:rgba(56,189,248,.07)}
+.relsurface .namecell{color:var(--ink-hi)}
+.relsurface .subcell{color:var(--dim)}
+.relsurface .empty{color:var(--dim)}
+.relsurface .searchbox{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .searchbox input{background:transparent;color:var(--ink-hi)}
+.relsurface .searchbox input::placeholder{color:var(--dim)}
+.relsurface .searchbox svg{color:var(--dim)}
+.relsurface .selctl{background:rgba(5,7,26,.42);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .seg{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .seg button{color:var(--dim);background:transparent}
+.relsurface .seg button.on{background:rgba(56,189,248,.2);color:var(--ink-hi)}
+.relsurface .rel-netline{color:var(--dim)}
+.relsurface .rel-clearf{background:rgba(56,189,248,.1);border:1px solid var(--line-hi);color:var(--ink-mid)}
+.relsurface .rel-ghead{border-bottom:1px solid var(--line)}
+.relsurface .rel-gname{color:var(--arc2)}
+.relsurface .rel-gname.plain{color:var(--ink-mid)}
+.relsurface .rel-gcount{background:rgba(56,189,248,.14);color:var(--ink-mid)}
+.relsurface .rel-chip{background:rgba(56,189,248,.12);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .tier-pick{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .tier-pick select{background:transparent;color:var(--ink-mid)}
+.relsurface .tier-pick option{background:var(--plate2);color:var(--ink-hi)}
+
+/* ---- the two row readouts ---- */
+.relsurface .since{color:var(--ink-mid)}
+.relsurface .since.warm{color:var(--gold2)}
+.relsurface .since.cold{color:#FF9E93}
+.relsurface .since.never{color:#FF9E93}
+.relsurface .refct{color:var(--dim)}
+.relsurface .refct b{color:var(--ink-hi)}
+.relsurface .refct i{color:var(--dim)}
+.relsurface .refct em{color:rgba(127,216,255,.3)}
+/* the due pill, which arrives from the light theme */
+.relsurface .due{background:rgba(5,7,26,.42);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .due.over{background:rgba(193,53,43,.18);border-color:rgba(193,53,43,.45);color:#FFC9C2}
+.relsurface .due.today{background:rgba(224,162,43,.18);border-color:rgba(224,162,43,.45);color:#F6E7C8}
+.relsurface .due.soon{background:rgba(56,189,248,.14);border-color:var(--line-hi);color:var(--ink-hi)}
 .rel-tier{display:flex;flex-direction:column;min-height:280px;background:#fff;border:1.5px solid #EAEBF2;border-radius:14px;overflow:hidden;position:relative;transition:.14s}
 .rel-tier::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc);z-index:1}
 .rel-tier:hover{border-color:var(--tc)}
@@ -6504,7 +6623,7 @@ function Relationships({leads,open,updateLead}){
       {items.length>6?<div className="na-more">+{items.length-6} more</div>:null}
     </div>
   </div>):null;
-  return (<>
+  return (<div className="relsurface">
     {/* PINNED ABOVE THE TIERS, and above the grouping, because it is the same
         answer whichever way the page below is arranged. */}
     {attTotal>0&&<div className="needs-att">
@@ -6574,7 +6693,7 @@ function Relationships({leads,open,updateLead}){
         </div>
         <div className="tbl-wrap"><table className="tbl"><Head intro={false}/><tbody>{g.list.map(r=>Row(r,{intro:false}))}</tbody></table></div>
       </div>))}</>}
-  </>);
+  </div>);
 }
 
 /* ===================== CLIENTS ===================== */
