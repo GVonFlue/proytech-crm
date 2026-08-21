@@ -21,6 +21,7 @@
    ========================================================================== */
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
+import { audit, nodeLuminance } from './darksurface.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',
   { url: 'https://crm.test/', pretendToBeVisual: true });
@@ -131,52 +132,12 @@ const openAll = async () => {
   const o = curEl.querySelector('.compose-open'); if (o) { await click(o); await settle(120); } };
 
 const cs = n => dom.window.getComputedStyle(n);
-/* WCAG relative luminance */
-/* jsdom hands back `var(--ink-hi)` verbatim — it resolves the cascade but not
-   custom properties — so one level of var() is resolved here against the
-   element that declares them. Without this every painted colour reads as
-   "unknown" and the check silently passes on the things it was written for. */
-const deVar = (v, node) => {
-  let out = String(v || '');
-  for (let i = 0; i < 4 && /var\(/.test(out); i++) {
-    out = out.replace(/var\(\s*(--[\w-]+)\s*(?:,([^)]*))?\)/g, (_, name, fb) => {
-      const host = node.closest('.modal.lead') || node;
-      const got = dom.window.getComputedStyle(host).getPropertyValue(name).trim();
-      return got || (fb || '').trim();
-    });
-  }
-  return out.trim();
-};
-const HEX = h => {
-  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(h.trim());
-  if (!m) return null;
-  const x = m[1].length === 3 ? m[1].split('').map(c => c + c).join('') : m[1];
-  return [0,2,4].map(i => parseInt(x.slice(i, i+2), 16));
-};
-const rgbOf = (raw, node) => {
-  const v = deVar(raw, node);
-  const hx = HEX(v);
-  if (hx) return hx;
-  const m = /rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/.exec(v);
-  return m ? [1,2,3].map(i => +m[i]) : null;
-};
-const lumOf = rgb => {
-  const c = rgb.map(n => { const q = n/255; return q <= 0.03928 ? q/12.92 : ((q+0.055)/1.055) ** 2.4; });
-  return 0.2126*c[0] + 0.7152*c[1] + 0.0722*c[2];
-};
-/* filter:brightness() genuinely changes what lands on the screen, so honour it
-   rather than reading the pre-filter colour — jsdom's computed colour doesn't.
-   .modal.lead .pill relies on exactly this. */
-const bright = node => {
-  let k = 1;
-  for (let a = node; a && a.tagName !== 'HTML'; a = a.parentElement) {
-    const m = /brightness\(([\d.]+)\)/.exec(dom.window.getComputedStyle(a).filter || '');
-    if (m) k *= Number(m[1]);
-  }
-  return k;
-};
-const L1 = n => { const r = rgbOf(cs(n).color, n); return r ? lumOf(r.map(x => Math.min(255, x * bright(n)))) : null; };
-const DARK = 0.35;   // anything below this is not readable on the plate
+/* The engine lives in darksurface.mjs — the Relationships page gets the same
+   check, and a second copy of it would drift the moment one screen needed a
+   tweak. This file is the lead view's fixtures and the two tiles worth naming. */
+const A = { win: dom.window, host: '.modal.lead' };
+const L1 = n => nodeLuminance(n, A);
+const DARK = 0.35;
 const nm = e => e.tagName.toLowerCase() +
   ((e.className||'').toString().split(' ').filter(Boolean).map(c => '.' + c).join(''));
 
@@ -184,63 +145,11 @@ function scan(label) {
   const modal = curEl.querySelector('.modal.lead');
   ok(`${label}: the lead view is the dark surface`, !!modal);
   if (!modal) return;
-
-  /* every element that actually renders text of its own */
-  const nodes = [...modal.querySelectorAll('*')].filter(n => {
-    if (/^(SCRIPT|STYLE|SVG|PATH|CIRCLE|LINE|OPTION)$/.test(n.tagName)) return false;
-    if (n.closest('svg')) return false;
-    return [...n.childNodes].some(c => c.nodeType === 3 && (c.textContent||'').trim());
-  });
-
-  const bad = [];
-  for (const n of nodes) {
-    const rgb = rgbOf(cs(n).color, n);
-    if (!rgb) continue;
-    const k = bright(n);
-    const L = lumOf(k === 1 ? rgb : rgb.map(v => Math.min(255, v * k)));
-    if (L < DARK) {
-      const chain = [];
-      for (let a = n.parentElement, i = 0; a && i < 3 && !a.classList.contains('modal'); a = a.parentElement, i++)
-        chain.unshift(nm(a));
-      bad.push(`${chain.join(' > ')} > ${nm(n)}  color=${cs(n).color}${k === 1 ? '' : ` x${k}`}` +
-               `  L=${L.toFixed(3)}  text="${(n.textContent||'').trim().slice(0, 30)}"`);
-    }
-  }
-  ok(`${label}: ${nodes.length} elements render text, none of it dark`,
-     bad.length === 0, bad.join('\n        '));
-
-  /* AND NO LIGHT SURFACES.
-
-     Checking text colour alone missed a whole class of bug: the meeting card
-     kept its white background from before the paint, so its text was dark on
-     white — correct against its own surface, and invisible as a white slab in
-     a dark view. Then recolouring that text for the plate made the title white
-     on white. Neither pass could see it, because neither was looking at what
-     the text sits on.
-
-     Only an element's OWN background counts. A gradient resolves to
-     background-image and leaves background-color transparent, so the dark
-     plates and the lit-edge fills are correctly ignored here. */
-  const slabs = [];
-  for (const n of [...modal.querySelectorAll('*')]) {
-    if (n.closest('svg')) continue;
-    /* The one deliberate exception: .sw b is the knob of a toggle switch. A
-       white knob on a dark track is the control reading correctly, not a slab
-       of the old theme — it is the moving part, and it carries no text. Named
-       here rather than loosening the rule, so it stays the only one. */
-    if (n.closest('.sw')) continue;
-    const raw = cs(n).backgroundColor || '';
-    if (!raw || /transparent/.test(raw)) continue;
-    const al = /rgba\(\s*[\d.]+[,\s]+[\d.]+[,\s]+[\d.]+[,\s]+([\d.]+)/.exec(raw);
-    if (al && Number(al[1]) < 0.5) continue;   // a tint over the plate, not a slab
-    const rgb = rgbOf(raw, n);
-    if (!rgb) continue;
-    const L = lumOf(rgb);
-    if (L > 0.5) { const ch = []; for (let a = n.parentElement, i = 0; a && i < 2 && !a.classList.contains('modal'); a = a.parentElement, i++) ch.unshift(nm(a));
-      slabs.push(`${ch.join(' > ')} > ${nm(n)}  background=${raw}  L=${L.toFixed(3)}  text="${(n.textContent||'').trim().slice(0, 30)}"`); }
-  }
+  const { count, dark, light } = audit(modal, A);
+  ok(`${label}: ${count} elements render text, none of it dark`,
+     dark.length === 0, dark.join('\n        '));
   ok(`${label}: no element paints a light surface in the dark view`,
-     slabs.length === 0, slabs.join('\n        '));
+     light.length === 0, light.join('\n        '));
 }
 
 /* Every mode, not just the one the bug was reported on. A rep sees a different

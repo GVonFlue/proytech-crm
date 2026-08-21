@@ -43,6 +43,9 @@ const HELPERS = new Set([
   'harness.mjs',          // the jsdom mount used by dom.test.mjs
   'stub-supabase.mjs',    // the fake database for harness.mjs
   'stub-supabase.js',     // the fake database for the older per-file suites
+  'darksurface.mjs',      // the dark-surface audit engine, imported by the
+                          // per-screen contrast tests. Exports only — running
+                          // it directly would assert nothing.
   'writefingerprint.mjs', // a TOOL, not a test: prints what the app writes so two
                           // commits can be diffed. Always exits 0, so running it
                           // here would only ever add noise.
