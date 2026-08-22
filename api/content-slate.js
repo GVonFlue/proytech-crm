@@ -1,7 +1,7 @@
 import { guard, sweep } from './_guard.js';
 import {
   brandContext, underCap, loadResearch, loadPerformance, insertPosts,
-  markResearchUsed, logUsage, askAnthropic, isCronCaller,
+  markResearchUsed, logUsage, askAnthropic, isCronCaller, cronDenial,
 } from './_content.js';
 import {
   buildUserPrompt, parseModelJson, postsFrom, postRow, comingMonday, normResearch,
@@ -48,6 +48,17 @@ export default async function handler(req, res) {
   const cron = isCronCaller(req);
 
   if (!cron) {
+    // A caller that PRESENTS as the scheduler and failed the check above is a
+    // cron whose secret is wrong or unset, and is told so by name. Without this
+    // it falls into guard() and is refused for the wrong reason — 405 "POST
+    // only" on the GET the scheduler actually sends, which is a verb nobody can
+    // change, or 401 "Session expired." on a POST, which points at Supabase for
+    // what is a Vercel env var. The cron's only user interface is a log line,
+    // so the log line has to be true. cronDenial() returns null for everyone
+    // else, so a stranger still learns nothing about whether a cron exists.
+    const denial = cronDenial(req);
+    if (denial) { res.status(401).json({ ok: false, error: denial }); return; }
+
     // maxChars is small on purpose: the only body this route accepts is
     // { dry_run }. The shared default is sized for a chat box and this is not
     // one — _guard.js says to set it per endpoint for exactly this reason.

@@ -285,6 +285,90 @@ console.log('\nthe scheduled run');
     res.code !== 200 && seen(/api\.anthropic\.com/).length === 0, res.code);
 }
 
+/* ------------------------------------------------------------------------
+   THE REFUSAL WAS ALWAYS RIGHT. THE MESSAGE WAS NOT.
+
+   Found by calling the deployed route, not by reading it. A cron that cannot
+   authenticate is only ever read about in a log line, so that line IS the
+   user interface, and both of these pointed at the wrong thing:
+
+     GET  + wrong secret -> 405 "POST only"        a verb vercel.json cannot
+                                                   set and the scheduler never
+                                                   varies
+     POST + wrong secret -> 401 "Session expired." Supabase, for what is a
+                                                   Vercel env var
+   ---------------------------------------------------------------------- */
+
+console.log('\na refused scheduled run says why');
+{
+  reset();
+  const un = quiet();
+  const res = mkRes();
+  /* Exactly what Vercel sends, with the wrong value. */
+  await slate({ method: 'GET', headers: { authorization: 'Bearer WRONG' }, socket: {} }, res);
+  un();
+  ok('a GET with a bad secret is 401, not 405 "POST only"', res.code === 401, res.code);
+  ok('  and names CRON_SECRET', /CRON_SECRET/.test(res.body.error || ''), res.body.error);
+  ok('  saying it did not MATCH', /did not match/i.test(res.body.error || ''), res.body.error);
+  ok('  and telling you to redeploy', /redeploy/i.test(res.body.error || ''), res.body.error);
+  ok('  spending nothing', seen(/api\.anthropic\.com/).length === 0);
+  ok('  and never asking Supabase who it is', seen(/auth\/v1\/user|crm_whoami/).length === 0,
+    'the old path burned a Supabase round trip to produce a wrong answer');
+}
+{
+  const keep = process.env.CRON_SECRET;
+  delete process.env.CRON_SECRET;
+  reset();
+  const un = quiet();
+  const res = mkRes();
+  await slate({ method: 'GET', headers: { authorization: 'Bearer anything' }, socket: {} }, res);
+  un();
+  process.env.CRON_SECRET = keep;
+  ok('an UNSET secret says NOT SET, which is a different fix', res.code === 401
+    && /not set/i.test(res.body.error || ''), res.code + ' ' + (res.body && res.body.error));
+  ok('  and does not claim the token merely mismatched',
+    !/did not match/i.test(res.body.error || ''), res.body.error);
+}
+{
+  reset();
+  const un = quiet();
+  const res = mkRes();
+  /* Vercel identifies itself; honour that even on a POST. */
+  await slate({ method: 'POST', headers: { authorization: 'Bearer WRONG', 'user-agent': 'vercel-cron/1.0' }, socket: {}, body: {} }, res);
+  un();
+  ok('a vercel-cron user-agent is diagnosed too, not sent to Supabase',
+    res.code === 401 && /CRON_SECRET/.test(res.body.error || ''), res.code + ' ' + (res.body && res.body.error));
+}
+{
+  /* THE NARROWNESS IS THE POINT. A stranger with no credential must still fall
+     through to guard() and learn nothing about whether a cron exists here. */
+  reset();
+  const un = quiet();
+  const res = mkRes();
+  await slate({ method: 'GET', headers: {}, socket: {} }, res);
+  un();
+  ok('a bare GET with NO credential is not told about CRON_SECRET',
+    !/CRON_SECRET/.test(JSON.stringify(res.body || {})), JSON.stringify(res.body));
+  ok('  it is just refused', res.code !== 200, res.code);
+}
+{
+  reset();
+  const un = quiet();
+  const res = mkRes();
+  await slate(ownerReq({ dry_run: true }), res);
+  un();
+  ok('and a real owner POST is unaffected by all of this', res.code === 200, res.code);
+  ok('  reaching the model as before', seen(/api\.anthropic\.com/).length === 1);
+}
+{
+  reset();
+  const un = quiet();
+  const res = mkRes();
+  await slate(cronReq(), res);
+  un();
+  ok('a CORRECT cron secret still gets straight in', res.code === 200, res.code);
+}
+
 /* ================================================== a broken model answer = */
 
 console.log('\nwhen the answer comes back wrong');
