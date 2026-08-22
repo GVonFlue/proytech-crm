@@ -43,12 +43,13 @@
 -- one of them, since they are cold at any threshold. So the leads whose CLOCK
 -- crossed a line are 14 at 7 days, 7 at 14, and 4 at 30.
 --
--- NOTE FOR WHOEVER READS THIS NEXT: the REAL_TOUCH run the day before reported
--- 146 leads against the same relationship filter, and this one reports 167,
--- while becomes_never_contacted (34) matches that run's untouched_after
--- exactly. Either leads arrived between the runs and every one of them was
--- contacted straight away, or one of the two queries counted differently. It
--- was not resolved, and the direction and magnitudes here do not depend on it.
+-- POPULATION NOTE: the REAL_TOUCH run the day before reported 146 leads against
+-- the same relationship filter, and this one reports 167. RESOLVED — 21 leads
+-- were imported between the two runs. Not a discrepancy between the queries.
+--
+-- becomes_never_contacted (34) matching that run's untouched_after exactly is
+-- the coincidence that made it look like one: the imported leads were worked
+-- straight away, so none of them landed in the never-contacted count.
 -- ===========================================================================
 
 with act as (
