@@ -31,6 +31,11 @@ export function resetDb(initial = {}) {
     settings: initial.settings || null,
     invoices: [], txns: [], tasks: [], events: [], mlogs: initial.mlogs || [],
     users: initial.users || [],
+    /* Content Studio. Only reached by a suite that turns VITE_CONTENT_STUDIO
+       on; empty here so the screen's own empty states are what renders. */
+    contentContext: initial.contentContext || [],
+    contentPosts: initial.contentPosts || [],
+    contentResearch: initial.contentResearch || [],
     whoami: initial.whoami !== undefined ? initial.whoami : { role: 'owner', active: true, setup: true, name: 'Garrett' },
     session: { user: { id: 'uid-owner', email: 'garrett@proytech.io' } },
     /* every write, in order */

@@ -59,6 +59,43 @@ export const BRAND = {
   },
 };
 
+/* ---- Content Studio's palette --------------------------------------------
+   Its own five, separate from BRAND.colors above, because WEEKEND1 §E names
+   these five env vars specifically and a white-label install must be able to
+   restyle the Studio without touching the CRM chrome it sits inside.
+
+   THIS IS THE ONLY PLACE THE STUDIO'S HEX VALUES APPEAR. src/ContentStudio.jsx
+   contains no hex at all — it reads these, publishes them as CSS custom
+   properties on its root, and every rule in its style block goes through a
+   var(). tests/content.mjs asserts the file stays hex-free, because "don't
+   inline a colour" is a rule that decays the first time someone is in a hurry. */
+export const CONTENT_BRAND = {
+  primary:    val(import.meta.env.VITE_BRAND_PRIMARY,     '#1338DE'),
+  accent:     val(import.meta.env.VITE_BRAND_ACCENT,      '#FB6926'),
+  accentText: val(import.meta.env.VITE_BRAND_ACCENT_TEXT, '#D97706'),
+  navy:       val(import.meta.env.VITE_BRAND_NAVY,        '#000110'),
+  ink:        val(import.meta.env.VITE_BRAND_INK,         '#111528'),
+};
+
+/* hex -> rgba, so a screen can derive borders, tints and shadows from the five
+   above instead of inventing a sixth colour. Returns the input untouched if it
+   is not a hex, so a client who sets VITE_BRAND_PRIMARY to a CSS keyword or an
+   rgb() string gets something usable rather than "rgba(NaN,NaN,NaN)". */
+export const tint = (hex, alpha = 1) => {
+  const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec((hex || '').trim());
+  if (!m) return hex;
+  let h = m[1];
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const n = parseInt(h, 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+};
+
+/* Is the Content Studio module built into this deployment at all?
+   Default OFF (WEEKEND1 §2) — the tab does not exist unless this is the exact
+   string 'true', so a typo leaves it off rather than half on. */
+export const CONTENT_STUDIO_ON =
+  (import.meta.env.VITE_CONTENT_STUDIO || '').toString().trim() === 'true';
+
 /* The in-CRM assistant's name. Per-tenant on purpose: the internal ProyTech
    install calls it something we would not ship to a client, and this is a one
    env var difference rather than a fork. Set VITE_AI_NAME per Vercel project.

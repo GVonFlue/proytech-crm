@@ -94,6 +94,25 @@ const kbMissing = e =>
     `${e?.message || ''} ${e?.details || ''} ${e?.hint || ''}`) && /does not exist|not find/i.test(
     `${e?.message || ''} ${e?.details || ''} ${e?.hint || ''}`);
 
+/* Content Studio's tables were created by hand and ship in no migration in
+   this repo, so an install that has not had them made yet is an ordinary state,
+   not a bug. Same shape as kbMissing: the tab degrades to empty, the app does
+   not go down. */
+const contentMissing = e =>
+  e?.code === '42P01' || e?.code === 'PGRST205' ||
+  /content_brand_context|content_research|content_posts|content_usage/.test(
+    `${e?.message || ''} ${e?.details || ''} ${e?.hint || ''}`);
+
+/* The column lists for Content Studio, in one place each. api/_content.js holds
+   the server-side twin of CONTENT_POST_COLS and tests/content.mjs asserts the
+   two agree — one table must not have two ideas of which columns it has. */
+const CONTENT_CONTEXT_COLS  = 'id,category,key,value,active,sort_order';
+const CONTENT_RESEARCH_COLS = 'id,source_type,url,platform,format,raw,why_it_worked,used,captured_at';
+const CONTENT_POST_COLS =
+  'id,week_of,mix_class,surface,pillar,format,hook,concept,image_prompt,'
+  + 'carousel_slides,captions,cta_key,value_statement,source_research,status,'
+  + 'generated_at,posted_at,platform_post_ids,performance,created_at';
+
 const missingCol = e => {
   const s = `${e?.message || ''} ${e?.details || ''} ${e?.hint || ''}`.toLowerCase();
   return e?.code === '42703' || s.includes('owner_id') || s.includes('pool') || s.includes('column');
@@ -300,6 +319,102 @@ export const db = {
     if (error) { if (kbMissing(error)) return []; throw error; }
     return data || [];
   },
+
+  /* ---- Content Studio -----------------------------------------------------
+     The tables were created by hand and are NOT in any migration in this repo;
+     nothing here writes DDL. Every call degrades to empty on an install that
+     does not have them, the same posture as the Playbook and Pocket reads
+     above: a missing table takes the TAB down, never the app.
+
+     EVERY COLUMN THIS FEATURE WRITES IS NAMED IN A SELECT LIST BELOW.
+     ENGINEERING.md §2 — a column written and not selected is a column that
+     vanishes, and that has shipped three times in this project. The columns
+     WEEKEND1 reserves for later phases (idea_id, parent_id, series_key,
+     series_index, source_insights, recycled_from) are deliberately absent:
+     nothing here writes them, so a read path for them would be a read of a
+     value nothing produces. They stay null and untouched.
+
+     The api/ routes read and write these same tables with the SERVICE key.
+     The lists here and POST_COLS in api/_content.js must stay identical —
+     tests/content.mjs asserts that they are, because two column lists for one
+     table is the same drift in a new costume. */
+  async getContentContext() {
+    const { data, error } = await supabase.from('content_brand_context')
+      .select(CONTENT_CONTEXT_COLS).order('category', { ascending: true }).order('sort_order', { ascending: true });
+    if (error) { if (contentMissing(error)) return []; throw error; }
+    return data || [];
+  },
+  /* One row in or out. `id` is omitted on a new row so Postgres assigns it. */
+  async saveContentContext(row) {
+    const body = {
+      category: row.category, key: row.key, value: row.value,
+      active: row.active !== false, sort_order: Number(row.sort_order) || 0,
+    };
+    if (row.id) body.id = row.id;
+    const { data, error } = await supabase.from('content_brand_context')
+      .upsert(body).select(CONTENT_CONTEXT_COLS);
+    if (error) throw error;
+    return (data || [])[0] || null;
+  },
+  /* The import path. ADDITIVE — insert, never upsert: an import that collided
+     with an existing key would rewrite the owner's own pricing silently, which
+     is the one thing WEEKEND1 §D forbids. The screen decides what to send. */
+  async addContentContext(rows) {
+    const body = (rows || []).map(r => ({
+      category: r.category, key: r.key, value: r.value,
+      active: r.active !== false, sort_order: Number(r.sort_order) || 0,
+    }));
+    if (!body.length) return [];
+    const { data, error } = await supabase.from('content_brand_context')
+      .insert(body).select(CONTENT_CONTEXT_COLS);
+    if (error) throw error;
+    return data || [];
+  },
+  async deleteContentContext(id) {
+    const { error } = await supabase.from('content_brand_context').delete().eq('id', id);
+    if (error) throw error;
+  },
+
+  async getContentPosts() {
+    const { data, error } = await supabase.from('content_posts')
+      .select(CONTENT_POST_COLS).order('week_of', { ascending: false }).limit(400);
+    if (error) { if (contentMissing(error)) return []; throw error; }
+    return data || [];
+  },
+  /* The screen only ever writes these six. Hook, concept, pillar and the rest
+     are the model's output and are changed by api/content-regenerate.js, not
+     by a textarea — except `captions`, which WEEKEND1 §D makes editable on the
+     card, so it is here. */
+  async updateContentPost(id, patch) {
+    const allowed = ['status', 'captions', 'posted_at', 'platform_post_ids', 'performance', 'week_of'];
+    const body = {};
+    for (const k of allowed) if (k in patch) body[k] = patch[k];
+    const { data, error } = await supabase.from('content_posts')
+      .update(body).eq('id', id).select(CONTENT_POST_COLS);
+    if (error) throw error;
+    return (data || [])[0] || null;
+  },
+
+  async getContentResearch() {
+    const { data, error } = await supabase.from('content_research')
+      .select(CONTENT_RESEARCH_COLS).order('captured_at', { ascending: false }).limit(200);
+    if (error) { if (contentMissing(error)) return []; throw error; }
+    return data || [];
+  },
+  /* captured_at and used are left to their column defaults on insert — the
+     capture form has no field for either, and stamping a client clock on a row
+     Postgres is about to stamp itself is how two timestamps for one event
+     start disagreeing. */
+  async addContentResearch(row) {
+    const { data, error } = await supabase.from('content_research').insert({
+      source_type: row.source_type || '', url: row.url || '',
+      platform: row.platform || '', format: row.format || '',
+      raw: row.raw || '', why_it_worked: row.why_it_worked || '',
+    }).select(CONTENT_RESEARCH_COLS);
+    if (error) throw error;
+    return (data || [])[0] || null;
+  },
+
   async getSettings() {
     const { data, error } = await supabase.from('app_settings').select('data').eq('id', 'main').maybeSingle();
     if (error) throw error;

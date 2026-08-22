@@ -68,6 +68,46 @@ export const db = {
     const n=(globalThis.__KB_NOTES__||[]).find(x=>x.id===id); if(n) n.status='draft';
     globalThis.__KB_PUB__=(globalThis.__KB_PUB__||[]).filter(x=>x.id!==id); },
   kbAiContext: async () => JSON.parse(JSON.stringify(globalThis.__KB_PUB__ || [])),
+  /* Content Studio. Only reached by a bundle built with VITE_CONTENT_STUDIO
+     set — the tab does not exist otherwise, so every other suite here goes
+     nowhere near these. Writes land in __CONTENT_WRITES__ so a test asserts on
+     what reached the database rather than on what appeared on screen. */
+  getContentContext: async () => JSON.parse(JSON.stringify(globalThis.__CONTENT_CTX__ || [])),
+  saveContentContext: async (row) => {
+    (globalThis.__CONTENT_WRITES__ = globalThis.__CONTENT_WRITES__ || []).push({ op: 'saveContext', row: JSON.parse(JSON.stringify(row)) });
+    const a = globalThis.__CONTENT_CTX__ = globalThis.__CONTENT_CTX__ || [];
+    const saved = { ...row, id: row.id || 'ctx_' + (a.length + 1) };
+    const i = a.findIndex(x => x.id === saved.id);
+    if (i >= 0) a[i] = saved; else a.push(saved);
+    return JSON.parse(JSON.stringify(saved));
+  },
+  addContentContext: async (rows) => {
+    (globalThis.__CONTENT_WRITES__ = globalThis.__CONTENT_WRITES__ || []).push({ op: 'addContext', rows: JSON.parse(JSON.stringify(rows)) });
+    const a = globalThis.__CONTENT_CTX__ = globalThis.__CONTENT_CTX__ || [];
+    const made = (rows || []).map((r, i) => ({ ...r, id: 'imp_' + (a.length + i + 1) }));
+    made.forEach(r => a.push(r));
+    return JSON.parse(JSON.stringify(made));
+  },
+  deleteContentContext: async (id) => {
+    (globalThis.__CONTENT_WRITES__ = globalThis.__CONTENT_WRITES__ || []).push({ op: 'deleteContext', id });
+    globalThis.__CONTENT_CTX__ = (globalThis.__CONTENT_CTX__ || []).filter(x => x.id !== id);
+  },
+  getContentPosts: async () => JSON.parse(JSON.stringify(globalThis.__CONTENT_POSTS__ || [])),
+  updateContentPost: async (id, patch) => {
+    (globalThis.__CONTENT_WRITES__ = globalThis.__CONTENT_WRITES__ || []).push({ op: 'updatePost', id, patch: JSON.parse(JSON.stringify(patch)) });
+    const a = globalThis.__CONTENT_POSTS__ || [];
+    const i = a.findIndex(x => x.id === id);
+    if (i < 0) return null;
+    a[i] = { ...a[i], ...patch };
+    return JSON.parse(JSON.stringify(a[i]));
+  },
+  getContentResearch: async () => JSON.parse(JSON.stringify(globalThis.__CONTENT_RESEARCH__ || [])),
+  addContentResearch: async (row) => {
+    (globalThis.__CONTENT_WRITES__ = globalThis.__CONTENT_WRITES__ || []).push({ op: 'addResearch', row: JSON.parse(JSON.stringify(row)) });
+    const saved = { id: 'res_new', used: false, captured_at: '2026-08-22T00:00:00.000Z', ...row };
+    (globalThis.__CONTENT_RESEARCH__ = globalThis.__CONTENT_RESEARCH__ || []).unshift(saved);
+    return JSON.parse(JSON.stringify(saved));
+  },
   /* rep payouts — money OUT to a person. Earnings are derived from held
      meetings and never stored, so there is nothing to stub for those. */
   getPayouts: async () => JSON.parse(JSON.stringify(globalThis.__PAYOUTS__ || [])),
