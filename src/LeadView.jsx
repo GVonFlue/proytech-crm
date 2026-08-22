@@ -1080,7 +1080,11 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               onClick={e=>{ e.stopPropagation(); if(n!==me) return;
                 const next=done?tagCleared(a).filter(x=>x!==n):[...tagCleared(a),n];
                 set({activities:(draft.activities||[]).map(x=>x.id===a.id?{...x,tagsDone:next}:x)}); }}>
-              <AtSign size={10}/>{n}{done?' ✓':''}</span>); })}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}</div></div>
+              <AtSign size={10}/>{n}{done?' ✓':''}</span>); })}</div><div className="fmeta">{a.who?a.who+' · ':''}{actLabel(a.type)} · {fmtStamp(a.ts)}
+              {/* say where it came from, so a note nobody wrote does not read as
+                  one somebody did — and so the timestamp is understood as the
+                  moment of import rather than a moment of contact */}
+              {a.imported?<span className="fmeta-src"> · from the import</span>:null}</div></div>
               <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div></Fragment>);})}
               {!feedRuns.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
             {/* pinned under the feed, never scrolls, never grows */}

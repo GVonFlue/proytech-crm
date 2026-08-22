@@ -163,7 +163,12 @@ export const isSystemNote=a=>!!a&&a.type==='Note'&&!a.derived&&SYS_NOTE.test(Str
 /* A REAL TOUCH is a reached type, or a note a person actually wrote.
    Excluding notes wholesale would be as wrong as including everything: on a
    relationship, "saw him at the chamber lunch" is the touch. */
-export const isRealTouch=a=>!!a&&(REACHED_TYPES.has(a.type)||(a.type==='Note'&&!isSystemNote(a)));
+/* An imported note is not contact. It arrived in a spreadsheet column, nobody
+   spoke to anybody, and it is stamped at the moment of import rather than at a
+   moment when anything happened — so counting it makes a lead look worked AND
+   gives it a first-touch time of zero. Marked at the source by mkLead; rows
+   imported before that mark existed need IMPORT-NOTE-BACKFILL.sql. */
+export const isRealTouch=a=>!!a&&!a.imported&&(REACHED_TYPES.has(a.type)||(a.type==='Note'&&!isSystemNote(a)));
 
 /* The last time a person and this record were actually in contact.
 

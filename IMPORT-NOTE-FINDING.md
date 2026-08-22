@@ -1,5 +1,15 @@
 # A spreadsheet cell counts as human contact
 
+> **RESOLVED IN CODE, PENDING A BACKFILL.** New imports stamp the note
+> `imported:true` and `isRealTouch` declines it. Rows imported before that
+> marker existed still count until `IMPORT-NOTE-BACKFILL.sql` is run — and its
+> step 1 must be read first, because the recogniser matched only 21 of 54
+> imported leads and that is either correct or disqualifying.
+>
+> Measured, 167 leads: 21 move into untouched, mean first touch 3.0h → 3.5h,
+> median 0.0 → 0.0. The median not moving is its own finding — see the bottom
+> of this file.
+
 **Status:** open. Found 2026-08-22, immediately after the touch-clock work, by
 chasing why two measurement runs both reported 34 never-contacted leads.
 
@@ -93,3 +103,45 @@ from here.
   — the note supplied with a seeded lead"*. That description is incomplete: the
   same path serves CSV import, where the note is a spreadsheet cell rather than
   anything a person wrote. The allowlist entry should say so.
+
+
+---
+
+## The median did not move, and that is a second finding
+
+`median 0.0 → 0.0`, with only 29 leads at an exact zero out of ~133 that have a
+first touch at all. Those two facts only fit together one way: the median is not
+*zero*, it is **under three minutes** — `round(x, 1)` renders 0.04h as `0.0`.
+So more than half of all leads are recorded as contacted within minutes of
+being created, and the import note explains only 21 of them.
+
+The rest come from `create()` in the lead view:
+
+```js
+const ts = new Date().toISOString();
+const acts = [{ id: uid(), ts, type:'Note', text:'Lead created.', who }];
+if (firstNote.trim()) acts.unshift({ id: uid(), ts, type: firstType, text: firstNote.trim(), who });
+```
+
+The first note is stamped with the moment you click **Create**, while
+`createdAt` was stamped when you *opened* the form. The gap between them is how
+long you spent typing — seconds. Every lead added by hand with a first note gets
+a first touch of roughly zero.
+
+**That is not a bug in the same sense as the import note.** If you add a lead
+straight after speaking to them, the first touch genuinely was immediate. The
+defect is conceptual and it is in the metric, not the write:
+
+> `createdAt` means "when this record was typed", not "when this lead arrived".
+
+Speed-to-lead is only meaningful where those two differ — imported leads, and
+anything that arrives through a form or a feed. For a lead you create *because*
+you just talked to someone, the measurement is circular: it times how long you
+took to save the record.
+
+**The fix is not to stop stamping it.** It is to measure speed-to-lead only over
+leads whose arrival was not the act of typing them in — which needs a way to
+tell those apart, and `importBatch` is the only such signal that exists today.
+Worth its own discussion before any code: the honest options are to scope the
+metric to imported and form-sourced leads, or to retire it and keep the
+untouched list, which does not depend on timing at all.
