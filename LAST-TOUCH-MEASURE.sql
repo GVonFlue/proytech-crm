@@ -43,12 +43,20 @@
 -- one of them, since they are cold at any threshold. So the leads whose CLOCK
 -- crossed a line are 14 at 7 days, 7 at 14, and 4 at 30.
 --
--- NOTE FOR WHOEVER READS THIS NEXT: the REAL_TOUCH run the day before reported
--- 146 leads against the same relationship filter, and this one reports 167,
--- while becomes_never_contacted (34) matches that run's untouched_after
--- exactly. Either leads arrived between the runs and every one of them was
--- contacted straight away, or one of the two queries counted differently. It
--- was not resolved, and the direction and magnitudes here do not depend on it.
+-- POPULATION NOTE: the REAL_TOUCH run the day before reported 146 leads against
+-- the same relationship filter, and this one reports 167. The 21-lead gap is an
+-- IMPORT between the two runs, not a difference between the queries.
+--
+-- becomes_never_contacted reading 34 in BOTH runs is SETTLED, and it is not a
+-- coincidence. Every import batch shows with_real_touch = leads — 21/21, 26/26,
+-- 7/7. The importer writes the CSV note column as a Note on the lead, and
+-- isRealTouch counts it, so an imported lead has NEVER been eligible for the
+-- never-contacted count. The 21 that arrived between the runs could not have
+-- changed it. Nobody worked them.
+--
+-- That answer is a defect, not an explanation: 54 leads across three batches
+-- are invisible to the untouched list because a spreadsheet cell is being read
+-- as human contact. Written up in IMPORT-NOTE-FINDING.md.
 -- ===========================================================================
 
 with act as (
@@ -126,3 +134,28 @@ from days;
 --  where d.d_after is not null
 --  order by (d.d_after - d.d_before) desc
 --  limit 25;
+
+-- ===========================================================================
+-- WHICH READING IS IT? Does the imported batch carry a real touch?
+--
+-- One row per import batch: how many leads it brought, and how many of them
+-- have a touch a person would recognise as contact. If the recent batch shows
+-- with_real_touch = leads, it is reading 1 and nobody worked anything — the
+-- importer wrote a note and isRealTouch counted it.
+-- ===========================================================================
+-- select coalesce(l.data->>'importBatch','(not imported)') as batch,
+--        min(l.data->>'createdAt')                          as first_seen,
+--        count(*)                                           as leads,
+--        count(*) filter (where exists (
+--          select 1 from jsonb_array_elements(coalesce(l.data->'activities','[]'::jsonb)) a
+--           where a->>'ts' is not null and (
+--             a->>'type' in ('Call','Text','Email','Meeting','Booked','Payment')
+--             or (a->>'type' = 'Note'
+--                 and coalesce((a->>'derived')::boolean,false) = false
+--                 and coalesce(a->>'text','') not like 'Lead created.%'
+--                 and coalesce(a->>'text','') not like 'Follow-up cleared.%'
+--                 and coalesce(a->>'text','') not like 'Stage moved:%'
+--                 and coalesce(a->>'text','') not like 'Deal value set to%'))))  as with_real_touch
+--   from leads l
+--  where coalesce((l.data->>'isRelationship')::boolean, false) = false
+--  group by 1 order by first_seen desc nulls last limit 10;
