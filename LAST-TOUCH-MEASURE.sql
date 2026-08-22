@@ -47,20 +47,16 @@
 -- the same relationship filter, and this one reports 167. The 21-lead gap is an
 -- IMPORT between the two runs, not a difference between the queries.
 --
--- What that does NOT yet explain is why becomes_never_contacted is 34 in both
--- runs. Both numbers measure the same thing — leads with no real touch — so 21
--- untouched leads arriving should have made it 55. Run 1 cannot have counted
--- them; its population was 146, before the import. Two readings survive:
+-- becomes_never_contacted reading 34 in BOTH runs is SETTLED, and it is not a
+-- coincidence. Every import batch shows with_real_touch = leads — 21/21, 26/26,
+-- 7/7. The importer writes the CSV note column as a Note on the lead, and
+-- isRealTouch counts it, so an imported lead has NEVER been eligible for the
+-- never-contacted count. The 21 that arrived between the runs could not have
+-- changed it. Nobody worked them.
 --
---   1. the imported leads each carry a real touch. An import can bring a note
---      column, and an imported note is a HUMAN note, so isRealTouch counts it.
---      Never-contacted stays 34 with nobody having done anything.
---   2. the imported leads are untouched, and exactly 21 of the original 34 were
---      contacted between the runs. Arithmetically fine, coincidental.
---
--- The query at the bottom of this file settles it. Until it is run, this is
--- recorded as open rather than guessed at — a measurement file with a
--- confident wrong reason in it is worse than one with an open question.
+-- That answer is a defect, not an explanation: 54 leads across three batches
+-- are invisible to the untouched list because a spreadsheet cell is being read
+-- as human contact. Written up in IMPORT-NOTE-FINDING.md.
 -- ===========================================================================
 
 with act as (
