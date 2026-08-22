@@ -139,5 +139,35 @@ for (const [name, l] of [['worked', WORKED], ['noted', NOTED], ['fiction', FICTI
      nu === null || String(nu) <= String(oldClock(l)), `${nu} vs ${oldClock(l)}`);
 }
 
+/* ---------------------------------------------------------------------------
+   THE IMPORTED NOTE.
+
+   The importer writes the CSV note column as a Note stamped at createdAt, with
+   no `who` and — until now — no marker at all. isRealTouch counted it, so a
+   lead nobody had contacted read as worked, and its first touch computed as
+   zero hours because the stamp IS the creation time.
+
+   Measured before the change, 167 leads: 21 move into untouched, and the mean
+   first touch goes 3.0h -> 3.5h as the fake zeros leave. Nothing gets faster.
+   -------------------------------------------------------------------------- */
+console.log('\nthe imported note');
+const IMPORTED = { id:'d', createdAt: CREATED, importBatch:'imp_x', activities:[
+  { id:'1', ts: at(0), type:'Note', text:'Lead created.' },
+  { id:'2', ts: at(0), type:'Note', text:'Called last spring, wants a quote', imported:true },
+] };
+ok('an imported note is not contact', !IMPORTED.activities.some(isRealTouch));
+ok('  so the lead is never-contacted, not worked', lastTouch(IMPORTED) === null);
+ok('  and it has no first touch to flatter the average',
+   firstTouch(IMPORTED, isRealTouch) === null, String(firstTouch(IMPORTED, isRealTouch)));
+ok('  it WAS counted before the marker existed',
+   IMPORTED.activities.some(a => a.type === 'Note' && !/^Lead created/.test(a.text)),
+   'the same note without imported:true is an ordinary human note');
+
+/* the identical text, typed by a person, still counts — the marker is doing the
+   work, not a guess about the wording */
+const TYPED = { ...IMPORTED, activities: IMPORTED.activities.map(a => { const { imported, ...rest } = a; return rest; }) };
+ok('the same text typed by a person still counts',
+   TYPED.activities.some(isRealTouch) && lastTouch(TYPED) === at(0));
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

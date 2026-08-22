@@ -111,7 +111,12 @@ console.log('\nthe guard: every note the app writes is classified');
    dynamic writer shows up as a failure rather than slipping through. */
 const HUMAN_DYNAMIC = {
   'text:body': 'publishLogToLead — what a person typed into a meeting log',
-  'text:o.note': 'mkLead seed — the note supplied with a seeded lead',
+  /* mkLead serves TWO callers: the demo seed, and CSV import. A seeded note
+     stands in for one a person wrote, which is what it is pretending to be. An
+     imported note is a spreadsheet cell and is NOT contact — mkLead stamps
+     imported:true on that path and isRealTouch declines it. The text is human
+     in both cases, which is why this stays here rather than in SYS_NOTE. */
+  'text:o.note': 'mkLead — the seed note, and the CSV note column on import',
 };
 
 const found = [], unreadable = [];
