@@ -98,6 +98,25 @@ export const db = {
   async savePocketProposals(id) { rec('savePocketProposals', { id }); },
   async deletePocketRecording(id) { rec('deletePocketRecording', { id }); },
 
+  /* Content Studio. The tab is gated on VITE_CONTENT_STUDIO === 'true', which
+     the harness does not set by default, so most suites never reach these —
+     they are here so a suite that DOES set the flag exercises the real screen
+     rather than crashing on a method the stub forgot. */
+  async getContentContext() { return clone(S().contentContext || []); },
+  async saveContentContext(row) { rec('saveContentContext', { row: clone(row) }); return clone({ id: row.id || 'ctx-new', ...row }); },
+  async addContentContext(rows) { rec('addContentContext', { rows: clone(rows) }); return clone(rows || []); },
+  async deleteContentContext(id) { rec('deleteContentContext', { id }); },
+  async getContentPosts() { return clone(S().contentPosts || []); },
+  async updateContentPost(id, patch) {
+    rec('updateContentPost', { id, patch: clone(patch) });
+    const list = S().contentPosts || [];
+    const i = list.findIndex(p => p.id === id);
+    if (i >= 0) { list[i] = { ...list[i], ...clone(patch) }; return clone(list[i]); }
+    return null;
+  },
+  async getContentResearch() { return clone(S().contentResearch || []); },
+  async addContentResearch(row) { rec('addContentResearch', { row: clone(row) }); return clone({ id: 'res-new', used: false, ...row }); },
+
   async getUsers() { return clone(S().users); },
   async whoami() { return clone(S().whoami); },
   async upsertUser(u) { rec('upsertUser', { user: clone(u) }); },

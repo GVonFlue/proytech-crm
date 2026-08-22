@@ -14,7 +14,7 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket, Bot, Mic,
-  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2
+  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2, Megaphone,
 } from 'lucide-react';
 import JSZip from 'jszip';
 import MeetingLog from './MeetingLog';
@@ -41,7 +41,12 @@ import { auth, db, configured } from './lib/supabase';
    make App depend on the screen that depends on App. */
 import Modal from './LeadView';
 import { DateFix, PriBadge, StageBadge } from './LeadBits';
-import { BRAND, AI_NAME } from './lib/brand';
+import { BRAND, AI_NAME, CONTENT_STUDIO_ON } from './lib/brand';
+/* Content Studio. Its own screen the way LeadView is (WEEKEND1 §1) — this
+   file gets a route and a nav entry and nothing else. It loads its own data,
+   holds its own state, and App.jsx knows nothing about a slate.
+   VITE_CONTENT_STUDIO must be the string 'true' or the tab does not exist. */
+import ContentStudio from './ContentStudio';
 /* The lead record's pure read/write helpers, moved to src/lib/lead.js so the
    lead view can import the SAME definitions instead of carrying copies. Two
    spellings of owedBy() is the ENGINEERING §2 bug, not a tidiness one. */
@@ -254,6 +259,15 @@ const isRep=u=>!!u&&u.role==='rep';
 /* what THIS person can open: the install's global modules, narrowed by their
    own tab list. A rep can never see a tab the install has globally turned off. */
 const canOpen=(settings,user,k)=>{
+  /* Content Studio is gated by the BUILD, not by settings.modules. That is the
+     one place it departs from every other tab, and deliberately: a module list
+     is the thing ENGINEERING.md §1 warns about — any install that has ever
+     opened the modules screen has a saved array that predates the tab, so it
+     ships invisible and nothing looks broken. An env var cannot ship invisible,
+     because it is the only thing switching it on. Default off (WEEKEND1 §2).
+     Owner-only: content_brand_context holds pricing and offer material, which
+     ROLES.md keeps off a rep's screen. */
+  if(k==='content') return CONTENT_STUDIO_ON&&!isRep(user);
   if(!modOn(settings,k)) return false;
   if(!isRep(user)) return true;
   if(k==='dash') return true;
@@ -4002,7 +4016,7 @@ export default function App(){
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],...(CONTENT_STUDIO_ON?[['content','Content Studio',<Megaphone size={18}/>]]:[]),['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -4115,6 +4129,7 @@ export default function App(){
           view==='mlog'?<MeetingLog logs={mlogs} tasks={tasks} leads={scoped} saveLog={saveMlog} deleteLog={delMlog} saveTasks={saveTasks} publishToLead={publishLogToLead} me={me}/>:
           view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
+          view==='content'?<ContentStudio/>:
           view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} users={users} payouts={payouts} />:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
             isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh} updateLead={updateLead} payouts={payouts} addPayout={addPayout}/>}
