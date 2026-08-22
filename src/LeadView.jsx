@@ -21,7 +21,7 @@
    runs.
    ========================================================================== */
 
-import React, { Fragment, useEffect, useMemo, useState } from 'react';
+import React, { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { BRAND } from './lib/brand';
 import {
   ACT_TYPES, CMSN_STATE, DATE_LEAD_DEFAULT, DEFAULT_DELIVERY_TRACKS,
@@ -359,6 +359,21 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
 
      The new-lead composer below already defaults to 'Call' (firstType); this
      just stops the two disagreeing. */
+  /* THE NOTE BOX GROWS WITH THE NOTE.
+
+     It was two lines tall and fixed, so writing anything real meant scrolling
+     inside a slot while typing. It starts at six lines now and grows to about
+     fifteen before it scrolls, which is where a note stops being a note.
+
+     Height is set imperatively rather than by rows, because rows cannot follow
+     content. The ref is also how the box gets small again after a save: the
+     value is cleared in code, no input event fires, and without this it would
+     stay at whatever height the last note left it. */
+  const noteRef=useRef(null);
+  const NOTE_MAX=340;
+  const sizeNote=el=>{ if(!el) return; el.style.height='auto';
+    el.style.height=Math.min(NOTE_MAX,el.scrollHeight)+'px'; };
+  const growNote=e=>{ setAtext(e.target.value); sizeNote(e.target); };
   const [atype,setAtype]=useState('Call');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
   const [wideFeed,setWideFeed]=useState(()=>{ try{return localStorage.getItem('pt_widefeed')==='1';}catch{return false;} });
   const [openSec,setOpenSec]=useState({});
@@ -481,6 +496,27 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     return (<button key={label} type="button" className="fu-chip"
       onClick={()=>set({followUp:isoOf(d)})}>{label}</button>);
   };
+  /* CALLED AS A FUNCTION, NOT RENDERED AS A JSX ELEMENT.
+
+     Defining a component inside another component gives it a NEW function
+     identity on every render. React compares types by identity, sees a
+     different type, and unmounts the old subtree to mount a new one — so every
+     field inside it is destroyed and recreated, and whatever you were typing
+     into loses focus.
+
+     That is the Next Action bug: the select is type-ahead, so each keypress
+     changes the value, which re-renders Modal, which remounts this block. The
+     date input and the "what to do" textarea beside it had exactly the same
+     fault — the textarea worse, since a whole sentence is a keystroke each.
+
+     Calling it as a function removes the component boundary altogether: the
+     elements it returns belong to Modal's own tree, so nothing remounts. That
+     is also how F, Sel, Sec and Row in this file are already used, so this is
+     the file's existing idiom rather than a workaround for it. These helpers
+     hold no state and call no hooks, which is what makes it safe.
+
+     Hoisting to module scope would work too and would cost eight props
+     threaded through; there is no behavioural difference. */
   const FollowUpBlock=()=>(<div className="fu-block">
     <div className="fu-set">
       {[['Tomorrow',1],['+3 days',3],['Next week',7],['+2 weeks',14]].map(([l,n])=>fuPreset(l,n))}
@@ -597,6 +633,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
       addActivity(draft.id,atype,stripTagText(t,tags)||t,who,tags.length?{tags}:undefined);
     }
     setAtext(''); setPendTags([]); setComposeOpen(false);
+    if(noteRef.current) noteRef.current.style.height='';
   };
   /* log a payment straight from the composer — same payments[] the deal panel
      reads, so paid / remaining update everywhere at once. ONE write: the payment
@@ -843,7 +880,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               blank missing="No website on this record yet"/>
           </div>
           <div className="dh mt"><Bell size={13}/>Follow-up</div>
-          <FollowUpBlock/>
+          {FollowUpBlock()}
           {/* KEY DATES, for a relationship, in the prep rail.
               A birthday is the reason you call a referral partner — it is prep,
               not a form field, and on their record it was three sections down
@@ -938,7 +975,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                   </div>
                 </div>
               : atype==='Booked' ? null
-              : <textarea className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={e=>setAtext(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
+              : <textarea ref={noteRef} className="act-input" placeholder={`Log a ${atype.toLowerCase()}… (saved with today's date)`} value={atext} onChange={growNote} onKeyDown={e=>{if(e.key==='Enter'&&(e.metaKey||e.ctrlKey))logIt();}}/>}
             {/* Who needs to see this. Names come from crm_team(), so it can't
                 drift from who actually has a login.
                 It used to come from `users`, which RLS narrows to a REP'S OWN
@@ -1135,7 +1172,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               <ChevronDown size={14} className={'mb-ch'+(showMore?' on':'')}/>{showMore?'Hide extra details':'Add more details'}
               {!showMore&&<i>optional — {draft.owner} · {draft.nextAction}</i>}
             </button>
-            {showMore&&<><div className="dh mt"><Bell size={13}/>Follow-up</div><FollowUpBlock/></>}
+            {showMore&&<><div className="dh mt"><Bell size={13}/>Follow-up</div>{FollowUpBlock()}</>}
             {showMore&&<div className="fgrid" style={{marginTop:12}}>
               {Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
               {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
