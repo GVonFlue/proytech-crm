@@ -2395,7 +2395,10 @@ tbody tr.picked:hover{background:#E9EDFD}
 .act-types{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
 .act-t{font-size:12px;font-weight:600;padding:6px 10px;border-radius:9px;border:1px solid #DEDFEA;background:#fff;color:#56527a;cursor:pointer;display:flex;align-items:center;gap:5px}
 .act-t.on{border-color:${COBALT};background:rgba(43,77,224,.08);color:${COBALT}}
-.act-input{width:100%;padding:11px 12px;border:1px solid #DEDFEA;border-radius:10px;font-size:13.5px;font-family:'Inter';resize:vertical;min-height:52px}
+/* min-height was 52px — two lines — so a real note was written through a slot.
+   Six lines to start; the growth beyond that is done in JS, because rows and
+   min-height cannot follow content. */
+.act-input{width:100%;padding:11px 12px;border:1px solid #DEDFEA;border-radius:10px;font-size:13.5px;font-family:'Inter';resize:vertical;min-height:112px;line-height:1.5}
 .act-input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .act-t.pay.on{border-color:${GREEN};background:color-mix(in srgb,${GREEN} 10%,#fff);color:#1a7d46}
 .pay-compose-row{display:flex;gap:8px}
@@ -5787,7 +5790,7 @@ function EventsPage({events,saveEvent,removeEvent,leads,quickLead,open,me}){
         {sl.contactName
           ? <span className="ev-who" onClick={()=>sl.contactId&&open&&open(sl.contactId)}>{sl.contactName}
               <button className="ev-x" onClick={e=>{e.stopPropagation();put('slots',sl.id,{contactId:'',contactName:''});}}><X size={12}/></button></span>
-          : <Picker onPick={()=>attach('slot',sl.id)}/>}
+          : Picker({onPick:()=>attach('slot',sl.id)})}
         <label className={'ev-paid'+(sl.paid?' on':'')}><input type="checkbox" checked={!!sl.paid} onChange={e=>put('slots',sl.id,{paid:e.target.checked})}/>Paid</label>
         <button className="ev-x" onClick={()=>del('slots',sl.id)}><Trash2 size={13}/></button>
       </div>))}
@@ -5834,7 +5837,7 @@ function EventsPage({events,saveEvent,removeEvent,leads,quickLead,open,me}){
           </div>
         </div>}
       </div>
-      <Picker onPick={()=>attach('guest')}/>
+      {Picker({onPick:()=>attach('guest')})}
       {(ev.guests||[]).length?(ev.guests||[]).map(g=>(<div className="ev-row" key={g.id}>
         <span className="ev-who" onClick={()=>g.contactId&&open&&open(g.contactId)}>{g.name}</span>
         <select className="ev-st" value={g.status} onChange={e=>put('guests',g.id,{status:e.target.value})}>
@@ -6614,7 +6617,7 @@ function Relationships({leads,open,updateLead}){
      and it is still editable on the record where it belongs. */
   const Row=(r,{intro=true}={})=>(<tr key={r.id} onClick={()=>open(r.id,shown.map(x=>x.id))}>
     <td><div className="namecell">{r.name}</div><div className="subcell">{r.company||'—'}</div></td>
-    <td onClick={e=>e.stopPropagation()}><TierPick r={r}/></td>
+    <td onClick={e=>e.stopPropagation()}>{TierPick({r})}</td>
     <td><SinceTouch lead={r}/></td>
     <td><RefCount lead={r} all={leads}/></td>
     {intro?<td>{r.introducedBy?<span className="rel-chip"><Link2 size={11}/>{nameOf(r.introducedBy)||'—'}</span>:<span className="subcell">Direct</span>}</td>:null}
@@ -6642,9 +6645,9 @@ function Relationships({leads,open,updateLead}){
     {attTotal>0&&<div className="needs-att">
       <div className="na-top"><AlertTriangle size={14}/>Needs attention<span className="na-tot">{attTotal}</span></div>
       <div className="na-cols">
-        <AttGroup items={att.over} kind="over" label="Overdue"/>
-        <AttGroup items={att.today} kind="today" label="Due today"/>
-        <AttGroup items={att.quiet} kind="quiet" label="Gone quiet"/>
+        {AttGroup({items:att.over,kind:"over",label:"Overdue"})}
+        {AttGroup({items:att.today,kind:"today",label:"Due today"})}
+        {AttGroup({items:att.quiet,kind:"quiet",label:"Gone quiet"})}
       </div>
     </div>}
     <div className="rel-tiers">
@@ -6698,13 +6701,13 @@ function Relationships({leads,open,updateLead}){
     {view==='web'?<NetworkWeb contacts={leads} open={open}/>
     :!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
     :!shown.length?<div className="card"><div className="empty">No relationships in {tier?tierMeta(tier)[1]:'this view'}{q?' matching that search':''}.</div></div>
-    :view==='list'?<div className="tbl-wrap"><table className="tbl"><Head/><tbody>{shown.map(r=>Row(r))}</tbody></table></div>
+    :view==='list'?<div className="tbl-wrap"><table className="tbl">{Head({})}<tbody>{shown.map(r=>Row(r))}</tbody></table></div>
     :<>{groups.map(g=>(<div className="card" style={{marginBottom:14}} key={g.id||'direct'}>
         <div className="rel-ghead">
           {g.id?<><span className="rel-gname" onClick={()=>open(g.id)}><Link2 size={13}/>{g.name}</span><span className="rel-gcount">{g.list.length} {g.list.length===1?'intro':'intros'}</span></>
               :<><span className="rel-gname plain"><Users size={13}/>Direct / no intro</span><span className="rel-gcount">{g.list.length}</span></>}
         </div>
-        <div className="tbl-wrap"><table className="tbl"><Head intro={false}/><tbody>{g.list.map(r=>Row(r,{intro:false}))}</tbody></table></div>
+        <div className="tbl-wrap"><table className="tbl">{Head({intro:false})}<tbody>{g.list.map(r=>Row(r,{intro:false}))}</tbody></table></div>
       </div>))}</>}
   </div>);
 }
@@ -7200,6 +7203,11 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
 function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
   const [d,setD]=useState({...task});
   const set=p=>setD(x=>({...x,...p}));
+  /* Called, not rendered as <Knob/>. Defined inside TaskModal, it got a new
+     identity on every render, so React remounted the slider on every onChange —
+     and a range input fires onChange continuously while you drag. The drag was
+     dropped after the first step: these knobs could be clicked one notch at a
+     time and not dragged at all. Same fault as the lead view's Next Action. */
   const Knob=({label,field,hint})=>(<div className="field"><label>{label}{'\u2014'} {d[field]} <span style={{color:'#a6a2bc',fontWeight:400}}>{hint}</span></label><input type="range" min="1" max="5" value={d[field]} onChange={e=>set({[field]:Number(e.target.value)})}/></div>);
   return (<div className="scrim2" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal" style={{maxWidth:520}} onMouseDown={e=>e.stopPropagation()}>
@@ -7226,9 +7234,9 @@ function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
             </select>
           </div>
         </div>
-        <Knob label="Revenue impact" field="revenue" hint="how much cash it moves"/>
-        <Knob label="Urgency" field="urgency" hint="how time-sensitive"/>
-        <Knob label="Effort" field="effort" hint="1 = quick win, 5 = heavy lift"/>
+        {Knob({label:"Revenue impact",field:"revenue",hint:"how much cash it moves"})}
+        {Knob({label:"Urgency",field:"urgency",hint:"how time-sensitive"})}
+        {Knob({label:"Effort",field:"effort",hint:"1 = quick win, 5 = heavy lift"})}
         <div className="field"><label>Notes</label><input value={d.notes||''} onChange={e=>set({notes:e.target.value})} placeholder="Any detail that helps the ranking"/></div>
         <div style={{display:'flex',gap:8,marginTop:16,alignItems:'center'}}>
           <button className="btn btn-p" onClick={()=>onSave({...d,title:(d.title||'').trim()||'Untitled task'})}><CheckCircle2 size={15}/>Save</button>
