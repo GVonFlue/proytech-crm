@@ -30,6 +30,25 @@
 --
 -- Relationships are excluded from the lead-side counts below; they were already
 -- moved to lastTouch by the Relationships work.
+--
+-- RUN 2026-08-22, 167 leads:
+--
+--   becomes_never_contacted   34      no real touch at all
+--   clock_moves_back          28      displayed age increases
+--   avg_days_added           2.0      worst_days_added 48.9
+--   newly_cold_7              48      newly_cold_14 41, newly_cold_30 38
+--   got_warmer_must_be_zero    0      the invariant held
+--
+-- The three cold numbers overlap: all 34 never-contacted leads are in every
+-- one of them, since they are cold at any threshold. So the leads whose CLOCK
+-- crossed a line are 14 at 7 days, 7 at 14, and 4 at 30.
+--
+-- NOTE FOR WHOEVER READS THIS NEXT: the REAL_TOUCH run the day before reported
+-- 146 leads against the same relationship filter, and this one reports 167,
+-- while becomes_never_contacted (34) matches that run's untouched_after
+-- exactly. Either leads arrived between the runs and every one of them was
+-- contacted straight away, or one of the two queries counted differently. It
+-- was not resolved, and the direction and magnitudes here do not depend on it.
 -- ===========================================================================
 
 with act as (

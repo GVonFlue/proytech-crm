@@ -99,5 +99,45 @@ ok('the mean improves without any lead improving',
    mean(after) < mean(before) && firstTouch(WORKED, OLD) === firstTouch(WORKED, isRealTouch),
    `mean ${mean(before).toFixed(2)}h -> ${mean(after).toFixed(2)}h`);
 
+/* ---------------------------------------------------------------------------
+   AND THE CLOCK, not just the predicate.
+
+   lastTouchTs and lastContact are both gone. They took the newest activity of
+   ANY type and fell back to createdAt, so a machine note reset the clock and a
+   brand-new lead read as contacted the day it arrived.
+
+   Measured on the real database before the change, 167 leads:
+
+     becomes_never_contacted   34     no real touch at all
+     clock_moves_back          28     displayed age increases
+     avg_days_added           2.0     worst 48.9
+     newly_cold_7              48     newly_cold_14 41, newly_cold_30 38
+     got_warmer_must_be_zero    0     ignoring activity can only age a clock
+
+   The last line is the invariant worth keeping: no lead may get warmer.
+   -------------------------------------------------------------------------- */
+console.log('\nthe clock');
+const { lastTouch, daysSinceTouch } = await import('./.brt.mjs?v=' + Date.now());
+
+ok('a machine note does not reset the clock',
+   lastTouch(FICTION) === null && lastTouch(WORKED) === at(0.5),
+   `${lastTouch(FICTION)} / ${lastTouch(WORKED)}`);
+ok('  the newest machine note is ignored even when it is the newest activity',
+   lastTouch(WORKED) === at(0.5), String(lastTouch(WORKED)));
+ok('a brand-new lead is NOT contacted the day it arrives',
+   lastTouch({ createdAt: CREATED, activities: [] }) === null);
+ok('never contacted reads as null, not as a number of days',
+   daysSinceTouch(FICTION) === null, String(daysSinceTouch(FICTION)));
+
+/* the invariant the measurement asserts against the real data, asserted here
+   against fixtures: dropping activities from consideration can only make a
+   clock older, never newer */
+const oldClock = l => { const ts=(l.activities||[]).map(a=>a.ts).sort().pop(); return ts||l.createdAt; };
+for (const [name, l] of [['worked', WORKED], ['noted', NOTED], ['fiction', FICTION]]) {
+  const nu = lastTouch(l);
+  ok(`${name}: the clock never gets warmer`,
+     nu === null || String(nu) <= String(oldClock(l)), `${nu} vs ${oldClock(l)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

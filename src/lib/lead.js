@@ -431,7 +431,10 @@ export const todayISO=()=>isoOf(new Date());
 export const fmtDate=iso=>{if(!iso)return '';const d=new Date(iso+(iso.length<=10?'T00:00:00':''));return d.toLocaleDateString('en-US',{month:'short',day:'numeric'});};
 export const fmtStamp=ts=>{const d=new Date(ts);return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+' · '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});};
 export const daysUntil=iso=>{if(!iso)return null;const a=new Date(iso+'T00:00:00'),b=new Date(todayISO()+'T00:00:00');return Math.round((a-b)/86400000);};
-export const lastContact=l=>{const ts=(l.activities||[]).map(a=>a.ts).sort().pop();return ts||l.createdAt;};
+/* lastContact() lived here: newest activity of ANY type, falling back to
+   createdAt. It is gone rather than deprecated — every caller reads lastTouch
+   now, and leaving a second clock in the file is how a third one gets written
+   by somebody who finds it first. */
 export const sOf=(k,stages)=>stages.find(s=>s.key===k)||stages[0];
 /* ===================== delivery (post-sale fulfillment) ===================== */
 export const DEFAULT_DELIVERY_TRACKS=[
