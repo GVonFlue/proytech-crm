@@ -53,7 +53,7 @@ import {
   cashConfirmed, clientOverall, closedDealsTotal, cmsnAmount, cmsnOf, dateVocab, datelessOf,
   dayLabel, daysToDate, daysUntil, dealBits, dealsOf, depositPaidAt, evNum, fmtDate,
   fmtMeetingTime, fmtStamp, introChain, isDateless, isPoolLead, isUpsellDeal, isoOf,
-  keyDatesOf, labelVocab, labelsOf, lastContact, manualSponsorships, meetingsOf, needsDate,
+  keyDatesOf, labelVocab, labelsOf, manualSponsorships, meetingsOf, needsDate,
   normEntry, num, nurtureDaysOf, onbSkipped, openSaleValue, owedBy, pct, poolList,
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
   tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt,
@@ -393,7 +393,7 @@ function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
   const overdue=(leads||[]).filter(l=>l.followUp&&daysUntil(l.followUp)<0&&dueEligible(l))
     .sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
   const cold=coldList(rels||[]).slice(0,8);
-  const stalled=openLeads.map(l=>({l,d:daysSince(lastTouchTs(l)||l.createdAt||new Date().toISOString())}))
+  const stalled=openLeads.map(l=>({l,d:daysSinceTouch(l)??Infinity}))
     .filter(x=>x.d>=14).sort((a,b)=>b.d-a.d).slice(0,8);
   const untouched=(leads||[]).filter(l=>!(l.activities||[]).some(isRealTouch));
   return {
@@ -451,18 +451,15 @@ const firstTouchHrs=l=>{ const acts=(l.activities||[]).filter(isRealTouch); if(!
 const median=arr=>{ if(!arr.length) return null; const x=[...arr].sort((a,b)=>a-b); const i=Math.floor(x.length/2);
   return x.length%2?x[i]:(x[i-1]+x[i])/2; };
 const fmtHrs=h=>h==null?'—':h<1?Math.round(h*60)+'m':h<48?Math.round(h)+'h':Math.round(h/24)+'d';
-const lastTouchTs=l=>{ const acts=(l.activities||[]).filter(a=>a&&a.ts); if(!acts.length) return l.createdAt||null;
-  return acts.reduce((mx,a)=>(!mx||a.ts>mx)?a.ts:mx,null); };
 /* champions need watering more often than brand-new contacts */
 export const COLD_DAYS={champion:30,b:60,new:90};
-/* COLD READS lastTouch(), NOT lastTouchTs().
+/* COLD READS lastTouch(), and by now so does everything else.
 
-   The Monday Huddle and the Relationships page both answer "who has gone
-   quiet", and ENGINEERING §2 says they must not answer it differently. That
-   forced a choice rather than a copy, because lastTouchTs takes the newest
-   activity of ANY type and falls back to createdAt: a "Follow-up cleared." or
-   a stage change counts as contact, so somebody you have not spoken to in
-   eight months reads as touched yesterday and never appears on either list.
+   This was the first place to move off the old clock, which took the newest
+   activity of ANY type and fell back to createdAt: a "Follow-up cleared." or a
+   stage change counted as contact, so somebody you had not spoken to in eight
+   months read as touched yesterday and never appeared on any list. Both of the
+   old helpers are gone — lastTouch is the only clock in the app now.
 
    lastTouch counts reached types plus notes a person actually wrote, and
    returns null when there has been none. That NULL is why the sort below is
@@ -562,8 +559,11 @@ function leadColumnDefs(stages,customFields,rep){
        zero, which would quietly satisfy the cold filters. Found by
        tests/dom.test.mjs, which is the first thing that file has caught since it
        was made able to report. */
-    lastContacted:{label:'Last Contact',render:l=>{const ds=daysSince(lastContact(l));
-      if(!Number.isFinite(ds)) return <span className="subcell">—</span>;
+    /* null means no real touch has ever happened, which is a louder answer than
+       any number of days — so it reads as never contacted rather than as a
+       dash, and it is coloured like the worst case because it is. */
+    lastContacted:{label:'Last Contact',render:l=>{const ds=daysSinceTouch(l);
+      if(ds===null) return <span className="subcell" style={{color:RED,fontWeight:600}}>never</span>;
       return <span className="subcell" style={ds>=14?{color:RED,fontWeight:600}:undefined}>{ds===0?'Today':ds+'d ago'}</span>;}},
     followUp:{label:'Follow-up',render:l=><Due iso={l.followUp}/>},
     priority:{label:'Priority',render:l=><PriBadge p={l.priority}/>},
@@ -4337,7 +4337,7 @@ function useMetrics(leads,stages,settings,txns){
     const avgDaysToClose=cycleDays.length?Math.round(median(cycleDays)):null;
     // pipeline velocity: open deals moving vs rotting (no touch in 14d)
     const openLeadsArr=leads.filter(l=>sOf(l.stage,stages).open);
-    const rotting=openLeadsArr.filter(l=>daysSince(lastTouchTs(l)||l.createdAt||todayISO())>=14).length;
+    const rotting=openLeadsArr.filter(l=>(daysSinceTouch(l)??Infinity)>=14).length;
     const movingPct=openLeadsArr.length?1-(rotting/openLeadsArr.length):1;
     // source ROI: which lead source actually closes
     const bySource={}; leads.forEach(l=>{ const src=l.source||'—'; bySource[src]=bySource[src]||{total:0,won:0,value:0};
@@ -4501,8 +4501,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     const overdue=m.overdue.slice().sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
     const untouched=openMine.filter(l=>!(l.activities||[]).some(isRealTouch))
       .sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
-    const stale=openMine.filter(l=>!untouched.includes(l)&&daysSince(lastTouchTs(l)||l.createdAt||today)>=7)
-      .sort((a,b)=>daysSince(lastTouchTs(b)||b.createdAt||today)-daysSince(lastTouchTs(a)||a.createdAt||today));
+    const stale=openMine.filter(l=>!untouched.includes(l)&&(daysSinceTouch(l)??Infinity)>=7)
+      .sort((a,b)=>(daysSinceTouch(b)??Infinity)-(daysSinceTouch(a)??Infinity));
     const todayMtgs=allMeetings(leads).filter(r=>!r.m.status&&!needsDate(r.m)
       &&String(r.m.start||'').slice(0,10)===today)
       .sort((a,b)=>(a.m.start||'').localeCompare(b.m.start||''));
@@ -4546,7 +4546,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
               {stale.slice(0,6).map(l=>(<div className="td-row" key={l.id}>
                 <button className="td-name" onClick={()=>open(l.id)}>{l.name||l.company}</button>
                 <span className="td-txt">{sOf(l.stage,stages).label}</span>
-                <span className="td-who">{daysSince(lastTouchTs(l)||l.createdAt)}d since a touch</span>
+                <span className="td-who">{daysSinceTouch(l)===null?'never contacted':`${daysSinceTouch(l)}d since a touch`}</span>
               </div>))}
               {stale.length>6&&<div className="subcell">+ {stale.length-6} more</div>}
             </div>}
@@ -5037,7 +5037,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
 
     {drill==='cold'&&<Drill title="Relationships going cold" sub={`champions ${COLD_DAYS.champion}d · b tier ${COLD_DAYS.b}d · new ${COLD_DAYS.new}d`} onClose={()=>setDrill(null)}>
       {cold.length?cold.map(({r,tier,days,limit})=>(<div className={'drow'+(tier==='champion'?' untyped':'')} key={r.id}>
-        <div className="drow-m"><Name l={r}/><div className="subcell">{tierMeta(tier)[1]} · last touch {days>=9999?'never':fmtDate(lastTouchTs(r))}</div></div>
+        <div className="drow-m"><Name l={r}/><div className="subcell">{tierMeta(tier)[1]} · last touch {days===null?'never':fmtDate(lastTouch(r))}</div></div>
         <span className="drow-v" style={{color:days>limit*2?RED:'#C05A1E'}}>{days>=9999?'never':days+'d ago'}</span>
       </div>)):<Empty t="Everyone's been touched recently. Nice."/>}
     </Drill>}
@@ -5901,7 +5901,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
   const wonC=leads.filter(l=>sOf(l.stage,stages).won).length;
   const lostC=leads.filter(l=>sOf(l.stage,stages).lost).length;
   const winRate=(wonC+lostC)?Math.round(wonC/(wonC+lostC)*100):0;
-  const Card=({l})=>{ const i=sIdx(l.stage,stages); const st=sOf(l.stage,stages); const od=l.followUp&&daysUntil(l.followUp)<0; const stale=st.open&&daysSince(lastContact(l))>=7;
+  const Card=({l})=>{ const i=sIdx(l.stage,stages); const st=sOf(l.stage,stages); const od=l.followUp&&daysUntil(l.followUp)<0; const stale=st.open&&(daysSinceTouch(l)??Infinity)>=7;
     return (<div className={'kcard'+(od?' od':'')+(dragId===l.id?' dragging':'')} draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>open(l.id)}>
       <div className="kcard-top">
         <div className="kn"><span className="dot" style={{background:(PRIORITIES[l.priority]||PRIORITIES.medium).color}}/>{l.name||'(no name)'}</div>
@@ -5913,7 +5913,7 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
         <span className="kvals">{l.dealValue>0&&<span className="kdv">{usd(l.dealValue)}</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>
         {l.followUp&&<Due iso={l.followUp}/>}
       </div>
-      {stale&&<div className="kstale"><AlertTriangle size={11}/>{daysSince(lastContact(l))}d no contact</div>}
+      {stale&&<div className="kstale"><AlertTriangle size={11}/>{daysSinceTouch(l)===null?'never contacted':`${daysSinceTouch(l)}d no contact`}</div>}
       <div className="kmove" onClick={e=>e.stopPropagation()}>
         <button className="kmv" disabled={i<=0} onClick={()=>move(l,-1)} title="Move back a stage"><ChevronLeft size={16}/></button>
         <span className="kmv-s">{st.label}</span>
@@ -6039,7 +6039,9 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
     if(k==='stage') return sIdx(l.stage,stages);
     if(k==='priority') return (PRIORITIES[l.priority]||PRIORITIES.medium).rank;
     if(k==='dealValue') return num(l.dealValue);
-    if(k==='lastContacted') return lastContact(l);
+    /* sorting by last contact: never contacted is the coldest there is, so it
+       sorts ahead of every date rather than falling out as a blank. */
+    if(k==='lastContacted') return lastTouch(l)||'0000-00-00';
     if(k==='followUp') return l.followUp||'9999-99-99';
     if(k.startsWith('cf:')) {const v=l.custom?.[k.slice(3)];return typeof v==='number'?v:(v||'').toString().toLowerCase();}
     return (l[k]||'').toString().toLowerCase();
@@ -6051,7 +6053,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       if(!ownerMatch(l))return false;
       if(stage!=='all'&&l.stage!==stage)return false;
       if(pri!=='all'&&l.priority!==pri)return false;
-      if(cold!=='all'&&daysSince(lastContact(l))<+cold)return false;
+      if(cold!=='all'&&(daysSinceTouch(l)??Infinity)<+cold)return false;
       if(spon==='potential'&&!l.potentialSponsor)return false;
       if(spon==='past'&&!l.pastSponsor)return false;
       if(spon==='any'&&!(l.potentialSponsor||l.pastSponsor))return false;

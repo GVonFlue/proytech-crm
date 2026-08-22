@@ -29,11 +29,12 @@ import {
   blankFirst, bookedCount, calendarOwner, clientOverall, closedDealsTotal, cmsnAmount,
   cmsnOf, dateVocab, datelessOf, dayLabel, daysToDate, daysUntil, dealsOf, depositPaidAt,
   evNum, fmtDate, fmtMeetingTime, fmtStamp, introChain, isPoolLead, isUpsellDeal, isoOf,
-  keyDatesOf, labelVocab, labelsOf, lastContact, manualSponsorships, needsDate, normEntry,
+  keyDatesOf, labelVocab, labelsOf, manualSponsorships, needsDate, normEntry,
   num, nurtureDaysOf, onbSkipped, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
   stdPhases, stripTagText, tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc,
   gmailCompose, isSystemNote, yearsAt,
   referralsOut, mkReferral, introducedLeads, referralTarget,
+  lastTouch,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import {
@@ -783,7 +784,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
       <div className="m-head">
         <div style={{minWidth:0}}>
           <h2>{draft.name||draft.company||(newRel?'New Relationship':'New Lead')}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
-          {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · Last contact {fmtDate(lastContact(draft))}</div>}
+          {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · {lastTouch(draft)?`Last contact ${fmtDate(lastTouch(draft))}`:'never contacted'}</div>}
           {!isNew&&<div className="qa">
             <StageBadge k={draft.stage} stages={stages}/><PriBadge p={draft.priority}/>
           </div>}
