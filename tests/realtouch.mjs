@@ -1,0 +1,103 @@
+/* A machine note is not a response to a lead.
+   ============================================================================
+
+   REAL_TOUCH was: any activity whose text is not exactly 'Lead created.'. One
+   machine note excluded out of twenty-one, so a stage change, a cleared
+   follow-up or a deal-value edit each counted as somebody contacting the lead.
+
+   Measured on the real database before the change, 146 leads:
+
+     untouched            7  ->  34      27 leads had NO contact at all
+     first touch (mean) 5.1h -> 3.5h     the population changed, not the leads
+     paired first touch 3.5h -> 3.5h     0.0 hours added, per lead
+
+   That second and third line together are the whole shape of this correction:
+   for every lead that was genuinely worked the real touch already came first
+   and the machine note came after, so speed-to-lead does not move. The mean
+   improves only because 27 leads stop contributing a fictional slow first
+   touch. All of the real correction lands on the untouched list.
+
+   Both halves are asserted below, because a change that only made the
+   untouched list longer would be indistinguishable from one that also broke
+   speed-to-lead for everyone.
+
+   Pure functions, no DOM.
+*/
+import fs from 'fs';
+import esbuild from 'esbuild';
+
+const built = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true, write:false,
+  format:'esm', jsx:'automatic', loader:{'.js':'jsx'},
+  define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
+  logLevel:'silent' });
+fs.writeFileSync('tests/.brt.mjs', built.outputFiles[0].text);
+const { isRealTouch } = await import('./.brt.mjs?v=' + Date.now());
+
+let pass = 0, fail = 0;
+const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }
+  else { fail++; console.log('  FAIL ' + n + (x ? '\n        ' + String(x).slice(0, 300) : '')); } };
+
+const at = h => new Date(Date.parse('2026-08-01T09:00:00.000Z') + h * 36e5).toISOString();
+const CREATED = at(0);
+/* the old predicate, kept here so the two can be compared rather than asserted
+   from memory */
+const OLD = a => a && a.ts && a.text !== 'Lead created.';
+/* the same arithmetic firstTouchHrs does */
+const firstTouch = (l, pred) => {
+  const acts = (l.activities||[]).filter(pred);
+  if (!acts.length || !l.createdAt) return null;
+  const first = acts.reduce((mn,a) => (!mn || a.ts < mn) ? a.ts : mn, null);
+  return (new Date(first) - new Date(l.createdAt)) / 36e5;
+};
+
+/* A lead nobody ever contacted: created, then the app wrote about it twice. */
+const FICTION = { id:'a', createdAt: CREATED, activities:[
+  { id:'1', ts: at(0),  type:'Note', text:'Lead created.' },
+  { id:'2', ts: at(26), type:'Note', text:'Stage moved: New Lead → Proposal Sent' },
+  { id:'3', ts: at(40), type:'Note', text:'Follow-up cleared.' },
+] };
+/* A lead genuinely worked: called within the hour, bookkeeping afterwards. */
+const WORKED = { id:'b', createdAt: CREATED, activities:[
+  { id:'1', ts: at(0),   type:'Note', text:'Lead created.' },
+  { id:'2', ts: at(0.5), type:'Call', text:'Rang her.' },
+  { id:'3', ts: at(30),  type:'Note', text:'Deal value set to $3,500.' },
+] };
+/* And one worked only by a human note — the relationship-shaped case. */
+const NOTED = { id:'c', createdAt: CREATED, activities:[
+  { id:'1', ts: at(0), type:'Note', text:'Lead created.' },
+  { id:'2', ts: at(2), type:'Note', text:'Saw him at the chamber lunch.' },
+] };
+
+console.log('\nthe untouched list — where the whole correction lands');
+ok('a lead whose only activity is the app writing to itself is UNTOUCHED',
+   !(FICTION.activities.some(isRealTouch)));
+ok('  it was counted as contacted before', FICTION.activities.some(OLD));
+ok('a lead that was actually called is not untouched', WORKED.activities.some(isRealTouch));
+ok('a lead worked only by a human note is not untouched', NOTED.activities.some(isRealTouch));
+
+console.log('\nspeed to lead — measured as unchanged, asserted as unchanged');
+ok('a worked lead keeps the same first touch',
+   firstTouch(WORKED, OLD) === firstTouch(WORKED, isRealTouch),
+   `${firstTouch(WORKED, OLD)} vs ${firstTouch(WORKED, isRealTouch)}`);
+ok('  and it is the call, not the bookkeeping', firstTouch(WORKED, isRealTouch) === 0.5,
+   String(firstTouch(WORKED, isRealTouch)));
+ok('a human note is a first touch too', firstTouch(NOTED, isRealTouch) === 2,
+   String(firstTouch(NOTED, isRealTouch)));
+
+console.log('\nand the fiction stops being a data point at all');
+ok('the never-contacted lead HAD a first touch under the old predicate',
+   firstTouch(FICTION, OLD) === 26, String(firstTouch(FICTION, OLD)));
+ok('  and has none under the new one — it leaves the average rather than moving it',
+   firstTouch(FICTION, isRealTouch) === null, String(firstTouch(FICTION, isRealTouch)));
+
+/* This is why the measured mean improved while no lead got faster: the 26h
+   fiction was dragging the average up, and it is simply gone. */
+const before = [FICTION, WORKED, NOTED].map(l => firstTouch(l, OLD)).filter(h => h !== null);
+const after  = [FICTION, WORKED, NOTED].map(l => firstTouch(l, isRealTouch)).filter(h => h !== null);
+const mean = a => a.reduce((x,y) => x+y, 0) / a.length;
+ok('the mean improves without any lead improving',
+   mean(after) < mean(before) && firstTouch(WORKED, OLD) === firstTouch(WORKED, isRealTouch),
+   `mean ${mean(before).toFixed(2)}h -> ${mean(after).toFixed(2)}h`);
+
+console.log(`\n${pass} passed, ${fail} failed\n`);
+process.exit(fail ? 1 : 0);

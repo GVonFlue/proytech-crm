@@ -1,5 +1,12 @@
 # Speed-to-lead counts the app talking to itself as a touch
 
+> **RESOLVED.** Fixed by the PR that adds `tests/realtouch.mjs`. Measured first,
+> over 146 real leads: the untouched list goes 7 → 34, and speed-to-lead does
+> **not** move per lead (paired first touch 3.5h before and after, 0.0 hours
+> added). The whole correction lands on the untouched list — every lead that was
+> genuinely worked already had its real touch first. Numbers and the query are
+> in `REAL-TOUCH-MEASURE.sql`.
+
 **Status:** open. Found while unifying "cold" for the Relationships page
 (PR D), written down rather than fixed in it. **This one is metrics, not
 display** — unlike TOUCH-COUNT-FINDING.md, which only affected two chips on
