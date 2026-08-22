@@ -58,7 +58,7 @@ import {
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
   tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt,
   gmailIndex, setGmailIndex,
-  introducedLeads, lastTouch, daysSinceTouch, referralsOut,
+  introducedLeads, lastTouch, daysSinceTouch, referralsOut, isRealTouch,
 } from './lib/lead';
 
 const PIE=[COBALT,INDIGO,GOLD,'#5C76EE','#8E86C9',GREEN,'#D98A3D','#7AA0F0'];
@@ -395,7 +395,7 @@ function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
   const cold=coldList(rels||[]).slice(0,8);
   const stalled=openLeads.map(l=>({l,d:daysSince(lastTouchTs(l)||l.createdAt||new Date().toISOString())}))
     .filter(x=>x.d>=14).sort((a,b)=>b.d-a.d).slice(0,8);
-  const untouched=(leads||[]).filter(l=>!(l.activities||[]).some(REAL_TOUCH));
+  const untouched=(leads||[]).filter(l=>!(l.activities||[]).some(isRealTouch));
   return {
     period:{from:isoOf(r.start),to:isoOf(r.end),days:7,rolling:true,
       label:fmtDate(isoOf(r.start))+' – '+fmtDate(isoOf(r.end))},
@@ -430,9 +430,22 @@ const monthPace=(d=new Date())=>{ const days=new Date(d.getFullYear(),d.getMonth
   return Math.min(1,d.getDate()/days); };
 /* ---- health metrics ------------------------------------------------------
    All derived from data already captured, so nothing new to type in. */
-const REAL_TOUCH=a=>a&&a.ts&&a.text!=='Lead created.';
+/* isRealTouch replaces REAL_TOUCH here, which was: any activity whose text is
+   not exactly 'Lead created.'. One machine note excluded out of twenty-one, so
+   a stage change, a cleared follow-up or a deal-value edit each counted as
+   somebody contacting the lead. It fed speed-to-lead, the untouched list and
+   the monthly worked count.
+
+   isRealTouch is the predicate lib/lead ships — reached types plus notes a
+   person actually wrote — tested, and guarded by the source scan that fails
+   the build when a new machine note appears.
+
+   MEASURED BEFORE THE CHANGE, over 146 real leads: untouched 7 -> 34. Those 27
+   leads had no contact at all and were counted only because the app had
+   written to itself. Speed-to-lead does NOT move per lead: paired first-touch
+   was 3.5h before and after, 0.0 hours added. See REAL-TOUCH-MEASURE.sql. */
 /* hours between a lead landing and the first real touch. null = never touched. */
-const firstTouchHrs=l=>{ const acts=(l.activities||[]).filter(REAL_TOUCH); if(!acts.length||!l.createdAt) return null;
+const firstTouchHrs=l=>{ const acts=(l.activities||[]).filter(isRealTouch); if(!acts.length||!l.createdAt) return null;
   const first=acts.reduce((mn,a)=>(!mn||a.ts<mn)?a.ts:mn,null);
   const h=(new Date(first)-new Date(l.createdAt))/36e5; return isNaN(h)?null:Math.max(0,h); };
 const median=arr=>{ if(!arr.length) return null; const x=[...arr].sort((a,b)=>a-b); const i=Math.floor(x.length/2);
@@ -4212,7 +4225,7 @@ function useMetrics(leads,stages,settings,txns){
     /* speed to first touch + follow-up discipline */
     const touchHrs=[]; let untouched=0,fuCleared=0,fuOnTime=0;
     leads.forEach(l=>{ const h=firstTouchHrs(l);
-      if(h==null){ if(!(l.activities||[]).some(REAL_TOUCH)) untouched++; } else touchHrs.push(h);
+      if(h==null){ if(!(l.activities||[]).some(isRealTouch)) untouched++; } else touchHrs.push(h);
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
     /* a won lead only counts once the money is confirmed — see cashConfirmed */
@@ -4469,7 +4482,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     const mine=myCommissions(leads,myUid);
     const conv=leads.filter(l=>l.isClient&&l.convertedAt);
     const convMonth=conv.filter(l=>String(l.convertedAt).slice(0,7)===mKey);
-    const worked=leads.filter(l=>(l.activities||[]).some(a=>REAL_TOUCH(a)&&isoOf(new Date(a.ts)).slice(0,7)===mKey)).length;
+    const worked=leads.filter(l=>(l.activities||[]).some(a=>isRealTouch(a)&&isoOf(new Date(a.ts)).slice(0,7)===mKey)).length;
     const goal=num(myUser&&myUser.goal_conversions);
     const ranked=[...(board||[])].sort((a,b)=>(b.month-a.month)||String(a.name||'').localeCompare(String(b.name||'')));
     const myRank=ranked.findIndex(r=>r.id===myUid)+1;
@@ -4483,7 +4496,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
        what is on today. */
     const today=isoOf(new Date());
     const overdue=m.overdue.slice().sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
-    const untouched=openMine.filter(l=>!(l.activities||[]).some(REAL_TOUCH))
+    const untouched=openMine.filter(l=>!(l.activities||[]).some(isRealTouch))
       .sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
     const stale=openMine.filter(l=>!untouched.includes(l)&&daysSince(lastTouchTs(l)||l.createdAt||today)>=7)
       .sort((a,b)=>daysSince(lastTouchTs(b)||b.createdAt||today)-daysSince(lastTouchTs(a)||a.createdAt||today));
@@ -4626,7 +4639,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
   /* per-rep scorecard: what each person actually did this month */
   const scorecard=(team||[]).filter(u=>u.role==='rep'&&u.active!==false).map(u=>{
     const mine=leads.filter(l=>l.owner_id===u.id||l.owner===u.name);
-    const touches=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>REAL_TOUCH(x)&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
+    const touches=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>isRealTouch(x)&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
     const booked=mine.reduce((a,l)=>a+(l.activities||[]).filter(x=>x.type==='Booked'&&bookingLive(l,x)&&x.ts&&isoOf(new Date(x.ts)).slice(0,7)===mKey).length,0);
     const conv=mine.filter(l=>l.isClient&&String(l.convertedAt||'').slice(0,7)===mKey).length;
     const openL=mine.filter(l=>sOf(l.stage,stages).open);
@@ -4634,7 +4647,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     const cm=mine.map(cmsnOf).filter(c=>c&&c.repId===u.id&&c.status!=='void');
     const owed=cm.filter(c=>c.status==='earned').reduce((a,c)=>a+num(c.amount),0);
     const pend=cm.filter(c=>c.status==='pending').reduce((a,c)=>a+num(c.amount),0);
-    const last=mine.flatMap(l=>(l.activities||[]).filter(REAL_TOUCH).map(x=>x.ts)).sort().pop();
+    const last=mine.flatMap(l=>(l.activities||[]).filter(isRealTouch).map(x=>x.ts)).sort().pop();
     return {u,touches,booked,conv,open:openL.length,pipe,owed,pend,last};
   }).sort((a,b)=>b.conv-a.conv||b.touches-a.touches);
   const openLeads=leads.filter(l=>sOf(l.stage,stages).open).sort((a,b)=>num(b.dealValue)-num(a.dealValue));
@@ -5004,7 +5017,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
 
     {drill==='speed'&&<Drill title="Speed to first touch" sub={m.firstTouch!=null?`median ${fmtHrs(m.firstTouch)}`:'no touches yet'} onClose={()=>setDrill(null)}>
       {(()=>{ const rows=leads.map(l=>({l,h:firstTouchHrs(l)}))
-          .filter(r=>r.h!=null||!(r.l.activities||[]).some(REAL_TOUCH))
+          .filter(r=>r.h!=null||!(r.l.activities||[]).some(isRealTouch))
           .sort((a,b)=>(a.h==null?-1:1)-(b.h==null?-1:1)||((b.h||0)-(a.h||0)));
         return rows.length?rows.map(({l,h})=>(<div className={'drow'+(h==null?' untyped':'')} key={l.id}>
           <div className="drow-m"><Name l={l}/><div className="subcell">{h==null?'never contacted':`added ${fmtDate(l.createdAt)}`}</div></div>

@@ -48,7 +48,14 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }
   else { fail++; console.log('  FAIL ' + n + (x ? '\n        ' + String(x).slice(0, 400) : '')); } };
 
 const ago = d => new Date(Date.now() - d * 864e5).toISOString();
-const iso = d => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+/* LOCAL date parts, not toISOString().
+   The app's isoOf() reads getFullYear/getMonth/getDate — local — and daysUntil
+   compares against that. Building fixture dates in UTC made this file fail for
+   the hours each day when the UTC date is already tomorrow: "due today" became
+   due-in-one-day and the bucket emptied. Shipped in PR D and caught the same
+   evening by the sweep rather than by luck. */
+const iso = d => { const x = new Date(Date.now() + d * 864e5);
+  return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
 const call = d => ({ id:'a'+d, ts: ago(d), type:'Call', text:'spoke', who:'Garrett' });
 const sysnote = d => ({ id:'s'+d, ts: ago(d), type:'Note', text:'Follow-up cleared.', who:'Garrett' });
 

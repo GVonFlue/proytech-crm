@@ -41,7 +41,10 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }
   else { fail++; console.log('  FAIL ' + n + (x ? '\n        ' + String(x).slice(0, 400) : '')); } };
 
 const ago = d => new Date(Date.now() - d * 864e5).toISOString();
-const iso = d => new Date(Date.now() + d * 864e5).toISOString().slice(0, 10);
+/* local date parts — see the note in relsstructure.mjs. Here it would not have
+   failed, it would have quietly changed which components render. */
+const iso = d => { const x = new Date(Date.now() + d * 864e5);
+  return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
 const call = d => ({ id:'a'+d, ts: ago(d), type:'Call', text:'spoke', who:'Garrett' });
 const sysnote = d => ({ id:'s'+d, ts: ago(d), type:'Note', text:'Follow-up cleared.', who:'Garrett' });
 
