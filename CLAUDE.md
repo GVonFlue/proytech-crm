@@ -32,6 +32,15 @@ premium add-on. So: **build for us, but never in a way that assumes us.**
   RLS proof in the same PR — a section in `VERIFY-RLS.md`, and the policy DDL if
   it does not exist yet. A table shipped without one is unproven, and unproven
   tenant isolation is the failure that ends the product.
+- **A policy is verified by reading `pg_get_expr` for EVERY policy on the
+  table — never by counting them, never by checking `relrowsecurity`, never by
+  reading a sample.** Permissive policies are grants and Postgres ORs them, so
+  the weakest policy on a table decides what that table allows. Five correct
+  policies plus one leftover `using (true)` is a table with no security that
+  looks healthier than a table with one policy. This was found twice in one day
+  on a database everyone believed was verified — see `ENGINEERING.md` §4c.
+  `RLS-AUDIT.sql` sweeps the whole database and raises with names; run it after
+  any migration and before handing over any install.
 - **Know what "tenant" means here.** This is *not* multi-tenant in one database.
   `ENGINEERING.md` §6: per-client installs are separate deployments against
   separate Supabase projects. There is no `tenant_id`. The isolation that

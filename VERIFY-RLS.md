@@ -16,6 +16,58 @@ after running `MIGRATION.sql`.
 
 ---
 
+## How to verify a policy — read this before any section below
+
+**Read `pg_get_expr` for EVERY policy on the table. Never count them. Never
+trust `relrowsecurity`. Never read a sample.**
+
+This document told people to count, and on 23 Aug 2026 that method reported a
+wide-open database as healthy — twice in one day:
+
+| | what a count said | what was true |
+|---|---|---|
+| eight `content_*` tables | RLS on, 1 policy each | the policy was `using (true)` — every authenticated session had full read/write/delete on pricing, unpublished marketing and the AI spend ledger |
+| `leads` | RLS on, **6** policies | five were correct; the sixth, `leads_all_authenticated`, was `using (true)` and `with check (true)` — **every lead in the business** readable and writable by any authenticated session |
+
+`leads` is the one that matters. **Permissive policies are grants and Postgres
+ORs them, so the weakest policy on a table decides what that table allows.**
+Five perfect policies plus one `true` is a table with no security — and it looks
+*healthier* than a table with one policy, because it has more of them. Anyone
+auditing it would have read the five well-named policies, found them correct,
+and stopped. The sixth was the only one that mattered.
+
+So:
+
+```sql
+-- every policy on every table, with its expression
+select c.relname as tbl, p.polname as policy, p.polpermissive as permissive,
+       pg_get_expr(p.polqual, p.polrelid)      as using_expr,
+       pg_get_expr(p.polwithcheck, p.polrelid) as with_check_expr
+  from pg_policy p
+  join pg_class c on c.oid = p.polrelid
+  join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'public'
+ order by c.relname, p.polname;
+```
+
+**`RLS-AUDIT.sql`** in the repo root does this for the whole database and
+**raises with names** rather than leaving you to read a grid. Run it after any
+migration, before any release, and on every customer install before handing it
+over. It changes nothing.
+
+The two documents answer different questions and you need both: the audit proves
+nothing is **open**; this document proves a policy is **right**, with real
+logins, sentinel rows and a measured before and after. A non-`true` expression
+can still check the wrong column.
+
+> **Every section below §2 predates this rule.** §§3, 6, 7 and 8 were written
+> and confirmed by counting policies. §9 was the first written to read
+> expressions. The four core tables — `leads`, `meeting_logs`, `kb_notes`,
+> `rep_payouts` — were re-checked by expression on 23 Aug 2026: three were
+> clean and `leads` was not. See the finding recorded in §3.
+
+---
+
 ## 0. Before you start
 
 1. Supabase → SQL Editor → run **MIGRATION.sql**. It is idempotent.
@@ -98,6 +150,19 @@ select u.name, u.role, count(l.id) as leads
 -- unclaimed leads sitting in pools
 select pool, count(*) from leads where owner_id is null and pool is not null group by pool;
 ```
+
+> **What this check missed, and what replaced it.** The query above lists
+> `tablename, policyname, cmd` — it does **not** read the expressions. On
+> 23 Aug 2026 `leads` passed it while carrying a sixth policy,
+> `leads_all_authenticated`, with `using (true)` and `with check (true)`. Five
+> correct policies were being OR'd with one that granted everything, so every
+> authenticated session could read and write **every lead in the business**.
+> It was dropped and re-verified the same day; `meeting_logs`, `kb_notes` and
+> `rep_payouts` were checked the same way and were clean.
+>
+> Run the expression query from *How to verify a policy* above, or
+> `RLS-AUDIT.sql`, **in addition to** the two queries above. Listing policy
+> names is a table of contents, not a verification.
 
 Then prove enforcement **as a rep**, still in the SQL Editor, by borrowing
 their identity for one transaction:
