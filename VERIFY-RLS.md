@@ -4,7 +4,15 @@ Row Level Security cannot be tested from jsdom. It lives in Postgres, so it has
 to be verified against the real database with real logins. This is that test.
 **If a rep sees everything, the build is not shippable — stop and say so.**
 
-Budget 15 minutes. Do it once per install, right after running `MIGRATION.sql`.
+Budget 15 minutes for §§1–8, and ten more for §9. Do it once per install, right
+after running `MIGRATION.sql`.
+
+> **§9 is not optional on an install you sell.** The five Content Studio tables
+> were created by hand rather than by a migration, and shipped with no RLS proof
+> at all. On our own install, where both logins are owners, that costs nothing.
+> On a customer's install a rep has a login and those tables hold pricing,
+> offers and the monthly spend of the business. Start at §9 step 1, which tells
+> you whether the boundary exists yet.
 
 ---
 
@@ -474,6 +482,252 @@ rep:
       their access that ends, not the record.
 
 Clean up: `delete from rep_payouts where id in ('po_a','po_b');`
+
+---
+
+## 9. Content Studio (after CONTENT-RLS.sql)
+
+**This section is different from the eight above it, and it is worth knowing
+why before you start.** Sections 1–8 verify policies that shipped inside a
+migration in this repo. The five content tables were created **by hand**,
+outside any migration, and shipped across two feature PRs with no RLS proof at
+all. So step 1 here is not a formality — it is a genuine question with an answer
+neither of us knows yet.
+
+The five:
+
+| table | what a rep must never read |
+|---|---|
+| `content_brand_context` | pricing, offers, positioning |
+| `content_posts` | unpublished marketing, and `performance` figures |
+| `content_research` | competitor material and why it worked |
+| `content_usage` | what the business spends on AI, month by month |
+| `content_assets` | files belonging to the above |
+
+**Why this matters more than the sections above it.** On the install we run
+ourselves both logins are owners, so the gap costs nothing. On an install we
+*sell*, a rep has a login, and every table above is company money by ROLES.md's
+definition. Until these policies exist that promise is kept by the screen —
+which ROLES.md itself is explicit is a UI decision, not a boundary.
+
+**What "tenant" means here.** This CRM is not multi-tenant in one database:
+ENGINEERING.md §6 states that per-client installs are separate deployments
+against separate Supabase projects. There is no `tenant_id` and nothing below
+partitions by one. The isolation being proved is the one that exists *inside* an
+install — owner versus rep — which is the boundary a customer's sales team
+actually sits on.
+
+### Step 1 — find out whether there is anything to verify
+
+Run this **first**, as superuser in the SQL Editor. It is the whole reason this
+section is ordered this way:
+
+```sql
+select c.relname,
+       c.relrowsecurity as rls_on,
+       count(p.polname) as policies
+  from pg_class c
+  left join pg_policy p on p.polrelid = c.oid
+ where c.relname in ('content_brand_context','content_posts','content_research',
+                     'content_usage','content_assets')
+ group by c.relname, c.relrowsecurity
+ order by c.relname;
+```
+
+- [ ] Five rows. If a table is **missing** from the result it does not exist —
+      stop, because the rest of this section is about tables you do not have.
+- [ ] `rls_on` is **true** for all five.
+- [ ] `policies` is **1** for all five.
+
+**If `rls_on` is false or `policies` is 0 anywhere, the boundary does not exist
+yet.** That is not a bug in the app; it is a table that was created without one.
+Run **`CONTENT-RLS.sql`**, read its header first, then re-run the query above
+before continuing. It creates no tables and no columns — it switches RLS on and
+adds one policy per table.
+
+**A table with a policy and RLS switched off enforces nothing**, which is why
+both columns are checked rather than just the policy count.
+
+### Step 2 — the policies are the same expression, not five lookalikes
+
+```sql
+select polrelid::regclass as tbl, pg_get_expr(polqual, polrelid) as using_expr
+  from pg_policy
+ where polrelid in ('content_brand_context'::regclass, 'content_posts'::regclass,
+                    'content_research'::regclass, 'content_usage'::regclass,
+                    'content_assets'::regclass, 'pocket_recordings'::regclass)
+ order by 1;
+```
+
+- [ ] **Six** rows, and every `using_expr` is **identical**.
+
+Same check §7 makes about `pocket_recordings` and `meeting_logs`, for the same
+reason: five policies that look alike are five things to audit and five places
+to get it wrong. One shape, reused, is one thing to be right about.
+
+### Step 3 — seed something a rep must not see
+
+As superuser. The sentinels stand in for the material that ends the product if
+it leaks:
+
+```sql
+insert into content_brand_context (category, key, value, active, sort_order)
+  values ('offer','pricing','SENTINEL-FLOOR-we-never-go-below-nine-thousand',true,0);
+
+insert into content_research (source_type, raw, why_it_worked, used)
+  values ('swipe','SENTINEL-COMPETITOR-teardown','their hook does the work',false);
+
+insert into content_posts (week_of, mix_class, surface, hook, concept, status)
+  values (current_date, 'proytech', 'linkedin',
+          'SENTINEL-UNPUBLISHED-HOOK', 'not out yet', 'draft');
+
+insert into content_usage (provider, operation, units, est_cents)
+  values ('anthropic','slate',12345,4242);
+```
+
+(`content_assets` needs a `post_id`; seeding it is optional — the count check
+below is what matters, and an empty table still proves the policy denies.)
+
+### As a rep
+
+```sql
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+
+  select count(*) as brand_visible    from content_brand_context;  -- MUST be 0
+  select count(*) as posts_visible    from content_posts;          -- MUST be 0
+  select count(*) as research_visible from content_research;       -- MUST be 0
+  select count(*) as usage_visible    from content_usage;          -- MUST be 0
+  select count(*) as assets_visible   from content_assets;         -- MUST be 0
+
+  -- and no sentinel is reachable by any route open to a rep
+  select count(*) as leaked from (
+    select value  as t from content_brand_context
+    union all select raw   from content_research
+    union all select hook  from content_posts
+  ) x where x.t like 'SENTINEL-%';                                 -- MUST be 0
+
+  -- the spend of the business, by any path
+  select coalesce(sum(est_cents),0) as spend_visible from content_usage;  -- MUST be 0
+
+  select is_owner();                                               -- MUST be false
+rollback;
+```
+
+- [ ] All five counts are **0**. This is the same number a rep gets from
+      `pocket_recordings` and `meeting_logs`, from the same policy expression.
+- [ ] `leaked` = **0**.
+- [ ] `spend_visible` = **0**. Note this is an **aggregate** — a rep who could
+      not list the rows but could still `sum()` them would be reading company
+      money, and the count check alone would not catch it.
+- [ ] `is_owner()` = **false**.
+
+### The writes a rep must not be able to make
+
+Each in its **own** block. The first failure aborts the transaction, so running
+them together reports `current transaction is aborted` for the rest and proves
+nothing.
+
+```sql
+-- 1. a rep cannot insert brand context (i.e. cannot edit what gets generated)
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  insert into content_brand_context (category, key, value)
+    values ('offer','rep-wrote-this','x');
+rollback;
+
+-- 2. a rep cannot change a post
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  update content_posts set status = 'approved' where hook = 'SENTINEL-UNPUBLISHED-HOOK';
+rollback;
+
+-- 3. a rep cannot delete research
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  delete from content_research where raw = 'SENTINEL-COMPETITOR-teardown';
+rollback;
+
+-- 4. a rep cannot write the spend ledger
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<REP-A-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  insert into content_usage (provider, operation, units, est_cents)
+    values ('anthropic','forged',1,1);
+rollback;
+```
+
+**These do not all fail the same way, and that is correct** — the same
+distinction §7 draws:
+
+- [ ] Blocks 1 and 4 **raise**: `new row violates row-level security policy`.
+      The `with check` clause refuses the insert.
+- [ ] Blocks 2 and 3 report **`UPDATE 0` / `DELETE 0`** and **raise nothing**.
+      That is a pass. The `using` clause filters the row out before the write is
+      considered, so from the rep's side there is nothing there to change.
+
+If block 2 or 3 reports **1** row, the boundary is broken. Stop.
+
+### As the owner
+
+Repeat the read block with the **owner's** uuid:
+
+- [ ] `brand_visible`, `posts_visible`, `research_visible`, `usage_visible` are
+      all **≥ 1**.
+- [ ] `leaked` = **3** — the owner reads their own pricing, their own research
+      and their own unpublished hook, which is the entire point of the tables.
+- [ ] `spend_visible` = **4242**.
+
+### Deactivation
+
+`crm_active()` is in the policy, so it inherits §4's behaviour. Re-run the read
+block for a **deactivated owner**:
+
+- [ ] All five counts are **0**. An owner you switched off yesterday cannot read
+      your pricing today.
+
+### What this section does NOT prove
+
+The three later-phase tables — `content_ideas`, `content_insights`,
+`content_mining_state` — are **not** covered, by `CONTENT-RLS.sql` or by this
+section. Nothing in the codebase reads or writes them yet, and a policy on a
+table with no code path is a claim nobody is testing. They are exactly as
+unguarded as the five above were before this. Check for yourself:
+
+```sql
+select relname, relrowsecurity from pg_class
+ where relname in ('content_ideas','content_insights','content_mining_state');
+```
+
+When the phase that uses them lands it brings its own policies and its own
+subsection here — CLAUDE.md now requires that of any new table.
+
+Nor does this prove anything about the **routes**. `api/content-slate.js`,
+`api/content-regenerate.js` and `api/content-usage.js` all use
+`SUPABASE_SERVICE_KEY`, which bypasses RLS by design, exactly as
+`api/pocket-hook.js` does. What stands between a stranger and those is
+`guard({requireOwner:true})` and, on the cron leg, a `timingSafeEqual` against
+`CRON_SECRET` — verified in `tests/content.mjs` and `tests/contentroutes.mjs`,
+and written down in API-AUDIT.md. RLS governs the **browser**, which is the only
+thing it can govern.
+
+Clean up:
+
+```sql
+delete from content_brand_context where value like 'SENTINEL-%';
+delete from content_research      where raw   like 'SENTINEL-%';
+delete from content_posts         where hook  like 'SENTINEL-%';
+delete from content_usage         where units = 12345;
+```
 
 ---
 

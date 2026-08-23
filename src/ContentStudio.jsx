@@ -10,7 +10,7 @@ import {
   readConfig, normResearch, normContext, postsForWeek, weeksOf,
   todayQueue, researchOrder, comingMonday, currentMonday,
   exportContext, planImportContext, slidesToText, checkCounts,
-  MIX_CLASSES, CUSTOM_MAX_PER_RUN,
+  MIX_CLASSES, CUSTOM_MAX_PER_RUN, POST_STATUSES, statusOf, unknownStatuses,
 } from './lib/content';
 
 /* ============================================================================
@@ -429,6 +429,14 @@ function SlateCard({ post: p, surfaces, onPatch, onRegenerate, busy }) {
         <span className="cs-grow" />
         {p.status === 'approved' ? <span className="cs-badge good"><Check size={11} />approved</span> : null}
         {p.status === 'killed' ? <span className="cs-badge ghost">killed</span> : null}
+        {/* An unrecognised status used to render as nothing at all, which reads
+            exactly like a draft while todayQueue's exact match kept it out of
+            Monday morning forever. It is now the loudest thing on the card. */}
+        {!statusOf(p).known
+          ? <span className="cs-badge warn" title={`Not one of: ${POST_STATUSES.join(', ')}`}>
+              <AlertTriangle size={11} />status: {statusOf(p).value}
+            </span>
+          : null}
         {p.posted_at ? <span className="cs-badge good">posted</span> : null}
       </div>
 
@@ -573,6 +581,10 @@ function CustomPanel({ weeks, defaultWeek, onGenerate, generating, onClose }) {
 
 function Slate({ posts, surfaces, weekOf, setWeekOf, weeks, onPatch, onRegenerate, busyId, generate, generating, genMsg }) {
   const rows = useMemo(() => postsForWeek(posts, weekOf), [posts, weekOf]);
+  /* Across the WHOLE table, not just this week: a post stuck on an unknown
+     status is invisible everywhere, so scoping the warning to the visible week
+     would hide the ones most likely to be forgotten. */
+  const strays = useMemo(() => unknownStatuses(posts), [posts]);
   const [custom, setCustom] = useState(false);
   return (
     <>
@@ -597,6 +609,18 @@ function Slate({ posts, surfaces, weekOf, setWeekOf, weeks, onPatch, onRegenerat
         <CustomPanel weeks={weeks} defaultWeek={weekOf} generating={generating}
           onClose={() => setCustom(false)}
           onGenerate={opts => generate(opts).then(() => setCustom(false))} />
+      ) : null}
+
+      {strays.length ? (
+        <div className="cs-note warn">
+          <AlertTriangle size={16} style={{ flex: 'none', marginTop: 1 }} />
+          <div>
+            <b>{strays.length} post{strays.length === 1 ? ' has' : 's have'} a status this app does not
+            recognise</b> — {Array.from(new Set(strays.map(p => statusOf(p).value))).join(', ')}.
+            {' '}Those posts never reach the Today queue. Approve or kill them to put them back in
+            the vocabulary ({POST_STATUSES.join(', ')}).
+          </div>
+        </div>
       ) : null}
 
       {genMsg ? (
