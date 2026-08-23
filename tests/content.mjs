@@ -21,6 +21,7 @@ import {
   normSlide, slidesToText, normCounts, countsTotal, checkCounts,
   buildBatchInstructions, allTextOnly, weekOfInput,
   MIX_CLASSES, CUSTOM_MAX_PER_RUN,
+  POST_STATUSES, DEFAULT_STATUS, isKnownStatus, statusOf, unknownStatuses,
 } from '../src/lib/content.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -597,6 +598,87 @@ console.log('\nthe new route, and the file that stopped being greppable');
   ok('  and both sites still use the same one',
     (src.match(/\$\{r\.category\}\\u0000\$\{r\.key\}/g) || []).length === 2,
     'two different separators would make every import look like a non-collision');
+}
+
+
+console.log('\nstatus has a vocabulary now, and breaking it is loud');
+{
+  ok('there are exactly three', POST_STATUSES.join(',') === 'draft,approved,killed', POST_STATUSES.join(','));
+  ok('the default is one of them', POST_STATUSES.includes(DEFAULT_STATUS));
+  for (const v of POST_STATUSES) ok(`"${v}" is known`, isKnownStatus(v));
+  ok('a near-miss is not', !isKnownStatus('aproved'), 'this is the typo the whole change is about');
+  ok('  nor is a case variant', !isKnownStatus('Approved'));
+  ok('  nor is empty', !isKnownStatus(''));
+
+  /* The stored value is never rewritten on read. Quietly renaming an unknown
+     status to 'draft' would destroy the evidence of how it got there. */
+  ok('a missing status reads as the default', statusOf({}).value === DEFAULT_STATUS && statusOf({}).known);
+  const bad = statusOf({ status: 'aproved' });
+  ok('an unknown one keeps its value', bad.value === 'aproved', bad.value);
+  ok('  and is flagged as unrecognised', bad.known === false);
+
+  const posts = [{ id: 'a', status: 'draft' }, { id: 'b', status: 'aproved' }, { id: 'c', status: 'approved' }];
+  ok('unknownStatuses finds only the stray', unknownStatuses(posts).map(p => p.id).join(',') === 'b',
+    unknownStatuses(posts).map(p => p.id).join(','));
+
+  /* THE FAILURE THIS REPLACES. A post with an unknown status still passes the
+     Slate's week filter — so it renders, as a card that is neither approved nor
+     killed, i.e. identical to a draft — while todayQueue's exact match means it
+     never reaches Monday morning. Both halves asserted so the reason the banner
+     exists cannot be deleted by someone who thinks it is decoration. */
+  const week = [
+    { id: 'ok', week_of: '2026-08-31', status: 'approved', generated_at: '1' },
+    { id: 'typo', week_of: '2026-08-31', status: 'aproved', generated_at: '2' },
+  ];
+  ok('a stray still appears on the Slate', postsForWeek(week, '2026-08-31').length === 2,
+    'if it vanished from Slate too you would at least notice');
+  ok('  but never reaches Today', todayQueue(week, '2026-08-31').map(p => p.id).join(',') === 'ok',
+    'silently missing Monday is the bug');
+
+  const src = await read('src/lib/supabase.js');
+  ok('the write path refuses an unknown status', /isKnownStatus\(body\.status\)/.test(src));
+  ok('  by throwing rather than correcting it', /throw new Error/.test(src.slice(src.indexOf('isKnownStatus(body.status)'))),
+    'silently rewriting to draft would hide the caller\'s bug');
+  ok('  and the message lists the legal values', /POST_STATUSES\.join/.test(src));
+  ok('the vocabulary is defined once, in the shared pure module',
+    /from '\.\/content'/.test(src) && !/const POST_STATUSES/.test(src),
+    'a second copy is a second thing to get wrong');
+
+  const ui = await read('src/ContentStudio.jsx');
+  ok('the card shows an unrecognised status as WRONG', /statusOf\(p\)\.known/.test(ui));
+  ok('the slate warns about strays across the whole table', /unknownStatuses\(posts\)/.test(ui),
+    'scoping the warning to the visible week would hide the ones most likely forgotten');
+}
+
+console.log('\nno raw control bytes anywhere in src/ or api/');
+{
+  /* THREE incidents in one session, all caught after the fact — twice by a
+     failing grep, once in a PR body. The rule is in CLAUDE.md; this is what
+     makes it a rule rather than an intention. A NUL makes file(1) call a source
+     file `data` and makes grep silently match NOTHING in it, which breaks the
+     check ENGINEERING.md §2 tells you to run after adding a column.
+     Tab, newline and carriage return are legal; everything below 0x20 that is
+     not one of those, plus DEL, is not. */
+  const dirs = ['src', 'src/lib', 'api'];
+  let scanned = 0;
+  const offenders = [];
+  for (const d of dirs) {
+    for (const f of await fs.readdir(path.join(root, d))) {
+      if (!/\.(js|jsx|mjs)$/.test(f)) continue;
+      const rel = `${d}/${f}`;
+      const b = await fs.readFile(path.join(root, rel));
+      scanned++;
+      for (let i = 0; i < b.length; i++) {
+        const c = b[i];
+        if ((c < 9 || (c > 13 && c < 32) || c === 127)) {
+          offenders.push(`${rel} offset ${i} = 0x${c.toString(16)}`);
+          break;
+        }
+      }
+    }
+  }
+  ok(`scanned ${scanned} source files`, scanned > 20, scanned);
+  ok('none contains a raw control byte', offenders.length === 0, offenders.join('; '));
 }
 
 console.log(`\ncontent: ${pass} passed, ${fail} failed\n`);

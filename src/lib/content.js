@@ -110,6 +110,43 @@ export const CUSTOM_MAX_PER_RUN = 20;
    STRING IN THE EXISTING COLUMN — there is no schema change anywhere in this. */
 export const MIX_CLASSES = ['personal', 'proytech', 'ad'];
 
+/* THE STATUS VOCABULARY. Until now these were three string literals agreed by
+   convention between postRow, the screen and todayQueue, with nothing checking
+   them — the shape ENGINEERING.md §5 calls "things that look like settings and
+   aren't", one layer down.
+
+   Why an unknown status was WORSE than an error: the Slate filters on week_of
+   only, so a post with status 'aproved' still renders — as a card that is
+   neither approved nor killed, which is pixel-identical to a draft. Meanwhile
+   todayQueue matches `=== 'approved'` exactly, so it never reaches Monday
+   morning. The post looks fine, sits in the right week, and silently never
+   gets posted. That is the same failure ENGINEERING.md §2 describes about a
+   missing number coercing to 0: the bug and the intended state render alike.
+
+   So the vocabulary is named here, writes are refused against it
+   (src/lib/supabase.js), and a row that already holds something else is shown
+   as WRONG rather than as a draft (statusOf / unknownStatuses below).
+
+   Deliberately NOT a Postgres CHECK constraint: that is a schema change, and
+   this repo's tables are created by hand per install. The constraint is listed
+   in the PR as a follow-up for whoever owns the migration. */
+export const POST_STATUSES = ['draft', 'approved', 'killed'];
+export const DEFAULT_STATUS = 'draft';
+export const isKnownStatus = v => POST_STATUSES.includes(S(v, 20).trim());
+
+/* What a row's status IS, and whether the app recognises it. Never rewrites the
+   stored value — a status we do not understand is data, and quietly renaming it
+   to 'draft' on read would destroy the evidence of how it got there. */
+export const statusOf = (p) => {
+  const raw = S(p && p.status, 20).trim() || DEFAULT_STATUS;
+  return { value: raw, known: isKnownStatus(raw) };
+};
+
+/** Rows whose status is not in the vocabulary. The Slate renders a banner from
+ *  this, so an unrecognised value is loud instead of looking like a draft. */
+export const unknownStatuses = (posts) =>
+  A(posts).map(normPost).filter(p => !isKnownStatus(p.status));
+
 export const parseList = (v) => {
   const raw = S(v, 4000).trim();
   if (!raw) return [];

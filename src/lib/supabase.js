@@ -1,5 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import { BRAND, SUPABASE_URL, SUPABASE_KEY, SUPABASE_OK } from './brand';
+/* The post status vocabulary is defined once, in the pure module the routes
+   import too, so the browser and the generator cannot disagree about what a
+   status is. */
+import { POST_STATUSES, isKnownStatus } from './content';
 
 /* Per-tenant Supabase, from Vercel env vars (see src/lib/brand.js).
    The publishable key is safe in client code — real protection is Row Level
@@ -389,6 +393,19 @@ export const db = {
     const allowed = ['status', 'captions', 'posted_at', 'platform_post_ids', 'performance', 'week_of'];
     const body = {};
     for (const k of allowed) if (k in patch) body[k] = patch[k];
+    /* THE WRITE IS WHERE THE VOCABULARY IS ENFORCED. A status outside
+       POST_STATUSES renders as neither approved nor killed — indistinguishable
+       from a draft — while todayQueue's exact match means it never reaches
+       Monday morning. Refusing here is the only place that stops one being
+       created; the screen's banner only reports rows that already exist.
+       Thrown, not silently corrected: a caller writing 'aproved' has a bug, and
+       quietly turning it into 'draft' hides it. */
+    if ('status' in body && !isKnownStatus(body.status)) {
+      throw new Error(
+        `"${String(body.status).slice(0, 40)}" is not a post status. `
+        + `Use one of: ${POST_STATUSES.join(', ')}.`,
+      );
+    }
     const { data, error } = await supabase.from('content_posts')
       .update(body).eq('id', id).select(CONTENT_POST_COLS);
     if (error) throw error;
