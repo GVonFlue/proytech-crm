@@ -18,6 +18,9 @@ import {
   parseModelJson, postsFrom, postRow, captionsFrom, normPost, normResearch,
   postsForWeek, todayQueue, researchOrder, weeksOf, centsFrom, unitsFrom,
   exportContext, planImportContext,
+  normSlide, slidesToText, normCounts, countsTotal, checkCounts,
+  buildBatchInstructions, allTextOnly, weekOfInput,
+  MIX_CLASSES, CUSTOM_MAX_PER_RUN,
 } from '../src/lib/content.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -457,6 +460,143 @@ console.log('\nthe cron is registered and points at the right route');
   ok('vercel.json has one cron', (v.crons || []).length === 1);
   ok('  pointed at /api/content-slate', c.path === '/api/content-slate', c.path);
   ok('  at 0 1 * * 1 — Sunday 8pm Central', c.schedule === '0 1 * * 1', c.schedule);
+}
+
+
+/* ==================================================== WEEKEND 1.5 ========= */
+
+console.log('\nformat mix — the fix for a slate that was 100% text_only');
+{
+  const { config, missing } = readConfig([]);
+  ok('format_mix is a config row with a default', !!config.format_mix && missing.includes('format_mix'));
+  ok('  and the default forbids an all-text_only slate',
+    /Never return an entire slate as text_only/.test(config.format_mix), config.format_mix);
+
+  const p = buildSystemPrompt(CTX, config);
+  ok('it reaches the model as an instruction', /FORMAT MIX/.test(p) && p.includes('Never return an entire slate'));
+  ok('  before the contract, like every other instruction', p.indexOf('FORMAT MIX') < p.indexOf('Return ONLY valid JSON'));
+  ok('  and it asks for an image_prompt on anything visual', /image_prompt/.test(p));
+
+  const own = readConfig([{ category: 'config', key: 'format_mix', value: 'ALL CAROUSELS, ALWAYS', active: true }]);
+  ok('a row overrides the default', own.config.format_mix === 'ALL CAROUSELS, ALWAYS');
+  ok('  and the default is then not in the prompt',
+    !buildSystemPrompt([], own.config).includes('Never return an entire slate'));
+}
+
+console.log('\n  the all-text_only check');
+{
+  const T = n => Array.from({ length: n }, () => ({ format: 'text_only' }));
+  ok('3 of 3 text_only with 3 requested fires', allTextOnly(T(3), 3));
+  ok('  case and whitespace do not hide it', allTextOnly([{ format: ' TEXT_ONLY ' }, { format: 'text_only' }, { format: 'text_only' }], 3));
+  ok('2 requested never fires — too small to be a pattern', !allTextOnly(T(2), 2));
+  ok('one carousel is enough to clear it', !allTextOnly([{ format: 'text_only' }, { format: 'carousel' }, { format: 'text_only' }], 3));
+  ok('an empty slate does not fire', !allTextOnly([], 7));
+  ok('a missing format is not text_only', !allTextOnly([{}, {}, {}], 3));
+}
+
+console.log('\nad posts — written for strangers');
+{
+  const { config, missing } = readConfig([]);
+  ok('ad_instructions is a config row with a default', !!config.ad_instructions && missing.includes('ad_instructions'));
+  ok('  which rules out the things an ad cannot lean on',
+    /relationships/i.test(config.ad_instructions) && /first names/i.test(config.ad_instructions)
+    && /shared history/i.test(config.ad_instructions), config.ad_instructions.slice(0, 120));
+
+  ok('the rules are absent when no ads were asked for',
+    buildBatchInstructions(config, { personal: 4, proytech: 3 }) === '');
+  ok('  and present when they were', /STRANGERS/.test(buildBatchInstructions(config, { ad: 1 })));
+  ok('a row overrides the default',
+    buildBatchInstructions({ ad_instructions: 'MY OWN AD RULES' }, { ad: 2 }) === 'MY OWN AD RULES');
+  ok("'ad' is one of the three mix classes", MIX_CLASSES.join(',') === 'personal,proytech,ad');
+}
+
+console.log('\ncounts — the ceiling is one function, shared by screen and route');
+{
+  ok('zero is refused', !checkCounts({}).ok && /at least one/i.test(checkCounts({}).error));
+  ok('one is enough', checkCounts({ ad: 1 }).ok);
+  ok(`${CUSTOM_MAX_PER_RUN} exactly is allowed`, checkCounts({ personal: CUSTOM_MAX_PER_RUN }).ok);
+  const over = checkCounts({ personal: 10, proytech: 10, ad: 1 });
+  ok('one over is refused', !over.ok && over.total === 21);
+  ok('  and the message states BOTH numbers', /21/.test(over.error) && new RegExp(String(CUSTOM_MAX_PER_RUN)).test(over.error), over.error);
+  ok('negatives cannot buy headroom', countsTotal(normCounts({ personal: 5, proytech: -5 })) === 5);
+  ok('fractions are floored', normCounts({ ad: 2.9 }).ad === 2);
+  ok('an invented bucket is dropped', !('sponsored' in normCounts({ sponsored: 9 })));
+  ok('  so it cannot smuggle past the cap', countsTotal(normCounts({ sponsored: 99, ad: 1 })) === 1);
+}
+
+console.log('\n  and they reach the model as an exact breakdown');
+{
+  const u = buildUserPrompt({ counts: { personal: 2, proytech: 0, ad: 1 }, weekOf: '2026-08-31' });
+  ok('the total is stated', /Write 3 posts/.test(u), u.slice(0, 80));
+  ok('each non-zero bucket is named', /2 with mix_class "personal"/.test(u) && /1 with mix_class "ad"/.test(u));
+  ok('a zero bucket is not mentioned at all', !/proytech/.test(u), 'asking for 0 of something invites 0 being interpreted');
+  ok('the breakdown is stated as EXACT, overriding the ratio', /EXACT/.test(u));
+  ok('without counts the wording is unchanged from Weekend 1',
+    /Produce exactly 7 posts/.test(buildUserPrompt({ count: 7, weekOf: '2026-08-31' })));
+
+  const f = buildUserPrompt({ counts: { ad: 2 }, focus: 'Military Suite Night', weekOf: '2026-08-31' });
+  ok('a focus becomes the topic', /THE TOPIC FOR THIS BATCH IS: Military Suite Night/.test(f));
+  ok('  and asks for angles rather than restatement', /different angles/i.test(f));
+  ok('no focus, no topic block', !/THE TOPIC/.test(buildUserPrompt({ counts: { ad: 2 }, weekOf: 'x' })));
+}
+
+console.log('\nthe week a custom run targets');
+{
+  ok('a Monday passes through', weekOfInput('2026-08-31') === '2026-08-31');
+  ok('a mid-week date SNAPS to that Monday', weekOfInput('2026-09-02') === '2026-08-31', weekOfInput('2026-09-02'));
+  ok('  and so does the Sunday that ends it', weekOfInput('2026-09-06') === '2026-08-31', weekOfInput('2026-09-06'));
+  ok('junk is refused so the caller falls back', weekOfInput('next week') === '' && weekOfInput('') === '');
+  ok('  including a shape that is nearly right', weekOfInput('2026-8-31') === '');
+  /* Parsed at local midnight. A UTC parse lands on the previous day anywhere
+     west of Greenwich, which is every install of this. */
+  ok('a UTC parse would have moved it and does not', weekOfInput('2026-08-31') !== '2026-08-24');
+}
+
+console.log('\ncarousel slides — headline and body, old rows still readable');
+{
+  ok('an object slide is kept whole', JSON.stringify(normSlide({ headline: 'H', body: 'B' })) === '{"headline":"H","body":"B"}');
+  /* Rows written before Weekend 1.5 hold bare strings. A normaliser that only
+     understood the new shape would blank them — written but not read. */
+  ok('a Weekend 1 string slide becomes a body', JSON.stringify(normSlide('just text')) === '{"headline":"","body":"just text"}');
+  ok('  so an old row still renders', normPost({ carousel_slides: ['a', 'b'] }).carousel_slides.length === 2);
+  ok('  with its text intact', normPost({ carousel_slides: ['a'] }).carousel_slides[0].body === 'a');
+  ok('junk does not throw', JSON.stringify(normSlide(null)) === '{"headline":"","body":""}');
+
+  const txt = slidesToText([{ headline: 'H1', body: 'B1' }, { headline: '', body: 'B2' }]);
+  ok('copy-all is numbered', /^1\. /.test(txt) && /2\. /.test(txt), txt);
+  ok('  headline above body', txt.indexOf('H1') < txt.indexOf('B1'));
+  ok('  and empty slides are dropped rather than numbered',
+    !/3\./.test(slidesToText([{ body: 'a' }, { body: 'b' }, { headline: '', body: '' }])));
+
+  const row = postRow({ carousel_slides: [{ headline: 'H', body: 'B' }] }, { surfaces: ['x'] });
+  ok('the write path keeps the shape', row.carousel_slides[0].headline === 'H');
+  ok('the contract asks for headline and body', /headline/.test(CONFIG_DEFAULTS.output_contract) && /body/.test(CONFIG_DEFAULTS.output_contract));
+  ok('  and enumerates the three formats',
+    /carousel, single, text_only/.test(CONFIG_DEFAULTS.output_contract), 'the model needs the exact strings the check reads');
+  ok('  and names ad as a mix_class', /personal\|proytech\|ad/.test(CONFIG_DEFAULTS.output_contract));
+}
+
+console.log('\nthe new route, and the file that stopped being greppable');
+{
+  const usage = await read('api/content-usage.js');
+  ok('content-usage goes through the shared guard', /guard\(req,\s*res/.test(usage) && /from '\.\/_guard\.js'/.test(usage));
+  ok('  and is owner-only — monthly spend is company money', /requireOwner:\s*true/.test(usage));
+  ok('  it generates nothing', !/askAnthropic/.test(usage), 'a read-only route must not be able to spend');
+  ok('  and an unreadable ledger is NOT reported as zero', /spent === null/.test(usage) && /503/.test(usage),
+    '$0.00 is a plausible value for "nothing spent yet"');
+
+  /* src/lib/content.js contained two raw NUL bytes, which made file(1) call it
+     `data` and made grep silently match NOTHING in it. Behaviour was correct —
+     both sites used the same byte — but ENGINEERING.md §2 tells you to grep
+     after adding a column, and this file could not be grepped. */
+  const raw = await fs.readFile(path.join(root, 'src/lib/content.js'));
+  ok('src/lib/content.js has no raw control bytes', !raw.includes(0),
+    'a file grep cannot read breaks the check ENGINEERING.md §2 asks you to run');
+  const src = raw.toString('utf8');
+  ok('  the separator is still a NUL, written as an escape', /\\u0000/.test(src));
+  ok('  and both sites still use the same one',
+    (src.match(/\$\{r\.category\}\\u0000\$\{r\.key\}/g) || []).length === 2,
+    'two different separators would make every import look like a non-collision');
 }
 
 console.log(`\ncontent: ${pass} passed, ${fail} failed\n`);

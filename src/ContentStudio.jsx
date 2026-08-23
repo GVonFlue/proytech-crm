@@ -2,14 +2,15 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import {
   Sparkles, Loader2, Check, X, Copy, RefreshCw, Send, Plus,
   Trash2, Download, Upload, AlertTriangle, ChevronLeft, ChevronRight,
-  Link2, Save, Eye, EyeOff, CircleDot,
+  Link2, Save, Eye, EyeOff, CircleDot, Sliders,
 } from 'lucide-react';
-import { CONTENT_BRAND, tint } from './lib/brand';
+import { BRAND, CONTENT_BRAND, tint } from './lib/brand';
 import { db, auth } from './lib/supabase';
 import {
   readConfig, normResearch, normContext, postsForWeek, weeksOf,
   todayQueue, researchOrder, comingMonday, currentMonday,
-  exportContext, planImportContext,
+  exportContext, planImportContext, slidesToText, checkCounts,
+  MIX_CLASSES, CUSTOM_MAX_PER_RUN,
 } from './lib/content';
 
 /* ============================================================================
@@ -103,7 +104,7 @@ const CSS = `
 .cs-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .cs-hook{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:20px;line-height:1.24;
   letter-spacing:-.015em;color:var(--cs-ink)}
-.cs-concept{font-size:13.5px;line-height:1.6;color:var(--cs-body)}
+.cs-concept{font-size:14.5px;line-height:1.62;color:var(--cs-ink);white-space:pre-wrap}
 .cs-value{font-size:12.5px;line-height:1.55;color:var(--cs-body);padding:9px 11px;
   background:var(--cs-well);border-left:2px solid var(--cs-accent);border-radius:0 8px 8px 0}
 .cs-meta{font-size:12px;color:var(--cs-dim)}
@@ -182,11 +183,65 @@ const CSS = `
 .cs-icon:hover{border-color:var(--cs-primary);color:var(--cs-primary)}
 .cs-icon.on{background:var(--cs-primary);border-color:var(--cs-primary);color:white}
 
+/* ---- the header band ---- */
+.cs-band{background:var(--cs-navy);border-radius:16px;padding:18px 22px;margin-bottom:18px;
+  display:flex;align-items:center;gap:20px;flex-wrap:wrap;position:relative;overflow:hidden}
+/* the accent rule: a lit edge rather than a slab, same idea as the sidebar */
+.cs-band::after{content:'';position:absolute;left:0;right:0;bottom:0;height:3px;
+  background:linear-gradient(90deg,var(--cs-accent),var(--cs-primary) 62%,transparent)}
+.cs-band::before{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(680px 200px at 8% -40%,var(--cs-primary-glow),transparent 70%)}
+.cs-band>*{position:relative;z-index:1}
+.cs-word{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:23px;letter-spacing:-.02em;
+  color:white;line-height:1.1;margin:0}
+.cs-word i{font-style:normal;color:var(--cs-on-navy-accent)}
+.cs-band .cs-lbl{color:var(--cs-on-navy-dim);display:block;margin-bottom:4px}
+.cs-chips{display:flex;gap:26px;flex-wrap:wrap;margin-left:auto}
+.cs-chip{text-align:right}
+.cs-chip b{display:block;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;
+  color:white;line-height:1.15;margin-top:3px}
+.cs-chip.over b{color:var(--cs-accent)}
+
+/* ---- the image prompt: the whole point of the card until images exist ---- */
+.cs-vis{border:1px solid var(--cs-accent-line);background:var(--cs-accent-wash);
+  border-radius:11px;padding:12px 13px}
+.cs-vis .cs-lbl{color:var(--cs-accent-text);margin-bottom:7px;display:block}
+.cs-vis p{margin:0;font-size:13px;line-height:1.6;color:var(--cs-ink);white-space:pre-wrap}
+
+/* ---- carousel slides ---- */
+.cs-slides{border:1px solid var(--cs-line);border-radius:11px;padding:12px 13px;background:var(--cs-well)}
+.cs-slides ol{margin:8px 0 0;padding:0 0 0 4px;list-style:none;counter-reset:sl}
+.cs-slides li{counter-increment:sl;display:grid;grid-template-columns:24px 1fr;gap:9px;
+  padding:8px 0;border-top:1px solid var(--cs-line)}
+.cs-slides li:first-child{border-top:none;padding-top:2px}
+.cs-slides li::before{content:counter(sl);font-family:'Space Mono',ui-monospace,monospace;
+  font-size:11px;font-weight:700;color:var(--cs-primary);padding-top:2px}
+.cs-slides b{display:block;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;
+  color:var(--cs-ink);line-height:1.3;margin-bottom:3px}
+.cs-slides span{font-size:13px;line-height:1.55;color:var(--cs-body);white-space:pre-wrap}
+
+/* ---- the custom generate panel ---- */
+.cs-panel{background:white;border:1px solid var(--cs-primary-line);border-radius:16px;
+  padding:18px;margin-bottom:16px;display:flex;flex-direction:column;gap:13px}
+.cs-counts{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}
+.cs-count-f{border:1px solid var(--cs-line);border-radius:11px;padding:11px 12px}
+.cs-count-f input{border:none;padding:4px 0;font-family:'Space Grotesk',sans-serif;
+  font-size:26px;font-weight:700;color:var(--cs-ink)}
+.cs-count-f input:focus{box-shadow:none}
+.cs-count-f.ad{border-color:var(--cs-accent-line);background:var(--cs-accent-wash)}
+.cs-total{font-family:'Space Mono',ui-monospace,monospace;font-size:11px;color:var(--cs-dim)}
+.cs-total.bad{color:var(--cs-accent-text);font-weight:700}
+
 @media (max-width:640px){
   .cs-grid{grid-template-columns:1fr}
   .cs-tr{grid-template-columns:1fr;gap:7px}
   .cs-k{padding-top:0}
   .cs-head h1{font-size:20px}
+  .cs-band{padding:15px 16px;gap:14px}
+  .cs-word{font-size:19px}
+  .cs-chips{margin-left:0;gap:18px;width:100%}
+  .cs-chip{text-align:left}
+  .cs-counts{grid-template-columns:1fr}
 }
 `;
 
@@ -261,6 +316,73 @@ const SurfaceBadge = ({ post: p }) => (
   p.surface ? <span className="cs-badge surface">{p.surface}</span> : null
 );
 
+/* A button that copies something and says whether it worked. Extracted because
+   three places now need it and each was growing its own `copied` state — and
+   because copyText() can genuinely fail (no clipboard on an http origin), so
+   "Copy" that silently does nothing is a real outcome that has to be shown. */
+function CopyBtn({ text, label, done, size = 13, className = 'cs-btn sm' }) {
+  const [state, setState] = useState('');
+  const go = async () => {
+    const ok = await copyText(text);
+    setState(ok ? 'yes' : 'no');
+    setTimeout(() => setState(''), 1800);
+  };
+  return (
+    <button className={className} onClick={go} disabled={!text}>
+      <Copy size={size} />
+      {state === 'yes' ? (done || 'Copied') : state === 'no' ? 'Copy failed' : label}
+    </button>
+  );
+}
+
+/* THE IMAGE PROMPT. The model has been writing this all along and nothing
+   displayed it, which is why the first run produced no visual output. Until
+   image generation exists this block IS the deliverable: it is what gets pasted
+   into an image generator, so it says so, and it has its own Copy. */
+function ImagePrompt({ post: p }) {
+  if (!p.image_prompt) return null;
+  return (
+    <div className="cs-vis">
+      <div className="cs-row">
+        <span className="cs-lbl">Image prompt — paste into your image generator</span>
+        <span className="cs-grow" />
+        <CopyBtn text={p.image_prompt} label="Copy" />
+      </div>
+      <p>{p.image_prompt}</p>
+    </div>
+  );
+}
+
+/* CAROUSEL SLIDES, numbered, headline above body.
+   Rendered whenever slides exist rather than when format === 'carousel': a post
+   the model labelled `single` while still writing six slides has six slides,
+   and hiding them behind the label would lose work that is already in the row.
+   normPost has already turned both the old plain-string shape and the new
+   {headline, body} shape into the same thing. */
+function Slides({ post: p }) {
+  const slides = (p.carousel_slides || []).filter(s => s.headline || s.body);
+  if (!slides.length) return null;
+  return (
+    <div className="cs-slides">
+      <div className="cs-row">
+        <span className="cs-lbl">{slides.length} slides</span>
+        <span className="cs-grow" />
+        <CopyBtn text={slidesToText(slides)} label="Copy all" done="Copied all" />
+      </div>
+      <ol>
+        {slides.map((s, i) => (
+          <li key={i}>
+            <div>
+              {s.headline ? <b>{s.headline}</b> : null}
+              {s.body ? <span>{s.body}</span> : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 /* ============================================================ SLATE ======= */
 
 function SlateCard({ post: p, surfaces, onPatch, onRegenerate, busy }) {
@@ -314,6 +436,14 @@ function SlateCard({ post: p, surfaces, onPatch, onRegenerate, busy }) {
       {p.concept ? <div className="cs-concept">{p.concept}</div> : null}
       {p.value_statement ? <div className="cs-value">{p.value_statement}</div> : null}
       {p.cta_key ? <div className="cs-meta"><span className="cs-lbl">CTA</span> {p.cta_key}</div> : null}
+
+      {/* THE VISUAL INSTRUCTIONS. Until image generation exists these two blocks
+          are what the card is FOR — the model was already writing them and
+          nothing rendered them, so the feature produced no visual output at all.
+          Neither is behind a toggle: if the model generated it, the card shows
+          it (WEEKEND1.5 §B). */}
+      <ImagePrompt post={p} />
+      <Slides post={p} />
 
       <div className="cs-caps">
         <div className="cs-capbar">
@@ -370,8 +500,80 @@ function SlateCard({ post: p, surfaces, onPatch, onRegenerate, busy }) {
   );
 }
 
+/* GENERATE CUSTOM — counts per bucket, an optional topic, and which week.
+   The weekly cron is untouched; this is the manual path beside it.
+
+   checkCounts() is the SAME function api/content-slate.js validates with, so the
+   button here and the route there cannot disagree about where the ceiling is —
+   a screen that lets you press a button the server will refuse is the
+   two-screens-disagree bug with a 400 as the second screen. */
+function CustomPanel({ weeks, defaultWeek, onGenerate, generating, onClose }) {
+  const [counts, setCounts] = useState({ personal: 0, proytech: 0, ad: 0 });
+  const [focus, setFocus] = useState('');
+  const [week, setWeek] = useState(defaultWeek);
+  const check = checkCounts(counts);
+  const set = k => e => {
+    const n = Math.max(0, Math.min(99, Math.floor(Number(e.target.value) || 0)));
+    setCounts(c => ({ ...c, [k]: n }));
+  };
+  const weekList = weeks.includes(defaultWeek) ? weeks : [defaultWeek].concat(weeks);
+
+  return (
+    <div className="cs-panel">
+      <div className="cs-row">
+        <Sliders size={15} />
+        <span className="cs-disp" style={{ fontSize: 15 }}>Generate custom</span>
+        <span className="cs-grow" />
+        <button className="cs-icon" title="Close" onClick={onClose}><X size={15} /></button>
+      </div>
+
+      <div className="cs-counts">
+        {MIX_CLASSES.map(k => (
+          <div className={'cs-count-f' + (k === 'ad' ? ' ad' : '')} key={k}>
+            <label className="cs-lbl">{k}</label>
+            <input type="number" min="0" max="99" inputMode="numeric"
+              value={counts[k]} onChange={set(k)} aria-label={k + ' posts'} />
+          </div>
+        ))}
+      </div>
+
+      <div className="cs-field">
+        <label className="cs-lbl">Focus — optional</label>
+        <input value={focus} onChange={e => setFocus(e.target.value)}
+          placeholder="speed to lead, Military Suite Night…" />
+      </div>
+
+      <div className="cs-field">
+        <label className="cs-lbl">Week</label>
+        <select value={week} onChange={e => setWeek(e.target.value)}>
+          {weekList.map(w => <option key={w} value={w}>{fmtWeek(w)}</option>)}
+        </select>
+      </div>
+
+      <div className="cs-row">
+        <span className={'cs-total' + (check.total > CUSTOM_MAX_PER_RUN ? ' bad' : '')}>
+          {check.total} / {CUSTOM_MAX_PER_RUN} this run
+        </span>
+        <span className="cs-grow" />
+        <button className="cs-btn p" disabled={!check.ok || generating}
+          onClick={() => onGenerate({ counts: check.counts, focus, week_of: week })}>
+          {generating ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
+          {generating ? 'Generating…' : `Generate ${check.total || ''}`.trim()}
+        </button>
+      </div>
+      {!check.ok && check.total ? <div className="cs-total bad">{check.error}</div> : null}
+      <div className="cs-meta">
+        Ads are written for people who have never heard of you, so they carry no names,
+        no shared history and no running threads. A custom run does not consume the
+        research queue — that belongs to the Sunday job.
+      </div>
+    </div>
+  );
+}
+
 function Slate({ posts, surfaces, weekOf, setWeekOf, weeks, onPatch, onRegenerate, busyId, generate, generating, genMsg }) {
   const rows = useMemo(() => postsForWeek(posts, weekOf), [posts, weekOf]);
+  const [custom, setCustom] = useState(false);
   return (
     <>
       <div className="cs-row" style={{ marginBottom: 14 }}>
@@ -382,11 +584,20 @@ function Slate({ posts, surfaces, weekOf, setWeekOf, weeks, onPatch, onRegenerat
           ))}
         </select>
         <span className="cs-grow" />
-        <button className="cs-btn p" onClick={generate} disabled={generating}>
+        <button className={'cs-btn' + (custom ? ' a' : '')} onClick={() => setCustom(v => !v)} disabled={generating}>
+          <Sliders size={15} />Generate custom
+        </button>
+        <button className="cs-btn p" onClick={() => generate()} disabled={generating}>
           {generating ? <Loader2 size={15} className="spin" /> : <Sparkles size={15} />}
           {generating ? 'Generating…' : 'Generate next week'}
         </button>
       </div>
+
+      {custom ? (
+        <CustomPanel weeks={weeks} defaultWeek={weekOf} generating={generating}
+          onClose={() => setCustom(false)}
+          onGenerate={opts => generate(opts).then(() => setCustom(false))} />
+      ) : null}
 
       {genMsg ? (
         <div className={'cs-note ' + (genMsg.bad ? 'warn' : 'info')}>
@@ -772,11 +983,26 @@ export default function ContentStudio() {
   const [genMsg, setGenMsg] = useState(null);
   const [busyId, setBusyId] = useState('');
   const [brandNotice, setBrandNotice] = useState(null);
+  /* null = not read yet or unreadable. NOT 0 — the header renders a dash for
+     null and a real figure for 0, because "nothing spent this month" and "the
+     ledger could not be read" are different facts and $0.00 is a plausible
+     value for both. ENGINEERING.md §2. */
+  const [spend, setSpend] = useState(null);
+
+  /* The ledger is service-key only, so it comes back through a route rather
+     than a table read. api/content-usage.js explains why at length. */
+  const refreshSpend = useCallback(async () => {
+    try {
+      const j = await apiPost('/api/content-usage', {});
+      setSpend(j && j.ok ? { spent: j.spent_cents, cap: j.cap_cents } : null);
+    } catch { setSpend(null); }
+  }, []);
 
   useEffect(() => {
     let dead = false;
     (async () => {
       try {
+        refreshSpend();
         const [c, p, r] = await Promise.all([
           db.getContentContext(), db.getContentPosts(), db.getContentResearch(),
         ]);
@@ -792,7 +1018,7 @@ export default function ContentStudio() {
       finally { if (!dead) setLoaded(true); }
     })();
     return () => { dead = true; };
-  }, []);
+  }, [refreshSpend]);
 
   const { config, missing } = useMemo(() => readConfig(context), [context]);
   const surfaces = config.surfaces;
@@ -813,26 +1039,39 @@ export default function ContentStudio() {
     }
   }, []);
 
-  const generate = useCallback(async () => {
+  /* ONE generate for both paths. `opts` is undefined for "Generate next week",
+     which sends {} and is byte-for-byte the request Weekend 1 sent; the custom
+     panel supplies counts/focus/week_of. Two functions here would be two places
+     to forget to refresh the spend, or to refresh the posts. */
+  const generate = useCallback(async (opts) => {
     setGenerating(true); setGenMsg(null);
     try {
-      const j = await apiPost('/api/content-slate', {});
+      const j = await apiPost('/api/content-slate', opts || {});
       if (!j.ok) { setGenMsg({ bad: true, text: j.error || 'That did not generate.' }); return; }
       const fresh = await db.getContentPosts();
       setPosts(fresh || []);
       setResearch(await db.getContentResearch() || []);
       if (j.week_of) setWeekOf(j.week_of);
       const bits = [`${j.count} posts for the week of ${fmtWeek(j.week_of)}.`];
+      if (j.custom && j.counts) {
+        bits.push('Breakdown: ' + MIX_CLASSES.filter(k => j.counts[k] > 0)
+          .map(k => `${j.counts[k]} ${k}`).join(', ') + '.');
+      }
       if (j.research_used) bits.push(`${j.research_used} research row${j.research_used === 1 ? '' : 's'} used.`);
       if (typeof j.spent_cents === 'number') bits.push(`This run cost about ${usd(j.spent_cents)} of a ${usd(j.cap_cents)} monthly cap.`);
       if (j.config_defaults_used && j.config_defaults_used.length) {
         bits.push(`No config row for ${j.config_defaults_used.join(', ')} — defaults were used.`);
       }
-      setGenMsg({ bad: false, text: bits.join(' ') });
+      /* The all-text_only warning is the LOUD one, so it wins the styling: the
+         run succeeded and still produced nothing to look at, which is exactly
+         the state that went unnoticed the first time. */
+      if (j.format_warning) setGenMsg({ bad: true, text: j.format_warning + ' ' + bits.join(' ') });
+      else setGenMsg({ bad: false, text: bits.join(' ') });
+      refreshSpend();
     } catch (e) {
       setGenMsg({ bad: true, text: (e && e.message) || 'That did not generate.' });
     } finally { setGenerating(false); }
-  }, []);
+  }, [refreshSpend]);
 
   const regenerate = useCallback(async (id, mode) => {
     setBusyId(id); setGenMsg(null);
@@ -899,7 +1138,12 @@ export default function ContentStudio() {
     '--cs-accent-wash': tint(CONTENT_BRAND.accent, 0.1),
     '--cs-accent-line': tint(CONTENT_BRAND.accent, 0.32),
     '--cs-accent-text': CONTENT_BRAND.accentText,
+    '--cs-primary-glow': tint(CONTENT_BRAND.primary, 0.34),
     '--cs-navy': CONTENT_BRAND.navy,
+    /* On the navy band: white at reduced alpha rather than a sixth colour. A
+       grey picked by eye is a colour a white-label install cannot change. */
+    '--cs-on-navy-dim': 'rgba(255,255,255,.55)',
+    '--cs-on-navy-accent': CONTENT_BRAND.accent,
     '--cs-ink': CONTENT_BRAND.ink,
     '--cs-body': tint(CONTENT_BRAND.ink, 0.76),
     '--cs-dim': tint(CONTENT_BRAND.ink, 0.5),
@@ -912,6 +1156,16 @@ export default function ContentStudio() {
   const todayCount = useMemo(() => todayQueue(posts, weekOf).length, [posts, weekOf]);
   const unusedCount = useMemo(() => researchOrder(research).filter(r => !r.used).length, [research]);
 
+  /* Approved for the CURRENT week, not the whole table: the band sits above a
+     week picker, so a number that ignored the week would disagree with the
+     cards underneath it — two screens counting the same thing differently,
+     which is the most common bug class in this codebase (ENGINEERING.md §2). */
+  const approvedCount = useMemo(
+    () => postsForWeek(posts, weekOf).filter(p => p.status === 'approved').length,
+    [posts, weekOf],
+  );
+  const overCap = !!(spend && spend.cap > 0 && spend.spent >= spend.cap);
+
   const TABS = [
     ['slate', 'Slate', slateCount],
     ['today', 'Today', todayCount],
@@ -922,6 +1176,34 @@ export default function ContentStudio() {
   return (
     <div className="cs" style={skin}>
       <style>{CSS}</style>
+
+      {/* THE BAND (WEEKEND1.5 §D). Navy plate, accent rule along the bottom
+          edge, live counts on the right in Space Mono. The wordmark is composed
+          from BRAND.name rather than typed, so a white-label install gets its
+          own name from the env var it already sets — same rendered text here. */}
+      <div className="cs-band">
+        <div>
+          <span className="cs-lbl">Weekly slate · {fmtWeek(weekOf)}</span>
+          <h2 className="cs-word">{BRAND.name} <i>Content Studio</i></h2>
+        </div>
+        <div className="cs-chips">
+          <div className="cs-chip">
+            <span className="cs-lbl">This week</span>
+            <b>{slateCount}</b>
+          </div>
+          <div className="cs-chip">
+            <span className="cs-lbl">Approved</span>
+            <b>{approvedCount}</b>
+          </div>
+          <div className={'cs-chip' + (overCap ? ' over' : '')}>
+            <span className="cs-lbl">Spend · month</span>
+            {/* A dash, never $0.00, when the ledger could not be read. Those are
+                different facts and one of them is a plausible value. */}
+            <b>{spend ? `${usd(spend.spent)} / ${usd(spend.cap)}` : '—'}</b>
+          </div>
+        </div>
+      </div>
+
       <div className="cs-head">
         <div>
           <span className="cs-lbl">Content Studio</span>

@@ -140,6 +140,7 @@ const quiet = () => {
   return () => { console.error = e; console.warn = w; };
 };
 
+const { POST_COLS } = await import('../api/_content.js');
 const slate = (await import('../api/content-slate.js')).default;
 const regenerate = (await import('../api/content-regenerate.js')).default;
 
@@ -550,6 +551,159 @@ console.log('\nthe config rows really are what drives it');
     (res.body.config_defaults_used || []).includes('posts_per_week')
     && (res.body.config_defaults_used || []).includes('model'),
     JSON.stringify(res.body.config_defaults_used));
+}
+
+
+/* ==================================================== WEEKEND 1.5 ========= */
+
+const customAnswer = (n, cls) => JSON.stringify({
+  posts: Array.from({ length: n }, (_, i) => ({
+    mix_class: cls, surface: 'linkedin', pillar: 'systems', format: 'carousel',
+    hook: 'H' + i, concept: 'C' + i, value_statement: 'V', cta_key: 'book',
+    image_prompt: 'a photo of something',
+    carousel_slides: [{ headline: 'S1', body: 'B1' }],
+    captions: { linkedin: 'L', instagram: 'I' },
+  })),
+});
+
+console.log('\nGenerate custom — counts, focus, week');
+{
+  reset({ answer: customAnswer(3, 'ad') });
+  const un = quiet();
+  const res = mkRes();
+  await slate(ownerReq({ counts: { personal: 1, proytech: 0, ad: 2 }, focus: 'Military Suite Night', week_of: '2026-09-02' }), res);
+  un();
+  ok('it returns 200', res.code === 200, res.code + ' ' + JSON.stringify(res.body).slice(0, 200));
+  ok('  flagged as a custom run', res.body.custom === true);
+  ok('  with the requested total', res.body.requested === 3, res.body.requested);
+
+  const ask = seen(/api\.anthropic\.com/)[0];
+  const user = ask.body.messages[0].content;
+  ok('the exact breakdown reached the model', /1 with mix_class "personal"/.test(user) && /2 with mix_class "ad"/.test(user));
+  ok('  and the empty bucket did not', !/proytech/.test(user));
+  ok('the focus reached the model', /Military Suite Night/.test(user));
+  ok('the AD RULES reached the system prompt', /STRANGERS/.test(ask.body.system));
+  ok('  and the brand voice is still there beside them', ask.body.system.includes('direct'));
+  ok('  and the format mix too', /FORMAT MIX/.test(ask.body.system));
+
+  /* week_of=2026-09-02 is a Wednesday. Saved as a Wednesday it would never
+     appear under any Monday in the picker. */
+  ok('the requested week SNAPPED to its Monday', res.body.week_of === '2026-08-31', res.body.week_of);
+  ok('  and the rows carry it', wrote(/content_posts/, 'POST')[0].body[0].week_of === '2026-08-31');
+  ok('posts_per_week was overridden — 3 not 2', wrote(/content_posts/, 'POST')[0].body.length === 3);
+}
+
+console.log('\n  a custom run does NOT touch the research queue');
+{
+  reset({ answer: customAnswer(2, 'ad') });
+  const un = quiet();
+  const res = mkRes();
+  await slate(ownerReq({ counts: { ad: 2 } }), res);
+  un();
+  ok('it succeeded', res.code === 200, res.code);
+  ok('research was never even READ', seen(/content_research/).length === 0,
+    'a themed batch must not consume the weekly queue');
+  ok('  and certainly never marked used', wrote(/content_research/, 'PATCH').length === 0,
+    'there is no unmark anywhere in the UI, so this is unrecoverable from the screen');
+  ok('  and the rows record no source research', (wrote(/content_posts/, 'POST')[0].body[0].source_research || []).length === 0);
+  ok('what LANDED is still read — that is history, not a queue', seen(/content_posts\?performance/).length === 1);
+}
+
+console.log('\n  the weekly run is untouched by all of this');
+{
+  reset();
+  const un = quiet();
+  const res = mkRes();
+  await slate(cronReq(), res);
+  un();
+  ok('the cron still generates', res.code === 200, res.code);
+  ok('  is NOT flagged custom', res.body.custom === false);
+  ok('  still consumes the research queue', wrote(/content_research/, 'PATCH').length === 1);
+  ok('  still uses posts_per_week', res.body.requested === 2, res.body.requested);
+  ok('  and carries no ad rules', !/STRANGERS/.test(seen(/api\.anthropic\.com/)[0].body.system));
+}
+
+console.log('\n  the ceiling holds at the route, not just in the screen');
+{
+  reset();
+  const un = quiet();
+  const res = mkRes();
+  await slate(ownerReq({ counts: { personal: 10, proytech: 10, ad: 5 } }), res);
+  un();
+  ok('25 posts is a 400', res.code === 400, res.code);
+  ok('  and spends nothing', seen(/api\.anthropic\.com/).length === 0);
+  ok('  before the spend cap is even consulted', seen(/content_usage/).length === 0);
+}
+{
+  reset();
+  const un = quiet();
+  const res = mkRes();
+  await slate(ownerReq({ counts: { personal: 0, proytech: 0, ad: 0 } }), res);
+  un();
+  ok('all zeros falls back to the WEEKLY run rather than erroring',
+    res.code === 200 && res.body.custom === false, res.code + ' custom=' + (res.body && res.body.custom));
+}
+{
+  reset({ usage: [{ est_cents: 500 }] });
+  const un = quiet();
+  const res = mkRes();
+  await slate(ownerReq({ counts: { ad: 3 } }), res);
+  un();
+  ok('the spend cap still applies to a custom run', res.code === 429, res.code);
+  ok('  and it never reached the model', seen(/api\.anthropic\.com/).length === 0);
+}
+
+console.log('\n  an all-text_only slate is surfaced, not silently saved');
+{
+  const textOnly = JSON.stringify({
+    posts: Array.from({ length: 3 }, (_, i) => ({
+      mix_class: 'personal', surface: 'linkedin', format: 'text_only',
+      hook: 'H' + i, concept: 'C', captions: { linkedin: 'L' },
+    })),
+  });
+  reset({ answer: textOnly });
+  const un = quiet();
+  const res = mkRes();
+  await slate(ownerReq({ counts: { personal: 3 } }), res);
+  un();
+  ok('the run still succeeds', res.code === 200, res.code);
+  ok('  the posts ARE saved — they are real and already paid for',
+    wrote(/content_posts/, 'POST')[0].body.length === 3);
+  ok('  but the response says so', res.body.all_text_only === true);
+  ok('  in words, naming what to change', /format_mix/.test(res.body.format_warning || ''), res.body.format_warning);
+  ok('  and saying there is no visual output', /no visual output/i.test(res.body.format_warning || ''));
+}
+{
+  const mixed = JSON.stringify({
+    posts: [
+      { mix_class: 'personal', format: 'carousel', hook: 'a', captions: {} },
+      { mix_class: 'personal', format: 'text_only', hook: 'b', captions: {} },
+      { mix_class: 'personal', format: 'single', hook: 'c', captions: {} },
+    ],
+  });
+  reset({ answer: mixed });
+  const un = quiet();
+  const res = mkRes();
+  await slate(ownerReq({ counts: { personal: 3 } }), res);
+  un();
+  ok('a mixed slate raises nothing', res.body.all_text_only === false && !res.body.format_warning);
+}
+
+console.log('\n  the visual fields survive the write path');
+{
+  reset({ answer: customAnswer(1, 'personal') });
+  const un = quiet();
+  const res = mkRes();
+  await slate(ownerReq({ counts: { personal: 1 } }), res);
+  un();
+  const row = wrote(/content_posts/, 'POST')[0].body[0];
+  ok('image_prompt reaches the database', row.image_prompt === 'a photo of something', row.image_prompt);
+  ok('carousel slides reach it as headline+body',
+    row.carousel_slides[0].headline === 'S1' && row.carousel_slides[0].body === 'B1',
+    JSON.stringify(row.carousel_slides));
+  ok('  and the select list can read them back',
+    /image_prompt/.test(POST_COLS) && /carousel_slides/.test(POST_COLS),
+    'written but not selected is a column that vanishes');
 }
 
 console.log(`\ncontentroutes: ${pass} passed, ${fail} failed\n`);

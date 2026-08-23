@@ -5,6 +5,7 @@ import {
 } from './_content.js';
 import {
   buildUserPrompt, parseModelJson, postsFrom, postRow, comingMonday, normResearch,
+  checkCounts, countsTotal, buildBatchInstructions, allTextOnly, weekOfInput,
 } from '../src/lib/content.js';
 
 // api/content-slate.js — generate next week's slate.
@@ -76,6 +77,20 @@ export default async function handler(req, res) {
   const body = (req && typeof req.body === 'object' && req.body) || {};
   const dryRun = body.dry_run === true;
 
+  /* --- 0. a CUSTOM run, or the weekly one? --------------------------------
+     The cron sends no body at all, so `custom` is false for it and every line
+     below behaves exactly as it did in Weekend 1. That is the whole contract of
+     this block: the scheduled path must not change shape because a manual path
+     was added beside it. */
+  const custom = countsTotal(body.counts) > 0;
+  let counts = null;
+  if (custom) {
+    const check = checkCounts(body.counts);
+    if (!check.ok) { res.status(400).json({ ok: false, error: check.error }); return; }
+    counts = check.counts;
+  }
+  const focus = String(body.focus || '').slice(0, 600).trim();
+
   /* --- 1. config first, then the cap. Nothing is generated above this line. */
   const brand = await brandContext();
   if (!brand.ok) {
@@ -90,9 +105,22 @@ export default async function handler(req, res) {
 
   /* --- 2 & 3 & 4. research and what landed ------------------------------- */
   const now = new Date();
-  const weekOf = comingMonday(now);
+  /* A custom run may target the CURRENT week; the weekly run is always the
+     coming Monday. weekOfInput snaps whatever arrives to that week's Monday,
+     because week_of is matched as an exact string by the screen. */
+  const weekOf = (custom && weekOfInput(body.week_of)) || comingMonday(now);
 
-  const [research, performance] = await Promise.all([loadResearch(20), loadPerformance(now)]);
+  /* THE RESEARCH QUEUE BELONGS TO THE WEEKLY RUN.
+     A custom batch — "three ads about Military Suite Night" — would otherwise
+     read the twenty most recent unused rows and mark every one of them used,
+     retiring research that had nothing to do with it. There is no unmark
+     anywhere in the UI, so that is not recoverable from the screen. The cron
+     stays the only consumer; a custom run still sees what LANDED, which is
+     history rather than a queue. */
+  const [research, performance] = await Promise.all([
+    custom ? Promise.resolve({ ok: true, rows: [] }) : loadResearch(20),
+    loadPerformance(now),
+  ]);
   if (!research.ok) console.error('[content-slate] research unreadable:', research.error);
   if (!performance.ok) console.error('[content-slate] performance unreadable:', performance.error);
 
@@ -102,11 +130,18 @@ export default async function handler(req, res) {
   /* --- 5, 6, 7. compose, call, parse ------------------------------------- */
   const user = buildUserPrompt({
     research: researchRows, performance: performanceRows,
-    count: config.posts_per_week, weekOf,
+    count: config.posts_per_week, counts, focus, weekOf,
   });
 
+  /* The ad rules ride in as `extra` — composed in src/lib/content.js beside the
+     rest of the mix handling, and only present when ads were actually asked
+     for. brandContext() rebuilds the system prompt with it so there is still
+     exactly ONE composition path (ENGINEERING.md §2). */
+  const batch = buildBatchInstructions(config, counts);
+  const system2 = batch ? (await brandContext(batch)).system : system;
+
   const call = await askAnthropic({
-    model: config.model, system, user, maxTokens: config.max_tokens,
+    model: config.model, system: system2, user, maxTokens: config.max_tokens,
   });
   if (!call.ok) { res.status(502).json({ ok: false, error: call.error }); return; }
 
@@ -128,6 +163,7 @@ export default async function handler(req, res) {
     return;
   }
 
+  const requested = custom ? countsTotal(counts) : config.posts_per_week;
   const researchIds = researchRows.map(r => r.id).filter(Boolean);
   const generatedAt = now.toISOString();
   const rows = postsFrom(parsed.value).map(p => postRow(p, {
@@ -140,6 +176,25 @@ export default async function handler(req, res) {
     return;
   }
 
+  /* WEEKEND1.5 §A. Every post text_only, with more than two asked for, is
+     almost certainly the model taking the cheapest option rather than choosing
+     — which is exactly how the first real run produced no visual output at all.
+     It does NOT reject the slate: these are real posts and the tokens are
+     already spent. It is LOGGED and RETURNED so the failure is visible instead
+     of silent, which was the entire complaint. */
+  const textOnly = allTextOnly(rows, requested);
+  if (textOnly) {
+    console.warn(
+      `[content-slate] all ${rows.length} posts came back format=text_only for ${requested} requested. `
+      + 'The model is defaulting. Check the config.format_mix row.',
+    );
+  }
+  const formatWarning = textOnly
+    ? `All ${rows.length} posts came back as text_only, so this slate has no visual output. `
+      + 'That is usually the model defaulting rather than choosing — tighten the '
+      + 'config.format_mix row under Brand and regenerate.'
+    : '';
+
   /* The dry run WEEKEND1 asks for: everything above, none of the writes. The
      research is NOT marked used either — a test run that burned the queue
      would make the flag useless the second time you reached for it. */
@@ -148,6 +203,7 @@ export default async function handler(req, res) {
       ok: true, dry_run: true, week_of: weekOf, posts: rows,
       config_defaults_used: missing, spent_cents: spend.cents,
       cap_cents: cap.cap_cents, context_rows: contextRows.length,
+      custom, counts, requested, all_text_only: textOnly, format_warning: formatWarning,
     });
     return;
   }
@@ -161,7 +217,8 @@ export default async function handler(req, res) {
   }
 
   /* AFTER the insert, never before. Marking first and failing to insert would
-     retire research that produced nothing, and there is no way back to it. */
+     retire research that produced nothing, and there is no way back to it.
+     researchIds is empty on a custom run, so this is a no-op there. */
   const mark = await markResearchUsed(researchIds);
   if (!mark.ok) console.error('[content-slate] posts saved but research not marked used:', mark.error);
 
@@ -170,5 +227,6 @@ export default async function handler(req, res) {
     posts: ins.rows || [], research_used: researchIds.length,
     research_marked: mark.ok, config_defaults_used: missing,
     spent_cents: spend.cents, cap_cents: cap.cap_cents,
+    custom, counts, requested, all_text_only: textOnly, format_warning: formatWarning,
   });
 }
