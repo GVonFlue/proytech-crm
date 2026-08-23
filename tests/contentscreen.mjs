@@ -72,6 +72,9 @@ globalThis.fetch = async (u, opts = {}) => {
   if (url.includes('/api/content-slate')) {
     return { ok: true, json: async () => ({ ok: true, week_of: '2026-08-31', count: 0, posts: [], research_used: 0, config_defaults_used: [], spent_cents: 12, cap_cents: 500 }) };
   }
+  if (url.includes('/api/content-usage')) {
+    return { ok: true, json: async () => ({ ok: true, spent_cents: 137, cap_cents: 2000 }) };
+  }
   if (url.includes('/api/content-regenerate')) {
     return { ok: true, json: async () => ({ ok: true, mode: (body || {}).mode, post: null }) };
   }
@@ -112,8 +115,10 @@ const seed = (who) => {
   globalThis.__CONTENT_POSTS__ = [
     {
       id: 'p_draft', week_of: '2026-08-24', mix_class: 'personal', surface: 'x', pillar: 'systems',
-      format: 'single', hook: 'THE DRAFT HOOK', concept: 'a concept', image_prompt: '',
-      carousel_slides: [], captions: { x: 'CAPTION FOR X', threads: 'CAPTION FOR THREADS' },
+      format: 'carousel', hook: 'THE DRAFT HOOK', concept: 'A CONCEPT THAT MUST BE FULLY VISIBLE',
+      image_prompt: 'A WIDE SHOT OF A WORKSHOP FLOOR, COBALT LIGHT',
+      carousel_slides: [{ headline: 'SLIDE ONE HEAD', body: 'slide one body' }, { headline: '', body: 'slide two body' }],
+      captions: { x: 'CAPTION FOR X', threads: 'CAPTION FOR THREADS' },
       cta_key: 'book', value_statement: 'THE VALUE LINE', source_research: [], status: 'draft',
       generated_at: '2026-08-23T20:00:00.000Z', posted_at: null, platform_post_ids: {},
       performance: null, created_at: '2026-08-23T20:00:00.000Z',
@@ -121,7 +126,8 @@ const seed = (who) => {
     {
       id: 'p_appr', week_of: '2026-08-24', mix_class: 'proytech', surface: 'threads', pillar: 'systems',
       format: 'single', hook: 'THE APPROVED HOOK', concept: 'another concept', image_prompt: '',
-      carousel_slides: [], captions: { x: 'AX', threads: 'READY TO POST' },
+      carousel_slides: ['A WEEKEND ONE STRING SLIDE'],
+      captions: { x: 'AX', threads: 'READY TO POST' },
       cta_key: 'book', value_statement: '', source_research: [], status: 'approved',
       generated_at: '2026-08-23T20:00:01.000Z', posted_at: null, platform_post_ids: {},
       performance: null, created_at: '2026-08-23T20:00:01.000Z',
@@ -429,7 +435,128 @@ console.log('\n  Import is additive, and confirmed before anything is written');
     !JSON.stringify(w).includes('MUST NOT WIN'), 'import overwrote an existing key');
 }
 
+
+/* ==================================================== WEEKEND 1.5 ========= */
+
+/* A FRESH MOUNT for this section. The tests above deliberately approve, kill
+   and mark-posted their way through the seed, and the Generate test moves the
+   week picker onto the freshly generated (empty) week. Asserting counts on top
+   of that would be asserting on the previous tests' leftovers. */
 await app.unmount();
+const app2 = await mount(true, 'owner');
+await app2.click(app2.all('button').find(b => /Content Studio/.test(b.textContent || '')));
+
+console.log('\nthe header band');
+{
+  const band = app2.all('.cs-band')[0];
+  ok('it renders above the tabs', !!band);
+  ok('  with the wordmark', /Content Studio/.test(band.textContent), band.textContent.slice(0, 60));
+  /* Composed from BRAND.name, which the harness sets to ProyTech — so this also
+     proves it is not a typed-in literal that a white-label install is stuck with. */
+  ok('  carrying the brand name from BRAND.name', /ProyTech/.test(band.textContent));
+  const chips = app2.all('.cs-chip');
+  ok('  and three live chips', chips.length === 3, chips.length);
+  ok('  this week counts the visible week', /2/.test(chips[0].textContent), chips[0].textContent);
+  ok('  approved counts only approved', /1/.test(chips[1].textContent), chips[1].textContent);
+  ok('  and the spend chip shows month-to-date against the cap',
+    /\$1\.37/.test(chips[2].textContent) && /\$20\.00/.test(chips[2].textContent), chips[2].textContent);
+  ok('the spend came from the route, not a table read',
+    globalThis.__FETCHES__.some(f => /content-usage/.test(f.url)), 'content_usage is service-key only');
+}
+
+console.log('\nthe visual instructions are on the card');
+{
+  const card = app2.all('.cs-card')[0];
+  const vis = card.querySelector('.cs-vis');
+  ok('the image prompt block renders', !!vis);
+  ok('  showing the prompt', /WIDE SHOT OF A WORKSHOP FLOOR/.test(vis.textContent));
+  ok('  labelled as the thing to paste into a generator', /image generator/i.test(vis.textContent));
+  ok('  with its own Copy', !!Array.from(vis.querySelectorAll('button')).find(b => /Copy/.test(b.textContent)));
+  ok('the concept is shown in full', /A CONCEPT THAT MUST BE FULLY VISIBLE/.test(card.textContent));
+
+  const slides = card.querySelector('.cs-slides');
+  ok('the slides render', !!slides);
+  const items = Array.from(slides.querySelectorAll('li'));
+  ok('  one item per slide', items.length === 2, items.length);
+  ok('  headline as a headline', !!items[0].querySelector('b') && /SLIDE ONE HEAD/.test(items[0].textContent));
+  ok('  body underneath it', /slide one body/.test(items[0].textContent));
+  ok('  a slide with no headline still shows its body', /slide two body/.test(items[1].textContent));
+  ok('  and there is a Copy all', !!Array.from(slides.querySelectorAll('button')).find(b => /Copy all/.test(b.textContent)));
+  ok('none of it is behind a toggle',
+    !card.querySelector('details') && !Array.from(card.querySelectorAll('button')).some(b => /show|expand|more/i.test(b.textContent)),
+    'WEEKEND1.5 §B: if the model generated it, the card shows it');
+}
+{
+  /* The second card holds a Weekend 1 plain-string slide. It must still render
+     — the row is already in the table and cannot be migrated. */
+  const card = app2.all('.cs-card')[1];
+  ok('a Weekend 1 string slide still renders', /A WEEKEND ONE STRING SLIDE/.test(card.textContent),
+    'a normaliser that only knew the new shape would blank rows already saved');
+  ok('  and a post with no image_prompt shows no block', !card.querySelector('.cs-vis'));
+}
+
+console.log('\nGenerate custom');
+{
+  ok('the button is there', !!app2.byText('.cs-btn', /Generate custom/));
+  ok('  and the panel is closed until pressed', !app2.all('.cs-panel').length);
+  await app2.click(app2.byText('.cs-btn', /Generate custom/));
+  const panel = app2.all('.cs-panel')[0];
+  ok('pressing it opens the panel', !!panel);
+
+  const nums = Array.from(panel.querySelectorAll('input[type=number]'));
+  ok('  three count fields', nums.length === 3, nums.length);
+  ok('  labelled personal, proytech, ad', /personal/.test(panel.textContent) && /proytech/.test(panel.textContent) && /ad/.test(panel.textContent));
+  ok('  a focus field', !!Array.from(panel.querySelectorAll('input')).find(i => /speed to lead/.test(i.placeholder || '')));
+  ok('  and a week selector', !!panel.querySelector('select'));
+  ok('  the total starts at zero of the cap', /0 \/ 20 this run/.test(panel.textContent), panel.textContent.slice(0, 120));
+
+  const go = () => Array.from(app2.all('.cs-panel .cs-btn')).find(b => /^Generate/.test(b.textContent));
+  ok('  and Generate is disabled with nothing asked for', go().disabled);
+
+  await app2.type(nums[0], '2');
+  await app2.type(nums[2], '1');
+  ok('the running total updates', /3 \/ 20 this run/.test(app2.all('.cs-panel')[0].textContent),
+    app2.all('.cs-panel')[0].textContent.slice(0, 120));
+  ok('  and Generate is live', !go().disabled);
+}
+
+console.log('  the cap is enforced in the screen, not only at the route');
+{
+  const nums = Array.from(app2.all('.cs-panel')[0].querySelectorAll('input[type=number]'));
+  await app2.type(nums[0], '20');
+  await app2.type(nums[2], '5');
+  const panel = app2.all('.cs-panel')[0];
+  ok('25 shows as over', /25 \/ 20 this run/.test(panel.textContent), panel.textContent.slice(0, 120));
+  ok('  and says how to fix it', /Split it into two/.test(panel.textContent));
+  const go = Array.from(app2.all('.cs-panel .cs-btn')).find(b => /^Generate/.test(b.textContent));
+  ok('  and the button is disabled rather than 400ing the server', go.disabled,
+    'a screen that lets you press what the server will refuse is two screens disagreeing');
+}
+
+console.log('  and it sends what was asked for');
+{
+  const nums = Array.from(app2.all('.cs-panel')[0].querySelectorAll('input[type=number]'));
+  await app2.type(nums[0], '1');
+  await app2.type(nums[1], '0');
+  await app2.type(nums[2], '2');
+  const focusEl = Array.from(app2.all('.cs-panel')[0].querySelectorAll('input')).find(i => /speed to lead/.test(i.placeholder || ''));
+  await app2.type(focusEl, 'Military Suite Night');
+
+  globalThis.__FETCHES__ = [];
+  const go = Array.from(app2.all('.cs-panel .cs-btn')).find(b => /^Generate/.test(b.textContent));
+  await app2.click(go);
+  const call = globalThis.__FETCHES__.find(f => /content-slate/.test(f.url));
+  ok('it posts to the slate route', !!call);
+  ok('  with the counts', call && call.body.counts.personal === 1 && call.body.counts.ad === 2,
+    JSON.stringify(call && call.body));
+  ok('  the focus', call && call.body.focus === 'Military Suite Night');
+  ok('  and a week', call && /^\d{4}-\d{2}-\d{2}$/.test(call.body.week_of || ''), call && call.body.week_of);
+  ok('the panel closes after a run', !app2.all('.cs-panel').length);
+  ok('and the spend was re-read afterwards',
+    globalThis.__FETCHES__.some(f => /content-usage/.test(f.url)), 'the header would otherwise show a stale figure');
+}
+
+await app2.unmount();
 
 console.log(`\ncontentscreen: ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

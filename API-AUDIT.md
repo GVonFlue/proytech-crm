@@ -14,6 +14,15 @@ route files rather than grepping them** — the first pass was done with a grep
 and it got one wrong. What it got wrong, and why, is recorded under
 `calendar-event.js`.
 
+**Updated 23 Aug 2026** for the three Content Studio routes, which shipped in
+PRs #47 and #49 and were absent from this document for both of them. They were
+guarded the whole time and `tests/apiauth.mjs` passed the whole time — which is
+exactly the problem worth naming: that test proves a route *has* a check, and
+this document is where the repo says *what the check is and why*. A guarded
+route missing from here is not a hole, but a table that silently stops covering
+`api/` is how the next unguarded one goes unnoticed. Read, not grepped, for the
+same reason as the 20 Aug pass. **21 route files.**
+
 ---
 
 ## The table
@@ -31,6 +40,9 @@ and it got one wrong. What it got wrong, and why, is recorded under
 | `rank-tasks.js` | ✅ `guard({requireAuth})` | |
 | `sheet-read.js` | ✅ `guard({requireAuth})` | any signed-in user can read any sheet the owner's Google account can open — see below |
 | `pocket-backfill.js` | ✅ `guard({requireAuth})` + `crm_whoami()` | owner-only, verified server-side. **The model the rest should copy.** |
+| `content-slate.js` | ✅ `guard({requireOwner})` **or** `CRON_SECRET` | two doors, both closed to strangers — see below. + cents ceiling |
+| `content-regenerate.js` | ✅ `guard({requireOwner})` | + cents ceiling |
+| `content-usage.js` | ✅ `guard({requireOwner})` | read-only; spends nothing |
 | `pocket-hook.js` | ✅ HMAC signature | no session by design — it is a webhook. Correct. |
 | `google-status.js` | ✅ **fixed in this PR** | was open |
 | `calendar-event.js` | ✅ **fixed in this PR** | signed-in + invite list capped |
@@ -39,7 +51,8 @@ and it got one wrong. What it got wrong, and why, is recorded under
 | `google-callback.js` | ❌ none — correctly | 🟠 no `state` parameter. **Still open.** |
 | `google-auth.js` | ❌ none | 🟡 low. **Still open**, and paired with the above. |
 
-`_guard.js`, `_google.js`, `_pocket.js`, `_spend.js` are helpers with no route.
+`_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js` are helpers
+with no route.
 
 ---
 
@@ -160,6 +173,109 @@ booking screen says so out loud.
 
 ---
 
+## The Content Studio routes
+
+Added 23 Aug 2026. All three are `requireOwner`, which is stricter than most of
+the table above, and the reason is ROLES.md rather than caution:
+`content_brand_context` holds pricing, offers and positioning, and
+`content_usage` is the monthly spend of the business. Both are company money by
+ROLES.md's definition, and a rep sees none of it. The Studio tab is also gated
+on `VITE_CONTENT_STUDIO` at build time and refused to a rep in `canOpen`, so the
+screen and the routes agree — but the routes are the enforcement, and they would
+refuse a rep on an install where the flag was on.
+
+### `content-slate.js` — two doors, and neither is ajar
+
+This is the only route in `api/` with **two** ways in, so it gets the most
+words:
+
+1. **The owner**, pressing *Generate next week* or *Generate custom* — a POST
+   carrying a Supabase JWT, checked by `guard({requireOwner:true})`, which asks
+   Postgres through `crm_whoami()` with the caller's own token. A role in the
+   request body is a claim, and is never used.
+2. **Vercel's scheduler** — a GET carrying `Authorization: Bearer $CRON_SECRET`,
+   compared with `timingSafeEqual` in `api/_content.js`. The same reasoning as
+   `pocket-hook.js`'s HMAC: a `===` on a secret leaks its prefix a byte at a
+   time.
+
+There is no third door. `isCronCaller()` returns false when `CRON_SECRET` is
+unset, so a deployment that forgot the variable **refuses the scheduled run**
+rather than quietly becoming public — the scheduled leg fails closed, and the
+failure is loud on the server.
+
+Two things worth knowing about the cron leg:
+
+- **It skips `guard()` entirely**, so it is not rate-limited and its body is not
+  size-checked. That is deliberate: the caller is Vercel, on a fixed weekly
+  schedule, and `_guard.js` already argues that an unauthorised caller should
+  not be able to spend the day's budget getting turned away. The **cents
+  ceiling** below still applies to it, which is the limit that actually bounds
+  the bill.
+- **A refused scheduled run says so by name** (`cronDenial()`, PR #48). Before
+  that fix it fell through to `guard()` and was refused for the wrong reason —
+  `405 POST only` on the GET the scheduler actually sends, which is a verb
+  nobody can change. A cron's only user interface is a log line, so the log line
+  has to be true. That is the same failure ENGINEERING.md §6 names about a token
+  missing a scope: it stays valid, returns 403, "and the error must say so."
+
+  The diagnosis is deliberately narrow — only a GET **carrying a bearer**, or a
+  `vercel-cron` user-agent, gets told about `CRON_SECRET`. A bare GET with no
+  credential falls through to `guard()` and learns nothing about whether this
+  deployment has a cron at all.
+
+### A cents ceiling, and why it is not `_spend.js`
+
+`content-slate.js` and `content-regenerate.js` both check
+`underCap()` **before** the model is called — checking after would be an audit
+log, not a ceiling. It is a second, separate ledger from the one `_spend.js`
+keeps for JARVIS:
+
+| | JARVIS | Content Studio |
+|---|---|---|
+| ledger | `api_hits.cost` | `content_usage.est_cents` |
+| unit | dollars | whole cents, rounded **up** |
+| ceiling | `JARVIS_BUDGET` env var | `config.monthly_cap_cents`, an owner-editable row |
+
+Two ledgers is right here: a week's slate must not be able to eat the
+assistant's budget, and the owner must be able to move one without the other.
+The **rate card is shared** (`RATES` in `_spend.js`) so the two cannot disagree
+about what a token costs.
+
+Unlike the rate limiter, this cap fails **CLOSED**: an unreadable ledger returns
+503 and generates nothing. `_guard.js` fails open because a limiter that takes
+the product down when its datastore blips is worse than the abuse it prevents;
+nothing about a weekly content slate is urgent, and a cap that cannot see the
+ledger is not a cap.
+
+### `content-usage.js` — a route that exists because the browser cannot read the table
+
+The Studio header shows month-to-date spend. `content_usage` is written by the
+**service key** from the two generator routes and there is no SELECT policy on
+it for `authenticated`, so the browser has no path to it.
+
+Letting the browser read the table directly would have needed a new RLS policy —
+a schema change, which the Weekend 1.5 spec forbids — and would have failed
+badly if the policy were missing: the read would succeed, return **zero rows**,
+and the header would say `$0.00`. That is a plausible value for a real state
+(nothing spent yet), which is precisely the ENGINEERING.md §2 failure where the
+bug and the intended state render pixel-identical. So the number comes back
+through a route, and an unreadable ledger returns 503 and renders a dash.
+
+It spends nothing, calls no model and writes nothing — the only read-only route
+in `api/`. It is still `requireOwner`, because the monthly spend of the business
+is company money.
+
+### `ANTHROPIC_API_KEY_CONTENT`
+
+The Studio uses its own Anthropic key, separate from `ANTHROPIC_API_KEY`, so a
+runaway content job cannot exhaust the assistant's budget and the two spends are
+distinguishable on the billing page. It is read only inside `api/`, is never
+`VITE_`-prefixed, and `tests/content.mjs` asserts it appears in **no** client
+file and in **no** built bundle — the bundle check being the one that is a fact
+rather than a rule.
+
+---
+
 ## Still open, deliberately
 
 ### 🟠 `google-callback.js` + `google-auth.js` — no `state`, so OAuth has no CSRF protection
@@ -217,5 +333,19 @@ now either guarded or a documented, tested exception.
   allowlist with casing or whitespace, cannot aim the link in the email, and
   cannot turn one booking into a mailshot.
 
-Run both directly (`node tests/apiauth.mjs`, `node tests/relay.mjs`) — this
-repo runs each test file on its own; `npm test` is the booking suite.
+- **`tests/content.mjs`** (229 assertions) carries the Content Studio rules that
+  decay quietly: that the cap is checked *before* the model is called on both
+  routes, that the cron secret is compared in constant time, that an unset
+  `CRON_SECRET` closes the door rather than opening it, and that a refused
+  scheduled run distinguishes "not set" from "did not match".
+- **`tests/contentroutes.mjs`** (138 assertions) invokes both handlers against a
+  fake network and asserts on what reaches the database — including that a
+  wrong cron secret never reaches the model and never asks Supabase who it is.
+
+Run any of them directly (`node tests/apiauth.mjs`, `node tests/relay.mjs`, …).
+
+> **`npm test` runs everything.** This line used to say "`npm test` is the
+> booking suite", which stopped being true when `tests/all.mjs` landed — it
+> walks `tests/`, runs every file, and fails the run on any of them. Corrected
+> 23 Aug 2026. A document about whether the repo is honest about its own surface
+> should not be wrong about how its own tests are run.

@@ -55,12 +55,14 @@ export const CONFIG_DEFAULTS = {
      a model reads is the thing it obeys most reliably. */
   output_contract:
     'Return ONLY valid JSON. No markdown fences, no preamble, no trailing prose.\n'
-    + '{"posts":[{"mix_class":"personal|proytech","surface":"one of the surfaces listed above",'
-    + '"pillar":"one of the pillars listed above","format":"short label e.g. carousel, single, reel-script",'
+    + '{"posts":[{"mix_class":"personal|proytech|ad","surface":"one of the surfaces listed above",'
+    + '"pillar":"one of the pillars listed above","format":"exactly one of: carousel, single, text_only",'
     + '"hook":"the scroll-stopping first line","concept":"2-4 sentences on what the post actually says",'
     + '"value_statement":"one sentence naming what the reader walks away with",'
-    + '"cta_key":"one of the cta keys listed above","image_prompt":"a description of the visual, text only",'
-    + '"carousel_slides":["slide 1 text","slide 2 text"],'
+    + '"cta_key":"one of the cta keys listed above",'
+    + '"image_prompt":"what to put in an image generator to make the visual for this post. '
+    + 'Describe subject, composition, colour and mood. Required for carousel and single; omit for text_only.",'
+    + '"carousel_slides":[{"headline":"the line that carries the slide","body":"the supporting copy"}],'
     + '"captions":{"<surface key>":"the full caption for that surface"}}]}',
   model: 'claude-opus-5',
   posts_per_week: 7,
@@ -70,12 +72,43 @@ export const CONFIG_DEFAULTS = {
   surfaces: 'linkedin,instagram',
   /* Anthropic's max_tokens for a slate call. A ceiling, not a target. */
   max_tokens: 8000,
+  /* HOW THE SLATE IS SPLIT BETWEEN FORMATS.
+     The first run came back entirely `text_only`: nothing in the prompt said
+     otherwise, so the model took the cheapest option every time and the feature
+     produced no visual output at all. A distribution the model can read fixes
+     that, and it lives in a row so tuning it is not a deploy. */
+  format_mix:
+    'Roughly half carousels, a third single static images, the rest text only.\n'
+    + 'Never return an entire slate as text_only.',
+  /* WHAT MAKES AN AD POST DIFFERENT.
+     Organic posts are read by people who already follow along, so they can lean
+     on a name, a running thread, last week's post. An ad is read by someone who
+     has never heard of this business, and every one of those moves lands as a
+     reference to something the reader does not have. */
+  ad_instructions:
+    'AD POSTS ARE WRITTEN FOR STRANGERS. The reader has never heard of this business or this '
+    + 'person, is not following along, and did not choose to see this.\n'
+    + '- No relationships, no first names, no "as I mentioned", no running threads, no in-jokes, '
+    + 'no shared history, no assumed familiarity of any kind.\n'
+    + '- Everything the reader needs is inside the post. If it only makes sense to someone who '
+    + 'saw an earlier one, it is not an ad.\n'
+    + '- Open on the problem or the outcome, name plainly who it is for, and make the offer '
+    + 'explicit rather than implied.\n'
+    + '- Earn the claim. A stranger has no reason to take your word for it, so lean on the proof '
+    + 'in the context above rather than on tone.',
 };
 
 /* Keys whose value is a list. Stored as either a JSON array or a comma list —
    an owner typing into a text box should not have to know which. */
 const LIST_KEYS = new Set(['surfaces']);
 const NUM_KEYS = new Set(['posts_per_week', 'monthly_cap_cents', 'max_tokens']);
+/* The most a single custom run may ask for, across all three buckets. Not a
+   config row on purpose: it bounds one request's blast radius, and a ceiling
+   the caller can raise is not a ceiling. */
+export const CUSTOM_MAX_PER_RUN = 20;
+/* The three values `mix_class` may hold. 'ad' is new in Weekend 1.5 and is a
+   STRING IN THE EXISTING COLUMN — there is no schema change anywhere in this. */
+export const MIX_CLASSES = ['personal', 'proytech', 'ad'];
 
 export const parseList = (v) => {
   const raw = S(v, 4000).trim();
@@ -141,6 +174,27 @@ export const normContext = (r) => ({
   sort_order: N(r && r.sort_order),
 });
 
+/* ONE SLIDE.
+   Weekend 1 stored slides as bare strings; Weekend 1.5 asks the model for
+   {headline, body} so the card can render a real numbered list. BOTH shapes are
+   accepted forever, because rows written before this change are already in the
+   table and a normaliser that only understands the new shape would blank them —
+   which is the same "written but not read" failure ENGINEERING.md §2 describes,
+   just with a shape instead of a column name. */
+export const normSlide = (v) => {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    return { headline: S(v.headline, 300), body: S(v.body, 2000) };
+  }
+  return { headline: '', body: S(v, 2000) };
+};
+
+/** Slides as plain text, for the card's Copy all. Numbered, headline above
+ *  body, blank line between — what you would paste into a scheduler. */
+export const slidesToText = (slides) => A(slides).map(normSlide)
+  .filter(s => s.headline || s.body)
+  .map((s, i) => `${i + 1}. ${s.headline ? s.headline + '\n' : ''}${s.body}`)
+  .join('\n\n');
+
 export const normResearch = (r) => ({
   id: S(r && r.id, 60),
   source_type: S(r && r.source_type, 60),
@@ -167,7 +221,7 @@ export const normPost = (r) => ({
   hook: S(r && r.hook, 1000),
   concept: S(r && r.concept, 4000),
   image_prompt: S(r && r.image_prompt, 4000),
-  carousel_slides: A(r && r.carousel_slides).map(s => S(s, 2000)),
+  carousel_slides: A(r && r.carousel_slides).map(normSlide),
   captions: (() => {
     const c = O(r && r.captions);
     const out = {};
@@ -218,6 +272,22 @@ export function currentMonday(now) {
   d.setDate(d.getDate() - ((dow + 6) % 7));
   const p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** A week_of the caller supplied: validated, and SNAPPED to that week's Monday.
+ *  Returns '' when it is not a date, so the caller falls back to its default.
+ *
+ *  Parsed at LOCAL midnight on purpose. `new Date('2026-08-31')` is parsed as
+ *  UTC, which is the 30th anywhere west of Greenwich — every install of this —
+ *  and would file a batch under the previous week. Snapping matters because
+ *  week_of is matched as an exact string by postsForWeek: a Wednesday saved
+ *  here is a post that never appears under any Monday in the picker. */
+export function weekOfInput(v) {
+  const raw = S(v, 40).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return '';
+  const d = new Date(raw + 'T00:00:00');
+  if (isNaN(d)) return '';
+  return currentMonday(d);
 }
 
 /** ISO timestamp `weeks` weeks before `now`. Used for the performance lookback. */
@@ -308,10 +378,75 @@ export function buildSystemPrompt(contextRows, config, extra) {
     + surfaces.map(s => `- ${s}`).join('\n'),
   );
 
+  /* FORMAT MIX. Without this the model picks the cheapest option every time —
+     the first real run came back 100% text_only and the feature produced no
+     visual output at all. Stated as its own instruction rather than buried in
+     the contract, because the contract describes SHAPE and this is a CHOICE. */
+  parts.push(
+    'FORMAT MIX — how this slate is split across formats. This is an instruction, not a hint\n'
+    + S(cfg.format_mix || CONFIG_DEFAULTS.format_mix, 4000)
+    + '\n\nEvery carousel and every single needs an image_prompt good enough to paste straight '
+    + 'into an image generator. A post with no image_prompt can only be text_only.',
+  );
+
   if (extra) parts.push(S(extra, 20000));
 
   parts.push(S(cfg.output_contract || CONFIG_DEFAULTS.output_contract, 20000));
   return parts.filter(Boolean).join('\n\n');
+}
+
+/** Counts per bucket, coerced and bounded. Unknown keys are dropped rather
+ *  than passed through — a caller cannot invent a fourth mix_class here. */
+export function normCounts(v) {
+  const src = O(v);
+  const out = {};
+  for (const k of MIX_CLASSES) out[k] = Math.max(0, Math.floor(N(src[k])));
+  return out;
+}
+export const countsTotal = (counts) =>
+  MIX_CLASSES.reduce((a, k) => a + N(O(counts)[k]), 0);
+
+/** Is this custom request allowed? Returns { ok, total, error }.
+ *
+ *  Pure, so the screen and the route can BOTH refuse before anything is spent
+ *  and cannot disagree about where the ceiling is. */
+export function checkCounts(v) {
+  const counts = normCounts(v);
+  const total = countsTotal(counts);
+  if (!total) return { ok: false, counts, total, error: 'Ask for at least one post.' };
+  if (total > CUSTOM_MAX_PER_RUN) {
+    return {
+      ok: false, counts, total,
+      error: `That is ${total} posts in one run and the limit is ${CUSTOM_MAX_PER_RUN}. Split it into two.`,
+    };
+  }
+  return { ok: true, counts, total, error: '' };
+}
+
+/** The per-batch instruction block: the ad rules when ads were asked for.
+ *
+ *  Composed here rather than in the route so the ad wording lives beside the
+ *  rest of the mix handling, and so a test can read it without a network. */
+export function buildBatchInstructions(config, counts) {
+  const cfg = O(config);
+  const c = normCounts(counts);
+  const bits = [];
+  if (c.ad > 0) bits.push(S(cfg.ad_instructions || CONFIG_DEFAULTS.ad_instructions, 8000));
+  return bits.join('\n\n');
+}
+
+/** Did the model default to text_only for the whole slate?
+ *
+ *  WEEKEND1.5 §A. With more than two posts requested, an all-text_only slate is
+ *  almost certainly the model taking the cheapest option rather than a choice —
+ *  that is exactly how the first real run produced no visual output at all. It
+ *  does NOT reject the slate: the posts are still real and still saved. It is
+ *  surfaced so the failure is visible rather than silent, which is the whole
+ *  complaint the section opens with. */
+export function allTextOnly(rows, requested) {
+  const list = A(rows);
+  if (!list.length || N(requested) <= 2) return false;
+  return list.every(r => S(r && r.format, 60).trim().toLowerCase() === 'text_only');
 }
 
 /** The user turn: the unused research and what actually landed.
@@ -320,11 +455,34 @@ export function buildUserPrompt(opts) {
   const o = O(opts);
   const research = A(o.research).map(normResearch);
   const performance = A(o.performance).map(normPost);
-  const n = N(o.count) || CONFIG_DEFAULTS.posts_per_week;
+  const counts = normCounts(o.counts);
+  const total = countsTotal(counts);
+  const n = total || N(o.count) || CONFIG_DEFAULTS.posts_per_week;
   const weekOf = S(o.weekOf, 40);
+  const focus = S(o.focus, 600).trim();
 
   const bits = [];
-  bits.push(`Write the slate for the week beginning ${weekOf || 'next Monday'}. Produce exactly ${n} posts.`);
+  if (total) {
+    /* A CUSTOM RUN. The buckets are stated as a hard breakdown rather than a
+       ratio, because the owner typed exact numbers and "roughly" is not what
+       they asked for. This overrides the MIX section above for this run only —
+       the mix rows still travel because they carry voice, not just arithmetic. */
+    bits.push(
+      `Write ${total} posts for the week beginning ${weekOf || 'next Monday'}.\n`
+      + 'THE BREAKDOWN IS EXACT, and it replaces the ratio in the MIX section for this batch:\n'
+      + MIX_CLASSES.filter(k => counts[k] > 0).map(k => `- ${counts[k]} with mix_class "${k}"`).join('\n')
+      + '\n\nEvery post must carry the mix_class it was counted under. Do not substitute one for another.',
+    );
+  } else {
+    bits.push(`Write the slate for the week beginning ${weekOf || 'next Monday'}. Produce exactly ${n} posts.`);
+  }
+
+  if (focus) {
+    bits.push(
+      `THE TOPIC FOR THIS BATCH IS: ${focus}\n`
+      + 'Every post is about that. Come at it from different angles rather than restating it.',
+    );
+  }
 
   if (research.length) {
     bits.push(
@@ -428,7 +586,7 @@ export function postRow(p, ctx) {
     hook: S(o.hook, 1000),
     concept: S(o.concept, 4000),
     image_prompt: S(o.image_prompt, 4000),
-    carousel_slides: A(o.carousel_slides).map(s => S(s, 2000)),
+    carousel_slides: A(o.carousel_slides).map(normSlide),
     captions,
     cta_key: S(o.cta_key, 120),
     value_statement: S(o.value_statement, 2000),
@@ -534,8 +692,8 @@ export function planImportContext(doc, existing) {
     .filter(r => r.category && r.key)
     .map(r => ({ ...r, id: '' }));
   if (!rows.length) return { ok: false, add: [], collide: [], error: 'That file has no usable rows in it.' };
-  const have = new Set(A(existing).map(normContext).map(r => `${r.category} ${r.key}`));
+  const have = new Set(A(existing).map(normContext).map(r => `${r.category}\u0000${r.key}`));
   const add = [], collide = [];
-  for (const r of rows) (have.has(`${r.category} ${r.key}`) ? collide : add).push(r);
+  for (const r of rows) (have.has(`${r.category}\u0000${r.key}`) ? collide : add).push(r);
   return { ok: true, add, collide, error: '' };
 }
