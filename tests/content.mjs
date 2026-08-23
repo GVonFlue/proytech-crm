@@ -332,9 +332,31 @@ console.log('\nboth routes are guarded, and the cron leg is not a hole');
   ok('the cron secret is compared in constant time', /timingSafeEqual/.test(shared),
     'an === on a secret leaks its prefix a byte at a time');
   ok('an unset CRON_SECRET refuses the cron path rather than opening it',
-    /if \(!secret\)[\s\S]{0,200}return false/.test(shared));
+    /if \(!secret \|\| !got\) return false/.test(shared));
+  /* Asserted by ORDER, not by a character window. The window version broke the
+     first time a comment above guard() grew, which makes it a test of prose
+     length rather than of structure. */
   ok('the slate route only skips the guard for the cron caller',
-    /const cron = isCronCaller\(req\);[\s\S]{0,200}if \(!cron\)[\s\S]{0,400}guard\(req, res/.test(slate));
+    slate.indexOf('const cron = isCronCaller(req);') >= 0
+    && slate.indexOf('const cron = isCronCaller(req);') < slate.indexOf('if (!cron)')
+    && slate.indexOf('if (!cron)') < slate.indexOf('guard(req, res'));
+
+  /* The refusal was always correct; the MESSAGE was not, and a cron's only
+     user interface is a log line. Found by calling the deployed route: a GET
+     with a wrong secret came back 405 "POST only" — a verb vercel.json cannot
+     set and the scheduler never varies. */
+  ok('a refused scheduled run is told WHY, by name', /cronDenial/.test(slate) && /CRON_SECRET/.test(shared));
+  ok('  and that check runs BEFORE guard(), which would misdiagnose it',
+    slate.indexOf('cronDenial(req)') < slate.indexOf('guard(req, res'),
+    'guard() answers about sessions and verbs, not about a Vercel env var');
+  ok('  it distinguishes "not set" from "did not match"',
+    /CRON_SECRET is not set/.test(shared) && /did not match CRON_SECRET/.test(shared),
+    'those two need different fixes and must not read the same');
+  ok('  and it tells you to redeploy, because an env var alone does not',
+    /redeploy/i.test(shared));
+  ok('the noisy per-request log is gone from the decision',
+    !/if \(!secret\) \{[\s\S]{0,120}console\.error/.test(shared),
+    'that line fired on every owner Generate too, which trains you to ignore the log');
 
   /* The order below is the whole point of the cap. Checking it after the call
      is an audit log, not a ceiling. */

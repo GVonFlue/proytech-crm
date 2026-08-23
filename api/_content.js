@@ -213,15 +213,62 @@ export async function askAnthropic({ model, system, user, maxTokens }) {
  *  silently never ran" and "the cron is wide open" must not look the same. */
 export function isCronCaller(req) {
   const secret = process.env.CRON_SECRET || '';
-  if (!secret) {
-    console.error('[content-slate] CRON_SECRET is not set; the scheduled run cannot authenticate');
-    return false;
-  }
   const got = String((req && req.headers && req.headers.authorization) || '').replace(/^Bearer /i, '');
-  if (!got) return false;
+  /* An unset secret means NOBODY is the cron caller, so the scheduled leg is
+     closed rather than open. The logging for that lives in cronDenial below —
+     logging it here fired on every owner-initiated Generate as well, which is
+     the kind of line that trains you to stop reading the log. */
+  if (!secret || !got) return false;
   const a = Buffer.from(got), b = Buffer.from(secret);
   if (a.length !== b.length) return false;      // timingSafeEqual throws on a length mismatch
   return timingSafeEqual(a, b);
+}
+
+/** WHY a scheduled run was refused — the signpost, never the decision.
+ *
+ *  isCronCaller() above decides, and it returns a boolean. This returns a
+ *  message, and it exists because calling the deployed route showed both
+ *  refusals pointing at the wrong thing:
+ *
+ *    GET  + wrong secret -> 405 "POST only"       (a verb you cannot change:
+ *                                                  vercel.json has no method,
+ *                                                  the scheduler always GETs)
+ *    POST + wrong secret -> 401 "Session expired." (sends you to Supabase for
+ *                                                  what is a Vercel env var)
+ *
+ *  Both refuse correctly and describe the wrong cause, which is the failure
+ *  ENGINEERING.md §6 already names about a token missing a scope: it stays
+ *  valid, returns 403, "and the error must say so". A cron that silently
+ *  cannot authenticate is only ever read about in a log, so the log line is
+ *  the entire user interface for this failure.
+ *
+ *  WHAT COUNTS AS "PRESENTING AS THE SCHEDULER" — and why it is narrow.
+ *  Vercel's cron sends a GET with `authorization: Bearer $CRON_SECRET`, and
+ *  the screen always POSTs a Supabase JWT. So a GET CARRYING A BEARER is a
+ *  scheduled run whose secret is wrong or unset, and gets told which. A bare
+ *  GET with no credential is just a stranger and falls through to guard(),
+ *  learning nothing about whether this deployment has a cron at all.
+ *
+ *  Returning early skips the rate limiter. That is deliberate and matches
+ *  _guard.js's own ordering comment: a caller who is not allowed in should not
+ *  be able to spend the day's budget getting turned away. Nothing below this
+ *  point costs money — no Anthropic call, no write. */
+export function cronDenial(req) {
+  const ua = String((req && req.headers && req.headers['user-agent']) || '');
+  const bearer = /^Bearer\s+\S/i.test(String((req && req.headers && req.headers.authorization) || ''));
+  const scheduled = /vercel-cron/i.test(ua) || (req && req.method === 'GET' && bearer);
+  if (!scheduled) return null;
+
+  if (!process.env.CRON_SECRET) {
+    console.error('[content-slate] a scheduled run was refused: CRON_SECRET is not set on this deployment');
+    return 'The scheduled run could not authenticate: CRON_SECRET is not set on this deployment, '
+         + 'so every scheduled request is refused. Set it in Vercel under Settings -> Environment '
+         + 'Variables, then redeploy — an env var added after a deployment does not reach it.';
+  }
+  console.error('[content-slate] a scheduled run was refused: the bearer token did not match CRON_SECRET');
+  return 'The scheduled run could not authenticate: the bearer token did not match CRON_SECRET on '
+       + 'this deployment. Check the value in Vercel under Settings -> Environment Variables, and '
+       + 'redeploy after changing it.';
 }
 
 /* ------------------------------------------------------------- put together */
