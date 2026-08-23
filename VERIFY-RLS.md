@@ -7,12 +7,12 @@ to be verified against the real database with real logins. This is that test.
 Budget 15 minutes for §§1–8, and ten more for §9. Do it once per install, right
 after running `MIGRATION.sql`.
 
-> **§9 is not optional on an install you sell.** The five Content Studio tables
-> were created by hand rather than by a migration, and shipped with no RLS proof
-> at all. On our own install, where both logins are owners, that costs nothing.
-> On a customer's install a rep has a login and those tables hold pricing,
-> offers and the monthly spend of the business. Start at §9 step 1, which tells
-> you whether the boundary exists yet.
+> **§9 is not optional, on any install.** The eight Content Studio tables were
+> created by hand rather than by a migration, and on 23 Aug 2026 they were found
+> carrying `using: true` policies — RLS on, a policy present, and every
+> authenticated session holding full read/write/delete on all eight. Every
+> count-based check had passed. §9 records what was there, what the end state
+> is, and why a policy count proves nothing.
 
 ---
 
@@ -487,85 +487,123 @@ Clean up: `delete from rep_payouts where id in ('po_a','po_b');`
 
 ## 9. Content Studio (after CONTENT-RLS.sql)
 
-**This section is different from the eight above it, and it is worth knowing
-why before you start.** Sections 1–8 verify policies that shipped inside a
-migration in this repo. The five content tables were created **by hand**,
-outside any migration, and shipped across two feature PRs with no RLS proof at
-all. So step 1 here is not a formality — it is a genuine question with an answer
-neither of us knows yet.
+**Sections 1–8 verify policies that shipped inside a migration in this repo.
+These eight tables were created by hand, outside any migration, and shipped
+across two feature PRs with no RLS proof. When the policies were finally read,
+on 23 Aug 2026, this is what was there:**
 
-The five:
+```
+policyname        <table>_auth_all
+roles             {authenticated}
+cmd               ALL
+using             true
+with check        true
+```
 
-| table | what a rep must never read |
+**`true` restricts nothing.** RLS was on and a policy existed on every one of
+the eight — so every count-based check passed — while every authenticated
+session on the install had full SELECT, INSERT, UPDATE and DELETE on all of
+them. Anonymous callers were correctly locked out; that was verified separately
+and was never the problem.
+
+The eight, and what a rep could reach:
+
+| table | what was exposed |
 |---|---|
 | `content_brand_context` | pricing, offers, positioning |
 | `content_posts` | unpublished marketing, and `performance` figures |
 | `content_research` | competitor material and why it worked |
 | `content_usage` | what the business spends on AI, month by month |
 | `content_assets` | files belonging to the above |
+| `content_ideas`, `content_insights`, `content_mining_state` | later-phase tables, open rather than idle |
 
-**Why this matters more than the sections above it.** On the install we run
-ourselves both logins are owners, so the gap costs nothing. On an install we
-*sell*, a rep has a login, and every table above is company money by ROLES.md's
-definition. Until these policies exist that promise is kept by the screen —
-which ROLES.md itself is explicit is a UI decision, not a boundary.
+The Studio tab is hidden from reps in the app. That is not what was protecting
+these tables and it never was — ROLES.md says it in as many words: **a hidden
+tab is not a locked door.** A rep holds a valid session, and the publishable key
+ships in the client bundle on every page load, so reaching these needed `curl`,
+not the UI.
 
-**What "tenant" means here.** This CRM is not multi-tenant in one database:
-ENGINEERING.md §6 states that per-client installs are separate deployments
-against separate Supabase projects. There is no `tenant_id` and nothing below
-partitions by one. The isolation being proved is the one that exists *inside* an
-install — owner versus rep — which is the boundary a customer's sales team
-actually sits on.
+### Why every previous check passed
 
-### Step 1 — find out whether there is anything to verify
+Because they all counted. `select count(*) from pg_policy` returns **1** for a
+table that is wide open and **1** for a table that is locked down. A permissive
+`true` policy is indistinguishable from a correct one unless you read the
+**expression**.
 
-Run this **first**, as superuser in the SQL Editor. It is the whole reason this
-section is ordered this way:
+> **Read expressions, never counts.** Any RLS verification in this repo —
+> including a future section added to this file — must call
+> `pg_get_expr(polqual, polrelid)` and look at what comes back. This is now a
+> standing rule in CLAUDE.md, and the verification block at the bottom of
+> `CONTENT-RLS.sql` is written to it.
 
-```sql
-select c.relname,
-       c.relrowsecurity as rls_on,
-       count(p.polname) as policies
-  from pg_class c
-  left join pg_policy p on p.polrelid = c.oid
- where c.relname in ('content_brand_context','content_posts','content_research',
-                     'content_usage','content_assets')
- group by c.relname, c.relrowsecurity
- order by c.relname;
+### What "tenant" means here
+
+This CRM is **not** multi-tenant in one database. `ENGINEERING.md` §6:
+per-client installs are separate deployments against separate Supabase
+projects. There is no `tenant_id` and nothing below partitions by one. The
+isolation being proved is **owner versus rep inside an install**, which is the
+boundary a customer's sales team actually sits on.
+
+### The correct end state
+
+Every one of the eight carries `<table>_owner`, which is
+`pocket_recordings_owner` character for character — same helpers, same
+structure, no `to` clause, so it applies to PUBLIC exactly as the reference
+does:
+
+```
+using       (no_users() OR (crm_active() AND is_owner()))
+with check  (no_users() OR (crm_active() AND is_owner()))
 ```
 
-- [ ] Five rows. If a table is **missing** from the result it does not exist —
-      stop, because the rest of this section is about tables you do not have.
-- [ ] `rls_on` is **true** for all five.
-- [ ] `policies` is **1** for all five.
+One expression to audit rather than nine.
 
-**If `rls_on` is false or `policies` is 0 anywhere, the boundary does not exist
-yet.** That is not a bug in the app; it is a table that was created without one.
-Run **`CONTENT-RLS.sql`**, read its header first, then re-run the query above
-before continuing. It creates no tables and no columns — it switches RLS on and
-adds one policy per table.
+### Step 1 — apply, and read what the file tells you
 
-**A table with a policy and RLS switched off enforces nothing**, which is why
-both columns are checked rather than just the policy count.
+Run **`CONTENT-RLS.sql`**. Read its header first. It creates no tables and no
+columns; per table it **drops the permissive policy, then creates the
+owner-scoped one**, and that order is the whole fix — permissive policies
+combine with `OR`, so a surviving `true` beside a correct policy re-opens the
+table however right the new one looks.
 
-### Step 2 — the policies are the same expression, not five lookalikes
+The file ends with a verification block that reads expressions and **raises**
+rather than leaving you to interpret a table:
 
-```sql
-select polrelid::regclass as tbl, pg_get_expr(polqual, polrelid) as using_expr
-  from pg_policy
- where polrelid in ('content_brand_context'::regclass, 'content_posts'::regclass,
-                    'content_research'::regclass, 'content_usage'::regclass,
-                    'content_assets'::regclass, 'pocket_recordings'::regclass)
- order by 1;
-```
+- [ ] It reports `CONTENT-RLS OK: 8 tables, RLS on, one owner-scoped policy
+      each, no permissive expressions, all identical to
+      pocket_recordings_owner.` (This is a `raise notice` — in the Supabase SQL
+      editor it appears under **Logs**, not in the results grid.)
+- [ ] The result grid underneath shows nine rows — the eight plus
+      `pocket_recordings` — every `using_expr` identical, none of them `true`.
 
-- [ ] **Six** rows, and every `using_expr` is **identical**.
+**Measured on the ProyTech install, 23 Aug 2026 — this passed.** All eight
+tables carry `content_<table>_owner` with
+`(no_users() OR (crm_active() AND is_owner()))` on both `using` and
+`with_check`, identical to `pocket_recordings_owner`. No `true` expressions
+survived and no `_auth_all` policy was left behind.
 
-Same check §7 makes about `pocket_recordings` and `meeting_logs`, for the same
-reason: five policies that look alike are five things to audit and five places
-to get it wrong. One shape, reused, is one thing to be right about.
+> **A limitation in check 3e, which matters more on a customer install than it
+> did here.** 3e compares the eight against the **live** `pocket_recordings`
+> policy. If `pocket_recordings` has no policy — an install that has not run
+> `POCKET-MIGRATION.sql`, which is every install that did not buy Pocket — that
+> check downgrades to a `NOTICE` and is **skipped**. The run still passes on 3a
+> to 3d, so nothing permissive can survive, but "OK" on such an install is
+> strictly weaker than "OK" was here: it proves the eight are not `true`, not
+> that they are the *right* expression.
+>
+> The cheap mitigation, if you are verifying an install without Pocket: the
+> eight must at minimum be identical **to each other**. Read the section 4 grid
+> and confirm every `using_expr` matches, then compare one of them by eye to
+> the expression printed above. Strengthening 3e to fall back to a
+> self-consistency check is on the follow-up list.
 
-### Step 3 — seed something a rep must not see
+**If it raises, it did not take.** The message names the tables. The four ways
+it can fail are: RLS switched off, an expression still `true`, more than one
+policy on a table (two permissive policies `OR` together, so "one correct plus
+one leftover" is no fix at all), or an expression that differs from
+`pocket_recordings`.
+
+### Step 2 — seed something a rep must not see
 
 As superuser. The sentinels stand in for the material that ends the product if
 it leaks:
@@ -590,6 +628,9 @@ below is what matters, and an empty table still proves the policy denies.)
 
 ### As a rep
 
+This is the block that proves the fix, because it is the exact access the
+`true` policy was granting.
+
 ```sql
 begin;
   select set_config('request.jwt.claims',
@@ -601,6 +642,9 @@ begin;
   select count(*) as research_visible from content_research;       -- MUST be 0
   select count(*) as usage_visible    from content_usage;          -- MUST be 0
   select count(*) as assets_visible   from content_assets;         -- MUST be 0
+  select count(*) as ideas_visible    from content_ideas;          -- MUST be 0
+  select count(*) as insights_visible from content_insights;       -- MUST be 0
+  select count(*) as mining_visible   from content_mining_state;   -- MUST be 0
 
   -- and no sentinel is reachable by any route open to a rep
   select count(*) as leaked from (
@@ -616,13 +660,50 @@ begin;
 rollback;
 ```
 
-- [ ] All five counts are **0**. This is the same number a rep gets from
+- [ ] All eight counts are **0**. This is the same number a rep gets from
       `pocket_recordings` and `meeting_logs`, from the same policy expression.
 - [ ] `leaked` = **0**.
 - [ ] `spend_visible` = **0**. Note this is an **aggregate** — a rep who could
       not list the rows but could still `sum()` them would be reading company
       money, and the count check alone would not catch it.
 - [ ] `is_owner()` = **false**.
+
+**Run this block before applying `CONTENT-RLS.sql` if you want to see the bug
+rather than take my word for it.** Same query, same identity, run either side of
+the change.
+
+### What it actually returned, ProyTech install, 23 Aug 2026
+
+Measured with a non-owner uuid. These are observed values, not expectations:
+
+| | brand | posts | research | usage_rows | assets | ideas | insights | mining | spend_cents | is_owner |
+|---|---|---|---|---|---|---|---|---|---|---|
+| **before** | **68** | **4** | 0 | **1** | 0 | 0 | 0 | 0 | **4** | false |
+| **after** | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | false |
+
+**Read the caveat before you read the result.** Only **three** of the eight
+tables had rows at the time — `content_brand_context` (68),
+`content_posts` (4) and `content_usage` (1, holding 4 cents). Those three are
+what actually demonstrated the fix: a non-owner could read 68 rows of pricing
+and positioning, four unpublished posts, and the month's AI spend, and after the
+change reads none of them.
+
+The other five returned 0 **both before and after because they were empty**.
+Their zeros in the "after" row prove nothing on their own. What covers them is
+check 3e — their policy expression is byte-identical to the three that were
+demonstrated — not an observed change. That distinction is the same one this
+whole section exists to make: a number that looks like a pass is not a pass
+until you know what produced it.
+
+`is_owner()` returned **false** in both runs, which is the point. The identity
+did not change. Only what it could reach did.
+
+### Confirmed against the app
+
+Signed in as the owner immediately afterwards: Slate 4, Today 1, Brand 68, spend
+chip reading `$0.04 / $20.00`. Nothing broke, which is what the code walk
+predicted — the only client-side caller is a screen only an owner can open, and
+the three routes use the service key.
 
 ### The writes a rep must not be able to make
 
@@ -692,29 +773,41 @@ Repeat the read block with the **owner's** uuid:
 `crm_active()` is in the policy, so it inherits §4's behaviour. Re-run the read
 block for a **deactivated owner**:
 
-- [ ] All five counts are **0**. An owner you switched off yesterday cannot read
-      your pricing today.
+- [ ] All eight counts are **0**. An owner you switched off yesterday cannot
+      read your pricing today.
+
+### The app after this lands
+
+Nothing in it changes, and that was checked by walking the code rather than
+assumed:
+
+- The only client-side caller of any of these tables is
+  `src/ContentStudio.jsx`. `content_usage`, `content_assets` and the three
+  later-phase tables have no client code path at all.
+- That screen renders only when the app already believes you are an owner
+  (`canOpen` → `CONTENT_STUDIO_ON && !isRep`). Every branch of that agrees with
+  `is_owner()`: owner yes, rep no, fresh install yes via `no_users()`,
+  deactivated no via `crm_active()`. There is no state where the app opens the
+  Studio for someone Postgres then refuses.
+- `api/content-slate.js`, `api/content-regenerate.js`, `api/content-usage.js`
+  and the weekly cron all use `SUPABASE_SERVICE_KEY`, which bypasses RLS by
+  design, exactly as `api/pocket-hook.js` does. They are unaffected.
+- Nothing in the app relies on a rep reaching these tables. There is no
+  rep-facing content feature and no published surface like `kb_published`.
+
+**One failure mode to know about.** If `is_owner()` ever returns false for
+someone the app thinks is an owner, the Studio renders and shows **nothing** —
+RLS filters SELECTs silently, so it returns `[]` rather than an error, and the
+Brand tab looks exactly like a fresh install. Writes would throw, so it would
+not stay quiet for long. The distinguisher is the owner block above: if
+`brand_visible` is ≥ 1 in SQL but the screen is empty, that is an identity
+mismatch, not an empty table.
 
 ### What this section does NOT prove
 
-The three later-phase tables — `content_ideas`, `content_insights`,
-`content_mining_state` — are **not** covered, by `CONTENT-RLS.sql` or by this
-section. Nothing in the codebase reads or writes them yet, and a policy on a
-table with no code path is a claim nobody is testing. They are exactly as
-unguarded as the five above were before this. Check for yourself:
-
-```sql
-select relname, relrowsecurity from pg_class
- where relname in ('content_ideas','content_insights','content_mining_state');
-```
-
-When the phase that uses them lands it brings its own policies and its own
-subsection here — CLAUDE.md now requires that of any new table.
-
-Nor does this prove anything about the **routes**. `api/content-slate.js`,
-`api/content-regenerate.js` and `api/content-usage.js` all use
-`SUPABASE_SERVICE_KEY`, which bypasses RLS by design, exactly as
-`api/pocket-hook.js` does. What stands between a stranger and those is
+Nothing about the **routes**. `api/content-slate.js`,
+`api/content-regenerate.js` and `api/content-usage.js` all use the service key,
+which bypasses RLS by design. What stands between a stranger and those is
 `guard({requireOwner:true})` and, on the cron leg, a `timingSafeEqual` against
 `CRON_SECRET` — verified in `tests/content.mjs` and `tests/contentroutes.mjs`,
 and written down in API-AUDIT.md. RLS governs the **browser**, which is the only
