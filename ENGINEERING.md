@@ -191,6 +191,69 @@ which reaches the table by owning it as a `security definer` function. Adding
 If you need a new "some of this is shareable" feature, this is the shape.
 Filtering in the app is not, and neither is a `shared` flag on a blob.
 
+## 4c. The weakest policy on a table decides
+
+Found twice in one day, 23 Aug 2026, on a database everyone believed was
+verified.
+
+**Eight content tables** had RLS on and one policy each. The policy was
+`using (true)`. Every authenticated session — every rep — had full
+read/write/delete on pricing, unpublished marketing and the AI spend ledger.
+
+**`leads` had five correct policies and one leftover** called
+`leads_all_authenticated`, `using (true)`, `with check (true)`. Every lead in
+the business was readable and writable by any authenticated session.
+
+The second one is the one to internalise, because the first has an obvious
+lesson and the second has the real one.
+
+**Permissive policies are GRANTS, and Postgres ORs them.** A table allows
+whatever its most permissive policy allows. Nothing else about the table
+matters:
+
+```
+leads_all               (owner or own rows or my pool)   correct
+leads_insert            (…)                              correct
+leads_update            (…)                              correct
+leads_delete            (…)                              correct
+leads_select_pool       (…)                              correct
+leads_all_authenticated (true)                           ← this one wins
+```
+
+Five perfect policies plus one `true` is a table with **no** security, and it
+looks *healthier* than a table with one policy, because it has more of them.
+
+### So every way of checking this that feels reasonable is wrong
+
+- **Counting policies is useless.** `count(*)` returned 1 for the content
+  tables and 6 for `leads`. Both were wide open. A count returns the same
+  number for a locked table and an open one.
+- **`relrowsecurity` is useless on its own.** It was `true` in both cases. RLS
+  was *on*. That is not the same as RLS *doing* anything.
+- **Reading some of the expressions is still wrong.** Anyone auditing `leads`
+  would read the five well-named policies, find them correct, and stop. The
+  sixth was the only one that mattered and it was the least interesting-looking
+  thing in the list.
+
+### The rule
+
+**Read `pg_get_expr` for EVERY policy on the table, and confirm that none of
+them is permissive-and-`true`.** Not the count, not the flag, not a sample.
+
+`RLS-AUDIT.sql` in the repo root does this for every table in `public` and
+raises with names. Run it after any migration and before handing over any
+install. `VERIFY-RLS.md` is the deeper version — real logins, sentinel rows, a
+measured before and after — and the two answer different questions: the audit
+proves nothing is *open*, the verification proves a policy is *right*.
+
+One precision that matters when you write your own check: **`RESTRICTIVE`
+policies AND rather than OR**, so a restrictive `true` is harmless. And an
+`INSERT` policy has no `USING` clause at all, so a NULL there is normal and
+must not be reported as permissive. Getting either wrong gives you a checker
+that cries wolf, which is how a checker stops being run.
+
+---
+
 ## 5. Things that look like settings and aren't
 
 Still hardcoded, and the first thing a non-ProyTech install will need changed:
