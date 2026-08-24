@@ -38,8 +38,14 @@ export const kbUid = () => 'kb' + Date.now().toString(36) + Math.random().toStri
    one. Deliberately NOT settings-driven yet: ENGINEERING.md §5 lists the
    things that look like settings and aren't, and this is honestly one more.
    Promote it when someone asks, not before. */
+/* 'Objections', 'Script' and 'Compliance' are also the first three MODULES on
+   the rep landing screen (KB_MODULE_RANK below). Naming a category one of
+   these is what puts a note in that module — there is no second field to keep
+   in sync, and a category that is not in this list still gets a module, it
+   just sorts after the ranked ones. */
 export const KB_CATEGORIES = [
-  'Process', 'Objections', 'Onboarding', 'Vendors', 'Pricing rules', 'Tools', 'Other',
+  'Objections', 'Compliance', 'Script', 'Process',
+  'Onboarding', 'Vendors', 'Pricing rules', 'Tools', 'Other',
 ];
 
 /* How much Playbook text JARVIS gets. The published body is capped at 8000
@@ -196,3 +202,263 @@ export function kbBlock(rows, question, opts = {}) {
 
   return { full, lines };
 }
+
+/* ==========================================================================
+   THE REP-FACING SHAPE — modules, order, and the blocks inside a note.
+   --------------------------------------------------------------------------
+   Everything below exists because of ONE failure mode, and it is worth naming
+   before reading any of it:
+
+     A rep is on a live call. The prospect says "what's the catch." He has
+     seconds, and the words he is supposed to SAY are sitting in the middle of
+     a paragraph explaining WHY they work.
+
+   The old rep screen rendered a note as `whiteSpace: pre-wrap` — one
+   undifferentiated block, spoken lines and coaching identical. That is the
+   thing that fails, and it fails exactly when it matters most.
+
+   So a note body is parsed into typed blocks and the SPOKEN ones are a
+   different block kind from the explanatory ones. The screen can then make
+   them look nothing like each other. `>` is what you say out loud; a plain
+   paragraph is why it works; `!` is a compliance line.
+
+   NO SCHEMA CHANGE. This is a body-text convention, not a column. `kb_notes`
+   and `kb_published` are untouched, which is deliberate: the security model
+   in KB-MIGRATION.sql is proved (VERIFY-RLS.md §6) and re-proving it was not
+   worth a nicer parser.
+
+   WHY THE PARSER RETURNS DATA AND NOT HTML. Every function here returns plain
+   objects that the screen maps to React elements. Nothing builds a markup
+   string and nothing is handed to dangerouslySetInnerHTML — a Playbook note is
+   text an owner typed, and the one guaranteed way to keep typed text from
+   becoming script is to never have a path that could render it as markup.
+   ========================================================================== */
+
+/* Which modules come first on a rep's landing screen.
+
+   'Objections' leads because it is the highest-frequency thing a rep opens the
+   Playbook FOR — mid-call, under time pressure. That is a claim about sales
+   playbooks generally, not about this install, which is why it is a default
+   ordering and not a hardcoded list of screens: categories are free text
+   (KB_CATEGORIES is "a starting list, not a fixed set"), so a tenant that
+   never uses these names still gets a sane screen — unranked categories sort
+   after the ranked ones, alphabetically, rather than vanishing. */
+export const KB_MODULE_RANK = ['Objections', 'Compliance', 'Script', 'Process'];
+
+export const moduleRank = (cat) => {
+  const c = S(cat, 60);
+  const i = KB_MODULE_RANK.indexOf(c);
+  if (i >= 0) return i;
+  const j = KB_CATEGORIES.indexOf(c);
+  /* Known-but-unranked sorts after ranked; unknown sorts after everything.
+     Both keep a stable, explainable position — an arbitrary order on a
+     reference a rep is learning is its own small tax. */
+  return j >= 0 ? KB_MODULE_RANK.length + j : 900;
+};
+
+/* Order inside a module.
+
+   Reads the number the SOURCE DOCUMENT already carries — "SOP-01 · …",
+   "2. The in" — rather than inventing a sort column. The documents are
+   numbered because their author numbered them, so honouring that is both
+   free and correct, and a note with no number falls back to alphabetical
+   instead of to publish date. Publish date was the old behaviour and it put
+   SOP-04 before SOP-01 whenever SOP-04 was edited last. */
+const NUM_PREFIX = /^\s*(?:SOP[\s._-]*)?(\d{1,3})\s*[.·:)\]-]/i;
+export const titleRank = (t) => {
+  const m = NUM_PREFIX.exec(S(t, 200));
+  return m ? Number(m[1]) : 9999;
+};
+
+const cmpNote = (a, b) =>
+  titleRank(a && a.title) - titleRank(b && b.title) ||
+  S(a && a.title, 200).localeCompare(S(b && b.title, 200));
+
+/** Group published notes into ordered modules for the rep landing.
+ *  Given kb_published rows — the only Playbook table a rep's login can select
+ *  from at all — so there is no draft branch here for the same reason kbBlock
+ *  has none. */
+export function kbModules(notes) {
+  const by = new Map();
+  for (const r of A(notes)) {
+    const n = normKbPub(r);
+    if (!n.id) continue;
+    const k = n.category || 'Other';
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(n);
+  }
+  return Array.from(by.entries())
+    .map(([key, ns]) => ({ key, notes: ns.slice().sort(cmpNote) }))
+    .sort((a, b) => moduleRank(a.key) - moduleRank(b.key) || a.key.localeCompare(b.key));
+}
+
+/* ----------------------------------------------------------------- inline */
+
+/* **bold**, *italic*, `code`. Deliberately small: the vocabulary a rep needs
+   inside a spoken line is emphasis, and every construct added here is one more
+   thing that can render wrong on a phone mid-call. */
+const INLINE = /(\*\*[^*]+\*\*|`[^`]+`|\*[^*\n]+\*)/g;
+
+export function parseInline(s) {
+  const str = S(s, 8000);
+  const out = [];
+  let last = 0;
+  str.replace(INLINE, (m, _g, idx) => {
+    if (idx > last) out.push({ t: 't', s: str.slice(last, idx) });
+    if (m.slice(0, 2) === '**') out.push({ t: 'b', s: m.slice(2, -2) });
+    else if (m[0] === '`') out.push({ t: 'c', s: m.slice(1, -1) });
+    else out.push({ t: 'i', s: m.slice(1, -1) });
+    last = idx + m.length;
+    return m;
+  });
+  if (last < str.length) out.push({ t: 't', s: str.slice(last) });
+  return out.length ? out : [{ t: 't', s: str }];
+}
+
+/* ----------------------------------------------------------------- blocks */
+
+/** Parse a note body into typed blocks.
+ *
+ *  kinds:
+ *    say     — the words to say OUT LOUD. `> line`. The one that matters.
+ *    p       — why it works. Plain prose.
+ *    h       — `## heading`
+ *    ul / ol — `- item` / `1. item`
+ *    caution — `! never do this`. Compliance, not content.
+ *    table   — `| a | b |`
+ *    hr      — `---`
+ *
+ *  Unknown syntax degrades to a paragraph rather than being dropped. A note
+ *  that renders as plain prose is a bad screen; a note with a silently missing
+ *  line is a rep who never reads a rule.
+ */
+export function parseBlocks(body) {
+  const lines = S(body, 8000).replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let para = [];
+  const flush = () => { if (para.length) { out.push({ kind: 'p', text: para.join(' ').trim() }); para = []; } };
+  const runOf = (i, re, strip) => {
+    const items = [];
+    while (i < lines.length && re.test(lines[i])) { items.push(lines[i].trim().replace(strip, '')); i++; }
+    return [items, i];
+  };
+
+  let i = 0;
+  while (i < lines.length) {
+    const raw = lines[i];
+    const t = raw.trim();
+
+    if (!t) { flush(); i++; continue; }
+
+    if (/^-{3,}$/.test(t) || /^_{3,}$/.test(t)) { flush(); out.push({ kind: 'hr' }); i++; continue; }
+
+    const h = /^(#{1,4})\s+(.*)$/.exec(t);
+    if (h) { flush(); out.push({ kind: 'h', level: h[1].length, text: h[2].trim() }); i++; continue; }
+
+    /* A run of `>` lines is one spoken passage. A bare `>` inside the run
+       splits it into two paragraphs — that is a pause on the call, and the
+       script uses it deliberately ("Then stop talking"). */
+    if (/^>/.test(t)) {
+      flush();
+      const paras = [];
+      let cur = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) {
+        const c = lines[i].trim().replace(/^>\s?/, '').trim();
+        if (!c) { if (cur.length) { paras.push(cur.join(' ')); cur = []; } }
+        else cur.push(c);
+        i++;
+      }
+      if (cur.length) paras.push(cur.join(' '));
+      if (paras.length) out.push({ kind: 'say', paras });
+      continue;
+    }
+
+    if (/^!\s+/.test(t)) {
+      flush();
+      let items; [items, i] = runOf(i, /^\s*!\s+/, /^!\s+/);
+      out.push({ kind: 'caution', items });
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(t)) {
+      flush();
+      let items; [items, i] = runOf(i, /^\s*[-*]\s+/, /^[-*]\s+/);
+      out.push({ kind: 'ul', items });
+      continue;
+    }
+
+    if (/^\d+[.)]\s+/.test(t)) {
+      flush();
+      let items; [items, i] = runOf(i, /^\s*\d+[.)]\s+/, /^\d+[.)]\s+/);
+      out.push({ kind: 'ol', items });
+      continue;
+    }
+
+    if (/^\|/.test(t)) {
+      flush();
+      const rows = [];
+      while (i < lines.length && /^\s*\|/.test(lines[i])) {
+        rows.push(lines[i].trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim()));
+        i++;
+      }
+      /* The `|---|---|` rule is a separator, never a row of data. Without this
+         the swap table renders a row of dashes as its first industry. */
+      const sep = rows.length > 1 && rows[1].every(c => /^:?-{2,}:?$/.test(c));
+      out.push({ kind: 'table', head: rows[0] || [], rows: sep ? rows.slice(2) : rows.slice(1) });
+      continue;
+    }
+
+    para.push(t);
+    i++;
+  }
+  flush();
+  return out;
+}
+
+/* The short front half of a compliance line — "no results promises", "no
+   client names" — for the strip that sits on the landing screen. A rep who is
+   unsure mid-call needs to SEE the headline without opening anything; the full
+   rule is one click behind it. */
+export const leadOf = (text) => {
+  const s = S(text, 400).trim();
+  const b = /^\*\*(.+?)\*\*/.exec(s);
+  if (b) return b[1].replace(/[\s.:;,—-]+$/, '').trim();
+  const cut = s.split(/[.—]/)[0];
+  return (cut || s).replace(/[\s.:;,—-]+$/, '').trim();
+};
+
+/** The published note that carries the compliance list, or null.
+ *
+ *  Found by CONTENT — the note with the MOST `!` lines — and not by category
+ *  name. Two reasons, and the second one is the bug this shape exists to
+ *  prevent:
+ *
+ *  1. Keying the treatment off the string 'Compliance' would mean a tenant who
+ *     renames the category silently loses the warning styling on the one list
+ *     where losing it matters. Ordering may degrade to alphabetical; this must
+ *     not.
+ *
+ *  2. MOST, not FIRST. Individual notes legitimately carry a rule or two — the
+ *     price objection ends in three of them. First-match would put the
+ *     objections module ahead of the actual compliance list and pin the wrong
+ *     note to the landing screen, which is worse than pinning none: a rep
+ *     would learn the strip is where the rules live and be reading three of
+ *     the nine.
+ *
+ *  Ties break by module order, so the result is stable rather than dependent
+ *  on which note was published last. */
+export const cautionNote = (mods) => {
+  let best = null, bestN = 0;
+  for (const m of A(mods)) {
+    for (const n of A(m && m.notes)) {
+      const c = parseBlocks(n && n.body).filter(b => b.kind === 'caution')
+        .reduce((s, b) => s + A(b.items).length, 0);
+      if (c > bestN) { best = n; bestN = c; }
+    }
+  }
+  return best;
+};
+
+/** Every compliance line in a note, flattened. */
+export const cautionItems = (note) =>
+  parseBlocks(note && note.body).filter(b => b.kind === 'caution').flatMap(b => A(b.items));

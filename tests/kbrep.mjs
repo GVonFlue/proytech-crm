@@ -110,7 +110,11 @@ ok('Money is NOT', !navs.includes('Money'));
 
 console.log('\nthe rep screen shows published notes only');
 await nav('Playbook'); await settle(120);
-ok('the rep view opened', /How we do things here/.test(txt()), txt().slice(0,200));
+/* Asserted on STRUCTURE, not on the sentence under the heading. This line used
+   to match the rep view's subtitle and broke the first time that copy was
+   reworded, which made it a test of the copy rather than of the screen. */
+ok('the rep view opened', !!document.querySelector('.pb .pb-tiles, .pb .empty'),
+   (document.querySelector('.pb') && document.querySelector('.pb').className) || 'no .pb');
 ok('the published note is listed', /Rate lock objection/.test(txt()));
 ok('the DRAFT is not listed, even though this browser was handed one', !/Half-written thing/.test(txt()));
 ok('the draft body is nowhere on the page', !txt().includes(DRAFT_SECRET));
@@ -124,9 +128,16 @@ ok('no way to draft from a meeting recording', !btn(/Start from a meeting record
 
 console.log('\nopening a published note reads it, and writes nothing');
 {
-  const row=[...document.querySelectorAll('.hli')].find(e=>/Rate lock objection/.test(e.textContent||''));
+  /* A tile, not a list row. The old selector was `.hli`, and when it stopped
+     matching, "its text is readable" KEPT PASSING — the tile carries a preview
+     of the note's first line, so the body sentinel was on the page without the
+     note ever having been opened. A pass that survives the click never
+     happening is not a test of opening a note, so this now asserts the note
+     VIEW is on screen (the back control) as well as the text. */
+  const row=[...document.querySelectorAll('.pb-tile')].find(e=>/Rate lock objection/.test(e.textContent||''));
   ok('the note is clickable', !!row);
   if(row) await click(row); await settle();
+  ok('the note view opened', !!document.querySelector('.pb-note') && !!btn(/Back to the playbook/));
   ok('its text is readable', txt().includes(PUBLISHED_TEXT));
   ok('reading it wrote nothing to the playbook', globalThis.__KB_WRITES__.length===0,
      JSON.stringify(globalThis.__KB_WRITES__));

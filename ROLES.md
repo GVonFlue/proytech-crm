@@ -183,8 +183,33 @@ Every note is one of two things:
 
 A new note is always a draft. **Publishing is a button you press**, on a screen
 that first shows you exactly what a rep will see — read back from the database,
-not re-rendered from what you typed. Nothing publishes itself and nothing
-imports wholesale.
+not re-rendered from what you typed. **Nothing publishes itself.**
+
+**Import notes** reads a JSON file and creates the notes in it — added because
+seeding a playbook by hand is most of a morning. It changes nothing about the
+above: everything it creates is a **draft**, and each one still has to be
+previewed and published one at a time. It also refuses a file with a bad row
+rather than writing the good rows before it, and skips any title that already
+exists, so re-running it does not duplicate. `PLAYBOOK-SEED.json` in the repo
+root is ProyTech's own — the cold call script and the six SOPs, cut from
+`SALES-SCRIPT.md` and `SALES-SOPS.md`.
+
+### What a rep's Playbook actually looks like
+
+Not a list of titles. The published notes are grouped into **modules** by their
+category and laid out as tiles, so an objection is **two clicks** from anywhere:
+the tab, then the tile. That matters because the highest-frequency use of this
+whole system is a rep mid-call who has just been asked something.
+
+Inside a note, a line written as `> "say this"` renders as **the words to say**
+— large and set apart — and ordinary paragraphs render as the reasoning
+underneath. A line written as `! never do this` renders as a compliance rule.
+The note with the most of those is **pinned to the landing screen** as a strip
+of headlines a rep can read without opening anything.
+
+Ordering inside a module comes from the number in the title (`SOP-01`,
+`2. The in`), so notes stay in document order rather than in whichever order
+they were last edited.
 
 Once published, your later edits are **not** live. Reps keep reading the last
 version you approved, and the note is flagged **"Published version is behind"**
