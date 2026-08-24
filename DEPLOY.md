@@ -119,6 +119,24 @@ Two practical consequences:
    while `main` knows nothing about it. Merge the branch or expect the value to
    sit there unread.
 
+   **This has now happened, and it is worth reading as a real event rather than
+   a caution.** On 24 Aug 2026 the disposition picker was clicked once on the
+   preview for the disposition branch, to see what it looked like. That wrote a
+   real `disp:'NA'` onto a real lead — Ken Lo Paintless Dent Repair — in the
+   production database, from a branch that was not merged.
+
+   Nothing was harmed: the row is correct and the branch landed. But a
+   measurement being run at the same time had been written against the premise
+   *"no disposition exists in this database yet"*, which was true when it was
+   written and false forty minutes later. It reported a disagreement between two
+   screens that looked like a bug in the measuring query and was in fact the
+   product working.
+
+   The lesson is not "do not click the preview". It is that **the database has
+   no memory of which branch wrote a row**, so anything reasoning about the
+   shape of the data — a migration, an audit, a measurement — can be
+   invalidated by a single click on a preview tab, and will not say so.
+
 If you ever want a genuine sandbox, it needs a second Supabase project and a
 second set of environment variables on the preview environment. There is no such
 thing today.

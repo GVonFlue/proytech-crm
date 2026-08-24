@@ -6092,8 +6092,34 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   /* "Not touched yet" means nobody has REACHED OUT — not that the feed is
      empty. Every lead is born with a "Lead created." note and an import can add
      the note column as a second one, so an empty-array test would always be
-     false and the count would read 0 forever. Only a real outbound counts. */
-  const untouched=l=>!(l.activities||[]).some(a=>a&&REACHED_TYPES.has(a.type));
+     false and the count would read 0 forever. Only a real outbound counts.
+
+     ONE PREDICATE. This used to read REACHED_TYPES directly, which made it a
+     THIRD definition of untouched in this file — the dashboard's two (line 412
+     and the metrics block) both ask isRealTouch. Three answers to one question,
+     and the divergence was invisible because no screen shows two of them at
+     once.
+
+     MEASURED BEFORE THE CHANGE, 170 leads: 29 disagreed. Both directions were
+     real and neither was cosmetic:
+
+       28  this list said "to work", the dashboard said already contacted
+           — a lead worked only by a note a person typed. Notes are not in
+           REACHED_TYPES, so a relationship worked entirely by hand read as
+           never called. 21 of those were unmarked import notes and are fixed
+           by IMPORT-NOTE-BACKFILL.sql, not by this; ~7 are genuine.
+
+        1  this list said contacted, the dashboard said never
+           — a Call carrying disp:'NA'. That one is the direction that matters,
+           because it is not one row: it is EVERY lead a rep dials and does not
+           reach, and a new rep is expected at one booking per twenty-five to
+           thirty dials. Left alone, "to work" would empty itself of exactly
+           the leads still needing a call.
+
+     RUN THE BACKFILL FIRST. Before those 21 notes are marked, isRealTouch
+     counts them as contact, so shipping this without it drops 21 leads nobody
+     has ever spoken to off the to-work list. See TOWORK-DISAGREE-MEASURE.sql. */
+  const untouched=l=>!(l.activities||[]).some(isRealTouch);
   const recentCount=leads.filter(recentFilter).length;
   const toWorkCount=leads.filter(l=>recentFilter(l)&&untouched(l)).length;
   const claim=(e,l)=>{ e.stopPropagation(); if(updateLead) updateLead(l.id,{owner:me}); };
