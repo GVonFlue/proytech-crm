@@ -1142,6 +1142,26 @@ const CSS=`
 .modal.lead .act-t{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
 .modal.lead .act-t.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
   border-color:rgba(56,189,248,.55);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(56,189,248,.9)}
+/* The disposition bar on the dark plate. Mirrors .act-t above, because it is
+   the same control one row higher and the two must not read as different kinds
+   of thing. The two no-contact codes stay quieter here too — dimmer ink, no
+   glow when selected — so the codes that mean "nothing happened" never look
+   like progress. tests/leadcontrast.mjs walks every text node in this view and
+   fails dark-on-dark, which is how the light version of this got caught. */
+.modal.lead .disp-b{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .disp-b b{color:var(--ink-lo)}
+.modal.lead .disp-b:hover{border-color:rgba(56,189,248,.45);color:var(--ink-hi)}
+.modal.lead .disp-b.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
+  border-color:rgba(56,189,248,.55);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(56,189,248,.9)}
+.modal.lead .disp-b.on b{color:var(--ink-hi)}
+.modal.lead .disp-b.quiet{background:rgba(148,163,184,.07);color:var(--ink-mid)}
+.modal.lead .disp-b.quiet.on{background:rgba(148,163,184,.2);border-color:rgba(148,163,184,.5);
+  color:var(--ink-hi);box-shadow:none}
+.modal.lead .disp-b.quiet.on b{color:var(--ink-hi)}
+.modal.lead .disp-cb label{color:var(--ink-mid)}
+.modal.lead .disp-cb input{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-hi)}
+.modal.lead .disp-note{color:var(--ink-mid)}
+.modal.lead .disp-err{color:#FCA5A5}
 .modal.lead .compose-open{background:rgba(56,189,248,.06);border:1px dashed var(--line-hi);color:var(--ink-mid)}
 .modal.lead .compose-open:hover{border-style:solid;color:var(--ink-hi)}
 .modal.lead .empty{color:var(--dim)}
@@ -2113,6 +2133,29 @@ const CSS=`
 .rb-n{margin-left:auto;font-size:12px;color:#8E89A8}
 .rb-n b{color:${COBALT}}
 @media(max-width:640px){.rb-n{margin-left:0;width:100%}}
+/* ---- the disposition bar: what happened on the call ----
+   Rep-only. The two no-contact codes are drawn QUIETLY and the contact ones
+   normally, so the pair a rep reaches for most (NA, BAD) read as bookkeeping
+   rather than as outcomes — they are the ones that must not feel like progress. */
+.dispbar{margin-bottom:9px}
+.disp-row{display:flex;flex-wrap:wrap;gap:5px}
+.disp-b{display:inline-flex;align-items:center;gap:6px;border:1px solid #E2E4EF;background:#fff;
+  color:#4A5568;border-radius:9px;padding:6px 10px;font-size:11.5px;font-weight:650;
+  font-family:inherit;cursor:pointer;line-height:1.3}
+.disp-b b{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:#8E89A8}
+.disp-b:hover{border-color:${COBALT}}
+.disp-b.on{border-color:${COBALT};background:rgba(43,77,224,.07);color:${COBALT}}
+.disp-b.on b{color:${COBALT}}
+.disp-b.quiet{background:#F7F7FB;color:#6B7280}
+.disp-b.quiet.on{border-color:#8E89A8;background:rgba(142,137,168,.13);color:#4A5568}
+.disp-b.quiet.on b{color:#4A5568}
+.disp-cb{display:flex;align-items:center;gap:9px;margin-top:8px}
+.disp-cb label{font-size:11.5px;font-weight:700;color:#4A5568}
+.disp-cb input{border:1px solid #E2E4EF;border-radius:8px;padding:6px 9px;font-size:12.5px;font-family:inherit}
+.disp-note{margin-top:7px;font-size:11.5px;color:#6B7280;line-height:1.5}
+.disp-err{display:flex;align-items:flex-start;gap:7px;margin-top:8px;font-size:12px;font-weight:600;
+  color:#b4322e;line-height:1.5}
+.disp-err svg{flex:none;margin-top:1px}
 .notnow{display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;border:1px solid rgba(124,138,165,.35);background:rgba(124,138,165,.08);color:#4A5568;border-radius:11px;padding:9px 12px;font-size:12.5px;font-weight:700;font-family:inherit;cursor:pointer;text-align:left}
 .notnow:hover{border-color:#7C8AA5;background:rgba(124,138,165,.14)}
 .notnow span{margin-left:auto;font-weight:500;font-size:11px;color:#8E89A8;text-align:right}

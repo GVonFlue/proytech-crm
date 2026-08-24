@@ -35,6 +35,8 @@ import {
   gmailCompose, isSystemNote, yearsAt,
   referralsOut, mkReferral, introducedLeads, referralTarget,
   lastTouch,
+  DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
+  MAX_ATTEMPTS,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import {
@@ -375,7 +377,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   const sizeNote=el=>{ if(!el) return; el.style.height='auto';
     el.style.height=Math.min(NOTE_MAX,el.scrollHeight)+'px'; };
   const growNote=e=>{ setAtext(e.target.value); sizeNote(e.target); };
-  const [atype,setAtype]=useState('Call');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
+  const [atype,setAtype]=useState('Call');const [adisp,setAdisp]=useState('');const [cbAt,setCbAt]=useState('');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
   const [wideFeed,setWideFeed]=useState(()=>{ try{return localStorage.getItem('pt_widefeed')==='1';}catch{return false;} });
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
@@ -613,8 +615,33 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
       {isOpen&&<div className="msec-b">{body}</div>}
     </div>);
   };
+  /* ---- the disposition on a call ----------------------------------------
+
+     REQUIRED FOR A REP, ABSENT FOR AN OWNER. `rep` is the signed-in user's
+     crm_users.role, which is the only place "who is writing this" is knowable:
+     an activity row stores `who`, a display NAME, so a stored row can never be
+     asked what role wrote it. Enforcing here is therefore not a convenience,
+     it is the only place the question has an answer — and it is what closes
+     the `!a.disp` default that lets an owner's undisposed call still count as
+     contact (lib/lead.js, dispIsContact).
+
+     dispErr is what STOPS the write. Every rule SOP-02 states as something the
+     rep must remember is re-imposed here instead, because a model told not to
+     do something is a request and a rep told not to do something is a Tuesday. */
+  const dispErr=(()=>{
+    if(!dispRequired(rep,atype)) return '';
+    if(!adisp) return 'Pick what happened on the call.';
+    if(adisp==='VM'&&hasVoicemail(draft)) return 'A voicemail has already been left on this lead. SOP-02: first attempt only, never a second.';
+    if(adisp==='CB'&&!cbAt) return 'A callback needs the day AND the time they gave you — not "next week".';
+    if(adisp==='NF'&&!atext.trim()) return 'Not a fit needs a reason. A disqualify with no reason is a lost lead dressed up as a decision.';
+    if(adisp==='BK'&&!(draft.name&&draft.email&&draft.phone)) return 'Booked needs their name, email and mobile on the lead first — a booked call with a missing mobile is a no-show.';
+    return '';
+  })();
+
   const logIt=()=>{
-    const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:''); if(!t)return;
+    if(dispErr) return;
+    const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:'')
+      ||(adisp?dispLabel(adisp)+'.':''); if(!t)return;
     const tags=[...pendTags];
     if(atype==='Booked'){
       /* a logged meeting IS a meeting — create the record so it shows up with a
@@ -630,10 +657,29 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
       setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
     } else {
       /* tags ride WITH the activity — a separate write would race it, and the
-         note would land tagged for nobody (see the v7 stale-write notes) */
-      addActivity(draft.id,atype,stripTagText(t,tags)||t,who,tags.length?{tags}:undefined);
+         note would land tagged for nobody (see the v7 stale-write notes).
+
+         SO, HV and DNC go to the owners the same day. That is the EXISTING
+         @mention path, not a second notification system: a tag lands on their
+         dashboard through openTagsFor, which already works and which they
+         already read. The tag rides in the same write for the same reason the
+         manual ones do. */
+      const owners=(teamRoster||[]).filter(u=>u&&u.role==='owner').map(u=>u.name).filter(Boolean);
+      const escalate=adisp==='SO'||adisp==='HV'||adisp==='DNC';
+      const allTags=[...new Set(escalate?[...tags,...owners]:tags)];
+      const extra={
+        ...(allTags.length?{tags:allTags}:{}),
+        ...(adisp?{disp:adisp}:{}),
+        ...(adisp==='CB'&&cbAt?{cbAt}:{}),
+      };
+      addActivity(draft.id,atype,stripTagText(t,tags)||t,who,Object.keys(extra).length?extra:undefined);
+      /* A callback is a promise with a time on it, so it becomes the follow-up
+         rather than living only in the feed. DNC and BAD take the lead out of
+         circulation; dialState() is what every screen asks, so nothing here
+         needs a second flag to stay in sync. */
+      if(adisp==='CB'&&cbAt) updateLead(draft.id,{followUp:cbAt.slice(0,10),nextAction:`Callback agreed for ${cbAt.replace('T',' ')}`});
     }
-    setAtext(''); setPendTags([]); setComposeOpen(false);
+    setAtext(''); setPendTags([]); setComposeOpen(false); setAdisp(''); setCbAt('');
     if(noteRef.current) noteRef.current.style.height='';
   };
   /* log a payment straight from the composer — same payments[] the deal panel
@@ -670,7 +716,13 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
      role counts the same lead identically (ENGINEERING §2). */
   const logRows=useMemo(()=>isNew?[]:meetingLogsOf(lead,mlogs||[]),[lead,mlogs,isNew]);
   const feed=useMemo(()=>{
-    const acts=(isNew?[]:(lead?.activities||[])).filter(a=>feedFilter==='All'||a.type===feedFilter);
+    /* 'NoAnswer' is a disposition, not a type — and Call must EXCLUDE them, or
+       the Call chip says 5 and clicking it shows 27 rows. The chip counts and
+       the feed have to come from the same rule. */
+    const acts=(isNew?[]:(lead?.activities||[])).filter(a=>
+      feedFilter==='All' ? true
+      : feedFilter==='NoAnswer' ? !!(a.disp&&!dispIsContact(a))
+      : a.type===feedFilter && !(a.disp&&!dispIsContact(a)));
     /* only under All: the type chips count activities, and a derived row is
        not one — showing them under a chip would make its count read wrong */
     if(feedFilter!=='All'||!logRows.length) return acts;
@@ -765,16 +817,33 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     const acts=(lead?.activities||[]);
     const by={}; ACT_TYPES.forEach(t=>by[t.key]=0);
     let first='',last='';
-    acts.forEach(a=>{ if(by[a.type]!==undefined) by[a.type]++;
+    /* A NO-ANSWER IS A DIAL, NOT A CALL, AND IT GETS ITS OWN COUNT.
+
+       This tally is raw — it counts by `type` and does not go through
+       isRealTouch. A no-answer is type:'Call', so without this split one lead
+       renders "Call (27)" in the chip row while its own header two hundred
+       pixels away says "never contacted", because that header reads lastTouch,
+       which declines a no-answer. Two numbers disagreeing on one screen.
+
+       Shown rather than silently subtracted. The rep needs the dial count —
+       it is the numerator of his whole week — so hiding it would be its own
+       small lie. The same trade this function already makes for
+       "Lead created." one line down, but visible. */
+    let noAnswer=0;
+    acts.forEach(a=>{
+      if(a&&a.disp&&!dispIsContact(a)) noAnswer++;
+      else if(by[a.type]!==undefined) by[a.type]++;
       const d=String(a.ts||'').slice(0,10); if(!d) return;
       if(!first||d<first) first=d; if(!last||d>last) last=d; });
     /* "Lead created." is written by the system, not by you — counting it as a
        note would mean every lead claims one touch it never had. */
     const sysNotes=acts.filter(a=>a.type==='Note'&&/^Lead created\.$/.test(a.text||'')).length;
     by.Note=Math.max(0,by.Note-sysNotes);
+    /* `spoken` is the "N conversations" line on the prep rail. A dial nobody
+       answered is not a conversation, and it is already out of `by.Call`. */
     const spoken=(by.Call||0)+(by.Meeting||0)+(by.Booked||0);
-    const total=Object.values(by).reduce((x,y)=>x+y,0);
-    return {by,first,last,total,spoken};
+    const total=Object.values(by).reduce((x,y)=>x+y,0)+noAnswer;
+    return {by,first,last,total,spoken,noAnswer};
   },[lead]);
   /* `lead` is what widens this to the full viewport; every other modal in the
      app keeps the 960px card. Structure below is untouched — this PR moves no
@@ -948,7 +1017,13 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                   followUp:back,
                   nextAction:'Check back in — said not right now',
                   activities:[
-                    {id:uid(),ts,type:'Call',text:`Not interested right now. Parked until ${fmtDate(back)}.`,who:me},
+                    /* CB, and stamped as one. This is the SECOND path a rep can
+                       write a Call from, so without a disposition it would be the
+                       one undisposed rep-authored call in the app — the exact hole
+                       the composer's dispErr exists to close. CB and not NF because
+                       they said "not right now": they spoke, and a date is being
+                       set, which is what SOP-04 calls a callback. */
+                    {id:uid(),ts,type:'Call',disp:'CB',cbAt:back,text:`Not interested right now. Parked until ${fmtDate(back)}.`,who:me},
                     ...(draft.activities||[])] });
               };
               return (<button className="notnow" onClick={park}>
@@ -964,6 +1039,28 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
             <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
               {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
             </div>
+            {/* WHAT HAPPENED ON THE CALL. Shown to a rep only: the owners log
+                calls without a disposition and nothing about their rows
+                changes. First row of the composer because SOP-01 asks for it
+                "the second you hang up" — five seconds, before the note. */}
+            {dispRequired(rep,atype)&&<div className="dispbar">
+              <div className="disp-row">
+                {DISPOSITIONS.map(d=>(
+                  <button key={d.code} type="button" title={d.hint}
+                    className={'disp-b'+(adisp===d.code?' on':'')+(d.contact?'':' quiet')}
+                    onClick={()=>setAdisp(c=>c===d.code?'':d.code)}>
+                    <b>{d.code}</b>{d.label}
+                  </button>))}
+              </div>
+              {adisp==='CB'&&<div className="disp-cb">
+                <label>Exactly when?</label>
+                <input type="datetime-local" value={cbAt} onChange={e=>setCbAt(e.target.value)}/>
+              </div>}
+              {adisp&&!dispIsContact({disp:adisp})&&<div className="disp-note">
+                Logged as a dial. It does not count as contact, so this lead stays on the untouched list.
+              </div>}
+              {dispErr&&<div className="disp-err"><AlertTriangle size={13}/>{dispErr}</div>}
+            </div>}
             {atype==='Booked'
               ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner}
                   onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/></div>
@@ -1005,13 +1102,20 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 : <select className="selctl" style={{padding:'7px 9px',fontSize:12.5}} value={who} onChange={e=>setWho(e.target.value)}>{(opt.owner||OWNERS).map(o=><option key={o} value={o}>{o}</option>)}</select>}
               {atype==='Payment'
                 ? <button className="btn btn-g" style={{padding:'8px 16px'}} onClick={logPaymentFromComposer}><DollarSign size={14}/>Log Payment</button>
-                : <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt}>Log {actLabel(atype)}</button>}
+                : <button className="btn btn-p" style={{padding:'8px 16px'}} onClick={logIt} disabled={!!dispErr}
+                    title={dispErr||''}>Log {adisp?dispLabel(adisp):actLabel(atype)}</button>}
             </div>}
             </div>}
             <div className="afilter" style={{marginTop:14}}>
               {/* every chip carries its count, so the filter row doubles as the
                   contact tally — one place, not two things to keep in sync */}
               <button className={feedFilter==='All'?'on':''} onClick={()=>setFeedFilter('All')}>All{touch.total?` (${touch.total})`:''}</button>
+              {/* Its own chip, never folded into Call. A dial nobody answered
+                  is the numerator of a rep's week and it is not a conversation;
+                  showing it here is what keeps this row from disagreeing with
+                  "never contacted" in the header above. */}
+              {touch.noAnswer>0&&<button className={feedFilter==='NoAnswer'?'on':''}
+                onClick={()=>setFeedFilter('NoAnswer')}>No answer ({touch.noAnswer})</button>}
               <button className={feedFilter==='Note'?'on':''} onClick={()=>setFeedFilter('Note')}>Notes{noteCount?` (${noteCount})`:''}</button>
               {ACT_TYPES.filter(t=>t.key!=='Note').map(t=>{ const n=touch.by[t.key]||0;
                 return (<button key={t.key} className={(feedFilter===t.key?'on':'')+(n?'':' none')}
@@ -1086,7 +1190,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                   moment of import rather than a moment of contact */}
               {a.imported?<span className="fmeta-src"> · from the import</span>:null}</div></div>
               <button className="fdel" onClick={()=>delActivity(draft.id,a.id)}><Trash2 size={13}/></button></div></Fragment>);})}
-              {!feedRuns.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter.toLowerCase()} entries yet.`}</div>}</div>
+              {!feedRuns.length&&<div className="empty" style={{padding:'18px 0'}}>{feedFilter==='All'?'No activity yet. Log your first touch above.':`No ${feedFilter==='NoAnswer'?'no-answer':feedFilter.toLowerCase()} entries yet.`}</div>}</div>
             {/* pinned under the feed, never scrolls, never grows */}
             <div className="m-danger">{rep
               ? (()=>{ const lost=(stages||[]).find(x=>x.lost);

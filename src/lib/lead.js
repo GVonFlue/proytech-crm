@@ -138,6 +138,123 @@ export const dayLabel=iso=>{ const t=isoOf(new Date());
    batch-delete warning so the two can't drift apart */
 export const REACHED_TYPES=new Set(['Call','Text','Email','Meeting','Booked','Payment']);
 
+/* ---- disposition codes ----------------------------------------------------
+
+   SOP-02's outcome for a single dial. A DISPOSITION IS A FIELD ON A CALL, NOT
+   A NEW ACTIVITY TYPE. `REACHED_TYPES` above is untouched and `type` stays
+   'Call' (or 'Booked' for BK, which reuses the meeting record the show rate
+   reads). Two reasons, and the second is the one that would have gone wrong
+   quietly:
+
+     1. Activities already live in leads.data jsonb, so this needs no migration.
+     2. isRealTouch below is ONE predicate feeding lastTouch, daysSinceTouch,
+        firstTouchHrs and the untouched lists. Adding a ninth member to
+        REACHED_TYPES would move every one of those numbers for the owners, who
+        never set a disposition at all.
+
+   `contact` — was a person actually reached? This is what isRealTouch reads.
+   `attempt` — does this dial count against the three-attempt cap?
+
+   THE TWO FALSE ONES ARE THE POINT. A dial that rang out and a number that does
+   not work are both activity where NOBODY SPOKE TO ANYBODY. Counting them as
+   contact would make a lead nobody has ever reached read as worked, reset its
+   clock to today, and post a first-touch time for a call in which nothing
+   happened — which is exactly the bug the imported-note change fixed, at ten
+   times the volume, since most of a new rep's dials are no-answers. */
+export const DISPOSITIONS=[
+  {code:'NA', label:'No answer',   hint:'Rang out, no voicemail',        contact:false, attempt:true },
+  {code:'BAD',label:'Bad number',  hint:'Dead, wrong or disconnected',   contact:false, attempt:false},
+  {code:'VM', label:'Voicemail',   hint:'First attempt only',            contact:true,  attempt:true },
+  {code:'CB', label:'Callback',    hint:'Needs a day and a time',        contact:true,  attempt:true },
+  {code:'NF', label:'Not a fit',   hint:'Needs a reason',                contact:true,  attempt:true },
+  {code:'SO', label:'Send only',   hint:'Goes to the owners today',      contact:true,  attempt:true },
+  {code:'BK', label:'Booked',      hint:'Needs their contact details',   contact:true,  attempt:true },
+  {code:'HV', label:'High value',  hint:'Goes to the owners today',      contact:true,  attempt:true },
+  {code:'DNC',label:'Do not call', hint:'Permanent, immediate',          contact:true,  attempt:true },
+];
+export const DISP_CODES=DISPOSITIONS.map(d=>d.code);
+export const dispOf=code=>DISPOSITIONS.find(d=>d.code===code)||null;
+export const dispLabel=code=>{const d=dispOf(code);return d?d.label:'';};
+
+/* AN ALLOWLIST, NOT A DENYLIST. A code added later and forgotten here defaults
+   to NOT contact, which is the safe direction: declining to count an activity
+   can only age a clock, never warm it, and "no lead may get warmer" is the
+   invariant tests/realtouch.mjs asserts three times. A denylist fails the other
+   way — add a code, forget the set, and every row of it silently reads as
+   somebody having been spoken to. */
+export const CONTACT_DISP=new Set(DISPOSITIONS.filter(d=>d.contact).map(d=>d.code));
+
+/* An activity with NO disposition is contact-by-default, and it has to be: the
+   owners never set one, and every row already in the database predates the
+   vocabulary. That default is a hole, and it is closed AT THE WRITE rather than
+   here — dispRequired() below, enforced in the composer. It cannot be closed
+   here, because a row carries `who` (a display NAME) and no role, so there is
+   no honest way to look at a stored row and tell who wrote it. */
+export const dispIsContact=a=>!a||!a.disp||CONTACT_DISP.has(a.disp);
+
+/* Which dispositions a rep must choose between when logging a call. Required
+   at the write for REP-AUTHORED calls only — `rep` comes from the signed-in
+   user's crm_users.role, which is known at the moment of writing and is the
+   only place this is knowable. */
+export const dispRequired=(rep,type)=>!!rep&&type==='Call';
+
+/* ---- the attempt cap ------------------------------------------------------
+
+   SOP-04: three attempts on a cold number across two weeks, then it dies.
+
+   BAD SHORT-CIRCUITS THE CAP RATHER THAN COUNTING AGAINST IT. A disconnected
+   number is not one of three chances — it is a number that will never work, and
+   spending the other two on it is two dials a new rep does not have to waste.
+   DNC is the same shape for a different reason: they asked. Both make the lead
+   dead immediately, which is why they are `dead` and not merely capped. */
+export const DEAD_DISP=new Set(['BAD','DNC']);
+export const ATTEMPT_DISP=new Set(DISPOSITIONS.filter(d=>d.attempt).map(d=>d.code));
+export const MAX_ATTEMPTS=3;
+export const ATTEMPT_WINDOW_DAYS=14;
+
+/* Why the lead can no longer be dialled, or ''. Ordered by how permanent it is,
+   so a number that is both DNC and capped reads as DNC — the stronger and more
+   actionable answer. */
+export const deadReason=l=>{
+  let bad='';
+  for(const a of ((l&&l.activities)||[])){
+    if(!a||!a.disp) continue;
+    if(a.disp==='DNC') return 'DNC';
+    if(a.disp==='BAD') bad='BAD';
+  }
+  return bad;
+};
+
+/* Attempts inside the rolling window. Counts dispositions only, so an owner's
+   undisposed call is not silently spending a rep's attempts. */
+export const attemptsOn=(l,from)=>{
+  const now=(from?new Date(from):new Date()).getTime();
+  const floor=now-ATTEMPT_WINDOW_DAYS*864e5;
+  let n=0;
+  for(const a of ((l&&l.activities)||[])){
+    if(!a||!a.disp||!ATTEMPT_DISP.has(a.disp)) continue;
+    const t=new Date(a.ts).getTime();
+    if(isNaN(t)||t<floor) continue;
+    n++;
+  }
+  return n;
+};
+
+/* One answer to "may I dial this?", so the lead screen and any future call list
+   cannot disagree. `dead` is permanent; `capped` is only true within the
+   window and goes away as attempts age out. */
+export const dialState=(l,from)=>{
+  const dead=deadReason(l);
+  const attempts=attemptsOn(l,from);
+  if(dead) return {dial:false,dead,reason:dead,attempts,left:0};
+  const capped=attempts>=MAX_ATTEMPTS;
+  return {dial:!capped,dead:'',reason:capped?'CAP':'',attempts,left:Math.max(0,MAX_ATTEMPTS-attempts)};
+};
+
+/* Has a voicemail already been left? SOP-02: first attempt only, never a
+   second. Enforced at the write rather than trusted to memory. */
+export const hasVoicemail=l=>((l&&l.activities)||[]).some(a=>a&&a.disp==='VM');
+
 /* ---- machine notes, and what actually counts as contact --------------------
 
    The app writes notes about itself. Every one of them is stored as
@@ -168,7 +285,14 @@ export const isSystemNote=a=>!!a&&a.type==='Note'&&!a.derived&&SYS_NOTE.test(Str
    moment when anything happened — so counting it makes a lead look worked AND
    gives it a first-touch time of zero. Marked at the source by mkLead; rows
    imported before that mark existed need IMPORT-NOTE-BACKFILL.sql. */
-export const isRealTouch=a=>!!a&&!a.imported&&(REACHED_TYPES.has(a.type)||(a.type==='Note'&&!isSystemNote(a)));
+/* A no-answer is not contact either, for the identical reason and at far
+   greater volume: a new rep runs at one booking per twenty-five to thirty
+   dials, so most rows are NA. Counting them would take every dialled-once lead
+   off the untouched list, reset its clock to today, and give it a first touch
+   measured from a call in which nobody said anything. The gate is on the
+   DISPOSITION, not the type — 'Call' stays in REACHED_TYPES, so nothing the
+   owners log changes. See DISPOSITIONS above. */
+export const isRealTouch=a=>!!a&&!a.imported&&dispIsContact(a)&&(REACHED_TYPES.has(a.type)||(a.type==='Note'&&!isSystemNote(a)));
 
 /* The last time a person and this record were actually in contact.
 

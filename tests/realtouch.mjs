@@ -169,5 +169,73 @@ const TYPED = { ...IMPORTED, activities: IMPORTED.activities.map(a => { const { 
 ok('the same text typed by a person still counts',
    TYPED.activities.some(isRealTouch) && lastTouch(TYPED) === at(0));
 
+/* ---------------------------------------------------------------------------
+   THE NO-ANSWER.
+
+   Same shape as the imported note, at far greater volume. A new rep runs at one
+   booking per twenty-five to thirty dials, so MOST of his rows are no-answers.
+   Counting them as contact would take every dialled-once lead off the untouched
+   list, reset its clock to today, and give it a first touch measured from a
+   call in which nobody said anything.
+
+   The gate is on the DISPOSITION, not the type: 'Call' stays in REACHED_TYPES,
+   so nothing an owner logs changes. That is the whole reason it is a field on a
+   call rather than a new activity type.
+   -------------------------------------------------------------------------- */
+console.log('\nthe no-answer');
+const { dispIsContact, CONTACT_DISP, DISPOSITIONS } = await import('./.brt.mjs?v=' + Date.now());
+
+const dialed = (code, h = 1) => ({ id:'x', createdAt: CREATED, activities:[
+  { id:'1', ts: at(0), type:'Note', text:'Lead created.' },
+  { id:'2', ts: at(h), type:'Call', disp: code, text:'Dialled.' },
+] });
+
+const NA_ONLY  = dialed('NA');
+const BAD_ONLY = dialed('BAD');
+const VM_ONLY  = dialed('VM');
+
+ok('a no-answer is not contact', !NA_ONLY.activities.some(isRealTouch));
+ok('  so a dialled-once lead is still UNTOUCHED', lastTouch(NA_ONLY) === null);
+ok('  and has no first touch to flatter the average',
+   firstTouch(NA_ONLY, isRealTouch) === null, String(firstTouch(NA_ONLY, isRealTouch)));
+ok('a bad number is not contact either', !BAD_ONLY.activities.some(isRealTouch));
+ok('  and it is untouched too', lastTouch(BAD_ONLY) === null);
+
+/* VM is the line between them: a voicemail left a real message at a real
+   moment, so it IS contact. Getting this wrong in the other direction would
+   erase genuine outreach. */
+ok('a voicemail IS contact', VM_ONLY.activities.some(isRealTouch));
+ok('  and it sets the clock', lastTouch(VM_ONLY) === at(1));
+ok('  and it is a first touch', firstTouch(VM_ONLY, isRealTouch) === 1);
+
+/* The owners never set a disposition. Every existing row in the database has
+   none. Both must behave exactly as they did before this vocabulary existed —
+   that is the whole "identical before and after the deploy" property. */
+const OWNER_CALL = { id:'o', createdAt: CREATED, activities:[
+  { id:'1', ts: at(0), type:'Note', text:'Lead created.' },
+  { id:'2', ts: at(3), type:'Call', text:'Rang him.', who:'Garrett' },
+] };
+ok('an undisposed call is unchanged — the owners log exactly as before',
+   OWNER_CALL.activities.some(isRealTouch) && lastTouch(OWNER_CALL) === at(3));
+ok('  dispIsContact defaults to true, and that default is closed at the WRITE',
+   dispIsContact({ type:'Call' }) === true);
+
+/* An allowlist, so a code added later and forgotten defaults to NOT contact.
+   A denylist would fail the other way and silently count it. */
+ok('an unknown disposition is NOT contact — the set is an allowlist',
+   dispIsContact({ disp:'ZZ' }) === false);
+ok('  every contact code is in the set',
+   DISPOSITIONS.filter(d => d.contact).every(d => CONTACT_DISP.has(d.code)));
+ok('  and neither no-contact code is',
+   !CONTACT_DISP.has('NA') && !CONTACT_DISP.has('BAD'));
+
+/* The invariant, extended to dispositions: declining to count an activity can
+   only age a clock, never warm it. */
+for (const [name, l] of [['na', NA_ONLY], ['bad', BAD_ONLY], ['vm', VM_ONLY]]) {
+  const nu = lastTouch(l);
+  ok(`${name}: the clock never gets warmer`,
+     nu === null || String(nu) <= String(oldClock(l)), `${nu} vs ${oldClock(l)}`);
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

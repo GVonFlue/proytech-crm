@@ -103,11 +103,12 @@ and fix the right one. If the log is thin or flattering, we cannot tell
 anything, and the conversation becomes about you instead of about the process.
 Log the bad calls exactly as carefully as the good ones.
 
-## The eight codes
+## The nine codes
 
 | Code | Means | What has to be true |
 |---|---|---|
 | **NA** | No answer | Rang out. No voicemail left. Attempt count goes up by one. |
+| **BAD** | Bad number | Dead, wrong or disconnected. The number never works. It does **not** use up an attempt — the lead dies on the spot. |
 | **VM** | Voicemail left | First attempt only. Never leave a second one. |
 | **CB** | Callback | They gave you a specific day and time. Write the exact time, not "next week." |
 | **NF** | Not a fit | Disqualified on the call. The reason goes in the row — no blank reasons. |
@@ -223,6 +224,9 @@ Garrett's hands than sitting in your follow-up pile for three weeks.
 
 - **Three attempts on a cold number across two weeks, then it dies.** Voicemail
   on the first attempt only.
+- **A bad number does not get three attempts.** Log **BAD** the first time you
+  hear it is dead, wrong or disconnected, and the lead stops there. Spending
+  the other two dials on a number that will never work is two dials gone.
 - Four or more calls to someone who has never picked up is not persistence, it
   is how we end up on a DNC list.
 
