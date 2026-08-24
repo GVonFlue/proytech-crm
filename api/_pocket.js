@@ -1,3 +1,4 @@
+import { SUPA_KEY, SUPA_URL } from './_env.js';
 import { createHash } from 'node:crypto';
 
 // api/_pocket.js — how a Pocket recording is SHAPED and STORED.
@@ -24,8 +25,8 @@ export const RAW_MAX = 5_000_000;
    Losing the end of a transcript loudly beats losing the recording quietly. */
 export const TRANSCRIPT_MAX = 2_000_000;
 
-const SUPA = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const KEY  = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPA = SUPA_URL;
+const KEY  = SUPA_KEY;
 
 /* ------------------------------------------------------------- supabase */
 

@@ -1,3 +1,4 @@
+import { SUPA_KEY, SUPA_URL } from './_env.js';
 // api/_spend.js — a spend ceiling denominated in DOLLARS, not requests.
 //
 // _guard.js caps how MANY calls happen. That is the right shape for abuse, and
@@ -10,8 +11,8 @@
 //
 // Requires the `cost` column added by JARVIS-MIGRATION.sql.
 
-const SUPA = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const KEY  = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPA = SUPA_URL;
+const KEY  = SUPA_KEY;
 
 /* Per-million-token rates, USD. Override with JARVIS_RATE_IN / JARVIS_RATE_OUT
    if the rate card moves — the code should not need a deploy to stay honest. */
