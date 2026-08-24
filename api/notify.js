@@ -49,14 +49,15 @@
                       Shared with the Google flow; api/_google.js holds the
                       default if it is unset.
    ========================================================================== */
+import { SUPA_KEY, SUPA_URL } from './_env.js';
 import { guard, sweep } from './_guard.js';
 // appUrl(), not a second copy of the app's URL and its fallback. Two spellings
 // of "where this app lives" drift, and the one that drifts here silently drops
 // the only link in the email.
 import { appUrl } from './_google.js';
 
-const SUPA = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const KEY  = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPA = SUPA_URL;
+const KEY  = SUPA_KEY;
 
 const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 const usd = v => '$' + Math.round(Number(v) || 0).toLocaleString();

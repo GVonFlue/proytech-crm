@@ -1,3 +1,4 @@
+import { SUPA_KEY, SUPA_URL } from './_env.js';
 // api/_guard.js — rate limiting and spend protection for every AI endpoint.
 //
 // The threat isn't a clever attacker, it's a cheap one: a loop calling a public
@@ -25,8 +26,8 @@
 //
 // Requires the table in MIGRATION.sql (api_hits) and SUPABASE_SERVICE_KEY.
 
-const SUPA = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const KEY  = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPA = SUPA_URL;
+const KEY  = SUPA_KEY;
 
 /** Caller's IP. Vercel sets x-forwarded-for; take the FIRST entry — later ones
  *  are proxies and are trivially spoofable by the client. */

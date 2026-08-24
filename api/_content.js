@@ -21,14 +21,15 @@
 //   other. The RATE CARD is shared (RATES, below) so the two cannot disagree
 //   about what a token costs.
 
+import { SUPA_KEY, SUPA_URL } from './_env.js';
 import { timingSafeEqual } from 'node:crypto';
 import { costOf } from './_spend.js';
 import {
   readConfig, buildSystemPrompt, centsFrom, unitsFrom, currentMonday,
 } from '../src/lib/content.js';
 
-const SUPA = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-const KEY  = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPA = SUPA_URL;
+const KEY  = SUPA_KEY;
 
 /* The content key is its own env var, NOT ANTHROPIC_API_KEY. WEEKEND1 §3: it
    lives in Vercel and is read only inside api/. It is never named in a VITE_
