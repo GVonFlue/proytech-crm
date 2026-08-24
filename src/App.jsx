@@ -651,8 +651,20 @@ function itemsFromLead(l){ const items=[];
 function mkLead(o){
   const createdAt=o.createdAt||new Date(Date.now()-((o._ago||0)*36e5)).toISOString();
   const acts=[{id:uid(),ts:createdAt,type:'Note',text:'Lead created.'}];
-  if(o.note) acts.unshift({id:uid(),ts:createdAt,type:'Note',text:o.note});
-  const {note,_ago,...rest}=o;
+  /* IMPORTED:TRUE — the note came out of a spreadsheet, not out of a
+     conversation. It is kept, because it is real information about the lead,
+     but it is marked so isRealTouch can decline to call it contact.
+
+     Without the mark it was indistinguishable from a note somebody typed: same
+     type, no `who`, no flag — and stamped at createdAt, so it also computed a
+     first touch of zero hours. 21 leads read as worked because a CSV had a
+     column. See IMPORT-NOTE-FINDING.md.
+
+     The seed path shares this function and does NOT set it: seeded notes stand
+     in for notes a person wrote, which is what they are pretending to be. */
+  if(o.note) acts.unshift({id:uid(),ts:createdAt,type:'Note',text:o.note,
+    ...(o._import?{imported:true}:{})});
+  const {note,_ago,_import,...rest}=o;
   return {id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',
     stage:'new',priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',
     followUp:'',expectedClose:'',serviceInterest:[],owner:BRAND.team[0]||'',dealValue:0,retainer:0,
@@ -1123,6 +1135,7 @@ const CSS=`
 .modal.lead .sysrun:hover{border-color:var(--line-hi);color:var(--dim)}
 .modal.lead .sysrun b{color:var(--ink-mid)}
 .modal.lead .ftag{background:rgba(56,189,248,.12);border:1px solid var(--line-hi);color:var(--ink-mid)}
+.modal.lead .fmeta-src{color:var(--gold2)}
 .modal.lead .afilter button{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
 .modal.lead .afilter button.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
   border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
@@ -2412,6 +2425,7 @@ tbody tr.picked:hover{background:#E9EDFD}
 /* min-height was 52px — two lines — so a real note was written through a slot.
    Six lines to start; the growth beyond that is done in JS, because rows and
    min-height cannot follow content. */
+.fmeta-src{color:#8A6A1F;font-weight:600}
 .act-input{width:100%;padding:11px 12px;border:1px solid #DEDFEA;border-radius:10px;font-size:13.5px;font-family:'Inter';resize:vertical;min-height:112px;line-height:1.5}
 .act-input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .act-t.pay.on{border-color:${GREEN};background:color-mix(in srgb,${GREEN} 10%,#fff);color:#1a7d46}
@@ -6371,7 +6385,8 @@ function ImportModal({onClose,onImport,businessTypes}){
   };
   const onFile=e=>{ const f=e.target.files?.[0]; e.target.value=''; if(!f)return; setFileName(f.name); const r=new FileReader(); r.onload=()=>ingest(String(r.result)); r.readAsText(f); };
   const buildLead=row=>{ const f={}; headers.forEach((h,i)=>{ const t=mapping[h]; if(!t||t==='ignore')return; const v=(row[i]||'').trim(); if(!v)return; if(t==='name')f.name=(f.name?f.name+' ':'')+v; else if(t==='note')f.note=(f.note?f.note+' | ':'')+v; else f[t]=v; });
-    if(!f.name)f.name=f.company||'(no name)'; if(!f.source)f.source='CSV import'; if(markSponsor)f.potentialSponsor=true; return mkLead(f); };
+    if(!f.name)f.name=f.company||'(no name)'; if(!f.source)f.source='CSV import'; if(markSponsor)f.potentialSponsor=true;
+    return mkLead({...f,_import:true}); };
   /* A row with nothing in the name or company column isn't a lead — it's a
      trailing blank, a separator, or a totals row. Importing it as "(no name)"
      means someone has to find and delete it later. */
