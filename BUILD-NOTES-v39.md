@@ -36,7 +36,7 @@ telling you anything.
 | `tests/stub-supabase.js` | `tests/` — **this is the fix above** |
 | `tests/guard.mjs` · `tests/import.mjs` | `tests/` |
 
-Then run `MIGRATION.sql` in Supabase, and add **`SUPABASE_SERVICE_KEY`** to
+Then run `MIGRATION.sql` in Supabase, and add **`SUPABASE_SERVICE_ROLE_KEY`** to
 Vercel if it isn't there.
 
 ## What the merge added

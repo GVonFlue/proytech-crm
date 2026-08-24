@@ -197,9 +197,39 @@ Pocket shows you a **signing secret** when the webhook is created. Copy it.
 
 Then **redeploy** — Vercel only picks up new environment variables on a build.
 
-`SUPABASE_SERVICE_KEY` is already set (the rate limiter uses it). Run
+`SUPABASE_SERVICE_ROLE_KEY` is already set (the guard and the spend ledger use
+it — see "The server-side keys" below). Run
 `POCKET-MIGRATION.sql` first if you haven't; without the table every delivery
 returns 500 and Pocket gives up after three tries.
+
+## The server-side keys, and a trap worth knowing
+
+Two variables have no `VITE_` prefix and must never get one, because a `VITE_`
+variable is compiled into the browser bundle:
+
+| Variable | Used by |
+|---|---|
+| `SUPABASE_URL` | `_guard.js`, `_spend.js`, `_google.js`, `notify.js`, the Pocket webhook |
+| `SUPABASE_SERVICE_ROLE_KEY` | the same — **every guarded endpoint**, not one feature |
+
+**Use `SUPABASE_SERVICE_ROLE_KEY`, not `SUPABASE_SERVICE_KEY`.** Both names
+appear in older notes here, and most of the server files accept either — but
+`api/_google.js` accepts **only** the `_ROLE_` spelling. So an install that sets
+only the short name gets a working assistant, a working rate limiter, and a
+Google Calendar integration that silently cannot read its own token.
+
+The wider trap, which cost a live install a round trip to diagnose on the sister
+product: **the browser never needs either variable.** The app signs in, loads
+data and renders perfectly with only `VITE_SUPABASE_URL` and the anon key. The
+guard falls back to `VITE_SUPABASE_URL` when `SUPABASE_URL` is absent, so the
+URL half self-heals — but the service key has no `VITE_` equivalent **by
+design**, so nothing can stand in for it. The result is an install that looks
+correctly configured, is correctly configured from the browser's side, and
+answers `401 "Session expired."` on every AI feature against a perfectly valid
+session.
+
+If you see that, check this variable first. `api/_guard.js` names the missing
+precondition in the Vercel function log.
 
 ### Importing recordings that predate the webhook
 
