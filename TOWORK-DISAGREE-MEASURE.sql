@@ -65,6 +65,30 @@
 --   twenty-five to thirty dials — it is most of a week's work, and it grows
 --   every day. That is what makes the 6053 fix urgent rather than tidy.
 --
+-- RUN AGAIN 24 Aug 2026, AFTER IMPORT-NOTE-BACKFILL.sql, same 170 leads:
+--
+--   leads_total                 170
+--   untouched_leads_screen       62   unchanged — this rule was not touched
+--   untouched_dashboard          56   was 35
+--   disagree_total                8   was 29
+--     A_leads_says_touched        1   unchanged
+--     B_leads_says_untouched      7   was 28
+--
+-- THE ARITHMETIC CLOSES EXACTLY, WHICH IS THE POINT OF RUNNING IT TWICE.
+--
+--   untouched_dashboard  35 -> 56   = +21, the notes the backfill marked
+--   B                    28 ->  7   = -21, the same leads leaving
+--
+-- Nothing else moved. Not one lead changed state for any reason other than the
+-- backfill, and untouched_leads_screen did not move at all — as it must not,
+-- since the backfill does not touch the rule that produces it. Had either
+-- number drifted by even one, the recogniser would have caught something it
+-- was not supposed to and the 6053 fix would have been sized against noise.
+--
+-- So the real disagreement is EIGHT leads: seven worked only by a note a person
+-- typed, plus one Call carrying disp:'NA'. Seven is the one-off correction.
+-- The one is the population that grows with every dial a rep does not connect.
+--
 -- A NOTE ON THIS FILE'S OWN HISTORY: the first version gated the dashboard side
 -- on `ts is not null` and the leads side on nothing, which made it stricter
 -- than the app on one side and could have manufactured a phantom direction-A

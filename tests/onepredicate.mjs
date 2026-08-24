@@ -11,10 +11,15 @@
    MEASURED ON THE REAL DATABASE BEFORE THE FIX, 170 leads: 29 disagreed.
 
      28  "to work" said call them, the dashboard said already contacted
-         — worked only by a typed note. 21 of those are unmarked import notes
-         (IMPORT-NOTE-BACKFILL.sql); ~7 are genuine.
+         — worked only by a typed note. 21 of those were unmarked import notes
+         (IMPORT-NOTE-BACKFILL.sql); 7 were genuine.
       1  "to work" said contacted, the dashboard said never
          — a Call carrying disp:'NA'.
+
+   RE-MEASURED AFTER THE BACKFILL, same 170 leads: 8 disagreed. B fell 28 -> 7
+   and untouched_dashboard rose 35 -> 56, both by exactly 21, and nothing else
+   moved. So the ~7 estimate was right and this fix is sized against 8, not 29
+   — seven one-off, plus the one that grows with every unanswered dial.
 
    THE SECOND DIRECTION IS THE ONE THAT MATTERS AND IT IS NOT ONE ROW. It is
    every lead a rep dials and does not reach, and a new rep is expected at one
