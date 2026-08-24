@@ -46,7 +46,7 @@ select l.data->>'importBatch'                          as batch,
 -- Idempotent: a note already marked is rewritten to the same value.
 --
 -- update leads l
---    set data = jsonb_set(l.data, '{activities}', (
+--    set data = jsonb_set(l.data, '{activities}', coalesce((
 --          select jsonb_agg(
 --                   case when a->>'type' = 'Note'
 --                         and (a->>'who') is null
@@ -57,9 +57,18 @@ select l.data->>'importBatch'                          as batch,
 --                   order by ord)
 --            from jsonb_array_elements(coalesce(l.data->'activities','[]'::jsonb))
 --                 with ordinality t(a, ord)
---        ))
+--        ), '[]'::jsonb))
 --  where l.data->>'importBatch' is not null
---    and jsonb_typeof(l.data->'activities') = 'array';
+--    and jsonb_typeof(l.data->'activities') = 'array'
+--    and jsonb_array_length(l.data->'activities') > 0;
+--
+-- THE COALESCE AND THE LENGTH GUARD ARE NOT DECORATION. jsonb_agg over zero
+-- rows returns NULL, and jsonb_set is STRICT — a NULL argument makes the whole
+-- result NULL. So without them, a lead that has an importBatch and an EMPTY
+-- activities array would have its entire `data` column set to NULL: name,
+-- phone, stage, deal, all of it, silently, in the same statement that was
+-- supposed to stamp a flag on a note. Either guard alone is enough; both are
+-- here because this statement is run once, by hand, against production.
 --
 -- ---- STEP 3: confirm -------------------------------------------------------
 -- select count(*) as marked_notes
