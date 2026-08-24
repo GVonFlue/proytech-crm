@@ -125,6 +125,20 @@ const OWNER = (over = {}) => ({ id:'u_boss', name:'Garrett', email:'garrett@getp
                 pools:[], commission_pct:0, active:true, tabs:[], goal_conversions:0, nav_order:[], ...over });
 
 /* ======================================================================== */
+/* Choose a disposition in the rep composer, and fill the callback time when the
+   code needs one. The code lives in the <b> inside the button, so this matches
+   on that rather than on the button's whole label. */
+const pickDisp = async (code, at) => {
+  const b = [...curEl.querySelectorAll('.disp-b')].find(x => ((x.querySelector('b') || {}).textContent || '') === code);
+  if (b) await click(b);
+  /* setV above is hard-wired to the textarea prototype; the callback time is an
+     <input type="datetime-local">, so it needs its own setter. */
+  if (at) { const dt = curEl.querySelector('.disp-cb input');
+    if (dt) { const st = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+      await act(async () => { st.call(dt, at); dt.dispatchEvent(new dom.window.Event('input', { bubbles: true })); }); } }
+  return !!b;
+};
+
 console.log('\n#9 — the composer defaults to Call, and the WRITE says Call');
 {
   await boot({ users: [REP, OWNER()], gcal: { connected:false, email:'' } });
@@ -142,10 +156,26 @@ console.log('\n#9 — the composer defaults to Call, and the WRITE says Call');
   ok('the placeholder asks for a call', /log a call/i.test((ta || {}).placeholder || ''), (ta || {}).placeholder);
 
   await setV(ta, 'Rang him, he wants a callback Thursday');
+
+  /* A REP MUST NOW SAY WHAT HAPPENED ON THE CALL. `disp` is required at the
+     write for rep-authored calls, because a stored row carries `who` — a
+     display NAME — and no role, so this is the only moment the question "did a
+     rep write this" has an answer. The refusal is asserted first: without it,
+     the assertions below would pass on a disposition-less row and the whole
+     no-answer correction would have a hole exactly the size of one rep. */
   await click(btn); await settle();
+  const blocked = globalThis.__WRITES__.filter(x => x.id === 'l1').at(-1);
+  ok('a rep cannot log a call without saying what happened',
+     !blocked || !((blocked.activities || [])[0] || {}).type,
+     JSON.stringify(((blocked || {}).activities || [])[0]));
+
+  ok('picked CB', await pickDisp('CB', '2026-09-03T14:00'));
+  const btn2 = [...curEl.querySelectorAll('button')].find(b => /^Log /.test((b.textContent || '').trim()));
+  await click(btn2); await settle();
   const w = globalThis.__WRITES__.filter(x => x.id === 'l1').at(-1);
   const act1 = ((w || {}).activities || [])[0];
   ok('the activity is written as type Call', act1 && act1.type === 'Call', JSON.stringify(act1));
+  ok('  carrying the disposition, not a new activity type', act1 && act1.disp === 'CB', JSON.stringify(act1));
   ok('  not as a Note', act1 && act1.type !== 'Note', JSON.stringify(act1));
   ok('  and the text is intact', act1 && /callback Thursday/.test(act1.text || ''), act1 && act1.text);
 }
@@ -158,7 +188,8 @@ console.log('\n#9 — Call counts as a touch, which is the whole point');
   await openLead(); await openComposer();
   const ta = curEl.querySelector('.act-input');
   await setV(ta, 'Spoke to him');
-  await click([...curEl.querySelectorAll('button')].find(b => /^Log Call$/.test((b.textContent || '').trim())));
+  await pickDisp('CB', '2026-09-03T14:00');
+  await click([...curEl.querySelectorAll('button')].find(b => /^Log /.test((b.textContent || '').trim())));
   await settle(120);
   const body = curEl.textContent || '';
   ok('the lead no longer reads as untouched', !/never contacted/i.test(body) || /1 call/.test(body), body.slice(0, 200));
