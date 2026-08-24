@@ -305,6 +305,101 @@ console.log('\nthe "published version is behind" indicator');
   ok('it says what reps are still reading', /still reading/.test(txt()));
 }
 
+console.log('\nimporting notes from a file');
+{
+  /* WHY THIS IS TESTED AND NOT JUST BUILT
+
+     The importer is the one control on this screen that writes many rows from
+     one click, and it exists so twenty-one notes do not have to be typed on
+     the morning a rep starts calling. Two of its properties are safety, not
+     convenience, and both are invisible when it works:
+
+       - it creates DRAFTS and cannot publish. Publishing is what reps see.
+       - it validates the WHOLE file before writing ANY row, so a bad row nine
+         cannot leave the Playbook half seeded with no way to tell which half.
+
+     A fixture rather than PLAYBOOK-SEED.json: that file's own contents are
+     asserted in tests/playbookrep.mjs, and a suite that reads it here would
+     fail for two unrelated reasons at once. */
+  const goBack=btn(/All notes/); if(goBack) await click(goBack); await settle();
+
+  const file=(obj,name='seed.json')=>{
+    const f=new dom.window.File([JSON.stringify(obj)],name,{type:'application/json'});
+    const input=document.querySelector('input[type="file"]');
+    Object.defineProperty(input,'files',{value:[f],configurable:true});
+    return input;
+  };
+  const fire=async input=>{await act(async()=>{input.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+    await settle(220);};
+
+  ok('the owner has an import control', !!btn(/Import notes/));
+  ok('there is a file input to drive', !!document.querySelector('input[type="file"]'));
+
+  const before=globalThis.__KB_WRITES__.length;
+  const pubBefore=globalThis.__KB_PUBLISHED__.length;
+
+  /* A file with a bad row. Nothing may be written — not even the good rows
+     that precede it. */
+  await fire(file({notes:[
+    {title:'Good one',category:'Script',body:'> "Say this."'},
+    {title:'Bad one',category:'Script',body:''},
+  ]}));
+  ok('a file with an empty body is refused', /nothing was imported/i.test(txt()), txt().slice(0,240));
+  ok('and it names the problem', /has no body/i.test(txt()));
+  ok('NOTHING was written, including the valid row above it',
+     globalThis.__KB_WRITES__.length===before, JSON.stringify(globalThis.__KB_WRITES__.slice(before)));
+
+  /* A body over the Postgres cap is refused for the same reason — it would
+     save as a draft and then fail at publish, which is a much worse place to
+     find out. */
+  await fire(file({notes:[{title:'Enormous',category:'Script',body:'x'.repeat(8001)}]}));
+  ok('a body over 8,000 characters is refused', /8,000/.test(txt()), txt().slice(0,240));
+  ok('still nothing written', globalThis.__KB_WRITES__.length===before);
+
+  await fire(file({notes:'not an array'}));
+  ok('a file with no notes array is refused', /No notes in that file/i.test(txt()));
+  ok('still nothing written', globalThis.__KB_WRITES__.length===before);
+
+  /* The good path. */
+  await fire(file({notes:[
+    {title:'Imported opener',category:'Script',tags:['opener'],body:'> "Hey — is this you?"'},
+    {title:'Imported catch',category:'Objections',tags:['catch'],body:'> "No catch."\n\nAnswer it flat.'},
+  ]}));
+  const made=globalThis.__KB_WRITES__.slice(before);
+  ok('both notes were written', made.length===2, JSON.stringify(made.map(m=>m.title)));
+  ok('it says how many it created', /Created 2 draft/.test(txt()), txt().slice(0,240));
+  ok('every imported note is a DRAFT', made.every(m=>m.status==='draft'), JSON.stringify(made.map(m=>m.status)));
+  ok('IMPORTING PUBLISHED NOTHING', globalThis.__KB_PUBLISHED__.length===pubBefore,
+     JSON.stringify(globalThis.__KB_PUBLISHED__));
+  ok('the title survived the write', made.some(m=>m.title==='Imported opener'), JSON.stringify(made.map(m=>m.title)));
+  ok('the category survived', made.some(m=>m.category==='Objections'), JSON.stringify(made.map(m=>m.category)));
+  ok('the tags survived', made.some(m=>Array.isArray(m.tags)&&m.tags.includes('catch')));
+  ok('the body survived intact', made.some(m=>m.body.includes('Answer it flat')));
+
+  /* Re-running is how you find out a file was wrong. It must not duplicate. */
+  const afterFirst=globalThis.__KB_WRITES__.length;
+  await fire(file({notes:[
+    {title:'Imported opener',category:'Script',body:'> "Hey — is this you?"'},
+    {title:'Imported catch',category:'Objections',body:'> "No catch."'},
+  ]}));
+  ok('re-importing the same file writes nothing',
+     globalThis.__KB_WRITES__.length===afterFirst,
+     JSON.stringify(globalThis.__KB_WRITES__.slice(afterFirst).map(m=>m.title)));
+  ok('and it says so rather than reporting success',
+     /already exist/i.test(txt()), txt().slice(0,240));
+
+  /* A mixed file adds only what is new, and says how many it skipped —
+     "created 1" and "skipped 1" must not render identically. */
+  await fire(file({notes:[
+    {title:'Imported opener',category:'Script',body:'> "Hey."'},
+    {title:'Imported voicemail',category:'Script',body:'> "Leave it short."'},
+  ]}));
+  const mixed=globalThis.__KB_WRITES__.slice(afterFirst);
+  ok('only the new note was created', mixed.length===1&&mixed[0].title==='Imported voicemail',
+     JSON.stringify(mixed.map(m=>m.title)));
+  ok('it reports the skip as well as the create', /Skipped 1/.test(txt()), txt().slice(0,240));
+}
+
 console.log('\n'+pass+' passed, '+fail+' failed');
 try{ await act(async()=>{rootEl.unmount()}); dom.window.close(); }catch{}
 process.exit(fail?1:0);
