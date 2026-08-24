@@ -790,7 +790,7 @@ assumed:
   deactivated no via `crm_active()`. There is no state where the app opens the
   Studio for someone Postgres then refuses.
 - `api/content-slate.js`, `api/content-regenerate.js`, `api/content-usage.js`
-  and the weekly cron all use `SUPABASE_SERVICE_KEY`, which bypasses RLS by
+  and the weekly cron all use `SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS by
   design, exactly as `api/pocket-hook.js` does. They are unaffected.
 - Nothing in the app relies on a rep reaching these tables. There is no
   rep-facing content feature and no published surface like `kb_published`.
@@ -838,7 +838,7 @@ policy doesn't select.
 
 And §7 proves the **browser** boundary on `pocket_recordings`, which is the only
 boundary RLS can prove. `api/pocket-hook.js` writes that table with
-`SUPABASE_SERVICE_KEY`, which bypasses RLS by design — Pocket is the caller and
+`SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS by design — Pocket is the caller and
 there is no user session to check. What stands between a stranger and a write is
 the HMAC signature on the delivery, not a policy, so it is verified in
 `tests/pockethook.mjs` rather than here. Rotate that secret the way you would

@@ -320,7 +320,7 @@ create policy pocket_recordings_owner on pocket_recordings for all
   with check (no_users() or (crm_active() and is_owner()));
 ```
 
-The webhook writes with `SUPABASE_SERVICE_KEY`, which bypasses RLS by design —
+The webhook writes with `SUPABASE_SERVICE_ROLE_KEY`, which bypasses RLS by design —
 the same key `_guard.js` already uses. **A rep gets zero rows.**
 
 ### status is only what a human decided
@@ -614,7 +614,7 @@ POCKET_WEBHOOK_SECRET   from Pocket when the webhook is created
 POCKET_API_KEY          pk_xxx — only needed for §12
 ```
 
-`SUPABASE_SERVICE_KEY` is already set for `_guard.js`. Point the webhook at
+`SUPABASE_SERVICE_ROLE_KEY` is already set for `_guard.js`. Point the webhook at
 `https://<your-vercel-domain>/api/pocket-hook`.
 
 ## 12. Deliberately not in scope
