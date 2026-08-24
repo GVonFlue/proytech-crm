@@ -24,6 +24,27 @@
 -- A partial match means some other shape exists that this rule does not
 -- describe, and marking only the ones it happens to catch would leave the
 -- untouched list wrong in a way nobody can see.
+--
+-- ---------------------------------------------------------------------------
+-- RESOLVED. RUN 24 Aug 2026.
+-- ---------------------------------------------------------------------------
+-- Step 1 came back all-or-nothing on every batch, which is the safe result:
+--
+--   imp_mstebh0n   11 leads,  0 import notes    no note column mapped
+--   imp_mt27d8oa   26 leads,  0 import notes    no note column mapped
+--   imp_mt3qsjhd   21 leads, 21 import notes    all found
+--
+-- So 21 of 54 was CORRECT, not a partial match — the recogniser was never
+-- missing anything, two of the three sheets simply had no note column. The
+-- open question this file was written with is closed.
+--
+-- Step 2 ran. Step 3 returned 21 marked notes.
+--
+-- Confirmed independently by re-running TOWORK-DISAGREE-MEASURE.sql over the
+-- same 170 leads: untouched_dashboard went 35 -> 56 (+21) and the Leads-screen
+-- disagreement went 28 -> 7 (-21). The same 21 leads, counted twice by two
+-- unrelated queries, moving by exactly the expected amount and nothing else
+-- moving at all.
 -- ===========================================================================
 
 -- ---- STEP 1: the check -----------------------------------------------------
@@ -46,7 +67,7 @@ select l.data->>'importBatch'                          as batch,
 -- Idempotent: a note already marked is rewritten to the same value.
 --
 -- update leads l
---    set data = jsonb_set(l.data, '{activities}', (
+--    set data = jsonb_set(l.data, '{activities}', coalesce((
 --          select jsonb_agg(
 --                   case when a->>'type' = 'Note'
 --                         and (a->>'who') is null
@@ -57,9 +78,18 @@ select l.data->>'importBatch'                          as batch,
 --                   order by ord)
 --            from jsonb_array_elements(coalesce(l.data->'activities','[]'::jsonb))
 --                 with ordinality t(a, ord)
---        ))
+--        ), '[]'::jsonb))
 --  where l.data->>'importBatch' is not null
---    and jsonb_typeof(l.data->'activities') = 'array';
+--    and jsonb_typeof(l.data->'activities') = 'array'
+--    and jsonb_array_length(l.data->'activities') > 0;
+--
+-- THE COALESCE AND THE LENGTH GUARD ARE NOT DECORATION. jsonb_agg over zero
+-- rows returns NULL, and jsonb_set is STRICT — a NULL argument makes the whole
+-- result NULL. So without them, a lead that has an importBatch and an EMPTY
+-- activities array would have its entire `data` column set to NULL: name,
+-- phone, stage, deal, all of it, silently, in the same statement that was
+-- supposed to stamp a flag on a note. Either guard alone is enough; both are
+-- here because this statement is run once, by hand, against production.
 --
 -- ---- STEP 3: confirm -------------------------------------------------------
 -- select count(*) as marked_notes
