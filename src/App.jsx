@@ -1076,6 +1076,22 @@ const CSS=`
 .modal.lead .m-head h2{color:var(--ink-hi)}
 .modal.lead .m-head .co,.modal.lead .m-head .meta{color:var(--dim)}
 .modal.lead .m-jump{background:linear-gradient(180deg,rgba(5,7,26,.5),rgba(5,7,26,.22));border-bottom:1px solid var(--line)}
+/* WHERE THE GUTTERS ARE PAID FOR — 18px of the 24, out of the chrome above the
+   working area rather than out of the feed.
+
+   The header measured 170px: 18px of top padding, 126px of stat tiles, and 26px
+   of space beneath. Its height is set by that tile block and not by the lead's
+   name, which is 82px of actual identity. Trimming the space underneath it
+   takes 10px without touching a single field, and without reopening the tile
+   block itself — that is a design question and stays flagged in
+   LEAD-MODAL-CHROME-FINDING.md rather than being answered here by stealth.
+
+   The jump bar was 10px of padding around a 20px row of buttons. 6px is still
+   a comfortable target and gives back 8px.
+
+   Both scoped to .modal.lead so no other modal's header moves. */
+.modal.lead .m-head{padding-bottom:8px}
+.modal.lead .m-jump{padding-top:6px;padding-bottom:6px}
 .modal.lead .mj-l{color:var(--dim)}
 .modal.lead .m-prep{background:rgba(5,7,26,.24);border-right:1px solid var(--line)}
 .modal.lead .m-right{background:rgba(5,7,26,.1);border-right:1px solid var(--line);border-left:0}
@@ -1628,6 +1644,26 @@ const CSS=`
    shrink:1 with min-height:0 lets it give back precisely the overflow and no
    more. The feed's basis:0 means it never competes for that space. */
 .compose{flex:0 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+/* GUTTERS. The composer is a bordered, 12px-rounded PANEL that had
+   padding:0 — a frame drawn around content that then touched it. The chips ran
+   to the border, and so did the note box and the Log Call button. Measured, the
+   inset on all four sides was 1px, which is the border itself.
+
+   This is where a rep works all day and it should not feel cramped.
+
+   HORIZONTAL IS FREE — width is not the contested axis in this column, and 14px
+   a side costs the note box 28px of a few hundred.
+
+   VERTICAL IS NOT FREE, and it explicitly does not come out of the feed: that
+   room was bought in #68 and #69 and is what lets him read the last call while
+   he writes the next one. The 24px is paid for below, in three places that had
+   slack: the header, the jump bar, and the composer's own internal gaps, which
+   are partly redundant once the panel has real padding of its own. Measured
+   before and after at a 502px column: THE FEED IS 172px EITHER WAY. */
+.modal.lead .compose{padding:12px 14px}
+.modal.lead .compose .act-types{margin-bottom:8px}
+.modal.lead .compose .dispbar{margin-bottom:7px}
+.modal.lead .compose .tagpick{margin-top:6px}
 /* INSIDE THE COMPOSER, ONLY THE NOTE BOX IS ELASTIC.
 
    The composer opens by default for a rep, and measured on a 764px laptop it
