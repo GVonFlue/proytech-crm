@@ -39,6 +39,7 @@ import {
   MAX_ATTEMPTS,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
+import { useScrollLock } from './lib/scrolllock';
 import {
   AlertTriangle,
   AtSign,
@@ -377,6 +378,8 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   const sizeNote=el=>{ if(!el) return; el.style.height='auto';
     el.style.height=Math.min(NOTE_MAX,el.scrollHeight)+'px'; };
   const growNote=e=>{ setAtext(e.target.value); sizeNote(e.target); };
+  /* The page behind a modal must not scroll. Unconditional and first. */
+  useScrollLock();
   const [atype,setAtype]=useState('Call');const [adisp,setAdisp]=useState('');const [cbAt,setCbAt]=useState('');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
   const [wideFeed,setWideFeed]=useState(()=>{ try{return localStorage.getItem('pt_widefeed')==='1';}catch{return false;} });
   const [openSec,setOpenSec]=useState({});
