@@ -850,3 +850,105 @@ export const briefText = (b) => {
   if (b.photos) L.push(`Photos: ${b.photos}`);
   return L.join('\n');
 };
+
+/* ---- picking a time on a live call ----------------------------------------
+
+   "Are mornings or afternoons better for you? … Thursday at ten, or Thursday
+   at two?" — SOP-03. That is the conversation, so the control matches it: a
+   day, then a time, two taps and no typing.
+
+   HALF HOURS, NOT QUARTERS. Nobody books 10:15. Forty chips is slower to scan
+   than the raw field it replaces, which would make the control worse than what
+   it replaced — so the common times are half-hours and the raw
+   <input type="datetime-local"> stays one tap away for the prospect who says
+   "Thursday at 3:45".
+
+   ORDERED BY WHEN PEOPLE ACTUALLY PICK UP, which SOP-01 states per industry.
+   The lead's businessType decides which block leads. */
+export const CALL_WINDOWS = [
+  { key: 'trades', label: '8–10 and 4–6', match: /roof|hvac|plumb|auto|pdr|landscap|electric|concrete|paint/i,
+    early: ['08:00','08:30','09:00','09:30'], late: ['16:00','16:30','17:00','17:30'] },
+  { key: 'desk', label: '9–11 and 1–3', match: /real estate|realtor|agent|lend|loan|mortgage|insur|broker/i,
+    early: ['09:00','09:30','10:00','10:30'], late: ['13:00','13:30','14:00','14:30'] },
+];
+
+/* THE FALLBACK IS THE POINT, not an afterthought: most leads have no
+   businessType, so the unknown case is the COMMON case and must be the most
+   sensible list rather than the leftovers. A general business day, widest
+   sensible spread, no industry guess baked in. */
+export const DEFAULT_TIMES =
+  ['09:00','09:30','10:00','10:30','11:00','13:00','13:30','14:00','14:30','15:00','16:00'];
+
+export const windowFor = (businessType) => {
+  const t = bs(businessType, 80).trim();
+  if (!t || t === '—') return null;
+  return CALL_WINDOWS.find(w => w.match.test(t)) || null;
+};
+
+/** The time chips to offer, in the order they should be scanned.
+ *  Returns { times, label } — `label` says WHY this order, or '' when the lead
+ *  gives no reason and the general list is being used. */
+export function timesFor(businessType) {
+  const w = windowFor(businessType);
+  if (!w) return { times: DEFAULT_TIMES, label: '' };
+  return { times: [...w.early, ...w.late], label: `${w.label} is when they pick up` };
+}
+
+/* Quarter-hours, only when asked for. Built from the offered list rather than
+   from a fixed grid, so expanding never reorders what was already on screen. */
+export const quartersFrom = (times) => {
+  const out = [];
+  for (const t of times) {
+    const [h, m] = t.split(':').map(Number);
+    for (const add of [0, 15, 30, 45]) {
+      const tot = h * 60 + m + add;
+      if (m === 30 && add >= 30) continue;   /* :30 only expands to :45 */
+      if (m === 0 && add === 30) continue;   /* :30 is already in the list */
+      const hh = Math.floor(tot / 60), mm = tot % 60;
+      if (hh > 19) continue;
+      const s = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+      if (!out.includes(s)) out.push(s);
+    }
+  }
+  return out.sort();
+};
+
+/** The next N weekdays, as { iso, label }. Today and tomorrow are named,
+ *  because that is how somebody on a call refers to them. */
+export function nextDays(n = 5, from) {
+  const base = from ? new Date(from + 'T12:00:00') : new Date();
+  const out = [];
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+  while (out.length < n) {
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) {          /* SOP-01: avoid weekends */
+      const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const days = Math.round((d - new Date(base.getFullYear(), base.getMonth(), base.getDate())) / 864e5);
+      /* Assembled rather than formatted in one call: a locale-dependent
+         {weekday, day} ordering renders "31 Mon" outside en-US, and a chip a
+         rep scans mid-call should read the way he says it. */
+      out.push({ iso, label: days === 0 ? 'Today' : days === 1 ? 'Tomorrow'
+        : `${d.toLocaleDateString(undefined,{weekday:'short'})} ${d.getDate()}` });
+    }
+    d.setDate(d.getDate() + 1);
+  }
+  return out;
+}
+
+/* "14:30" -> "2:30" for a chip, which has no room for meridiem on every one. */
+export const chipTime = (hhmm) => {
+  const [h, m] = bs(hhmm, 5).split(':').map(Number);
+  if (isNaN(h)) return hhmm;
+  const ampm = h >= 12 ? 'p' : 'a';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}${m ? ':' + String(m).padStart(2, '0') : ''}${ampm}`;
+};
+
+/* A chosen day + time as the value datetime-local speaks, so the escape hatch
+   and the chips write the SAME field and cannot disagree. */
+export const joinWhen = (iso, hhmm) => (iso && hhmm) ? `${iso}T${hhmm}` : '';
+export const splitWhen = (v) => {
+  const s = bs(v, 40);
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(s);
+  return m ? { day: m[1], time: m[2] } : { day: '', time: '' };
+};

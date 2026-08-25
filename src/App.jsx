@@ -2323,6 +2323,36 @@ const CSS=`
 .modal.lead .bookmsg{border-color:rgba(110,231,183,.28);background:rgba(110,231,183,.07);color:#6EE7B7}
 .modal.lead .bookmsg.bad{border-color:rgba(252,165,165,.32);background:rgba(252,165,165,.08);color:#FCA5A5}
 .modal.lead .mtg-b.noinvite{background:rgba(252,165,165,.12);color:#FCA5A5;border-color:rgba(252,165,165,.3)}
+/* ---- the time picker ----
+   Chips sized for a thumb on a phone while the other hand holds a handset. */
+.whenp{margin-top:10px;display:flex;flex-direction:column;gap:7px}
+.whenp-l{font-size:11.5px;font-weight:700;color:#4A5568}
+.whenp-row{display:flex;flex-wrap:wrap;gap:5px}
+.whenp-c{font-size:12.5px;font-weight:650;font-family:inherit;border:1px solid #E2E4EF;
+  background:#fff;color:#4A5568;border-radius:9px;padding:7px 11px;cursor:pointer;line-height:1.2;
+  min-width:44px}
+.whenp-c:hover{border-color:${COBALT}}
+.whenp-c.on{border-color:${COBALT};background:rgba(43,77,224,.09);color:${COBALT}}
+.whenp-c.t{min-width:52px;text-align:center}
+.whenp-more{font-size:11px;font-weight:700;font-family:inherit;border:1px dashed #DEDFEA;
+  background:none;color:#8E89A8;border-radius:9px;padding:7px 10px;cursor:pointer}
+.whenp-more:hover{color:${COBALT};border-color:${COBALT}}
+.whenp-why{font-size:11.5px;color:#8E89A8}
+.whenp-raw{align-self:flex-start;font-size:11.5px;font-weight:700;font-family:inherit;
+  background:none;border:none;color:${COBALT};cursor:pointer;padding:2px 0;text-decoration:underline}
+.whenp input[type=datetime-local]{border:1px solid #E2E4EF;border-radius:8px;padding:7px 9px;
+  font-size:12.5px;font-family:inherit;align-self:flex-start}
+.modal.lead .whenp-l{color:var(--ink-mid)}
+.modal.lead .whenp-c{background:rgba(56,189,248,.05);border-color:var(--line);color:var(--ink-mid)}
+.modal.lead .whenp-c:hover{border-color:rgba(56,189,248,.5);color:var(--ink-hi)}
+.modal.lead .whenp-c.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
+  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+.modal.lead .whenp-more{border-color:var(--line);color:var(--ink-lo)}
+.modal.lead .whenp-more:hover{color:#7DD3FC;border-color:rgba(56,189,248,.5)}
+.modal.lead .whenp-why{color:var(--ink-lo)}
+.modal.lead .whenp-raw{color:#7DD3FC}
+.modal.lead .whenp input[type=datetime-local]{background:rgba(56,189,248,.05);
+  border-color:var(--line);color:var(--ink-hi)}
 .disp-brief{margin-top:12px;border-top:1px solid #E2E4EF;padding-top:12px;display:flex;
   flex-direction:column;gap:9px}
 .disp-brief-h{font-size:10.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;

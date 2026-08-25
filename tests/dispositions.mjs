@@ -198,6 +198,59 @@ console.log('\nthe calendar invite IS the notification');
      /Current site: not captured/.test(L.briefText({ ...b, website:'' })));
 }
 
+console.log('\npicking a time the way the call actually goes');
+{
+  /* SOP-01 states when people pick up, per industry, so the chips are ordered
+     by that rather than by the clock. */
+  const roof = L.timesFor('Roofing');
+  ok('a trade leads with early and late', roof.times[0] === '08:00' && roof.times.includes('16:00'),
+     roof.times.join(' '));
+  ok('  and says why', /8–10 and 4–6/.test(roof.label), roof.label);
+  const lend = L.timesFor('Lender');
+  ok('a lender leads with 9–11 and 1–3', lend.times[0] === '09:00' && lend.times.includes('13:00'),
+     lend.times.join(' '));
+
+  /* THE COMMON CASE IS NO BUSINESS TYPE, so the fallback has to be the most
+     sensible list rather than the leftovers of the two industry ones. */
+  for (const [what, v] of [['empty', ''], ['a dash', '—'], ['unknown', 'Bakery'],
+                           ['null', null], ['undefined', undefined]]) {
+    const r = L.timesFor(v);
+    ok(`${what} businessType falls back to the general day`,
+       r.times.length === L.DEFAULT_TIMES.length && r.times[0] === '09:00', JSON.stringify(r.times));
+    ok(`  and claims no reason it does not have`, r.label === '', r.label);
+  }
+
+  /* Half hours, not quarters — nobody books 10:15, and forty chips is slower
+     to scan than the raw field this replaces. */
+  ok('the default list is half-hours only',
+     L.DEFAULT_TIMES.every(t => /:(00|30)$/.test(t)), L.DEFAULT_TIMES.join(' '));
+  ok('  and is short enough to scan', L.DEFAULT_TIMES.length <= 12, String(L.DEFAULT_TIMES.length));
+  const q = L.quartersFrom(['09:00', '09:30']);
+  ok('+15 expands to quarters', q.join(' ') === '09:00 09:15 09:30 09:45', q.join(' '));
+  ok('  and expanding never drops what was already offered',
+     ['09:00','09:30'].every(t => q.includes(t)));
+
+  /* Weekends are skipped: SOP-01 says agents and lenders are showing. */
+  const days = L.nextDays(5, '2026-08-28');   // a Friday
+  ok('the day chips skip the weekend',
+     !days.some(d => [0,6].includes(new Date(d.iso + 'T12:00:00').getDay())),
+     days.map(d => d.iso).join(' '));
+  ok('  and name today and tomorrow the way a person would',
+     days[0].label === 'Today', days.map(d => d.label).join(' | '));
+  /* A locale-dependent {weekday,day} format renders "31 Mon" outside en-US. */
+  ok('  and later days read weekday-first', /^[A-Za-z]{3} \d+$/.test(days[2].label), days[2].label);
+
+  /* Both halves of the control write the same field, so the chips and the
+     escape hatch cannot disagree. */
+  ok('a day and a time join into what datetime-local speaks',
+     L.joinWhen('2026-09-03', '14:30') === '2026-09-03T14:30');
+  ok('  and split back out again',
+     JSON.stringify(L.splitWhen('2026-09-03T14:30')) === '{"day":"2026-09-03","time":"14:30"}');
+  ok('  a half-written value yields neither', L.splitWhen('2026-09-03').day === '');
+  ok('chips read as a person says them', L.chipTime('14:30') === '2:30p' && L.chipTime('09:00') === '9a',
+     L.chipTime('14:30') + ' ' + L.chipTime('09:00'));
+}
+
 console.log('\nwho an escalation reaches when crm_team() is empty');
 {
   /* THE BUG THIS PINS. crm_team() returns [] on an install that has not run

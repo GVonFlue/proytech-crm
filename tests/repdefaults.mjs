@@ -138,11 +138,15 @@ const setV2 = async (el, v) => {
 const pickDisp = async (code, at) => {
   const b = [...curEl.querySelectorAll('.disp-b')].find(x => ((x.querySelector('b') || {}).textContent || '') === code);
   if (b) await click(b);
-  /* setV above is hard-wired to the textarea prototype; the callback time is an
-     <input type="datetime-local">, so it needs its own setter. */
-  if (at) { const dt = curEl.querySelector('.disp-cb input');
-    if (dt) { const st = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
-      await act(async () => { st.call(dt, at); dt.dispatchEvent(new dom.window.Event('input', { bubbles: true })); }); } }
+  /* THE CHIPS, not the raw field — this is the path a rep actually takes, and
+     driving the escape hatch would leave the two-tap path untested. One day
+     chip, one time chip. */
+  if (at) {
+    const day = curEl.querySelector('.whenp-row .whenp-c:not(.t)');
+    if (day) await click(day);
+    const time = curEl.querySelector('.whenp-c.t');
+    if (time) await click(time);
+  }
   return !!b;
 };
 
@@ -241,8 +245,19 @@ console.log('\n#9 — BK MAKES A MEETING, which it did not');
   const w = globalThis.__WRITES__.filter(x => x.id === 'l1').at(-1);
   const mtgs = (w || {}).meetings || [];
   ok('now BK creates a MEETING record', mtgs.length === 1, JSON.stringify(mtgs));
-  ok('  with the time the rep agreed, not the moment he typed',
-     mtgs[0] && String(mtgs[0].start).startsWith('2026-09-03'), (mtgs[0] || {}).start);
+  /* The chip the rep tapped, not the moment he typed. Asserted against the
+     activity's `cbAt` — the raw local value the picker wrote — because
+     meeting.start is that value converted to UTC, so a hardcoded comparison
+     there is really a test of the runner's timezone. */
+  const bkAct = ((w || {}).activities || [])[0];
+  const chipTimeStr = (bkAct && bkAct.cbAt) || '';
+  ok('  the picker wrote a day AND a time', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(chipTimeStr), chipTimeStr);
+  ok('  and the meeting starts at exactly that moment',
+     mtgs[0] && new Date(mtgs[0].start).getTime() === new Date(chipTimeStr).getTime(),
+     (mtgs[0] || {}).start + ' vs ' + chipTimeStr);
+  ok('  which is not the moment he typed',
+     mtgs[0] && Math.abs(new Date(mtgs[0].start) - new Date(mtgs[0].createdAt)) > 60000,
+     (mtgs[0] || {}).start + ' vs created ' + (mtgs[0] || {}).createdAt);
   ok('  and a real date, so it lands in Upcoming rather than Needs a date',
      mtgs[0] && mtgs[0].dateUnknown === false);
   const act = ((w || {}).activities || [])[0];
