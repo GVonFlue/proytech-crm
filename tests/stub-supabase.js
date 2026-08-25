@@ -100,8 +100,36 @@ export const db = {
     }
     return true;
   },
+  /* rep_notes. OWNER-ONLY IN POSTGRES — one policy, is_owner() on both sides,
+     so a rep's login gets zero rows. The stub models the POLICY, not a filter:
+     if the caller is not an owner it returns [] no matter what __REP_NOTES__
+     contains, so a suite can hand a rep's browser notes it should never have
+     had and watch the app surface none of them. */
+  getRepNotes: async (repId) => {
+    if (globalThis.__REP_NOTES__ === undefined) return null;
+    const who = (globalThis.__WHOAMI__ && globalThis.__WHOAMI__.role)
+      || (((globalThis.__USERS__ || [])[0] || {}).role) || 'owner';
+    if (who !== 'owner') return [];
+    const all = JSON.parse(JSON.stringify(globalThis.__REP_NOTES__ || []));
+    return repId ? all.filter(n => n.rep_id === repId) : all;
+  },
+  addRepNote: async (row) => {
+    (globalThis.__REP_NOTE_WRITES__ = globalThis.__REP_NOTE_WRITES__ || []).push(row);
+    const n = { id: (globalThis.__REP_NOTES__ || []).length + 1, rep_id: row.repId,
+      body: row.body, by_id: row.byId, by_name: row.byName, at: new Date().toISOString() };
+    (globalThis.__REP_NOTES__ = globalThis.__REP_NOTES__ || []).push(n);
+    return n;
+  },
+  deleteRepNote: async (id) => {
+    globalThis.__REP_NOTES__ = (globalThis.__REP_NOTES__ || []).filter(n => n.id !== id);
+  },
+  /* MAPPED, exactly as the real db.lastSeen() maps it. The stub REPLACES the db
+     module, so returning the raw column name here would let a screen read
+     `lastSignInAt` off undefined and render "never signed in" for somebody who
+     signs in daily — passing every test while being wrong on the screen. */
   lastSeen: async () => (globalThis.__LAST_SEEN__ === undefined ? null
-    : JSON.parse(JSON.stringify(globalThis.__LAST_SEEN__))),
+    : JSON.parse(JSON.stringify(globalThis.__LAST_SEEN__))
+        .map(r => ({ id: r.id, lastSignInAt: r.lastSignInAt || r.last_sign_in_at || '' }))),
   /* Content Studio. Only reached by a bundle built with VITE_CONTENT_STUDIO
      set — the tab does not exist otherwise, so every other suite here goes
      nowhere near these. Writes land in __CONTENT_WRITES__ so a test asserts on
