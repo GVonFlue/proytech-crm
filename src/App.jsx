@@ -21,6 +21,8 @@ import MeetingLog from './MeetingLog';
 import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
+import { playbookGate, unreadSince } from './lib/kb';
+import { repActivities, byDay, dayStats } from './lib/repwork';
 import Pocket from './Pocket';
 /* aliased: rateOf is already taken in this file by the <Rate> helper from
    AUDIT #7, which divides part/whole. This one is a meeting's pay rate. */
@@ -53,6 +55,7 @@ import ContentStudio from './ContentStudio';
 import {
   ACT_TYPES, CLIENT_PHASES, CMSN_STATE, COBALT, DATE_LEAD_DEFAULT, DEFAULT_CLIENT_PHASES,
   DEFAULT_DELIVERY_TRACKS, DEFAULT_OPTIONS, GOLD, GREEN, INDIGO, INK, MEETING_TYPES,
+  CONTACT_DISP, dispLabel,
   ONBOARDING, ONB_ITEMS, OWNERS, POOL_OWNER, PRIORITIES, REACHED_TYPES, RED, REL_TIERS,
   actLabel, activeTracks, allMeetings, anyPayments, blankFirst, bookedCount, calendarOwner,
   cashConfirmed, clientOverall, closedDealsTotal, cmsnAmount, cmsnOf, dateVocab, datelessOf,
@@ -258,7 +261,29 @@ const navOrderOf=(user,navKeys)=>{
 const isRep=u=>!!u&&u.role==='rep';
 /* what THIS person can open: the install's global modules, narrowed by their
    own tab list. A rep can never see a tab the install has globally turned off. */
-const canOpen=(settings,user,k)=>{
+/* THE PLAYBOOK GATE.
+
+   A rep who has not been through the published Playbook gets the Playbook and
+   nothing else. It lives HERE because canOpen is the single function every
+   screen already routes through — App.jsx computes `view = canSee(page) ? page
+   : 'dash'` on every render, so a reload and a directly typed page both land
+   back on the gate with no extra code and nothing to remember.
+
+   WHAT THIS IS AND IS NOT. It is a speed bump, not a boundary: it is
+   JavaScript in the rep's browser and devtools defeats it. That is a deliberate
+   choice over an RLS gate on `leads`, which WOULD be real and whose failure
+   mode is a silent hard lockout — a wrong flag returns zero rows, which looks
+   exactly like "you have no leads", to a rep who cannot work and cannot tell
+   why. What he would be skipping past is his own reading, not anything secret.
+   The record in kb_reads is the deliverable; this is the nudge. ROLES.md
+   carries the full reasoning.
+
+   `gated` is false whenever the answer is not yet known — while kb_published
+   is still loading, and on an install that has published nothing. An empty
+   Playbook must never brick a rep. */
+const GATE_ALWAYS=new Set(['playbook','dash']);
+const canOpen=(settings,user,k,gated)=>{
+  if(gated&&isRep(user)&&!GATE_ALWAYS.has(k)) return false;
   /* Content Studio is gated by the BUILD, not by settings.modules. That is the
      one place it departs from every other tab, and deliberately: a module list
      is the thing ENGINEERING.md §1 warns about — any install that has ever
@@ -2156,6 +2181,29 @@ const CSS=`
 .disp-err{display:flex;align-items:flex-start;gap:7px;margin-top:8px;font-size:12px;font-weight:600;
   color:#b4322e;line-height:1.5}
 .disp-err svg{flex:none;margin-top:1px}
+/* ---- a rep's work, on the team row ---- */
+.rw{border:1px solid #E8E9F2;border-radius:12px;padding:14px 15px;margin-bottom:14px;background:#FAFAFE}
+.rw-top{display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding-bottom:12px;
+  border-bottom:1px solid #E8E9F2}
+.rw-top>div{display:flex;flex-direction:column;gap:3px}
+.rw-lbl{font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;color:#8E89A8}
+.rw-top b{font-size:13.5px;font-weight:700;color:#181530;display:flex;align-items:center;gap:6px}
+.rw-top b.rw-ok{color:#1a7d46}
+.rw-top b.rw-todo{color:#9a5a16}
+.rw-top b.rw-dim{color:#8E89A8;font-weight:600}
+.rw-top button{margin-left:auto}
+.rw-days{display:flex;flex-direction:column;gap:2px;margin-top:10px}
+.rw-day{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px;padding:7px 0;font-size:12.5px}
+.rw-day+.rw-day{border-top:1px solid #EEF0F6}
+.rw-date{min-width:120px;font-weight:700;color:#181530}
+.rw-nums{display:flex;gap:12px;flex-wrap:wrap;color:#56527a}
+.rw-nums em{font-style:normal}
+.rw-nums em.good{color:#1a7d46;font-weight:700}
+.rw-blocks{display:flex;gap:10px;flex-wrap:wrap;color:#8E89A8;font-size:11.5px;width:100%;
+  padding-left:130px}
+.rw-codes{display:flex;gap:5px;flex-wrap:wrap;width:100%;padding-left:130px;margin-top:3px}
+.rw-codes i{font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.04em;color:#6B7280;
+  background:#fff;border:1px solid #E2E4EF;border-radius:6px;padding:2px 7px}
 .notnow{display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;border:1px solid rgba(124,138,165,.35);background:rgba(124,138,165,.08);color:#4A5568;border-radius:11px;padding:9px 12px;font-size:12.5px;font-weight:700;font-family:inherit;cursor:pointer;text-align:left}
 .notnow:hover{border-color:#7C8AA5;background:rgba(124,138,165,.14)}
 .notnow span{margin-left:auto;font-weight:500;font-size:11px;color:#8E89A8;text-align:right}
@@ -3188,6 +3236,13 @@ export default function App(){
   const [kbNotes,setKbNotes]=useState([]);
   const [kbPub,setKbPub]=useState([]);
   const [kbAi,setKbAi]=useState([]);
+  /* Playbook progress. `null` means NOT YET KNOWN — still loading, or the
+     install has not run REP-ACTIVITY-MIGRATION.sql. It is deliberately
+     distinct from `[]` (known, and he has read nothing), because the gate must
+     never fire on an unknown: a missing function would otherwise lock every
+     rep out of the entire app, which is the worst failure this feature has. */
+  const [kbReads,setKbReads]=useState(null);
+  const [lastSeen,setLastSeen]=useState([]);
   /* Pocket recordings. The LIST only — no transcripts, which is why
      db.getPocketRecordings selects named jsonb keys. The transcript arrives
      when one recording is opened. */
@@ -3209,6 +3264,11 @@ export default function App(){
     db.getKbNotes().then(r=>{ if(!dead) setKbNotes(r||[]); }).catch(console.error);
     db.getKbPublished().then(r=>{ if(!dead) setKbPub(r||[]); }).catch(console.error);
     db.kbAiContext().then(r=>{ if(!dead) setKbAi(r||[]); }).catch(console.error);
+    /* An owner gets every rep's rows (for the profile); a rep gets his own,
+       because that is what the policy returns to each of them. `null` on
+       failure keeps the gate closed-mouthed rather than closed. */
+    db.getKbReads().then(r=>{ if(!dead) setKbReads(r); }).catch(()=>{ if(!dead) setKbReads(null); });
+    db.lastSeen().then(r=>{ if(!dead) setLastSeen(r||[]); }).catch(()=>{});
     db.getPocketRecordings().then(r=>{ if(!dead) setPockets(r||[]); }).catch(console.error);
     db.getPayouts().then(r=>{ if(!dead) setPayouts(r||[]); }).catch(console.error);
     return ()=>{dead=true;}; },[session]);
@@ -3791,7 +3851,15 @@ export default function App(){
     const mts=(l.meetings||[]).map(m=>m.id===meetingId?{...m,mtype}:m);
     const acts=(l.activities||[]).map(a=>a.meetingId===meetingId?{...a,mtype}:a);
     updated={...l,meetings:mts,activities:acts}; return updated; })); if(updated) putLead(updated); };
-  const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) putLead(updated); };
+  /* whoId ALONGSIDE who, not instead of it.
+
+     `who` is a display NAME, which is what every existing row has and what the
+     feed renders. It is also the weak link in every per-rep number: it breaks
+     on a rename and on two people sharing a first name. Stamping the uid as
+     well makes attribution exact from here on without rewriting a single old
+     row — src/lib/repwork.js checks the id first and falls back to the name, so
+     the numbers get better as new rows arrive rather than going blank. */
+  const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(myUid?{whoId:myUid}:{}),...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) putLead(updated); };
   const delActivity=(id,aid)=>{ let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) putLead(updated); };
   /* deleting is an owner action — the database enforces it too (leads_delete
      in MIGRATION.sql). This guard just keeps the UI honest. */
@@ -4081,7 +4149,43 @@ export default function App(){
   /* repUser / myPools / inMyWorld / scoped / scopedBiz are declared with the
      hooks at the top of App — Jarvis needs useMetrics over scopedBiz, and a
      hook cannot live down here after the auth early-returns. */
-  const canSee=k=>canOpen(settings,repUser,k);
+  /* THE GATE, COMPUTED ONCE.
+
+     `gated` is true only when we positively KNOW he has notes outstanding:
+     the reads have loaded, there is something published, and something is
+     unread. Every uncertainty resolves to false — still loading, migration not
+     run, nothing published — because an empty or unknown Playbook must never
+     brick a rep. `playbookGate` itself returns complete:true for zero notes. */
+  /* NOT useMemo. This sits BELOW the component's early returns (no session, not
+     configured, blocked, not set up), and a hook below a conditional return is
+     the rules-of-hooks violation that crashes with "rendered more hooks than
+     during the previous render" the first time the branch flips — with a
+     perfectly green build. src/Playbook.jsx carries the same warning. It is a
+     fold over ~21 notes; it does not need memoising. */
+  /* NULL WHEN NOT KNOWN, and the screen must treat that as "say nothing".
+
+     An install that has not run REP-ACTIVITY-MIGRATION.sql gets null from
+     getKbReads. Folding that to [] would compute "he has read none of 21" and
+     nag every rep forever about a gate that is not being applied — a screen
+     asserting something the app is not doing. `null` in, `null` out. */
+  const kbGate=kbReads===null?null:playbookGate(kbPub,kbReads);
+  const gated=rep&&!!kbGate&&!kbGate.complete;
+  /* Notes published AFTER he finished. These never re-lock him — locking a
+     working rep out over one new note is a worse outcome than his reading it a
+     day late — so they surface as a count and a banner instead. */
+  const kbNew=kbReads===null?null:unreadSince(kbPub,kbReads);
+  /* Owner-only, and it does not delete: kb_reset_progress writes a marker row,
+     so the fact that a rep confirmed the rules a fortnight ago stays on the
+     record and only the COUNT starts again. */
+  const resetKbProgress=async(repId)=>{ await db.kbResetProgress(repId);
+    const fresh=await db.getKbReads(); if(fresh) setKbReads(fresh); };
+  const markKbRead=async(noteId,kind)=>{
+    const okd=await db.kbMarkRead(noteId,kind||'read');
+    if(!okd) return false;
+    const fresh=await db.getKbReads(); if(fresh) setKbReads(fresh);
+    return true;
+  };
+  const canSee=k=>canOpen(settings,repUser,k,gated);
   const view=canSee(page)?page:'dash';
   /* A rep sees only tasks addressed to them by name. "Both" is the owners'
      shared list and is none of their business. (UI filter over a shared blob —
@@ -4181,7 +4285,7 @@ export default function App(){
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings} rep={rep} myUser={repUser||myUser} myUid={myUid}/>:
-          view==='playbook'?<Playbook notes={kbNotes} pub={kbPub} mlogs={mlogs} rep={rep} me={me}
+          view==='playbook'?<Playbook notes={kbNotes} pub={kbPub} mlogs={mlogs} rep={rep} me={me} gate={kbGate} fresh={kbNew} markRead={markKbRead}
             saveNote={saveKbNote} deleteNote={delKbNote} previewNote={db.kbPreview} publishNote={kbPublishNote} unpublishNote={kbUnpublishNote}/>:
           view==='mlog'?<MeetingLog logs={mlogs} tasks={tasks} leads={scoped} saveLog={saveMlog} deleteLog={delMlog} saveTasks={saveTasks} publishToLead={publishLogToLead} me={me}/>:
           view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
@@ -4189,7 +4293,7 @@ export default function App(){
           view==='content'?<ContentStudio/>:
           view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} users={users} payouts={payouts} />:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
-            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh} updateLead={updateLead} payouts={payouts} addPayout={addPayout}/>}
+            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh} updateLead={updateLead} payouts={payouts} addPayout={addPayout} kbReads={kbReads} kbPub={kbPub} lastSeen={lastSeen} resetKbProgress={resetKbProgress}/>}
       </div>
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
@@ -7802,7 +7906,74 @@ function Activity({leads,tasks,me,open,rep}){
    which pools they can see, which tabs they get, and whether they're active.
    The database enforces the lead-level part of this (see MIGRATION.sql);
    the tab list is a UI convenience on top of it, not a security boundary. */
-function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,reassign,me,myUid,noUsers}){
+/* ============================================================ a rep's work
+
+   WHAT THIS SHOWS AND WHY IT IS NOT HOURS
+
+   No session length, no time in the CRM, no "online now". A rep here is an
+   independent contractor and SALES-SOPS.md says so in its own words — "nothing
+   in here sets your hours". Building an hours record would be evidence against
+   that agreement, and it would measure a browser tab rather than any work: a
+   rep with the app open all day and twelve dials would outrank one who dialled
+   sixty in two focused hours.
+
+   What is here instead is computed from the activity log — dials, dispositions,
+   bookings, and the shape of the day. src/lib/repwork.js clusters dials into
+   BLOCKS on a twenty-minute gap, which answers "did he run two blocks" from
+   work he actually did. Last sign-in is the one presence fact, and it answers
+   "is he here at all", not "how long was he here". */
+function RepWork({rep,leads,kbReads,kbPub,lastSeen,onReset}){
+  const [busy,setBusy]=useState(false);
+  const acts=repActivities(leads,rep);
+  const days=byDay(acts).slice(0,7);
+  const gate=kbReads===null?null:playbookGate(kbPub,(kbReads||[]).filter(r=>r.rep_id===rep.id));
+  const ackRow=(kbReads||[]).filter(r=>r.rep_id===rep.id&&r.kind==='ack').slice(-1)[0];
+  const reset=async()=>{
+    if(!window.confirm(`Send ${rep.name} back through the Playbook?\n\nNothing is deleted — what they have already read and confirmed stays on the record, and the count starts again from now.`)) return;
+    setBusy(true); try{ await onReset(rep.id); }catch(e){ window.alert(e.message||String(e)); } setBusy(false);
+  };
+  return (<div className="rw">
+    <div className="rw-top">
+      <div><span className="rw-lbl">Last signed in</span>
+        <b>{lastSeen&&lastSeen.lastSignInAt?fmtStamp(lastSeen.lastSignInAt):'—'}</b></div>
+      <div><span className="rw-lbl">Playbook</span>
+        {gate===null
+          ? <b className="rw-dim">not tracked yet</b>
+          : gate.complete
+            ? <b className="rw-ok"><CheckCircle2 size={13}/>Through it{ackRow?' · rules confirmed '+fmtDate(String(ackRow.at).slice(0,10)):''}</b>
+            : <b className="rw-todo">{gate.done} of {gate.total} read{gate.ackDone?'':' · rules not confirmed'}</b>}
+      </div>
+      {gate!==null&&<button className="btn btn-d btn-sm" disabled={busy} onClick={reset}>
+        {busy?<Loader2 size={13} className="spin"/>:null} Reset progress
+      </button>}
+    </div>
+    {/* Seven days, newest first. A day with nothing on it is DRAWN, not
+        skipped — a gap you can see is the information; a gap that is silently
+        absent reads as a week of solid work. */}
+    <div className="rw-days">
+      {!days.length&&<div className="empty" style={{padding:'12px 0'}}>Nothing logged yet.</div>}
+      {days.map(d=>{ const st=dayStats(d.acts,CONTACT_DISP); return (
+        <div className="rw-day" key={d.day}>
+          <div className="rw-date">{fmtDate(d.day)}</div>
+          <div className="rw-nums">
+            <em>{st.dials} dial{st.dials===1?'':'s'}</em>
+            <em>{st.conversations} conversation{st.conversations===1?'':'s'}</em>
+            <em className={st.bookings?'good':''}>{st.bookings} booked</em>
+            {st.blocks.length>0&&<em>{st.blocks.length} block{st.blocks.length===1?'':'s'}</em>}
+          </div>
+          {st.blocks.length>0&&<div className="rw-blocks">
+            {st.blocks.map((b,i)=><span key={i}>{fmtMeetingTime(b.from)}–{fmtMeetingTime(b.to)} · {b.n}</span>)}
+          </div>}
+          {Object.keys(st.byCode).length>0&&<div className="rw-codes">
+            {Object.entries(st.byCode).sort((a,b)=>b[1]-a[1]).map(([c,n])=>
+              <i key={c} title={dispLabel(c)}>{c} {n}</i>)}
+          </div>}
+        </div>); })}
+    </div>
+  </div>);
+}
+
+function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,reassign,me,myUid,noUsers,leads,kbReads,kbPub,lastSeen,resetKbProgress}){
   const [openId,setOpenId]=useState(null);
   const [adding,setAdding]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -7865,6 +8036,8 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
             <ChevronDown size={15} className={'msec-ch'+(open?' on':'')}/>
           </div>
           {open&&<div className="tm-body">
+            {isR&&<RepWork rep={u} leads={leads} kbReads={kbReads} kbPub={kbPub}
+              lastSeen={(lastSeen||[]).find(x=>x.id===u.id)} onReset={resetKbProgress}/>}
             <div className="fgrid">
               <div className="field"><label>Name</label><input value={u.name||''} onChange={e=>set({name:e.target.value})}/></div>
               <div className="field"><label>Role</label><select value={u.role} onChange={e=>set({role:e.target.value})}><option value="owner">Owner</option><option value="rep">Sales Rep</option></select></div>
@@ -8043,7 +8216,7 @@ function PocketImport({pockets,onDone}){
   </div>);
 }
 
-function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers,pockets,refreshPockets,updateLead,payouts,addPayout}){
+function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers,pockets,refreshPockets,updateLead,payouts,addPayout,kbReads,kbPub,lastSeen,resetKbProgress}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
@@ -8051,7 +8224,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
 
   return (<>
     {/* team & roles — owner-only */}
-    {isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassign={reassignLeads} me={me} myUid={myUid} noUsers={noUsers}/>}
+    {isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassign={reassignLeads} me={me} myUid={myUid} noUsers={noUsers} leads={leads} kbReads={kbReads} kbPub={kbPub} lastSeen={lastSeen} resetKbProgress={resetKbProgress}/>}
 
     {/* conversion alerts */}
     {isOwner&&<div className="card" style={{marginBottom:18}}>

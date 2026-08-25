@@ -646,3 +646,94 @@ export function paginate(body) {
   }
   return cards.length ? cards : [{ heading: '', blocks: [], cont: false }];
 }
+
+/* ==========================================================================
+   PLAYBOOK PROGRESS — what a rep has read, and whether he is through the gate.
+   --------------------------------------------------------------------------
+   READ MEANS HE REACHED THE LAST CARD, not that he opened the note. Since a
+   note is a deck, the card index is already known, so the stronger definition
+   is free — and a fourteen-card SOP can no longer be dismissed with one click.
+
+   THE COMPLIANCE LIST ALSO NEEDS AN ACKNOWLEDGEMENT. It is the one whose answer
+   might have to be produced to somebody outside the company, and a record of
+   "he said he had read it, at 09:14 on the 26th" is worth more than the gate
+   is. Everything else is opened-and-finished.
+
+   A RESET IS A ROW, NOT A DELETION. Sending a rep back through the Playbook
+   must not erase the fact that he acknowledged the rules a fortnight ago, so
+   progress is counted only from the most recent reset forward.
+
+   Nothing here enforces anything. The gate is a routing decision in the app
+   (canOpen), and it is a speed bump rather than a boundary — deliberately, and
+   the reasoning is in ROLES.md. What is NOT a speed bump is the record, which
+   only kb_mark_read() can write.
+   ========================================================================== */
+
+/** Fold kb_reads rows into "what has this rep finished".
+ *  Rows are {note_id, kind, at}; the caller passes one rep's rows. */
+export function readState(rows) {
+  const all = A(rows).filter(r => r && r.kind);
+  /* Everything before the newest reset is history, not progress. */
+  const resetAt = all.filter(r => r.kind === 'reset')
+    .reduce((mx, r) => (!mx || S(r.at, 40) > mx) ? S(r.at, 40) : mx, '');
+  const live = all.filter(r => r.kind !== 'reset' && (!resetAt || S(r.at, 40) > resetAt));
+
+  const read = new Map();
+  const acked = new Map();
+  for (const r of live) {
+    const id = S(r.note_id, 60);
+    if (!id) continue;
+    const at = S(r.at, 40);
+    if (r.kind === 'ack') { if (!acked.has(id) || at < acked.get(id)) acked.set(id, at); }
+    if (!read.has(id) || at < read.get(id)) read.set(id, at);
+  }
+  return { read, acked, resetAt };
+}
+
+/** Which published notes still stand between a rep and the rest of the app.
+ *
+ *  A note needs an ACKNOWLEDGEMENT rather than a read when it carries the
+ *  compliance rules — found by content (the note with the most `!` lines), the
+ *  same way the landing strip finds it, so renaming a category cannot quietly
+ *  drop the one requirement that has a record attached to it. */
+export function playbookGate(pub, rows) {
+  const mods = kbModules(pub);
+  const notes = mods.flatMap(m => m.notes);
+  const { read, acked, resetAt } = readState(rows);
+  const needsAck = cautionNote(mods);
+  const ackId = needsAck ? needsAck.id : '';
+
+  const outstanding = notes.filter(n =>
+    n.id === ackId ? !acked.has(n.id) : !read.has(n.id));
+
+  /* FAILS OPEN ON AN EMPTY PLAYBOOK. An install that has published nothing must
+     not lock every rep out of the whole app; "he has read all zero notes" is
+     the true answer and it is also the safe one. */
+  return {
+    total: notes.length,
+    done: notes.length - outstanding.length,
+    outstanding,
+    ackId,
+    ackDone: !ackId || acked.has(ackId),
+    complete: notes.length === 0 || outstanding.length === 0,
+    resetAt,
+  };
+}
+
+/** Notes published since the rep finished — the ones that must NOT re-lock him.
+ *  Locking a working rep out over one new note is a worse outcome than his
+ *  reading it a day late, so these surface as a count and a banner. A new
+ *  COMPLIANCE note is the exception and asks for one click, not the gate. */
+export function unreadSince(pub, rows) {
+  const mods = kbModules(pub);
+  const notes = mods.flatMap(m => m.notes);
+  const { read, acked } = readState(rows);
+  const ack = cautionNote(mods);
+  const fresh = notes.filter(n => !read.has(n.id));
+  return {
+    fresh,
+    count: fresh.length,
+    /* A new compliance list he has never acknowledged. */
+    needsAck: ack && !acked.has(ack.id) ? ack : null,
+  };
+}

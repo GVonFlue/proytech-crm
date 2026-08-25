@@ -199,6 +199,31 @@ const PB_CSS = `
   border-bottom:1px solid var(--pb-line);vertical-align:top}
 .pb-tw tr:last-child td{border-bottom:none}
 
+/* ---- the gate, the nudge, the acknowledgement ---- */
+.pb-gate{margin-top:14px;border:1px solid var(--pb-line);border-left:3px solid var(--pb-primary);
+  background:var(--pb-well);border-radius:14px;padding:14px 16px}
+.pb-gate-h{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;
+  letter-spacing:.14em;text-transform:uppercase;color:var(--pb-primary)}
+.pb-gate-b{font-size:13.5px;line-height:1.6;color:var(--pb-body);margin-top:7px}
+.pb-gate-bar{height:5px;border-radius:99px;background:var(--pb-line);margin-top:11px;overflow:hidden}
+.pb-gate-bar i{display:block;height:100%;background:var(--pb-primary);border-radius:99px;
+  transition:width .3s}
+.pb-todos{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.pb-todo{font-size:11.5px;font-weight:700;color:var(--pb-primary);background:white;
+  border:1px solid var(--pb-line);border-radius:999px;padding:4px 11px;line-height:1.5;
+  cursor:pointer;font-family:inherit}
+.pb-todo:hover{border-color:var(--pb-primary)}
+.pb-fresh{margin-top:14px;display:flex;align-items:center;gap:10px;border:1px solid var(--pb-line);
+  background:white;border-radius:12px;padding:11px 14px;font-size:13px;color:var(--pb-body)}
+.pb-fresh svg{flex:none;color:var(--pb-primary)}
+.pb-ack{flex:none;display:flex;align-items:center;gap:10px;margin-top:10px;padding:12px 14px;
+  border:1px solid var(--pb-warn-line);border-radius:12px;font-size:13.5px;color:var(--pb-body);
+  line-height:1.5}
+.pb-ack svg{flex:none;color:var(--pb-warn)}
+.pb-ack button{margin-left:auto;white-space:nowrap}
+.pb-ack.done{border-color:var(--pb-line);color:var(--pb-dim)}
+.pb-ack.done svg{color:var(--pb-green-text)}
+
 /* ---- navigation ---- */
 .pb-cnav{flex:none;display:flex;align-items:center;gap:12px;padding-top:12px;margin-top:8px;
   border-top:1px solid var(--pb-line)}
@@ -345,12 +370,28 @@ const CardBody = ({ card }) => {
   );
 };
 
-export function NoteCards({ note }) {
+export function NoteCards({ note, onRead, needsAck, acked, onAck }) {
   const cards = useMemo(() => paginate(note && note.body), [note && note.body]);
   const [i, setI] = useState(0);
   const n = cards.length;
   const at = Math.min(i, n - 1);
   const card = cards[at] || { heading: '', blocks: [] };
+  const atEnd = at === n - 1;
+
+  /* READ MEANS HE REACHED THE LAST CARD.
+
+     "Opened" is one click and a fourteen-card SOP can be dismissed with it.
+     The deck already knows the index, so the stronger definition costs nothing.
+     Fired once per note per mount and deliberately not awaited — a rep reading
+     is not waiting on a round trip, and a failed write leaves the note unread,
+     which is the safe direction. */
+  const told = useRef('');
+  useEffect(() => {
+    if (!onRead || !atEnd || !note || !note.id) return;
+    if (told.current === note.id) return;
+    told.current = note.id;
+    onRead(note.id, 'read');
+  }, [atEnd, note && note.id, onRead]);
 
   /* Reset to the first card when the note changes. Without this, opening a
      two-card note after a fourteen-card one lands on a card that no longer
@@ -396,6 +437,26 @@ export function NoteCards({ note }) {
         <div className="pb-cbody">
           {card.blocks.length ? <CardBody card={card} /> : <div className="empty">This note has no text yet.</div>}
         </div>
+        {/* THE ONE THING THAT NEEDS MORE THAN BEING READ.
+
+            Reaching the last card records that he got there. The compliance
+            list also asks him to say so, because it is the one whose answer
+            might have to be produced to somebody outside the company, and
+            "he clicked through it" is a weaker sentence than "he confirmed it
+            at 09:14 on the 26th". One row, one timestamp, one click. */}
+        {needsAck && atEnd && (
+          <div className={'pb-ack' + (acked ? ' done' : '')}>
+            {acked
+              ? <><CheckCircle2 size={15} /><span>You have confirmed you read these rules.</span></>
+              : <>
+                  <ShieldAlert size={15} />
+                  <span>These are the things you cannot say on a call. Confirm you have read them.</span>
+                  <button className="btn btn-p btn-sm" onClick={() => onAck && onAck(note.id)}>
+                    I have read these
+                  </button>
+                </>}
+          </div>
+        )}
         {n > 1 && (
           <div className="pb-cnav">
             <div className="pb-dots">
@@ -471,7 +532,7 @@ const Tile = ({ note, onOpen }) => (
    The search box is deliberately below the tiles. Searching is what you do
    when you know what you are looking for and cannot see it; on this screen he
    can usually see it. */
-function RepList({ pub }) {
+function RepList({ pub, gate, onRead, onAck, fresh }) {
   const [q, setQ] = useState('');
   const [open, setOpen] = useState(null);
 
@@ -483,6 +544,7 @@ function RepList({ pub }) {
 
   if (note) {
     const items = cautionItems(note);
+    const isAck = !!(gate && gate.ackId && gate.ackId === note.id);
     return (
       <div className="card pb">
         <style>{PB_CSS}</style>
@@ -491,7 +553,8 @@ function RepList({ pub }) {
             <ArrowLeft size={14} /> Back to the playbook
           </button>
           <div style={{ marginTop: 14 }}>
-            <NoteCards note={note} />
+            <NoteCards note={note} onRead={onRead} needsAck={isAck}
+              acked={isAck && gate.ackDone} onAck={onAck} />
             {/* A compliance note is a reference, so it ends by saying what to do
                 when the answer is not on it — the script's own instruction, and
                 the thing that keeps a rep from guessing at the edge of it. */}
@@ -517,6 +580,42 @@ function RepList({ pub }) {
             <div className="ch-sub">How {BRAND.name} runs a call. Open what you need — it is meant to be used mid-call, not read start to finish.</div>
           </div>
         </div>
+
+        {/* THE GATE, EXPLAINED RATHER THAN JUST IMPOSED. A rep who finds the
+            rest of the app missing should be told what is missing and exactly
+            what is left, not left to guess. Counting DOWN, because "four left"
+            is a thing he can finish and "17 of 21" is a progress bar. */}
+        {gate && !gate.complete && (
+          <div className="pb-gate">
+            <div className="pb-gate-h"><Lock size={14} /> Read this first</div>
+            <div className="pb-gate-b">
+              The rest of the CRM opens when you have been through the Playbook.
+              {' '}<b>{gate.outstanding.length} of {gate.total}</b> left.
+              {!gate.ackDone && gate.ackId ? ' The rules list also asks you to confirm you have read it.' : ''}
+            </div>
+            <div className="pb-gate-bar"><i style={{ width: `${gate.total ? Math.round((gate.done / gate.total) * 100) : 0}%` }} /></div>
+            {/* NOT .pb-chip. That class belongs to the compliance strip, and
+                reusing it here put note titles into the one row a rep scans
+                for rules he cannot break. */}
+            <div className="pb-todos" style={{ marginTop: 10 }}>
+              {gate.outstanding.slice(0, 8).map(o => (
+                <button key={o.id} className="pb-todo" onClick={() => setOpen(o.id)}>{o.title}</button>
+              ))}
+              {gate.outstanding.length > 8 && <span className="pb-strip-f">and {gate.outstanding.length - 8} more</span>}
+            </div>
+          </div>
+        )}
+
+        {/* PUBLISHED SINCE HE FINISHED — a count and a nudge, never a lock.
+            Locking a working rep out over one new note is worse than his
+            reading it a day late. */}
+        {gate && gate.complete && fresh && fresh.count > 0 && (
+          <div className="pb-fresh">
+            <Sparkles size={14} />
+            <span><b>{fresh.count} new</b> since you last went through this.</span>
+            <button className="btn btn-d btn-sm" onClick={() => setOpen(fresh.fresh[0].id)}>Read it</button>
+          </div>
+        )}
 
         {!all.length && <div className="empty">No notes have been published yet.</div>}
 
@@ -806,7 +905,7 @@ function Editor({ note, pub, mlogs, onChange, onSave, onDelete, onPreview, onUnp
 /* ================================================================= screen */
 
 export default function Playbook({
-  notes, pub, mlogs, rep, me,
+  notes, pub, mlogs, rep, me, gate, fresh, markRead,
   saveNote, deleteNote, previewNote, publishNote, unpublishNote,
 }) {
   const [view, setView] = useState('list');       // list | edit | preview
@@ -835,7 +934,7 @@ export default function Playbook({
      behind them: `notes` is whatever db.getKbNotes() returned, which for a rep
      is an empty array, because kb_notes RLS gives them zero rows. This line is
      a routing decision, not a security one. */
-  if (rep) return <RepList pub={pub} />;
+  if (rep) return <RepList pub={pub} gate={gate} fresh={fresh} onRead={markRead} onAck={id => markRead(id, 'ack')} />;
 
   const openNew = () => { setDraft(newKbNote(me)); setErr(''); setView('edit'); };
   const openNote = n => { setDraft({ ...n }); setErr(''); setView('edit'); };

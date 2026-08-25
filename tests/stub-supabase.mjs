@@ -88,6 +88,20 @@ export const db = {
   async kbUnpublish(id) { rec('kbUnpublish', { id }); },
   async kbAiContext() { return clone(S().kbPub || []); },
 
+  /* Playbook progress and last sign-in (REP-ACTIVITY-MIGRATION.sql).
+     kbReads UNDEFINED means the migration has not been run — getKbReads must
+     resolve to null and the app must behave exactly as it did before, gate and
+     all. A suite wanting a gated rep sets kbReads to []. */
+  async getKbReads(repId) {
+    const r = S().kbReads;
+    if (r === undefined) return null;
+    const all = clone(r || []);
+    return repId ? all.filter(x => x.rep_id === repId) : all;
+  },
+  async kbMarkRead(noteId, kind = 'read') { rec('kbMarkRead', { noteId, kind }); return S().kbReads !== undefined; },
+  async kbResetProgress(repId) { rec('kbResetProgress', { repId }); return true; },
+  async lastSeen() { const v = S().lastSeen; return v === undefined ? null : clone(v); },
+
   async getPayouts() { return clone(S().payouts || []); },
   async addPayout(row) { rec('addPayout', { id: row.id, rep_id: row.rep_id, amount: row.amount }); },
   async deletePayout(id) { rec('deletePayout', { id }); },

@@ -68,6 +68,40 @@ export const db = {
     const n=(globalThis.__KB_NOTES__||[]).find(x=>x.id===id); if(n) n.status='draft';
     globalThis.__KB_PUB__=(globalThis.__KB_PUB__||[]).filter(x=>x.id!==id); },
   kbAiContext: async () => JSON.parse(JSON.stringify(globalThis.__KB_PUB__ || [])),
+
+  /* ---- Playbook progress and last sign-in (REP-ACTIVITY-MIGRATION.sql) ----
+
+     __KB_READS__ is what kb_reads returns. UNDEFINED means the migration has
+     not been run, which the app must survive: getKbReads resolves to null and
+     the gate stays open. A suite that wants a gated rep sets it to [].
+     __LAST_SEEN__ likewise stands in for crm_last_seen(). */
+  getKbReads: async (repId) => {
+    if (globalThis.__KB_READS__ === undefined) return null;
+    const all = JSON.parse(JSON.stringify(globalThis.__KB_READS__ || []));
+    return repId ? all.filter(r => r.rep_id === repId) : all;
+  },
+  /* kb_mark_read() stamps auth.uid() and takes no parameter for whose read it
+     is — the stub keeps that property so a test cannot accidentally prove
+     something the real function would refuse. */
+  kbMarkRead: async (noteId, kind = 'read') => {
+    if (globalThis.__KB_READS__ === undefined) return false;
+    const who = (globalThis.__WHOAMI__ && globalThis.__WHOAMI__.id)
+      || ((globalThis.__USERS__ || [])[0] || {}).id || 'u_me';
+    (globalThis.__KB_MARKS__ = globalThis.__KB_MARKS__ || []).push({ noteId, kind, rep_id: who });
+    globalThis.__KB_READS__.push({ id: globalThis.__KB_READS__.length + 1, rep_id: who,
+      note_id: noteId, kind, at: new Date().toISOString() });
+    return true;
+  },
+  kbResetProgress: async (repId) => {
+    (globalThis.__KB_RESETS__ = globalThis.__KB_RESETS__ || []).push(repId);
+    if (globalThis.__KB_READS__ !== undefined) {
+      globalThis.__KB_READS__.push({ id: globalThis.__KB_READS__.length + 1, rep_id: repId,
+        note_id: null, kind: 'reset', at: new Date().toISOString() });
+    }
+    return true;
+  },
+  lastSeen: async () => (globalThis.__LAST_SEEN__ === undefined ? null
+    : JSON.parse(JSON.stringify(globalThis.__LAST_SEEN__))),
   /* Content Studio. Only reached by a bundle built with VITE_CONTENT_STUDIO
      set — the tab does not exist otherwise, so every other suite here goes
      nowhere near these. Writes land in __CONTENT_WRITES__ so a test asserts on
