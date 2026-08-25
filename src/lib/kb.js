@@ -462,3 +462,187 @@ export const cautionNote = (mods) => {
 /** Every compliance line in a note, flattened. */
 export const cautionItems = (note) =>
   parseBlocks(note && note.body).filter(b => b.kind === 'caution').flatMap(b => A(b.items));
+
+/* ==========================================================================
+   PAGINATION — a note becomes a deck of cards, not a document.
+   --------------------------------------------------------------------------
+   THE MOMENT THIS EXISTS FOR
+
+     A rep is mid-sentence. Someone has just said "what's the catch." He looks
+     at one card and reads. He does not scroll, and he does not scan past a
+     heading to find the line.
+
+   WHY HEADINGS AND NOT HEIGHT
+
+   Card breaks come from the source document's own `##`, never from measuring
+   pixels. Four reasons, and the first decides it:
+
+     1. STABILITY. Height pagination reflows with viewport, zoom and text size,
+        so card 3 on a laptop is card 4 on a phone. A rep LEARNS this deck —
+        "the answer is the first card" has to be true everywhere, or he is
+        re-finding it every time and the deck is worse than the document was.
+     2. A `##` is where the author decided an idea ended. A height break is
+        where a pixel ran out. Splitting the coaching mid-paragraph is the wall
+        of text wearing a different hat.
+     3. Pure and testable. No DOM, no measurement, same answer every run.
+     4. A position indicator only means something if the count is stable.
+
+   Height-based splitting also has one disqualifying failure: it can break a
+   SAY block in half. The words he reads aloud are the one thing that must
+   never straddle a card, and `neverSplit` below is what guarantees it.
+
+   THE COST MODEL IS AN ESTIMATE, AND IT ERRS TOWARDS MORE CARDS
+
+   Numbers below are approximate PIXELS at the card's type scale. They are not
+   measured and cannot be — that is the point. So the budget is set below the
+   real usable height, the card keeps `overflow-y:auto` as a net that should
+   never engage, and a test asserts every seeded note stays inside it. If the
+   model is ever wrong a rep gets a scrollbar, not a compliance rule he cannot
+   see. Degrade visibly, never silently.
+   ========================================================================== */
+
+/* Usable height inside a card once the header and the footer are taken out. */
+export const CARD_BUDGET = 560;
+
+/* Rough line counts at the card's type scale, in a ~1000px column. */
+const linesOf = (s, perLine) => Math.max(1, Math.ceil(S(s, 8000).length / perLine));
+
+export const blockCost = (b) => {
+  if (!b) return 0;
+  if (b.kind === 'say')     return 34 + A(b.paras).reduce((n, p) => n + linesOf(p, 52) * 42 + 14, 0);
+  if (b.kind === 'p')       return 14 + linesOf(b.text, 92) * 25;
+  if (b.kind === 'ul' ||
+      b.kind === 'ol')      return 12 + A(b.items).reduce((n, i) => n + linesOf(i, 88) * 24 + 8, 0);
+  if (b.kind === 'caution') return 10 + A(b.items).reduce((n, i) => n + linesOf(i, 80) * 23 + 20, 0);
+  if (b.kind === 'table')   return 44 + (A(b.rows).length + 1) * 44;
+  if (b.kind === 'rowcard') return 60 + A(b.cells).reduce((n, c) => n + linesOf(c, 60) * 26 + 26, 0);
+  if (b.kind === 'hr')      return 22;
+  return 26;
+};
+
+/* A say block is never split. Everything else may start a new card, but only
+   at a block boundary — never inside one, and never mid-sentence. */
+const neverSplit = b => b && b.kind === 'say';
+
+/* A LIST OF INDEPENDENT RULES MAY SPLIT AT ITS ITEMS, and must: "Things you
+   cannot say" is nine compliance rules in ONE caution block, which as a single
+   unsplittable unit is half again taller than a card. Each rule stands alone,
+   so breaking between two of them costs nothing — whereas breaking a sentence,
+   or a spoken line, costs everything. Prose blocks are never split this way. */
+const SPLITTABLE = new Set(['caution', 'ul', 'ol']);
+
+const splitBlock = (b, budget) => {
+  if (!SPLITTABLE.has(b && b.kind) || blockCost(b) <= budget) return [b];
+  const out = [];
+  let items = [], cost = 0;
+  for (const it of A(b.items)) {
+    const c = blockCost({ kind: b.kind, items: [it] });
+    if (items.length && cost + c > budget) { out.push({ ...b, items }); items = []; cost = 0; }
+    items.push(it); cost += c;
+  }
+  if (items.length) out.push({ ...b, items });
+  return out;
+};
+
+/* --------------------------------------------------------------- the shape */
+
+/** How one card lays out.
+ *
+ *  THE SPOKEN LINE LEADS. If the card has one, it is the largest thing on it
+ *  and everything else arranges around it:
+ *
+ *    eyebrow  a SHORT paragraph immediately before the say — "They say: …" —
+ *             which is context for the line, not a competitor to it. Rendered
+ *             small and dim, so the eye still lands on the say.
+ *    say      the words out loud.
+ *    rest     everything else, in authored order, below.
+ *
+ *  A long paragraph before the say is NOT an eyebrow; it moves below, because
+ *  a rep should never read a paragraph to reach the sentence he needs. */
+export const EYEBROW_MAX = 96;
+
+export function cardShape(blocks) {
+  const bs = A(blocks);
+  const i = bs.findIndex(b => b && b.kind === 'say');
+  if (i < 0) return { eyebrow: null, say: null, rest: bs };
+  const prev = i > 0 ? bs[i - 1] : null;
+  const isEyebrow = !!prev && prev.kind === 'p' && S(prev.text, 400).length <= EYEBROW_MAX;
+  const rest = bs.filter((b, j) => j !== i && !(isEyebrow && j === i - 1));
+  return { eyebrow: isEyebrow ? prev : null, say: bs[i], rest };
+}
+
+/* ---------------------------------------------------------- the pagination */
+
+/** Break a note body into cards.
+ *
+ *  Returns [{ heading, blocks, cont, pos }], where `cont` marks a continuation
+ *  of the previous heading and `pos` is [n, total] for a table's row cards.
+ *  Always at least one card, so an empty note is an empty card rather than a
+ *  crash or a blank screen with no explanation. */
+export function paginate(body) {
+  const blocks = parseBlocks(body);
+
+  /* Level 1 — split at the author's own headings. */
+  const sections = [];
+  let cur = { heading: '', blocks: [] };
+  for (const b of blocks) {
+    if (b.kind === 'h') {
+      if (cur.heading || cur.blocks.length) sections.push(cur);
+      cur = { heading: b.text, blocks: [] };
+    } else cur.blocks.push(b);
+  }
+  if (cur.heading || cur.blocks.length) sections.push(cur);
+  if (!sections.length) return [{ heading: '', blocks: [], cont: false }];
+
+  /* A WIDE TABLE BECOMES ONE CARD PER ROW, then one card of the whole table.
+     On a call he wants his own industry, not a grid of six — but the grid is
+     the only way to compare, so it stays, as the last card of the same deck
+     rather than somewhere he has to navigate to. */
+  const expanded = [];
+  for (const s of sections) {
+    let buf = [];
+    const flush = () => { if (buf.length) { expanded.push({ heading: s.heading, blocks: buf }); buf = []; } };
+    for (const b of s.blocks) {
+      if (b.kind === 'table' && A(b.rows).length >= 3) {
+        flush();
+        b.rows.forEach((r, i) => expanded.push({
+          heading: s.heading,
+          blocks: [{ kind: 'rowcard', head: A(b.head), cells: A(r) }],
+          pos: [i + 1, b.rows.length],
+        }));
+        expanded.push({ heading: s.heading, blocks: [b], all: true });
+      } else buf.push(b);
+    }
+    flush();
+  }
+
+  /* Level 2 — a section still over budget splits again, at block boundaries
+     only. A say block is moved whole rather than broken. */
+  const cards = [];
+  for (const sec of expanded) {
+    let run = [], cost = 0, first = true;
+    const push = () => {
+      cards.push({ heading: sec.heading, blocks: run, cont: !first, ...(sec.pos ? { pos: sec.pos } : {}), ...(sec.all ? { all: true } : {}) });
+      first = false; run = []; cost = 0;
+    };
+    const parts = sec.blocks.flatMap(b => splitBlock(b, CARD_BUDGET));
+    for (const b of parts) {
+      const c = blockCost(b);
+      if (run.length && cost + c > CARD_BUDGET) {
+        /* THE EYEBROW GOES WITH ITS SAY. A short "They say: …" left stranded on
+           its own card is the exact failure this deck exists to prevent: the
+           rep clicks the objection and lands on the question he was just asked
+           instead of the answer. So a trailing short paragraph is carried onto
+           the new card rather than orphaned on the old one. */
+        const last = run[run.length - 1];
+        const carry = (neverSplit(b) && last && last.kind === 'p'
+                       && S(last.text, 400).length <= EYEBROW_MAX) ? run.pop() : null;
+        if (run.length) push(); else run.length = 0;
+        if (carry) { run.push(carry); cost = blockCost(carry); }
+      }
+      run.push(b); cost += c;
+    }
+    if (run.length || first) push();
+  }
+  return cards.length ? cards : [{ heading: '', blocks: [], cont: false }];
+}

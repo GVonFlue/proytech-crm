@@ -135,6 +135,82 @@ console.log('\nthe parser drops nothing and invents no markup');
 
 /* ============================================ part 2: the shipped content */
 
+console.log('\npagination — the deck, and what must never happen to a card');
+{
+  const body=[
+    'They say: *"what is the catch?"*','',
+    '> "No catch. It is built."','',
+    '## Why it works','',
+    'Answer it flat and fast.',
+  ].join('\n');
+  const cards=kb.paginate(body);
+  ok('the author\'s ## is the card boundary', cards.length===2, String(cards.length));
+  ok('  the heading names the second card', cards[1].heading==='Why it works', cards[1].heading);
+  ok('  and the first card has no heading of its own', !cards[0].heading);
+
+  /* THE SHAPE THE WHOLE DECK IS FOR. */
+  const sh=kb.cardShape(cards[0].blocks);
+  ok('card one carries the spoken line', !!sh.say);
+  ok('  the short lead-in becomes an eyebrow, not a competitor', !!sh.eyebrow);
+  ok('  and nothing else is on that card', sh.rest.length===0, JSON.stringify(sh.rest));
+
+  /* Both tiers visible at once: a say with trailing prose splits into the
+     spoken line and the recessive remainder. */
+  const mixed=kb.cardShape(kb.parseBlocks('> "Say this."\n\nAnd here is why it works.'));
+  ok('prose after a spoken line is the recessive remainder',
+     !!mixed.say && mixed.rest.length===1 && mixed.rest[0].kind==='p', JSON.stringify(mixed.rest));
+  ok('  while prose with no spoken line is not',
+     kb.cardShape(kb.parseBlocks('Just prose.')).say===null);
+
+  /* A long lead-in is NOT an eyebrow: a rep must never read a paragraph to
+     reach the sentence he needs. */
+  const long=kb.cardShape(kb.parseBlocks('x'.repeat(200)+'\n\n> "Say this."'));
+  ok('a long paragraph before the say is moved below it, not made an eyebrow',
+     long.eyebrow===null && long.rest.length===1, JSON.stringify({e:!!long.eyebrow,r:long.rest.length}));
+
+  ok('pagination is deterministic', JSON.stringify(kb.paginate(body))===JSON.stringify(kb.paginate(body)));
+  ok('an empty note is one empty card, not a crash',
+     kb.paginate('').length===1 && kb.paginate('')[0].blocks.length===0);
+}
+
+console.log('\nevery seeded note fits its cards, and every objection leads with the line');
+{
+  const raw=JSON.parse(fs.readFileSync(path.join(root,'PLAYBOOK-SEED.json'),'utf8')).notes;
+  const over=[], noSay=[];
+  for(const n of raw){
+    const cards=kb.paginate(n.body);
+    for(const c of cards){
+      const cost=c.blocks.reduce((s,b)=>s+kb.blockCost(b),0);
+      if(cost>kb.CARD_BUDGET) over.push(n.title+' ('+cost+')');
+    }
+    if(n.category==='Objections'&&!kb.cardShape(cards[0].blocks).say) noSay.push(n.title);
+  }
+  ok('no card is over budget', over.length===0, over.join(', '));
+  ok('EVERY objection leads with the words to say', noSay.length===0, noSay.join(', '));
+
+  /* The swap table: one card per industry, then the whole table for comparing.
+     Six industries in the source, so six row cards and one all-rows card. */
+  const swap=raw.find(n=>/Six industries/.test(n.title));
+  const cards=kb.paginate(swap.body);
+  const rows=cards.filter(c=>c.blocks.some(b=>b.kind==='rowcard'));
+  ok('the swap table becomes one card per industry', rows.length===6, String(rows.length));
+  ok('  each knows where it is in the set', rows.every(c=>Array.isArray(c.pos)&&c.pos[1]===6));
+  ok('  and the whole table is still reachable, as the comparison card',
+     cards.some(c=>c.all&&c.blocks.some(b=>b.kind==='table')));
+  ok('  which comes after the row cards, not before',
+     cards.findIndex(c=>c.all) > cards.findIndex(c=>c.blocks.some(b=>b.kind==='rowcard')));
+
+  /* Nine compliance rules do not fit one card and MUST split — but only
+     between rules, never inside one. */
+  const comp=raw.find(n=>/cannot say/i.test(n.title));
+  const ccards=kb.paginate(comp.body);
+  const items=ccards.flatMap(c=>c.blocks.filter(b=>b.kind==='caution')).flatMap(b=>b.items);
+  ok('the compliance list paginates', ccards.length>1, String(ccards.length));
+  ok('  and not one rule is lost or cut in half',
+     items.length===kb.cautionItems({body:comp.body}).length,
+     items.length+' vs '+kb.cautionItems({body:comp.body}).length);
+}
+
 console.log('\nPLAYBOOK-SEED.json is importable as it stands');
 {
   const raw=fs.readFileSync(path.join(root,'PLAYBOOK-SEED.json'),'utf8');
@@ -262,23 +338,57 @@ console.log('\nan objection is TWO clicks from the sidebar');
   ok('the objection tile is on the landing screen — no list in between', !!tile);
   if(tile){ await click(tile); clicks++; }
   await settle();
-  ok('the note is open', !!document.querySelector('.pb-note'));
+  ok('the note is open', !!document.querySelector('.pb-card'));
   ok('it took exactly two clicks', clicks===2, String(clicks));
 }
 
-console.log('\nwhat he SAYS and why it works are different elements');
+console.log('\nTHE THING THIS IS JUDGED ON — the words to say are what he lands on');
 {
-  const say=document.querySelector('.pb-note .pb-say');
-  ok('there is a spoken block', !!say);
+  /* Two clicks in, no scrolling, no scanning: the spoken line must be ON the
+     first card and must be the dominant thing on it. */
+  const card=document.querySelector('.pb-card');
+  const say=card&&card.querySelector('.pb-say');
+  ok('the first card carries the spoken block', !!say);
   ok('the words to say are inside it', !!say && (say.textContent||'').includes(SAID));
-  ok('the coaching is NOT inside it', !!say && !(say.textContent||'').includes(COACH),
-     (say&&say.textContent||'').slice(0,120));
-  const coachEl=[...document.querySelectorAll('.pb-note .pb-p')].find(e=>(e.textContent||'').includes(COACH));
-  ok('the coaching is a separate paragraph element', !!coachEl);
-  /* Structural, not stylistic: two different nodes with two different classes.
-     Asserting on font-size would be asserting on a stylesheet jsdom does not
-     apply, and would pass whatever the screen looked like. */
-  ok('they are not the same node', !!coachEl && !!say && !say.contains(coachEl));
+
+  /* AND THE COACHING IS NOT ON THIS CARD AT ALL. It lives behind the note's
+     own `## Why it works`, which is where the card break comes from — so
+     there is nothing to scan past, not merely something smaller to ignore. */
+  ok('the coaching is not on the first card', !(card.textContent||'').includes(COACH),
+     (card.textContent||'').slice(0,160));
+
+  /* Nothing above the say may compete with it. The eyebrow is allowed, because
+     it is 13px dim italic against 28px 600 — but nothing else. */
+  const before=[...card.querySelectorAll('.pb-cbody > *')];
+  const sayIdx=before.findIndex(e=>e.classList.contains('pb-say'));
+  ok('the say block is first in the card body, or second behind only an eyebrow',
+     sayIdx===0 || (sayIdx===1 && before[0].classList.contains('pb-eyebrow')),
+     before.map(e=>e.className).join(' | '));
+
+  ok('the deck says how many cards there are', /1 \/ 2/.test(card.textContent||''),
+     (card.querySelector('.pb-count')||{}).textContent||'no counter');
+}
+
+console.log('\nthe coaching is one click away, and looks different when it arrives');
+{
+  const next=[...document.querySelectorAll('.pb-nav button')].pop();
+  ok('there is a next control', !!next);
+  if(next) await click(next); await settle();
+  const card=document.querySelector('.pb-card');
+  ok('the coaching is on the second card', (card.textContent||'').includes(COACH));
+  /* BODY copy, not the recessive coaching treatment — and that is correct.
+     The recessive style exists so prose does not compete with a spoken line on
+     the same card. Here there is no spoken line: the explanation IS the card,
+     so shrinking it would leave nothing for it to recede from. The two-tier
+     split is asserted as a pure function in part 1, where both tiers can be
+     seen at once. */
+  ok('and it is rendered as body copy, because it is the whole card',
+     !!card.querySelector('.pb-body .pb-p'),
+     (card.querySelector('.pb-cbody')||{}).className||'');
+  ok('the counter moved', /2 \/ 2/.test(card.textContent||''),
+     (card.querySelector('.pb-count')||{}).textContent||'');
+  ok('and Back is now available', [...document.querySelectorAll('.pb-nav button')]
+     .some(b=>/Back/.test(b.textContent||'')&&!b.disabled));
 }
 
 console.log('\nthe compliance list is reachable from the strip, in one click');
@@ -286,8 +396,8 @@ console.log('\nthe compliance list is reachable from the strip, in one click');
   await click(btn(/Back to the playbook/)); await settle();
   const strip=document.querySelector('.pb-strip');
   await click(strip); await settle();
-  ok('the strip opens the compliance note', /cannot say/i.test((document.querySelector('.pb-note h1')||{}).textContent||''),
-     (document.querySelector('.pb-note h1')||{}).textContent||'');
+  ok('the strip opens the compliance note', /cannot say/i.test((document.querySelector('.pb-ctitle')||{}).textContent||''),
+     (document.querySelector('.pb-ctitle')||{}).textContent||'');
   ok('the rules render as a rule list, not as prose', !!document.querySelector('.pb-caution'));
   ok('every rule is on screen', [...document.querySelectorAll('.pb-caution div')].length===3,
      String([...document.querySelectorAll('.pb-caution div')].length));
@@ -311,6 +421,31 @@ console.log('\nthe screen stays white-labellable and cannot render markup');
   const hex=src.match(/#[0-9a-fA-F]{3,8}\b/g)||[];
   ok('no hex colours in Playbook.jsx', hex.length===0, hex.join(' '));
   ok('it reads its colours from BRAND', /BRAND\.colors/.test(src));
+
+  /* NO BRAND WASH ON A LARGE SURFACE. tint(cobalt,.06) resolves to
+     rgb(242,244,253) — a pale violet, not cobalt — and it used to fill the
+     tiles and the say block. A brand colour diluted to 6% is not that colour;
+     at that size it is a tint nobody chose, and it is the first thing anyone
+     notices. Brand belongs at full strength on small marks. */
+  ok('no cobalt wash token is defined at all', !/--pb-primary-wash/.test(src));
+  ok('  the tiles are white', /\.pb-tile\{[^}]*background:white/.test(src));
+  ok('  the say block fills with the neutral grey, not a brand tint',
+     /\.pb-say\{[^}]*background:var\(--pb-well\)/.test(src));
+  ok('  and carries the brand at FULL strength as a rule, not a fill',
+     /\.pb-say\{border-left:4px solid var\(--pb-primary\)/.test(src));
+
+  /* THE PREVIEW MUST NOT BE A SECOND IMPLEMENTATION. It rendered pre-wrap
+     while the rep view parsed, so the owner saw ## and ** and the rep saw
+     neither — the one screen whose job is "show me what he gets" was the only
+     one that could not. */
+  ok('nothing renders a body as raw pre-wrap any more', !/whiteSpace: 'pre-wrap'/.test(src));
+  ok('the deck is exported as ONE component', /export function NoteCards/.test(src));
+  const previewSrc=src.slice(src.indexOf('function Preview('), src.indexOf('function Editor('));
+  const repSrc=src.slice(src.indexOf('function RepList('), src.indexOf('function Preview('));
+  ok('the owner Preview renders it', /<NoteCards note=/.test(previewSrc));
+  ok('the rep view renders it', /<NoteCards note=/.test(repSrc));
+  ok('  and neither builds its own body renderer',
+     !/parseBlocks\(/.test(previewSrc) && !/parseBlocks\(/.test(repSrc));
   /* A Playbook note is text an owner typed. The one guaranteed way to keep
      typed text from becoming script is to have no path that renders it as
      markup — the parser returns data and the screen maps it to elements. */

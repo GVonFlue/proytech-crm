@@ -137,7 +137,7 @@ console.log('\nopening a published note reads it, and writes nothing');
   const row=[...document.querySelectorAll('.pb-tile')].find(e=>/Rate lock objection/.test(e.textContent||''));
   ok('the note is clickable', !!row);
   if(row) await click(row); await settle();
-  ok('the note view opened', !!document.querySelector('.pb-note') && !!btn(/Back to the playbook/));
+  ok('the note view opened', !!document.querySelector('.pb-card') && !!btn(/Back to the playbook/));
   ok('its text is readable', txt().includes(PUBLISHED_TEXT));
   ok('reading it wrote nothing to the playbook', globalThis.__KB_WRITES__.length===0,
      JSON.stringify(globalThis.__KB_WRITES__));
