@@ -37,6 +37,7 @@ import {
   lastTouch,
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
   MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames, bookingBrief, briefText,
+  timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import { useScrollLock } from './lib/scrolllock';
@@ -349,6 +350,57 @@ function ReferralAdd({leads,onAdd}){
       <button className="btn btn-p btn-sm" disabled={!who.trim()} onClick={add}>Add</button>
       <button className="btn btn-g btn-sm" onClick={()=>{setOpen(false);setWho('');setNote('');}}>Cancel</button>
     </div>
+  </div>);
+}
+
+/* ============================================================================
+   PICKING A TIME ON A LIVE CALL.
+   ----------------------------------------------------------------------------
+   "Are mornings or afternoons better for you? … Thursday at ten, or Thursday
+   at two?" — SOP-03. The control matches the sentence: a day, then a time.
+   Two taps, no typing, no scrolling a native picker through sixty minutes to
+   find :30 while somebody waits on the phone.
+
+   HALF HOURS. Nobody books 10:15, and forty chips is slower to scan than the
+   raw field this replaces — a picker that is slower than what it replaced is
+   not an improvement. `+15` expands to quarters only when asked.
+
+   AND THE RAW FIELD IS STILL ONE TAP AWAY. "Another time" reveals the exact
+   <input type="datetime-local"> that was here before, for the prospect who
+   says "Thursday at 3:45". Both write the same value through joinWhen, so the
+   two halves cannot disagree.
+   ========================================================================== */
+function WhenPicker({value,onChange,businessType,label}){
+  const {day,time}=splitWhen(value);
+  const [raw,setRaw]=useState(false);
+  const [fine,setFine]=useState(false);
+  const days=useMemo(()=>nextDays(5),[]);
+  const {times,label:why}=useMemo(()=>timesFor(businessType),[businessType]);
+  const shown=fine?quartersFrom(times):times;
+  /* Pick the day for him when he taps a time first — on a call the day is
+     usually already agreed, and making him tap a chip he would have chosen
+     anyway is the kind of friction this control exists to remove. */
+  const pickTime=t=>onChange(joinWhen(day||days[0].iso,t));
+  return (<div className="whenp">
+    <label className="whenp-l">{label}</label>
+    <div className="whenp-row">
+      {days.map(d=>(
+        <button key={d.iso} type="button" className={'whenp-c'+(day===d.iso?' on':'')}
+          onClick={()=>onChange(joinWhen(d.iso,time||shown[0]))}>{d.label}</button>
+      ))}
+    </div>
+    <div className="whenp-row">
+      {shown.map(t=>(
+        <button key={t} type="button" className={'whenp-c t'+(time===t?' on':'')}
+          onClick={()=>pickTime(t)}>{chipTime(t)}</button>
+      ))}
+      <button type="button" className="whenp-more" onClick={()=>setFine(f=>!f)}>
+        {fine?'fewer':'+15'}</button>
+    </div>
+    {why&&<div className="whenp-why">{why}</div>}
+    <button type="button" className="whenp-raw" onClick={()=>setRaw(r=>!r)}>
+      {raw?'Use the chips':'Another time…'}</button>
+    {raw&&<input type="datetime-local" value={value||''} onChange={e=>onChange(e.target.value)}/>}
   </div>);
 }
 
@@ -1154,10 +1206,9 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                     <b>{d.code}</b>{d.label}
                   </button>))}
               </div>
-              {(adisp==='CB'||adisp==='BK')&&<div className="disp-cb">
-                <label>{adisp==='BK'?'The time you agreed':'Exactly when?'}</label>
-                <input type="datetime-local" value={cbAt} onChange={e=>setCbAt(e.target.value)}/>
-              </div>}
+              {(adisp==='CB'||adisp==='BK')&&
+                <WhenPicker value={cbAt} onChange={setCbAt} businessType={draft.businessType}
+                  label={adisp==='BK'?'The time you agreed':'Exactly when did they say?'}/>}
               {/* THE FIVE THINGS, at the moment he has them.
 
                   SOP-03 has the rep asking for these on the call and texting
