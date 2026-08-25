@@ -1235,6 +1235,8 @@ const CSS=`
 .modal.lead .rp-check b{display:block;font-size:13.5px;color:var(--ink-hi);margin-bottom:3px}
 .modal.lead .rp-check span{font-size:12.5px;line-height:1.6;color:var(--ink-mid)}
 .modal.lead .rp-codes{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.modal.lead .rp-codes span.scope{background:none;border:none;padding:4px 0;color:var(--ink-lo);
+  font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;width:100%}
 .modal.lead .rp-codes span{display:inline-flex;align-items:baseline;gap:6px;background:rgba(56,189,248,.06);
   border:1px solid var(--line);border-radius:9px;padding:5px 10px;font-size:12px;color:var(--ink-hi)}
 .modal.lead .rp-codes span.quiet{background:rgba(148,163,184,.07);color:var(--ink-mid)}

@@ -193,7 +193,19 @@ export default function RepProfile({
                 dials is a judgement about a person made from noise. */}
             <div className="rp-stand">
               <div className={'rp-band ' + stand.state}>
-                <span className="rw-lbl">Against the SOP curve</span>
+                {/* THE SCOPE IS IN THE LABEL, and it has to be.
+
+                    The stat tiles above are a SEVEN-DAY window; these bands and
+                    the checks below are ALL TIME, because SOP-01's curve is
+                    stated per week of tenure and a benchmark read off one week
+                    has a smaller sample than the benchmark needs.
+
+                    Both are right and they answer different questions — but
+                    unlabelled, inches apart, they read as a contradiction: the
+                    tile said "1 per 22" while the band said "1 per 24.3" and
+                    the check said "73 dials" under chips totalling 44. Two
+                    numbers on one screen that cannot be reconciled by eye. */}
+                <span className="rw-lbl">Against the SOP curve · bookings MADE · all time</span>
                 <b>{stand.state === 'unknown' ? 'Too early to say'
                   : stand.state === 'on' ? 'On the curve'
                   : stand.state === 'ahead' ? 'Ahead of the curve' : 'Behind the curve'}</b>
@@ -207,7 +219,7 @@ export default function RepProfile({
                   band on bookings that never happen. */}
               {out.booked > 0 && (
                 <div className={'rp-band held ' + standHeld.state}>
-                  <span className="rw-lbl">Against it on bookings that HELD</span>
+                  <span className="rw-lbl">Against it on bookings that HELD · all time</span>
                   <b>{out.held} of {out.booked} held{out.undecided ? ` · ${out.undecided} not marked yet` : ''}</b>
                   <i>
                     {show.value == null ? 'no meeting decided yet'
@@ -216,6 +228,28 @@ export default function RepProfile({
                         : `show rate ${Math.round(show.value * 100)}% across ${show.n}`}
                     {standHeld.rate != null ? ` · 1 held per ${standHeld.rate} dials` : ''}
                   </i>
+                </div>
+              )}
+              {/* WHEN THE TWO DISAGREE, SAY SO.
+
+                  Dials-per-booking rewards booking anything, which is the whole
+                  reason the held reading exists. If the made number reads well
+                  and the held number does not, the screen was showing a
+                  flattering headline in a positive colour with the honest
+                  figure underneath in red — and a reader skimming takes the
+                  first one. */}
+              {out.booked > 0 && (stand.state === 'on' || stand.state === 'ahead')
+                && standHeld.state === 'behind' && (
+                <div className="rp-check">
+                  <AlertTriangle size={14} />
+                  <div>
+                    <b>On the curve for bookings made, behind it for bookings that held</b>
+                    <span>
+                      {out.noshow} of {decidedOf(out)} decided appointment{decidedOf(out) === 1 ? '' : 's'} did
+                      not happen. The made number is the one a dials-per-booking target rewards, and it is the
+                      one that can be hit without anybody showing up — read the held line, not this one.
+                    </span>
+                  </div>
                 </div>
               )}
               <div className="rp-band day">
@@ -243,6 +277,7 @@ export default function RepProfile({
 
             {Object.keys(wk.byCode).length > 0 && (
               <div className="rp-codes">
+                <span className="scope">Last 7 days</span>
                 {DISPOSITIONS.filter(d => wk.byCode[d.code]).map(d => (
                   <span key={d.code} className={d.contact ? '' : 'quiet'} title={d.hint}>
                     <b>{d.code}</b> {wk.byCode[d.code]}<i>{d.label}</i>
