@@ -37,7 +37,7 @@ import {
   lastTouch,
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
   MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames, bookingBrief, briefText,
-  timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom,
+  timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom, DEMO_MIN,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import { useScrollLock } from './lib/scrolllock';
@@ -732,14 +732,9 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     const tags=[...pendTags];
     const mid=uid(); const now=new Date().toISOString();
     const start=new Date(cbAt).toISOString();
-    /* FIFTEEN, NOT THIRTY. The rep says "Takes ten minutes" and "Ten minutes,
-       and there's nothing on the other side of it" — twice in the script — and
-       the prospect then opens an invite. Thirty on that invite contradicts what
-       he was just told, which is the one thing the script is most careful
-       about. Fifteen is the smallest slot that does not read as a rounding of
-       thirty, and it leaves Logan a moment between back-to-back demos. Change
-       the 15 to a 10 to match the promise exactly. */
-    const end=new Date(new Date(cbAt).getTime()+15*6e4).toISOString();
+    /* TEN. The length is DEMO_MIN, not a number chosen here — see lead.js for
+       why it is the script's number and not ours. */
+    const end=new Date(new Date(cbAt).getTime()+DEMO_MIN*6e4).toISOString();
     const merged={...draft,brief:{...brief}};
     const b=bookingBrief(merged,{start});
     const title=`Demo with ${b.company||'lead'}`;

@@ -32,6 +32,33 @@ globalThis.ResizeObserver = class { observe(){} unobserve(){} disconnect(){} };
 dom.window.ResizeObserver = globalThis.ResizeObserver;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
+/* THE NUMBER THE SCRIPT PROMISES, read out of the script rather than restated
+   here — a constant compared against a copy of itself proves nothing. If
+   SALES-SCRIPT.md is ever reworded to a different length, this fails until
+   DEMO_MIN follows it, which is the only reason the two can never drift. */
+/* DEMO_MIN comes from the module that defines it. The App bundle below is
+   JSX-only, so lead.js is built separately — importing it raw fails on this
+   repo's extensionless imports. */
+const leadOut = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true, write:false,
+  format:'esm', external:['react'], define:{'import.meta.env':'__ENV__'},
+  banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'}, logLevel:'silent' });
+fs.writeFileSync('tests/.bdm.mjs', leadOut.outputFiles[0].text);
+const { DEMO_MIN } = await import('./.bdm.mjs?v=' + Date.now());
+
+const WORDS = { five:5, ten:10, fifteen:15, twenty:20, thirty:30, forty:40, sixty:60 };
+function scriptPromise() {
+  const src = fs.readFileSync('SALES-SCRIPT.md', 'utf8').toLowerCase();
+  const hits = [...src.matchAll(/\b([a-z]+|\d+)[- ]minutes?\b/g)]
+    .map(m => WORDS[m[1]] ?? (/^\d+$/.test(m[1]) ? +m[1] : null))
+    .filter(n => n != null);
+  if (!hits.length) return null;
+  /* The most-repeated length, not the first: the script mentions other
+     durations in passing and the PROMISE is the one it makes over and over. */
+  const tally = {};
+  for (const h of hits) tally[h] = (tally[h] || 0) + 1;
+  return +Object.keys(tally).sort((a, b) => tally[b] - tally[a] || a - b)[0];
+}
+
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); } else { fail++; console.log('  FAIL ' + n + (x ? ' — ' + String(x).slice(0, 240) : '')); } };
 
@@ -274,6 +301,18 @@ console.log('\n#9 — BK MAKES A MEETING, which it did not');
      (mtgs[0] || {}).start + ' vs created ' + (mtgs[0] || {}).createdAt);
   ok('  and a real date, so it lands in Upcoming rather than Needs a date',
      mtgs[0] && mtgs[0].dateUnknown === false);
+
+  /* THE INVITE MUST NOT CONTRADICT THE PHONE CALL.
+     The rep says "ten minutes" out loud, six times across the script, and the
+     prospect then opens a calendar invite. This shipped at thirty, then at
+     fifteen — both chosen for our convenience, neither the number he was told.
+     Asserted as a WINDOW on the record, not as a constant compared to itself,
+     because the thing that reaches the prospect is end-minus-start. */
+  const mins = mtgs[0] ? (new Date(mtgs[0].end) - new Date(mtgs[0].start)) / 60000 : -1;
+  ok('  the invite is as long as the rep promised, not longer',
+     mins === DEMO_MIN, mins + ' min, DEMO_MIN=' + DEMO_MIN);
+  ok('  and DEMO_MIN is the number the script actually says out loud',
+     DEMO_MIN === scriptPromise(), 'script says ' + scriptPromise() + ', code says ' + DEMO_MIN);
   const act = ((w || {}).activities || [])[0];
   ok('  the activity is type Booked carrying disp BK',
      act && act.type === 'Booked' && act.disp === 'BK', JSON.stringify(act));
