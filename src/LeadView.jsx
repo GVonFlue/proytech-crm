@@ -1149,11 +1149,31 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 lead to see. */}
             {/* the contact tally moved to the prep rail — it is something you
                 read BEFORE calling, not part of the history you scroll */}
-            {/* One tap for the most common cold-call outcome. Logs the call,
+            {/* ONE PLACE FOR A REP TO LOG A CALL, so this is owner-only.
+
+                Its own comment below already conceded the problem: "This is the
+                SECOND path a rep can write a Call from". Same shape as the
+                scheduler-versus-BK split fixed in #68 — two controls, one
+                outcome, two different records — and it wrote the WORSE of the
+                two. The composer goes through addActivity, which stamps
+                `whoId`. This builds its activity by hand with `who:me` and no
+                id, so actIsBy falls back to matching on NAME: rename the rep in
+                Settings and every call he parked this way stops counting toward
+                his dials, his dials-per-booking and his standing. Silently, and
+                only for calls logged through this button.
+
+                WHAT AN OWNER KEEPS is a genuine convenience on a pipeline they
+                actually manage. WHAT A REP LOSES is the one tap that also moved
+                the lead to the nurture stage — CB in the composer still sets
+                the callback, the follow-up date and the next action, so the
+                lead comes back to him on the day. It just stays in its current
+                stage, which is a pipeline decision rather than his.
+
+                One tap for the most common cold-call outcome. Logs the call,
                 parks the lead out of the pipeline, and books the revisit — all
                 in ONE patch, because three separate writes in a tick overwrite
                 each other (see the v7 stale-write notes). */}
-            {!sOf(draft.stage,stages).nurture&&!sOf(draft.stage,stages).won&&(()=>{
+            {!rep&&!sOf(draft.stage,stages).nurture&&!sOf(draft.stage,stages).won&&(()=>{
               const days=nurtureDaysOf(settings);
               const park=()=>{
                 const d=new Date(); d.setDate(d.getDate()+days);
