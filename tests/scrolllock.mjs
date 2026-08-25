@@ -144,5 +144,49 @@ console.log('\nevery modal in the app uses it');
   ok('and so does the lead view column', /\.m-left\{[^}]*overscroll-behavior:contain/.test(app));
 }
 
+console.log('\nLOCKING THE PAGE IS HALF THE JOB — the modal must still scroll');
+{
+  /* THE REGRESSION THIS PINS.
+
+     The lock shipped verified on one half only: the page stopped moving, and
+     nobody checked that the modal's own content still scrolled. It did not.
+     `.m-right` is overflow:hidden BY DESIGN — the feed is the scroller and the
+     column is not — and that held only while the composer was short. The BK
+     brief added five fields; a flex item with the default min-height:auto is
+     floored at its content height, so the composer could not shrink and pushed
+     1020px through a 508px hidden box. Everything past the fold, including the
+     Log button, became unreachable. A rep could not book a call at all.
+
+     jsdom has no layout, so the sizes cannot be asserted here — these pin the
+     RULES that produce them. The measurements live in the PR body, taken in
+     Chrome with real wheel events. */
+  const app = fs.readFileSync('src/App.jsx', 'utf8');
+
+  ok('the column is still overflow:hidden — one scroller, as designed',
+     /\.m-right\{[^}]*overflow:hidden/.test(app));
+  /* The three properties that let the composer give space back and then scroll
+     what is left. Any one of them missing reproduces the bug. */
+  ok('the composer can shrink below its content', /\.compose\{[^}]*min-height:0/.test(app));
+  ok('  and scrolls once it has', /\.compose\{[^}]*overflow-y:auto/.test(app));
+  ok('  and shrinks rather than growing', /\.compose\{flex:0 1 auto/.test(app));
+  ok('  and does not hand its overscroll to the page',
+     /\.compose\{[^}]*overscroll-behavior:contain/.test(app));
+
+  /* max-height:100% was the wrong tool and is specifically excluded: a
+     percentage max-height resolves against the CONTAINER, not against the space
+     left after the fixed-height siblings, so the column still overflowed. */
+  ok('it does not use a percentage max-height, which resolves against the wrong box',
+     !/\.compose\{[^}]*max-height:100%/.test(app));
+
+  /* The feed must not win the space fight. With basis:auto its starting size is
+     its whole content height and it squeezed the composer to fifty pixels —
+     reachable, and unusable. */
+  ok('the feed asks for no space of its own', /\.feed\{[^}]*flex:1 1 0[;,]/.test(app));
+
+  /* Nothing behind the composer competes with it while somebody is typing. */
+  ok('the filter row and the delete block yield while composing',
+     /\.compose ~ \.afilter, \.compose ~ \.m-danger\{display:none\}/.test(app));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
