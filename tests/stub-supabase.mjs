@@ -100,6 +100,17 @@ export const db = {
   },
   async kbMarkRead(noteId, kind = 'read') { rec('kbMarkRead', { noteId, kind }); return S().kbReads !== undefined; },
   async kbResetProgress(repId) { rec('kbResetProgress', { repId }); return true; },
+  /* rep_notes — owner-only in Postgres; the stub models the policy. */
+  async getRepNotes(repId) {
+    const r = S().repNotes;
+    if (r === undefined) return null;
+    const role = (S().whoami && S().whoami.role) || 'owner';
+    if (role !== 'owner') return [];
+    const all = clone(r || []);
+    return repId ? all.filter(n => n.rep_id === repId) : all;
+  },
+  async addRepNote(row) { rec('addRepNote', row); return null; },
+  async deleteRepNote(id) { rec('deleteRepNote', { id }); },
   async lastSeen() { const v = S().lastSeen; return v === undefined ? null : clone(v); },
 
   async getPayouts() { return clone(S().payouts || []); },

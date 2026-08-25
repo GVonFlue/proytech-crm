@@ -156,9 +156,38 @@ grant execute on function kb_reset_progress(uuid) to authenticated;
 
 
 -- ---------------------------------------------------------------------------
--- CONFIRM — expected output alongside each
+-- CONFIRM — and FIRST, why the SQL Editor cannot answer most of this
 -- ---------------------------------------------------------------------------
--- As the owner:
+-- THE SQL EDITOR IS NOT SIGNED IN AS ANYBODY. It has no JWT, so auth.uid() is
+-- NULL. is_owner() (MIGRATION.sql:65) is defined as
+--
+--     exists (select 1 from crm_users where id = auth.uid() and role='owner' ...)
+--
+-- so it is FALSE there, for everyone, always. Run crm_last_seen() in the editor
+-- and its WHERE becomes `(false or u.id = NULL)`, which is never true, so it
+-- returns ZERO ROWS while working perfectly. The same mechanism makes
+-- crm_whoami() report role 'none' in the editor.
+--
+-- An earlier version of this block said "as the owner, expect one row per
+-- person" and pointed at the editor. That could only ever have looked like a
+-- broken function, and it was reported as one.
+--
+-- TO ASK AS A REAL PERSON, LEND THE SESSION THEIR CLAIMS — inside a
+-- transaction that ROLLS BACK, so a test write never lands on anybody's record:
+--
+--   begin;
+--     select set_config('request.jwt.claims',
+--       json_build_object('sub','<their crm_users.id>','role','authenticated')::text, true);
+--     select set_config('role','authenticated', true);
+--
+--     -- ... the checks below ...
+--
+--   rollback;
+--
+-- The third argument `true` makes each setting local to the transaction, and
+-- the rollback undoes anything the checks wrote. Nothing persists either way.
+--
+-- As the owner (claims lent, per above):
 --   select * from crm_last_seen();
 --     -> one row per active person, including every rep
 --

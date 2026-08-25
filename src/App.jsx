@@ -22,7 +22,7 @@ import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import { playbookGate, unreadSince } from './lib/kb';
-import { repActivities, byDay, dayStats } from './lib/repwork';
+import RepProfile from './RepProfile';
 import Pocket from './Pocket';
 /* aliased: rateOf is already taken in this file by the <Rate> helper from
    AUDIT #7, which divides part/whole. This one is a meeting's pay rate. */
@@ -55,7 +55,6 @@ import ContentStudio from './ContentStudio';
 import {
   ACT_TYPES, CLIENT_PHASES, CMSN_STATE, COBALT, DATE_LEAD_DEFAULT, DEFAULT_CLIENT_PHASES,
   DEFAULT_DELIVERY_TRACKS, DEFAULT_OPTIONS, GOLD, GREEN, INDIGO, INK, MEETING_TYPES,
-  CONTACT_DISP, dispLabel,
   ONBOARDING, ONB_ITEMS, OWNERS, POOL_OWNER, PRIORITIES, REACHED_TYPES, RED, REL_TIERS,
   actLabel, activeTracks, allMeetings, anyPayments, blankFirst, bookedCount, calendarOwner,
   cashConfirmed, clientOverall, closedDealsTotal, cmsnAmount, cmsnOf, dateVocab, datelessOf,
@@ -1187,6 +1186,71 @@ const CSS=`
 .modal.lead .disp-cb input{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-hi)}
 .modal.lead .disp-note{color:var(--ink-mid)}
 .modal.lead .disp-err{color:#FCA5A5}
+/* ---- THE REP PROFILE, on the lead view's own plate ----
+   Scoped under .modal.lead deliberately: it inherits the dark surface, the
+   section cards and the type scale, and it inherits tests/leadcontrast.mjs,
+   which walks every text node in this view and fails dark-on-dark. A parallel
+   class set would have looked identical on the day and drifted by the next. */
+.modal.lead.rp .m-body{padding-bottom:40px}
+.modal.lead .rp-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:10px}
+.modal.lead .rp-stat{background:rgba(56,189,248,.05);border:1px solid var(--line);border-radius:12px;
+  padding:12px 14px;display:flex;flex-direction:column;gap:3px}
+.modal.lead .rp-stat span{font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--ink-lo)}
+.modal.lead .rp-stat b{font-size:21px;font-weight:700;color:var(--ink-hi);letter-spacing:-.01em}
+.modal.lead .rp-stat i{font-style:normal;font-size:11.5px;color:var(--ink-mid)}
+.modal.lead .rp-stat.good b{color:#6EE7B7}
+.modal.lead .rp-stat.gold b{color:#FCD34D}
+.modal.lead .rp-codes{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.modal.lead .rp-codes span{display:inline-flex;align-items:baseline;gap:6px;background:rgba(56,189,248,.06);
+  border:1px solid var(--line);border-radius:9px;padding:5px 10px;font-size:12px;color:var(--ink-hi)}
+.modal.lead .rp-codes span.quiet{background:rgba(148,163,184,.07);color:var(--ink-mid)}
+.modal.lead .rp-codes b{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:#7DD3FC}
+.modal.lead .rp-codes span.quiet b{color:var(--ink-mid)}
+.modal.lead .rp-codes i{font-style:normal;font-size:11px;color:var(--ink-lo)}
+.modal.lead .rp-days{display:flex;flex-direction:column;margin-top:14px}
+.modal.lead .rp-day{display:flex;flex-wrap:wrap;align-items:baseline;gap:14px;padding:9px 0;font-size:12.5px;
+  color:var(--ink-mid)}
+.modal.lead .rp-day+.rp-day{border-top:1px solid var(--line)}
+.modal.lead .rp-date{min-width:118px;font-weight:700;color:var(--ink-hi)}
+.modal.lead .rp-dn{min-width:76px}
+.modal.lead .rp-dn.good{color:#6EE7B7;font-weight:700}
+.modal.lead .rp-blocks{display:flex;gap:10px;flex-wrap:wrap;margin-left:auto}
+.modal.lead .rp-blocks em{font-style:normal;font-size:11.5px;color:var(--ink-lo);background:rgba(56,189,248,.06);
+  border-radius:7px;padding:2px 8px}
+.modal.lead .rp-blocks em.none{background:none;opacity:.6}
+.modal.lead .rp-deals{display:flex;flex-direction:column;margin-top:12px}
+.modal.lead .rp-deal{display:flex;align-items:baseline;gap:14px;padding:9px 0;font-size:12.5px;color:var(--ink-mid)}
+.modal.lead .rp-deal+.rp-deal{border-top:1px solid var(--line)}
+.modal.lead .rp-dl{flex:1;min-width:0;color:var(--ink-hi);font-weight:600}
+.modal.lead .rp-dv{min-width:88px;text-align:right;color:var(--ink-hi)}
+.modal.lead .rp-dc{min-width:150px;text-align:right;font-size:11.5px;color:var(--ink-lo)}
+.modal.lead .rp-dc.earned{color:#6EE7B7}
+.modal.lead .rp-dc.pending{color:#FCD34D}
+.modal.lead .rp-onb{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.modal.lead .rp-onb-i{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);
+  background:rgba(148,163,184,.07);border-radius:10px;padding:8px 12px;font-size:12.5px;
+  color:var(--ink-mid)}
+.modal.lead .rp-onb-i.done{background:rgba(56,189,248,.07);color:var(--ink-hi)}
+.modal.lead .rp-onb-i svg{color:var(--ink-lo)}
+.modal.lead .rp-onb-i.done svg{color:#6EE7B7}
+.modal.lead .rp-onb-i i{font-style:normal;font-size:11px;color:var(--ink-lo)}
+.modal.lead .rp-priv{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.55;
+  color:var(--ink-mid);background:rgba(148,163,184,.07);border:1px solid var(--line);
+  border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.modal.lead .rp-priv svg{flex:none;margin-top:2px;color:#FCD34D}
+.modal.lead .rp-note-in{background:rgba(56,189,248,.05)!important;border:1px solid var(--line)!important;
+  color:var(--ink-hi)!important}
+.modal.lead .rp-notes{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+.modal.lead .rp-note{border:1px solid var(--line);background:rgba(56,189,248,.04);border-radius:12px;
+  padding:11px 13px}
+.modal.lead .rp-note-m{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--ink-lo);
+  margin-bottom:6px}
+.modal.lead .rp-note-m b{color:var(--ink-mid);font-weight:700}
+.modal.lead .rp-note-m button{margin-left:auto;background:none;border:none;color:var(--ink-lo);cursor:pointer;
+  padding:2px}
+.modal.lead .rp-note-m button:hover{color:#FCA5A5}
+.modal.lead .rp-note-b{font-size:13.5px;line-height:1.6;color:var(--ink-hi);white-space:pre-wrap}
 .modal.lead .compose-open{background:rgba(56,189,248,.06);border:1px dashed var(--line-hi);color:var(--ink-mid)}
 .modal.lead .compose-open:hover{border-style:solid;color:var(--ink-hi)}
 .modal.lead .empty{color:var(--dim)}
@@ -2204,6 +2268,11 @@ const CSS=`
 .rw-codes{display:flex;gap:5px;flex-wrap:wrap;width:100%;padding-left:130px;margin-top:3px}
 .rw-codes i{font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.04em;color:#6B7280;
   background:#fff;border:1px solid #E2E4EF;border-radius:6px;padding:2px 7px}
+/* The team table's rows open a rep profile. Outside the lead-view paint block
+   on purpose: this rule belongs to the DASHBOARD table, and every rule inside
+   that block must be scoped to .modal.lead (tests/leadpaint.mjs). */
+.tapname{cursor:pointer}
+.tapname:hover .namecell.link{text-decoration:underline}
 .notnow{display:flex;align-items:center;gap:8px;width:100%;margin-bottom:10px;border:1px solid rgba(124,138,165,.35);background:rgba(124,138,165,.08);color:#4A5568;border-radius:11px;padding:9px 12px;font-size:12.5px;font-weight:700;font-family:inherit;cursor:pointer;text-align:left}
 .notnow:hover{border-color:#7C8AA5;background:rgba(124,138,165,.14)}
 .notnow span{margin-left:auto;font-weight:500;font-size:11px;color:#8E89A8;text-align:right}
@@ -3243,6 +3312,20 @@ export default function App(){
      rep out of the entire app, which is the worst failure this feature has. */
   const [kbReads,setKbReads]=useState(null);
   const [lastSeen,setLastSeen]=useState([]);
+  /* An owner's notes about a rep, and which rep's profile is open.
+
+     DECLARED HERE, WITH THE OTHER STATE, AND NOT BESIDE THE FUNCTIONS THAT USE
+     THEM. Those live below this component's early returns (no session, not
+     configured, blocked, not set up), and a hook below a conditional return is
+     the rules-of-hooks violation that crashes with "rendered more hooks than
+     during the previous render" the moment a branch flips — with a green build.
+     This is the third time that trap has been hit in this file; the warning is
+     in src/Playbook.jsx too.
+
+     `repNotes` is null when rep_notes is unreachable (migration not run), which
+     the profile says out loud rather than rendering as "no notes". */
+  const [repNotes,setRepNotes]=useState(null);
+  const [repOpen,setRepOpen]=useState(null);
   /* Pocket recordings. The LIST only — no transcripts, which is why
      db.getPocketRecordings selects named jsonb keys. The transcript arrives
      when one recording is opened. */
@@ -4177,6 +4260,13 @@ export default function App(){
   /* Owner-only, and it does not delete: kb_reset_progress writes a marker row,
      so the fact that a rep confirmed the rules a fortnight ago stays on the
      record and only the COUNT starts again. */
+  const openRep=async(u)=>{ setRepOpen(u); setRepNotes(null);
+    const r=await db.getRepNotes(u.id); setRepNotes(r); };
+  const addRepNote=async(repId,body)=>{ await db.addRepNote({repId,body,byId:myUid,byName:me});
+    const r=await db.getRepNotes(repId); setRepNotes(r); };
+  const delRepNote=async(id)=>{ if(!window.confirm('Delete this note?')) return;
+    await db.deleteRepNote(id);
+    if(repOpen){ const r=await db.getRepNotes(repOpen.id); setRepNotes(r); } };
   const resetKbProgress=async(repId)=>{ await db.kbResetProgress(repId);
     const fresh=await db.getKbReads(); if(fresh) setKbReads(fresh); };
   const markKbRead=async(noteId,kind)=>{
@@ -4273,7 +4363,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission}/>:
+          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -4293,7 +4383,7 @@ export default function App(){
           view==='content'?<ContentStudio/>:
           view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} users={users} payouts={payouts} />:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
-            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh} updateLead={updateLead} payouts={payouts} addPayout={addPayout} kbReads={kbReads} kbPub={kbPub} lastSeen={lastSeen} resetKbProgress={resetKbProgress}/>}
+            isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh} updateLead={updateLead} payouts={payouts} addPayout={addPayout} openRep={isOwner?openRep:null}/>}
       </div>
     </div>
     {acct&&<AccountModal name={me} email={auth.email(session)} role={isOwner?'owner':'rep'} onClose={()=>setAcct(false)}/>}
@@ -4306,6 +4396,14 @@ export default function App(){
             saveLog={saveMlog} saveKbNote={saveKbNote} setStatus={pocketStatus}
             deleteRecording={pocketDelete} saveProposals={db.savePocketProposals}/>
         </div></div></div>; })()}
+    {/* Owner-only ROUTING. The notes themselves are owner-only in Postgres —
+        rep_notes returns a rep zero rows — so this check decides who gets a
+        screen, not who gets the data. */}
+    {repOpen&&isOwner&&<RepProfile key={repOpen.id} rep={repOpen} leads={leads} stages={stages}
+      me={me} myUid={myUid} owner={isOwner} kbPub={kbPub} kbReads={kbReads}
+      lastSeen={(lastSeen||[]).find(x=>x.id===repOpen.id)} notes={repNotes}
+      onAddNote={addRepNote} onDeleteNote={delRepNote} onResetPlaybook={resetKbProgress}
+      onClose={()=>{setRepOpen(null);setRepNotes(null);}}/>}
     {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting} inbound={inbound}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
@@ -4642,7 +4740,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts}){
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings,txns);
   const [drill,setDrill]=useState(null);
@@ -5034,8 +5132,11 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         <th>Rep</th><th>Touches</th><th>Booked</th><th>Converted</th><th>Open</th><th>Their pipeline</th><th>Commission</th><th>Last touch</th>
       </tr></thead><tbody>
         {scorecard.map(r=>{ const cold=r.last?daysSince(r.last):null;
-          return (<tr key={r.u.id}>
-            <td><div className="namecell">{r.u.name}</div><div className="subcell">{num(r.u.commission_pct)}%</div></td>
+          /* "Tap a name to see their activity" has been the subtitle of this
+             table since it shipped, and the row had no handler — the promise
+             was made and never built. It opens the profile now. */
+          return (<tr key={r.u.id} className="tapname" onClick={()=>openRep&&openRep(r.u)}>
+            <td><div className="namecell link">{r.u.name}</div><div className="subcell">{num(r.u.commission_pct)}%</div></td>
             <td>{r.touches}</td><td>{r.booked}</td>
             <td><b style={{color:r.conv>0?GREEN:'#8E89A8'}}>{r.conv}</b></td>
             <td>{r.open}</td><td>{usd(r.pipe)}</td>
@@ -7906,74 +8007,7 @@ function Activity({leads,tasks,me,open,rep}){
    which pools they can see, which tabs they get, and whether they're active.
    The database enforces the lead-level part of this (see MIGRATION.sql);
    the tab list is a UI convenience on top of it, not a security boundary. */
-/* ============================================================ a rep's work
-
-   WHAT THIS SHOWS AND WHY IT IS NOT HOURS
-
-   No session length, no time in the CRM, no "online now". A rep here is an
-   independent contractor and SALES-SOPS.md says so in its own words — "nothing
-   in here sets your hours". Building an hours record would be evidence against
-   that agreement, and it would measure a browser tab rather than any work: a
-   rep with the app open all day and twelve dials would outrank one who dialled
-   sixty in two focused hours.
-
-   What is here instead is computed from the activity log — dials, dispositions,
-   bookings, and the shape of the day. src/lib/repwork.js clusters dials into
-   BLOCKS on a twenty-minute gap, which answers "did he run two blocks" from
-   work he actually did. Last sign-in is the one presence fact, and it answers
-   "is he here at all", not "how long was he here". */
-function RepWork({rep,leads,kbReads,kbPub,lastSeen,onReset}){
-  const [busy,setBusy]=useState(false);
-  const acts=repActivities(leads,rep);
-  const days=byDay(acts).slice(0,7);
-  const gate=kbReads===null?null:playbookGate(kbPub,(kbReads||[]).filter(r=>r.rep_id===rep.id));
-  const ackRow=(kbReads||[]).filter(r=>r.rep_id===rep.id&&r.kind==='ack').slice(-1)[0];
-  const reset=async()=>{
-    if(!window.confirm(`Send ${rep.name} back through the Playbook?\n\nNothing is deleted — what they have already read and confirmed stays on the record, and the count starts again from now.`)) return;
-    setBusy(true); try{ await onReset(rep.id); }catch(e){ window.alert(e.message||String(e)); } setBusy(false);
-  };
-  return (<div className="rw">
-    <div className="rw-top">
-      <div><span className="rw-lbl">Last signed in</span>
-        <b>{lastSeen&&lastSeen.lastSignInAt?fmtStamp(lastSeen.lastSignInAt):'—'}</b></div>
-      <div><span className="rw-lbl">Playbook</span>
-        {gate===null
-          ? <b className="rw-dim">not tracked yet</b>
-          : gate.complete
-            ? <b className="rw-ok"><CheckCircle2 size={13}/>Through it{ackRow?' · rules confirmed '+fmtDate(String(ackRow.at).slice(0,10)):''}</b>
-            : <b className="rw-todo">{gate.done} of {gate.total} read{gate.ackDone?'':' · rules not confirmed'}</b>}
-      </div>
-      {gate!==null&&<button className="btn btn-d btn-sm" disabled={busy} onClick={reset}>
-        {busy?<Loader2 size={13} className="spin"/>:null} Reset progress
-      </button>}
-    </div>
-    {/* Seven days, newest first. A day with nothing on it is DRAWN, not
-        skipped — a gap you can see is the information; a gap that is silently
-        absent reads as a week of solid work. */}
-    <div className="rw-days">
-      {!days.length&&<div className="empty" style={{padding:'12px 0'}}>Nothing logged yet.</div>}
-      {days.map(d=>{ const st=dayStats(d.acts,CONTACT_DISP); return (
-        <div className="rw-day" key={d.day}>
-          <div className="rw-date">{fmtDate(d.day)}</div>
-          <div className="rw-nums">
-            <em>{st.dials} dial{st.dials===1?'':'s'}</em>
-            <em>{st.conversations} conversation{st.conversations===1?'':'s'}</em>
-            <em className={st.bookings?'good':''}>{st.bookings} booked</em>
-            {st.blocks.length>0&&<em>{st.blocks.length} block{st.blocks.length===1?'':'s'}</em>}
-          </div>
-          {st.blocks.length>0&&<div className="rw-blocks">
-            {st.blocks.map((b,i)=><span key={i}>{fmtMeetingTime(b.from)}–{fmtMeetingTime(b.to)} · {b.n}</span>)}
-          </div>}
-          {Object.keys(st.byCode).length>0&&<div className="rw-codes">
-            {Object.entries(st.byCode).sort((a,b)=>b[1]-a[1]).map(([c,n])=>
-              <i key={c} title={dispLabel(c)}>{c} {n}</i>)}
-          </div>}
-        </div>); })}
-    </div>
-  </div>);
-}
-
-function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,reassign,me,myUid,noUsers,leads,kbReads,kbPub,lastSeen,resetKbProgress}){
+function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,reassign,me,myUid,noUsers,openRep}){
   const [openId,setOpenId]=useState(null);
   const [adding,setAdding]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -8036,8 +8070,12 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
             <ChevronDown size={15} className={'msec-ch'+(open?' on':'')}/>
           </div>
           {open&&<div className="tm-body">
-            {isR&&<RepWork rep={u} leads={leads} kbReads={kbReads} kbPub={kbPub}
-              lastSeen={(lastSeen||[]).find(x=>x.id===u.id)} onReset={resetKbProgress}/>}
+            {/* THE PROFILE IS WHERE YOU LOOK AT SOMEBODY; this form is where
+                you change them. What used to be a read-only panel here now
+                lives on the rep profile, reachable from the dashboard's team
+                table — one place, not two that can disagree. */}
+            {isR&&<button className="btn btn-d btn-sm" style={{marginBottom:14}}
+              onClick={()=>openRep&&openRep(u)}><Users size={14}/>Open {u.name}'s profile</button>}
             <div className="fgrid">
               <div className="field"><label>Name</label><input value={u.name||''} onChange={e=>set({name:e.target.value})}/></div>
               <div className="field"><label>Role</label><select value={u.role} onChange={e=>set({role:e.target.value})}><option value="owner">Owner</option><option value="rep">Sales Rep</option></select></div>
@@ -8216,7 +8254,7 @@ function PocketImport({pockets,onDone}){
   </div>);
 }
 
-function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers,pockets,refreshPockets,updateLead,payouts,addPayout,kbReads,kbPub,lastSeen,resetKbProgress}){
+function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoices,gcal,onDisconnectGcal,refreshGcal,isOwner,users,me,myUid,saveUser,removeUser,claimOwner,reassignLeads,noUsers,pockets,refreshPockets,updateLead,payouts,addPayout,openRep}){
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
@@ -8224,7 +8262,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
 
   return (<>
     {/* team & roles — owner-only */}
-    {isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassign={reassignLeads} me={me} myUid={myUid} noUsers={noUsers} leads={leads} kbReads={kbReads} kbPub={kbPub} lastSeen={lastSeen} resetKbProgress={resetKbProgress}/>}
+    {isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassign={reassignLeads} me={me} myUid={myUid} noUsers={noUsers} openRep={openRep}/>}
 
     {/* conversion alerts */}
     {isOwner&&<div className="card" style={{marginBottom:18}}>

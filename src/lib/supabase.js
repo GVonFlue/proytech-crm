@@ -318,6 +318,34 @@ export const db = {
   /* What JARVIS may be given. Reads kb_published and does not name kb_notes,
      so an OWNER calling it gets published rows only, exactly like a rep. There
      is no argument to pass to widen it. */
+  /* ---- an owner's notes about a rep -------------------------------------
+
+     OWNER ONLY IN POSTGRES. rep_notes has one policy, is_owner() on both
+     sides, so a rep's login gets zero rows — this is not a filter, there is
+     simply nothing to return. Nothing in the app has to remember to hide it,
+     and nothing in the assistant's payload names this table.
+
+     Fails SOFT to null: an install that has not run REP-PROFILE-MIGRATION.sql
+     shows "not set up" rather than crashing the screen. */
+  async getRepNotes(repId) {
+    let q = supabase.from('rep_notes').select('id,rep_id,body,by_id,by_name,at').order('at', { ascending: false });
+    if (repId) q = q.eq('rep_id', repId);
+    const { data, error } = await q;
+    if (error) { console.warn('[rep_notes]', error.message); return null; }
+    return data || [];
+  },
+  async addRepNote(row) {
+    const { data, error } = await supabase.from('rep_notes')
+      .insert({ rep_id: row.repId, body: row.body, by_id: row.byId || null, by_name: row.byName || '' })
+      .select('id,rep_id,body,by_id,by_name,at');
+    if (error) throw new Error(error.message || 'Could not save that note.');
+    return (data || [])[0] || null;
+  },
+  async deleteRepNote(id) {
+    const { error } = await supabase.from('rep_notes').delete().eq('id', id);
+    if (error) throw new Error(error.message || 'Could not delete that note.');
+  },
+
   /* ---- who has read what, and when anyone last signed in ----------------
 
      kb_reads is APPEND-ONLY and has no write policy at all: every insert goes
@@ -516,7 +544,7 @@ export const db = {
        silently dropped `recurring` in v36: a field written but not read is a
        field that vanishes. ENGINEERING §2. */
     const OPTIONAL = ['appointment_rate', 'nav_order'];
-    const base = 'id,name,email,role,pools,commission_pct,appointment_rate,active,tabs,goal_conversions,nav_order';
+    const base = 'id,name,email,role,pools,commission_pct,appointment_rate,active,tabs,goal_conversions,nav_order,onboarding';
     /* 42703 = column doesn't exist. Two can be missing independently —
        nav_order on an install that hasn't re-run MIGRATION.sql,
        appointment_rate on one that hasn't run REP-PAY-MIGRATION.sql — so drop
@@ -546,6 +574,7 @@ export const db = {
     if (error) { if (error.code === '42P01') return []; throw error; }
     return (data || []).map(u => ({ ...u, pools: u.pools || [], tabs: u.tabs || [], nav_order: u.nav_order || [],
       commission_pct: Number(u.commission_pct) || 0, appointment_rate: Number(u.appointment_rate) || 0,
+      onboarding: (u.onboarding && typeof u.onboarding === 'object') ? u.onboarding : {},
       /* so a screen can tell "not on appointment pay" from "column never ran" */
       _missingCols: dropped }));
   },
@@ -587,8 +616,18 @@ export const db = {
     const row = { id: u.id, name: u.name, email: u.email || null, role: u.role || 'rep', pools: u.pools || [],
       commission_pct: Number(u.commission_pct) || 0, active: u.active !== false, tabs: u.tabs || [],
       appointment_rate: Number(u.appointment_rate) || 0,
-      goal_conversions: Number(u.goal_conversions) || 0, nav_order: u.nav_order || [] };
+      goal_conversions: Number(u.goal_conversions) || 0, nav_order: u.nav_order || [],
+      onboarding: (u.onboarding && typeof u.onboarding === 'object') ? u.onboarding : {} };
     let { error } = await supabase.from('crm_users').upsert(row);
+    /* Same shape as the two fallbacks below: an install that has not run
+       REP-PROFILE-MIGRATION.sql has no `onboarding` column, and without this
+       EVERY user save would fail rather than just the new field. */
+    if (error && error.code === '42703') {
+      const { onboarding, ...noOnb } = row;
+      const retry = await supabase.from('crm_users').upsert(noOnb);
+      if (!retry.error) return;
+      error = retry.error;
+    }
     /* Same fallback as getUsers. Without this, an install that hasn't re-run
        MIGRATION.sql would fail EVERY user save, not just the sidebar order. */
     /* An install that has not run REP-PAY-MIGRATION.sql has no appointment_rate
