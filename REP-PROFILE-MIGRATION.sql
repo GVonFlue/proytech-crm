@@ -20,7 +20,8 @@
 -- rather than a column on crm_users, which a rep CAN read: users_read is
 -- `id = auth.uid() or is_owner()`, so his own row comes back to him whole.
 --
--- Proved from the rep's side in VERIFY-RLS.md.
+-- Proved from the rep's side in VERIFY-RLS.md §11 — which also states, in
+-- Coverage honestly, exactly which checks there have NOT been run.
 -- ===========================================================================
 
 

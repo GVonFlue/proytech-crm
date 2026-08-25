@@ -60,11 +60,16 @@ nothing is **open**; this document proves a policy is **right**, with real
 logins, sentinel rows and a measured before and after. A non-`true` expression
 can still check the wrong column.
 
-> **Every section below §2 predates this rule.** §§3, 6, 7 and 8 were written
-> and confirmed by counting policies. §9 was the first written to read
-> expressions. The four core tables — `leads`, `meeting_logs`, `kb_notes`,
-> `rep_payouts` — were re-checked by expression on 23 Aug 2026: three were
-> clean and `leads` was not. See the finding recorded in §3.
+> **§§3, 6, 7 and 8 predate this rule** — they were written and confirmed by
+> counting policies. §9 was the first written to read expressions. The four core
+> tables — `leads`, `meeting_logs`, `kb_notes`, `rep_payouts` — were re-checked
+> by expression on 23 Aug 2026: three were clean and `leads` was not. See the
+> finding recorded in §3.
+>
+> **§§10 and 11 are newer and are NOT finished.** Each has one half of the
+> check and not the other — see *Coverage, honestly* near the end of this file,
+> which states exactly which boxes are unticked. Read that before treating
+> either table as proven.
 
 ---
 
@@ -886,6 +891,184 @@ delete from content_research      where raw   like 'SENTINEL-%';
 delete from content_posts         where hook  like 'SENTINEL-%';
 delete from content_usage         where units = 12345;
 ```
+
+---
+
+## 10. Playbook progress (after REP-ACTIVITY-MIGRATION.sql)
+
+`kb_reads` records that a rep reached the last card of a published note, that he
+confirmed the compliance rules, or that an owner sent him back through the
+Playbook. The acknowledgement is the point: it is a record that may one day have
+to be produced to somebody outside the company, and it is worthless if the
+person it is about can write it.
+
+### What is proved, and how
+
+**Read on 26 Aug 2026, as the owner, by expression — not by counting:**
+
+```
+tbl        kb_reads
+policy     kb_reads_read
+permissive t
+cmd        SELECT
+using      ((rep_id = auth.uid()) OR is_owner())
+with_check NULL
+```
+
+Three things follow from that output, and they are the three that matter:
+
+1. **One policy.** Permissive policies are ORed, so the weakest one on a table
+   decides what it allows. There is nothing here to OR with.
+2. **`SELECT` only.** No `INSERT`, `UPDATE` or `DELETE` policy exists, so with
+   RLS enabled **no session can write this table directly at all** — not a rep,
+   not an owner. Every write goes through `kb_mark_read()`, which is
+   `security definer`, stamps `auth.uid()`, and **takes no parameter for whose
+   read it is.** A rep cannot mark himself complete, and nobody can quietly edit
+   an acknowledgement afterwards.
+3. **`with_check` is NULL**, which is what a SELECT-only policy should show. A
+   non-null value here would mean a write path exists.
+
+### What is NOT proved yet
+
+**No rep-side check has been run against this table.** The policy expression is
+read and correct; the behaviour it produces for a real rep login has not been
+observed. Specifically, all of these are **unrun**:
+
+- [ ] As a rep: `select * from kb_reads` returns **only their own rows**, never
+      another rep's.
+- [ ] As a rep: `insert into kb_reads (rep_id, note_id, kind) values (auth.uid(), 'x', 'read')`
+      → **ERROR, violates row-level security.** (Expected from the expression
+      above; not yet observed.)
+- [ ] As a rep: `select kb_mark_read('<a published note id>')` succeeds and
+      lands a row whose `rep_id` is **their own uid**.
+- [ ] As a rep: `select kb_mark_read('<some id that is not published>')`
+      → **ERROR, is not a published note.**
+- [ ] As a rep: `select kb_reset_progress('<any uuid>')` → **ERROR, owners only.**
+- [ ] As the owner: `select * from crm_last_seen()` returns one row per active
+      person; as a rep, **exactly one — their own.**
+
+`crm_last_seen()` is entirely unverified in either direction.
+
+**Reading the expression rules out the shape that has bitten this project
+twice** — a leftover `using (true)` ORed in beside a correct policy. It does not
+rule out a correct-looking expression checking the wrong column, which is what
+the rep-side checks above are for. Both halves are needed and only one is done.
+
+### How to run the rep-side checks
+
+The SQL Editor is **not signed in as anybody**: `auth.uid()` is NULL there, so
+`is_owner()` is FALSE for everyone and this table returns nothing even to you.
+That is the policy working. Lend the session a real person's claims, inside a
+transaction that rolls back so a test write never lands on anybody's record:
+
+```sql
+begin;
+  select set_config('request.jwt.claims',
+    json_build_object('sub','<their crm_users.id>','role','authenticated')::text, true);
+  select set_config('role','authenticated', true);
+
+  -- the checks above
+
+rollback;
+```
+
+---
+
+## 11. An owner's notes about a rep (after REP-PROFILE-MIGRATION.sql)
+
+`rep_notes` is an owner's assessment of a person, written **about** them and not
+**for** them. This is the boundary in this system with the least margin for
+error: the failure is not a number leaking, it is a rep reading what his owner
+thinks of him.
+
+**Why it is a separate table and not a column on `crm_users`.** `users_read` is
+`id = auth.uid() or is_owner()`, so a rep reads **his own `crm_users` row
+whole**. An assessment stored there would be readable by its subject, through
+the ordinary read path, with no bug required.
+
+### What is proved, and how
+
+**Run on 26 Aug 2026 with a rep's claims lent, inside a transaction:**
+
+| check | result |
+|---|---|
+| `select * from rep_notes` | **zero rows** |
+| `insert into rep_notes (rep_id, body) values (auth.uid(), 'x')` | **ERROR — violates row-level security** |
+
+The first is the one that matters, and it is stronger than it looks: **a second
+permissive `SELECT` policy would have been ORed in and returned rows.** Zero
+rows therefore rules out a wide-open read policy alongside the correct one —
+the exact `leads` / `using (true)` shape from §3, which counting policies would
+not have caught.
+
+The second rules out a permissive `INSERT` policy.
+
+### What is NOT proved yet
+
+- [ ] **The policy expressions have not been read.** `pg_get_expr` for every
+      policy on `rep_notes` is the check `CLAUDE.md` requires and this file's
+      own header insists on, and it is the only one that can show what is
+      actually there rather than what one operation happened to do. **Run this:**
+
+      ```sql
+      select p.polname, p.polpermissive, p.polcmd,
+             pg_get_expr(p.polqual, p.polrelid)      as using_expr,
+             pg_get_expr(p.polwithcheck, p.polrelid) as with_check_expr
+        from pg_policy p join pg_class c on c.oid = p.polrelid
+       where c.relname = 'rep_notes';
+      ```
+
+      Expect **exactly one row**: `rep_notes_owner`, permissive, cmd `ALL`,
+      `is_owner()` in both `using_expr` and `with_check_expr`. A second row is a
+      rep reading his own assessment.
+
+- [ ] **`UPDATE` and `DELETE` are untested from the rep side.** The migration
+      uses `for all`, so one policy covers every verb — but that is the
+      migration's *intent*, and only the expression dump above confirms the
+      database agrees. Until then:
+
+      ```sql
+      update rep_notes set body = 'x';   -- expect: 0 rows, or ERROR
+      delete from rep_notes;             -- expect: 0 rows, or ERROR
+      ```
+
+- [ ] As the owner: `select * from rep_notes` returns every note, and an insert
+      naming another rep succeeds.
+
+### What no policy here can prove
+
+`tests/repnotes.mjs` is the second line, and it is deliberately adversarial: it
+hands a **rep's browser** a note about himself, as though this policy had been
+dropped, then walks every tab he can open and asserts the sentinel appears on
+none of them — and that the assistant payload never carries it either. That is
+not a substitute for the checks above. It is what happens **when** they fail.
+
+The owner-only check in `src/RepProfile.jsx` is a **routing** decision and says
+so in the file. Removing it would render an empty panel, because the rows never
+arrive. The app is not the boundary.
+
+---
+
+## Coverage, honestly
+
+Two tables were added in Aug 2026 and **neither is fully verified.** The gap is
+different for each, and in opposite halves:
+
+| | policy expression read | rep-side behaviour observed |
+|---|---|---|
+| `kb_reads` (§10) | **yes** | no |
+| `rep_notes` (§11) | no | **partly** — SELECT and INSERT only |
+
+Neither section should be read as a completed proof. `kb_reads` knows what its
+policy *says* and not what it *does*; `rep_notes` knows what two operations
+*did* and not what its policy *says*. The functions — `crm_last_seen()`,
+`kb_mark_read()`, `kb_reset_progress()` — are unverified in every direction.
+
+**This file is only worth what its most optimistic sentence is worth.** Sections
+1–8 were once written by counting policies, and on 23 Aug 2026 that method
+reported a wide-open database as healthy, twice in one day. The checkboxes above
+are unticked on purpose: an unticked box is a smaller lie than a section that
+reads as finished.
 
 ---
 

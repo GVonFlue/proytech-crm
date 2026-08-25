@@ -9,6 +9,9 @@
 -- Run once, in the Supabase SQL Editor. Creates one table, two functions and
 -- one policy. Changes no existing data and no existing policy.
 --
+-- Verified in VERIFY-RLS.md §10 — which also states, in Coverage honestly,
+-- exactly which checks there have NOT been run.
+--
 -- ---------------------------------------------------------------------------
 -- WHAT IS DELIBERATELY NOT HERE
 -- ---------------------------------------------------------------------------
