@@ -71,3 +71,104 @@ Vercel → **proytech-crm** → **Settings → Environment Variables**. Add thes
 - `no_refresh_token`: you approved before; just click Connect again (it forces a fresh grant).
 - Redirect mismatch: the URI in step B5 must match `GOOGLE_REDIRECT_URI` exactly (no trailing slash).
 - Stuck "not connected" when booking: re-check the six env vars, then Redeploy (env changes need a fresh build).
+
+---
+
+## Slot availability — reps can only book times that are actually free
+
+A rep no longer types a time. They pick from a fixed lattice of half-hour slots
+between 8am and 8pm, and a slot is only offered when **every** calendar we read
+is empty there, or holds nothing but a **Banana**-coloured event.
+
+**The rule is inverted on purpose.** Everything blocks unless it is explicitly
+marked soft. There is no list of colours that block — there is one colour that
+does not. An event nobody remembered to colour stays protected. The failure that
+is acceptable is "a rep escalated a time that was actually free"; the one that is
+not is "a rep booked over a real commitment".
+
+That inversion also decides three edge cases you might expect to behave
+otherwise. **All-day events block the whole day. Declined events still block.
+Events marked "Free" rather than "Busy" still block.** Google's own soft signals
+have been replaced by exactly one signal — the colour. Colour an exception
+Banana rather than expecting the app to infer it.
+
+### What to set
+
+| Variable | Example | What it does |
+| --- | --- | --- |
+| `CALENDAR_IDS` | `primary,logan@getproytech.com` | Every calendar that decides whether a slot is free. Comma-separated; an id is an email address. `primary` is the connected account's own calendar. Defaults to `primary` alone. |
+| `CALENDAR_TZ` | `America/Chicago` | The one zone every comparison happens in. Defaults to `America/Chicago`. |
+
+Neither is `VITE_`-prefixed and neither should be — these are read on the server
+only. See `_env.js` for why that prefix is not a stylistic choice.
+
+**`CALENDAR_IDS` needs both people on it.** The demo is run by one person and
+attended by another, so both sets of commitments have to clear. Listing only one
+calendar produces a grid that is confidently wrong about the other.
+
+### What the second person has to do
+
+There is one Google connection per install and it is authorised as the owner.
+Reading anybody else's calendar requires *them* to share it with the owner's
+Google account:
+
+1. Google Calendar → hover their calendar in the left sidebar → **⋮** →
+   **Settings and sharing**
+2. **Share with specific people or groups** → **Add people and groups**
+3. Add the owner's Google account — the same address `/api/google-status`
+   reports as connected
+4. Permission: **See all event details**
+
+**"See only free/busy (hide details)" is not enough.** That level strips the
+colour, and the colour is the entire rule — every event would read as hard and
+the grid would show a day with nothing on it.
+
+They do **not** need to grant "Make changes to events". The booking is created on
+the owner's calendar with the other person invited, which is how it already
+worked, so no extra permission and no change to the guarded write path.
+
+### No new OAuth scope
+
+The existing grant (`calendar.events`) already reads and writes events on every
+calendar the account can reach, so nothing here forces a reconnect.
+
+Worth knowing *why*, because the obvious endpoint is the wrong one:
+`freebusy.query` returns intervals and nothing else — no colour — so it cannot
+express this rule at all, **and** it is not covered by `calendar.events` anyway.
+The colour requirement steers us onto `events.list`, which we already have
+consent for. There is also no calendar **picker** for the same reason in reverse:
+enumerating calendars needs `calendarList` scope, adding it invalidates the
+existing consent, and per the note in `_google.js` that 403s every Sheets read
+until somebody reconnects. Configuration is cheaper than a dropdown.
+
+### Verifying Banana is really colorId 5
+
+`POST /api/calendar-probe` (owner only). It creates two events a year out at 4am
+— one Banana, one uncoloured — reads both back, asserts, and deletes them. It
+reports what actually came back rather than a pass/fail, and tells you if it
+could not clean up after itself.
+
+Run it once per install before trusting a grid. If `colorId` 5 is ever not
+Banana, the failure is silent and dangerous in one direction: some *other*
+colour becomes soft and reps book over it.
+
+### When Google is unreachable
+
+The rep is never blocked. The full lattice renders, the grid says on its face
+that nothing was checked, the chips are drawn differently, and the booking is
+stamped `availabilityChecked: false`, which shows as **not checked** on the
+meeting row. A booking that displaces a Banana block is stamped `displacedSoft`
+and shows as **displaced a soft block** in the same place.
+
+Note that "checked" means *verified at the moment of booking*: the grid is
+re-read immediately before the event is created, and if that re-read fails the
+booking is marked unchecked even if the grid was green a minute earlier.
+
+### The race that remains
+
+Google has no conditional create — no "insert only if this window is still
+free". The re-read before booking narrows the window from "however long the
+picker was open" to one round trip, and it closes the two-rep race for free,
+because the booking we create lands on a calendar we read and carries no colour,
+which makes it hard. What is left is the sub-second gap between that read and the
+insert. It is not closable with this API.
