@@ -375,6 +375,38 @@ console.log('\nTHE COMPOSER IS THE SCREEN, and there is one way to book');
      [...curEl.querySelectorAll('.disp-b')].some(x => ((x.querySelector('b') || {}).textContent || '') === 'BK'));
   ok('  and the other types are untouched',
      ['Note','Call','Text','Email'].every(k => chips.includes(k)), chips.join(' | '));
+
+  /* ONE LOGGING PATH, for the same reason.
+
+     "Not right now" was a one-tap that logged a Call, parked the lead and set
+     the revisit. Its own comment conceded it was "the SECOND path a rep can
+     write a Call from" — and it wrote the worse record of the two. The
+     composer goes through addActivity, which stamps whoId. That button built
+     its activity by hand with `who: me` and no id, so actIsBy fell back to
+     matching on NAME: rename the rep in Settings and every call he parked this
+     way stops counting toward his dials and his standing, silently, and only
+     for calls logged through that button. */
+  ok('a rep has no second one-tap way to log a call',
+     !curEl.querySelector('.notnow'),
+     (curEl.querySelector('.notnow') || {}).textContent || '');
+}
+
+console.log('\nAN OWNER KEEPS IT — this is a rep rule, not a deletion');
+{
+  await boot({ users: [OWNER(), REP], gcal: { connected:false, email:'' } });
+  await openLead();
+  ok('the owner still has the one-tap park', !!curEl.querySelector('.notnow'));
+  /* And still gets the collapsed composer, which is the #68 divergence. An
+     owner opens a lead to READ it. */
+  ok('  and still opens the composer by hand', !!curEl.querySelector('.compose-open'));
+
+  /* THE RECORD IT WRITES IS WHY THIS IS OWNER-ONLY, so pin it: if the button
+     ever starts stamping whoId, the reason for the rep rule is gone and this
+     is worth revisiting rather than leaving as folklore. */
+  const lead = fs.readFileSync('src/LeadView.jsx', 'utf8');
+  const park = lead.slice(lead.indexOf('const park='), lead.indexOf('className="notnow"'));
+  ok('  and it is still the hand-built activity that has no whoId on it',
+     /who:me/.test(park) && !/whoId/.test(park), park.slice(-160));
 }
 
 console.log('\nan owner keeps the scheduler, and the collapsed composer');
