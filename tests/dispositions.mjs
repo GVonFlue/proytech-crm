@@ -127,6 +127,63 @@ console.log('\nthe rules SOP-02 asks a rep to remember, imposed instead');
   ok('  and a no-answer does not look like one', L.hasVoicemail(lead({ disp:'NA' }, { disp:'CB' })) === false);
 }
 
+console.log('\nthe five things SOP-03 has the rep asking for');
+{
+  /* NO MIGRATION. A lead is a jsonb blob — leadRow writes data:{...lead} with
+     no column list and getLeads spreads it back — so `brief` rides along. */
+  const bare = { company:'Alvarez Roofing', name:'Rita', phone:'316', email:'r@x.com' };
+  ok('a bare lead is missing all five', L.briefMissing(bare).length === 5, JSON.stringify(L.briefMissing(bare)));
+  ok('  including the website', L.briefMissing(bare).includes('website'));
+
+  const full = { ...bare, website:'alvarez.com',
+    brief:{ nameAsWritten:'Alvarez Roofing LLC', wants:'reroofs, insurance, gutters',
+            area:'Wichita + 40mi', photos:'Facebook' } };
+  ok('a complete brief is complete', L.briefComplete(full), JSON.stringify(L.briefMissing(full)));
+
+  /* AN EMPTY WEBSITE MEANS TWO DIFFERENT THINGS and they must not render the
+     same: nobody asked (a gap Logan chases) versus they have none (an answer
+     he can build against). */
+  const noSite = { ...full, website:'' };
+  ok('a blank website is treated as NOT ASKED', L.briefMissing(noSite).includes('website'));
+  const declared = { ...noSite, brief:{ ...noSite.brief, noWebsite:true } };
+  ok('  until the rep says they have none', L.briefComplete(declared));
+  ok('  and then it reads as an answer, not a blank',
+     L.bookingBrief(declared, {}).website === 'They do not have one');
+
+  /* One assembly, used by the email and by any screen showing it, so the two
+     cannot drift. */
+  const b = L.bookingBrief(full, { start:'2026-09-03T14:00' });
+  ok('the assembly carries everything SOP-03 texts',
+     ['company','contact','phone','email','industry','when','nameAsWritten','website','wants','area','photos']
+       .every(k => k in b), JSON.stringify(Object.keys(b)));
+  ok('  and the time comes from the MEETING, not the lead', b.when === '2026-09-03T14:00');
+  ok('website reads from lead.website, which already exists — not a second copy',
+     b.website === 'alvarez.com');
+}
+
+console.log('\nwho an escalation reaches when crm_team() is empty');
+{
+  /* THE BUG THIS PINS. crm_team() returns [] on an install that has not run
+     TEAM-MIGRATION.sql, and the escalation path read it directly — so SO, HV
+     and DNC tagged NOBODY there, silently. The @mention picker beside them
+     already had a fallback; the automatic path did not. */
+  const roster = [{ id:'o', name:'Garrett', role:'owner' }, { id:'r', name:'Tony', role:'rep' }];
+  ok('the roster is used when it has owners', L.ownerNames(roster, []).join() === 'Garrett');
+  ok('  and reps are not tagged', !L.ownerNames(roster, []).includes('Tony'));
+
+  const users = [{ id:'o', name:'Garrett', role:'owner', active:true },
+                 { id:'x', name:'Old Owner', role:'owner', active:false }];
+  ok('an empty roster falls back to the users table', L.ownerNames([], users).join() === 'Garrett');
+  ok('  and skips a deactivated owner', !L.ownerNames([], users).includes('Old Owner'));
+
+  /* Last resort rather than nobody: the names this deployment is configured
+     with. Tagging the wrong person is recoverable; tagging nobody is not
+     noticed at all. */
+  ok('with neither, it falls back to the configured team rather than nobody',
+     L.ownerNames([], []).length > 0, JSON.stringify(L.ownerNames([], [])));
+  ok('null in, no crash out', Array.isArray(L.ownerNames(null, null)));
+}
+
 console.log('\nan empty lead is answerable, not a crash');
 {
   ok('no activities dials', L.dialState({ id:'x' }, NOW).dial === true);

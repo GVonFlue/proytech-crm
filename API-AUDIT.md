@@ -89,6 +89,24 @@ endpoint at an address of their choosing.
 
 Two changes, and the second is the real one.
 
+> **Aug 2026 — a second event, `kind:'booked'`.** The auth posture is
+> unchanged: same `guard({requireAuth:true})`, same `perDay` cap, same
+> recipient allowlist, and the allowlist is still what decides where mail can
+> go. What IS new is the **payload**: the booked email carries a lead's
+> business name, contact name, phone, email and industry, where the conversion
+> email carried only a rep name and a client name.
+>
+> That is more customer data leaving the system than any previous notification,
+> so it is worth stating plainly: **the allowlist is the only thing standing
+> between a lead's phone number and an arbitrary inbox.** It is built from
+> `NOTIFY_TO` and `crm_users.email where role='owner'` — neither writable by a
+> rep — and deliberately not from `settings.notifyEmails`, which any listed
+> user can write. That reasoning was already load-bearing and is now carrying
+> more.
+>
+> A rep can trigger this route (booking is a rep's job), and a rep chooses the
+> lead. He cannot choose the recipient.
+
 1. `guard({requireAuth:true})`, `perDay:300` — the daily cap is now a hard
    ceiling on how much mail can leave that domain in a day.
 2. **The recipient allowlist.** `to` still narrows the list; the list itself is

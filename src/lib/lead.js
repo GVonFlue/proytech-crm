@@ -742,3 +742,90 @@ export const setGmailIndex = n => {
 };
 export const gmailCompose = (email, idx) =>
   `https://mail.google.com/mail/u/${idx === undefined ? gmailIndex() : idx}/?view=cm&fs=1&to=${encodeURIComponent(email || '')}`;
+
+/* Who to escalate to, with the SAME fallback the @mention picker already uses.
+
+   crm_team() returns [] on an install that has not run TEAM-MIGRATION.sql, and
+   the escalation path read it directly — so on those installs SO, HV and DNC
+   tagged NOBODY and did it silently. The picker beside them had a fallback and
+   the automatic path did not, which is the two-code-paths-one-job shape that
+   drifts by definition. One function now, used by both. */
+export const ownerNames = (roster, users) => {
+  const fromRoster = (Array.isArray(roster) ? roster : [])
+    .filter(u => u && u.role === 'owner' && u.name).map(u => u.name);
+  if (fromRoster.length) return [...new Set(fromRoster)];
+  const fromUsers = (Array.isArray(users) ? users : [])
+    .filter(u => u && u.role === 'owner' && u.active !== false && u.name).map(u => u.name);
+  if (fromUsers.length) return [...new Set(fromUsers)];
+  /* Last resort: the names this deployment was configured with. Better than
+     tagging nobody, and it is what the picker falls back to. */
+  return [...new Set((BRAND.team || []).filter(Boolean))];
+};
+
+/* ---- the five things, captured when a call is booked ----------------------
+
+   SOP-03 has the rep asking for these on the call and texting them to Logan
+   within ten minutes, because Logan builds the site in the half hour before
+   the appointment and cannot start until they land. The rep already has them
+   in front of him at that moment — writing them here is recording what he
+   just heard, not extra work.
+
+   NO MIGRATION. A lead is a jsonb blob: `leadRow` writes `data: {...lead}`
+   with no column list and `getLeads` spreads it straight back, so a new key
+   rides along untouched.
+
+   WEBSITE IS NOT IN THIS LIST. `lead.website` already exists, and a second
+   home for one fact is two screens that can disagree. It is asked for at the
+   same moment and validated alongside — see briefMissing below. */
+/* lead.js has no string helper of its own — `S` lives in kb.js. A local one,
+   declared before every use, because const does not hoist and this file is
+   imported into a module graph that renders immediately (ENGINEERING.md §1). */
+const bs = (v, cap = 400) => String(v == null ? '' : v).slice(0, cap);
+
+export const BRIEF_FIELDS = [
+  { key: 'nameAsWritten', label: 'Business name, exactly how they want it written',
+    hint: 'Not how the list spells it — how they say it' },
+  { key: 'wants', label: 'The three things they want the phone ringing for',
+    hint: '"If you could pick what the phone rings for, what is it?"' },
+  { key: 'area', label: 'Where they work', hint: 'Town, radius, or the areas they cover' },
+  { key: 'photos', label: 'Where their photos live', hint: 'Facebook, Google, or they will send some' },
+];
+export const BRIEF_KEYS = BRIEF_FIELDS.map(f => f.key);
+
+export const briefOf = l => (l && l.brief && typeof l.brief === 'object') ? l.brief : {};
+
+/* WHY THERE IS A "they have no website" FLAG.
+
+   An empty website field means one of two completely different things: nobody
+   asked, or they do not have one. Those are not the same fact and they must
+   not render the same, because the first is a gap Logan has to chase and the
+   second is an answer he can build against. A blank that could be either is
+   exactly the "missing value that renders as a plausible one" failure. So the
+   rep says which. */
+export const briefMissing = (l) => {
+  const b = briefOf(l);
+  const out = BRIEF_FIELDS.filter(f => !bs(b[f.key], 400).trim()).map(f => f.key);
+  if (!bs(l && l.website, 300).trim() && !b.noWebsite) out.push('website');
+  return out;
+};
+export const briefComplete = l => briefMissing(l).length === 0;
+
+/* Everything SOP-03 says goes in the text to Logan, in one object, so the
+   notification and any screen showing it read the SAME assembly rather than
+   each building their own and drifting. */
+export const bookingBrief = (l, meeting) => {
+  const b = briefOf(l);
+  return {
+    company: bs(l && l.company, 200) || bs(l && l.name, 200),
+    contact: bs(l && l.name, 200),
+    phone: bs(l && l.phone, 40),
+    email: bs(l && l.email, 200),
+    industry: bs(l && l.businessType, 80),
+    when: bs(meeting && meeting.start, 40),
+    nameAsWritten: bs(b.nameAsWritten, 200),
+    website: bs(l && l.website, 300) || (b.noWebsite ? 'They do not have one' : ''),
+    wants: bs(b.wants, 400),
+    area: bs(b.area, 200),
+    photos: bs(b.photos, 200),
+  };
+};

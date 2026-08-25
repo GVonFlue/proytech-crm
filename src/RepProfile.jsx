@@ -7,7 +7,16 @@ import {
   CONTACT_DISP, DISPOSITIONS, fmtDate, fmtStamp,
   num, usd, cmsnOf, sOf,
 } from './lib/lead';
-import { repActivities, byDay, dayStats, dialsPerBooking, BLOCK_GAP_MIN } from './lib/repwork';
+import {
+  repActivities, byDay, dayStats, dialsPerBooking, BLOCK_GAP_MIN,
+  startedOn, daysSinceStart, weekNo, standing, DECISION_DAY,
+  mixChecks, MIX_SAMPLE_MIN, bookingOutcomes, decidedOf,
+} from './lib/repwork';
+/* proportion() is the DASHBOARD's, reused rather than reimplemented: it
+   carries the Wilson interval and the sample floor, so the profile and the
+   dashboard cannot disagree about what a rate is or when it is too early to
+   state one. */
+import { proportion, DEFAULT_SAMPLE_MIN } from './lib/goals';
 import { playbookGate } from './lib/kb';
 import { useScrollLock } from './lib/scrolllock';
 
@@ -111,6 +120,22 @@ export default function RepProfile({
   }, { dials: 0, conversations: 0, bookings: 0, blocks: 0, byCode: {} });
 
   const $ = useMemo(() => money(leads, rep, stages), [leads, rep, stages]);
+
+  /* ---- where he stands, not just what he did ---- */
+  const start = startedOn(rep, acts);
+  const dayN = daysSinceStart(start, today);
+  const weekOfTenure = weekNo(dayN);
+  /* ALL of his dispositioned work, not the seven-day window: a benchmark read
+     off one week has a smaller sample than the benchmark needs, and the SOP
+     curve is stated per WEEK OF TENURE rather than per rolling week. */
+  const allDials = acts.filter(a => a && a.disp).length;
+  const out = useMemo(() => bookingOutcomes(leads, rep), [leads, rep]);
+  const stand = standing(allDials, out.booked, weekOfTenure);
+  /* AND THE HONEST ONE. Dials-per-booking rewards booking anything; this reads
+     the same rate against appointments that actually happened. */
+  const standHeld = standing(allDials, out.held, weekOfTenure);
+  const show = proportion(out.held, decidedOf(out));
+  const mix = mixChecks(acts.filter(a => a && a.disp).reduce((m, a) => { m[a.disp] = (m[a.disp] || 0) + 1; return m; }, {}));
   const gate = kbReads === null ? null : playbookGate(kbPub, (kbReads || []).filter(r => r.rep_id === rep.id));
   const ack = (kbReads || []).filter(r => r.rep_id === rep.id && r.kind === 'ack').slice(-1)[0];
   const onb = (rep.onboarding && typeof rep.onboarding === 'object') ? rep.onboarding : {};
@@ -161,6 +186,60 @@ export default function RepProfile({
               <Stat label="Dials per booking" value={perBooking == null ? '—' : perBooking}
                 sub={perBooking == null ? 'no bookings yet' : 'SOP: 25–30 in weeks 1–2'} />
             </div>
+
+            {/* POSITION, NOT A COUNT. SOP-01's own curve, read for the week he
+                is actually in — and `unknown` rather than a verdict whenever
+                the sample cannot carry one. A confident "behind" off nine
+                dials is a judgement about a person made from noise. */}
+            <div className="rp-stand">
+              <div className={'rp-band ' + stand.state}>
+                <span className="rw-lbl">Against the SOP curve</span>
+                <b>{stand.state === 'unknown' ? 'Too early to say'
+                  : stand.state === 'on' ? 'On the curve'
+                  : stand.state === 'ahead' ? 'Ahead of the curve' : 'Behind the curve'}</b>
+                <i>
+                  {stand.band ? `${stand.band.label}: 1 per ${stand.band.from}–${stand.band.to}` : 'no start date yet'}
+                  {stand.rate != null ? ` · he is at 1 per ${stand.rate}` : ''}
+                  {stand.why ? ` · ${stand.why}` : ''}
+                </i>
+              </div>
+              {/* The same reading against HELD appointments. A rep can hit the
+                  band on bookings that never happen. */}
+              {out.booked > 0 && (
+                <div className={'rp-band held ' + standHeld.state}>
+                  <span className="rw-lbl">Against it on bookings that HELD</span>
+                  <b>{out.held} of {out.booked} held{out.undecided ? ` · ${out.undecided} not marked yet` : ''}</b>
+                  <i>
+                    {show.value == null ? 'no meeting decided yet'
+                      : show.thin
+                        ? `show rate ${Math.round(show.value * 100)}% — only ${show.n} decided, too thin to trust`
+                        : `show rate ${Math.round(show.value * 100)}% across ${show.n}`}
+                    {standHeld.rate != null ? ` · 1 held per ${standHeld.rate} dials` : ''}
+                  </i>
+                </div>
+              )}
+              <div className="rp-band day">
+                <span className="rw-lbl">Day {dayN == null ? '—' : dayN}{weekOfTenure ? ` · week ${weekOfTenure}` : ''}</span>
+                <b>{dayN == null ? 'Has not started dialling'
+                  : dayN < DECISION_DAY ? `${DECISION_DAY - dayN} day${DECISION_DAY - dayN === 1 ? '' : 's'} to the day-14 review`
+                  : `Day-14 review was ${dayN - DECISION_DAY === 0 ? 'today' : `${dayN - DECISION_DAY} days ago`}`}</b>
+                <i>{start ? `First dial ${fmtDate(start)}${rep.startedOn ? ' (set by you)' : ' (his first dispositioned call)'}` : 'No dispositioned call yet'}</i>
+              </div>
+            </div>
+
+            {/* TWO NAMED CHECKS, HELD until the sample can support them —
+                deliberately absent rather than greyed out, because a judgement
+                the numbers cannot carry should not be on the screen at all. */}
+            {mix.ready
+              ? mix.checks.map(c => (
+                  <div className="rp-check" key={c.key}>
+                    <AlertTriangle size={14} />
+                    <div><b>{c.title}</b><span>{c.body}</span></div>
+                  </div>
+                ))
+              : <div className="sec-hint" style={{ marginTop: 10 }}>
+                  Disposition checks need about {MIX_SAMPLE_MIN} dials before they mean anything — {mix.need} to go.
+                </div>}
 
             {Object.keys(wk.byCode).length > 0 && (
               <div className="rp-codes">

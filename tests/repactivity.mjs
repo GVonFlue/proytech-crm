@@ -196,6 +196,90 @@ console.log('\nnotes published after he finished never re-lock him');
      !K.playbookGate(pub, rows).complete);
 }
 
+console.log('\nposition against the SOP curve, and when to refuse to state one');
+{
+  /* The curve SOP-01 actually states, read for the week of TENURE. */
+  ok('weeks 1-2 expect one per 25-30', W.bandFor(1).from === 25 && W.bandFor(2).to === 30);
+  ok('by week 4 it tightens to 15-18', W.bandFor(4).from === 15 && W.bandFor(4).to === 18);
+  ok('week 1 is days 0-6', W.weekNo(0) === 1 && W.weekNo(6) === 1 && W.weekNo(7) === 2);
+
+  /* LOWER IS BETTER. Dials-per-booking is inverted, which is exactly the kind
+     of comparison that gets written backwards once and then believed. */
+  ok('1 per 27 in week 1 is ON the curve', W.standing(54, 2, 1).state === 'on', W.standing(54,2,1).state);
+  ok('1 per 40 in week 1 is BEHIND', W.standing(40, 1, 1).state === 'behind');
+  ok('1 per 20 in week 1 is AHEAD — fewer dials per booking is better',
+     W.standing(40, 2, 1).state === 'ahead', W.standing(40,2,1).state);
+  ok('  and the same 1 per 20 is BEHIND by week 4', W.standing(40, 2, 4).state === 'behind');
+
+  /* THE REFUSAL. A confident verdict off nine dials is a judgement about a
+     person made from noise. */
+  ok('nine dials gets no verdict at all', W.standing(9, 0, 1).state === 'unknown');
+  ok('  and says why rather than going blank', /too early/.test(W.standing(9, 0, 1).why));
+  ok('no start date means no band and no verdict', W.standing(200, 4, null).state === 'unknown');
+  /* No bookings is only bad news once enough dials have gone by to expect one. */
+  ok('40 dials none booked in week 1 IS behind', W.standing(40, 0, 1).state === 'behind');
+  ok('  but 28 dials none booked is not yet', W.standing(28, 0, 1).state === 'unknown', W.standing(28,0,1).state);
+}
+
+console.log('\nthe start date is his first DIAL, not his account');
+{
+  const acts = [{ ts:'2026-08-20T09:00:00Z', disp:'NA' }, { ts:'2026-08-18T09:00:00Z', disp:'VM' }];
+  ok('derived from the earliest dispositioned activity', W.startedOn({}, acts) === '2026-08-18');
+  /* An account made three weeks before he dialled would put him at week four
+     on day one, and the curve would call a brand-new rep behind. */
+  ok('an activity with no disposition does not start the clock',
+     W.startedOn({}, [{ ts:'2026-07-01T09:00:00Z', type:'Note' }]) === '');
+  ok('an owner override wins', W.startedOn({ startedOn:'2026-08-01' }, acts) === '2026-08-01');
+  ok('a malformed override is ignored rather than trusted',
+     W.startedOn({ startedOn:'last tuesday' }, acts) === '2026-08-18');
+  ok('day count is inclusive of the start day', W.daysSinceStart('2026-08-18','2026-08-18') === 0);
+  ok('  and counts forward', W.daysSinceStart('2026-08-18','2026-09-01') === 14);
+  ok('no start date means no day count, not day zero', W.daysSinceStart('', '2026-09-01') === null);
+  ok('the review day is SOP-02\'s fourteen', W.DECISION_DAY === 14);
+}
+
+console.log('\nthe two named checks, and the silence before them');
+{
+  ok('under the sample there are NO checks, not greyed ones',
+     W.mixChecks({ NA: 12 }).ready === false && W.mixChecks({ NA: 12 }).checks.length === 0);
+  ok('  and it says how many more are needed', W.mixChecks({ NA: 12 }).need === 18);
+
+  const allNa = W.mixChecks({ NA: 38, VM: 2 });
+  ok('nothing but no-answers is called a LIST problem',
+     allNa.checks.some(c => c.key === 'allNA' && /list problem/.test(c.body)));
+  ok('  and no NF or DNC is called a QUALIFYING problem',
+     allNa.checks.some(c => c.key === 'noQualify'));
+  const healthy = W.mixChecks({ NA: 20, VM: 5, CB: 4, NF: 3, BK: 2, DNC: 1 });
+  ok('a healthy mix raises nothing', healthy.ready && healthy.checks.length === 0,
+     JSON.stringify(healthy.checks.map(c => c.key)));
+}
+
+console.log('\nbookings that HELD — the denominator that stops junk counting');
+{
+  const rep = { id:'u_tony', name:'Tony' };
+  const leads = [{ id:'l1', meetings:[
+    { id:'m1', setById:'u_tony', status:'held' },
+    { id:'m2', setById:'u_tony', status:'noshow' },
+    { id:'m3', setById:'u_tony', status:'' },
+    { id:'m4', setById:'u_other', status:'held' },
+  ]}];
+  const o = W.bookingOutcomes(leads, rep);
+  ok('his bookings are counted', o.booked === 3, JSON.stringify(o));
+  ok('  somebody else\'s is not', o.booked === 3);
+  ok('held and no-show are separated', o.held === 1 && o.noshow === 1);
+  /* An appointment nobody has marked yet is not evidence either way, and
+     counting it as a failure would punish a rep for the owner's admin. */
+  ok('an unmarked meeting is neither', o.undecided === 1);
+  ok('  and is out of the show-rate denominator', W.decidedOf(o) === 2);
+
+  /* THE POINT: a rep can hit the band on appointments that never happen. */
+  ok('booked hits the week-1 band', W.standing(80, 3, 1).state === 'on', W.standing(80,3,1).state);
+  ok('  while HELD does not', W.standing(80, 1, 1).state === 'behind', W.standing(80,1,1).state);
+
+  const older = W.bookingOutcomes([{ id:'l', meetings:[{ id:'m', setBy:'Tony', status:'held' }] }], rep);
+  ok('an older meeting with no setById falls back to the name', older.held === 1);
+}
+
 console.log('\nthe source says what it does not measure');
 {
   const src = fs.readFileSync('src/lib/repwork.js', 'utf8');
