@@ -1598,6 +1598,41 @@ const CSS=`
 /* everything above the feed keeps its natural height and stays put */
 .m-right>.dh{display:flex;align-items:center;gap:7px}
 .m-right>.dh,.m-right>.touchbar,.m-right>.notnow,.m-right>.compose-open,.m-right>.afilter,.m-right>.act-types{flex:none}
+/* THE COMPOSER MUST BE ABLE TO SHRINK, OR IT CANNOT BE REACHED.
+
+   .m-right is overflow:hidden by design — the FEED is the scroller and the
+   column is not, which is what stops the two nested scrollbars the comment
+   above it warns about. That held for as long as the composer was short.
+
+   The BK brief added five fields, and a flex item with the default
+   min-height:auto is floored at its content height: the composer could not
+   shrink, so it pushed 1020px of content through a 508px hidden box and
+   everything past the fold — the brief fields and the Log button — became
+   unreachable. A rep literally could not book a call.
+
+   min-height:0 lets it shrink; overflow-y:auto lets it scroll once it has;
+   max-height:100% stops it eating the feed entirely. The column still does not
+   scroll and there is still one scrollbar at a time. */
+/* flex:0 1 auto — grow 0, SHRINK 1, basis its own content.
+
+   max-height:100% was wrong here: a percentage max-height resolves against the
+   CONTAINER's height, not against the space left after the fixed-height
+   siblings above it (the header, the chips, the filter row). So the composer
+   was capped at the full column height and the column still overflowed.
+
+   Letting flex do it is exact: basis is the composer's natural height, and
+   shrink:1 with min-height:0 lets it give back precisely the overflow and no
+   more. The feed's basis:0 means it never competes for that space. */
+.compose{flex:0 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+/* WHILE COMPOSING, THE THINGS BEHIND THE COMPOSER GIVE UP THEIR SPACE.
+
+   The composer element only exists in the DOM when it is open, so a sibling
+   selector needs no JavaScript and no state: the filter chips and the delete
+   block are hidden for exactly as long as somebody is writing. Neither is
+   usable mid-compose, and the delete block sitting under a form the rep is
+   scrolling is a misclick waiting to happen as well as seventy wasted pixels.
+   Roughly a hundred pixels back to the form on a lead view. */
+.compose ~ .afilter, .compose ~ .m-danger{display:none}
 @media(max-width:760px){.m-grid{grid-template-columns:1fr;overflow-y:auto}.m-left,.m-right{overflow:visible}.m-right{border-left:none;border-top:1px solid #E8E9F2}}
 .dh{font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${COBALT};margin:2px 0 12px;display:flex;align-items:center;gap:8px}.dh.mt{margin-top:22px}
 .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
@@ -2707,7 +2742,11 @@ tbody tr.picked:hover{background:#E9EDFD}
 .mn-pm{font-size:12px;font-weight:700;color:${COBALT};min-width:76px;text-align:right}
 @media(max-width:760px){.mn-two{grid-template-columns:1fr;gap:18px}.mn-cat-n{flex:0 0 100px}}
 .m-danger{flex:none;margin-top:14px;padding-top:14px;border-top:1px solid #F0F0F6}
-.feed{margin-top:12px;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;overflow-y:auto;
+/* flex-basis 0, not auto. With basis:auto the feed's starting size is its full
+   content height, so it WINS the space fight against the composer and squeezed
+   it to fifty pixels — reachable, and unusable. Basis 0 means the feed asks for
+   nothing and takes only what is left after the composer has what it needs. */
+.feed{margin-top:12px;display:flex;flex-direction:column;flex:1 1 0;min-height:0;overflow-y:auto;
   scrollbar-width:thin;scrollbar-color:#D8D9E6 transparent}
 .feed::-webkit-scrollbar{width:7px}
 .feed::-webkit-scrollbar-thumb{background:#D8D9E6;border-radius:4px}

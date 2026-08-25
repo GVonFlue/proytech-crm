@@ -169,7 +169,13 @@ ok('the feed groups by day', !!document.querySelector('.fday'),
 console.log('\nthe feed gets the room');
 {
   const css=[...document.querySelectorAll('style')].map(e=>e.textContent||'').join('');
-  ok('the feed claims the leftover height', /\.feed\{[^}]*flex:1 1 auto/.test(css),
+  /* flex-basis 0, not auto. The INTENT is unchanged — grow:1 still means the
+     feed claims whatever height is left over — but with basis:auto its
+     starting size was its entire content height, so it out-competed the
+     composer and squeezed it to fifty pixels. Basis 0 means it asks for
+     nothing and takes only the remainder, which is what "leftover" meant all
+     along. See tests/scrolllock.mjs. */
+  ok('the feed claims the leftover height', /\.feed\{[^}]*flex:1 1 0[;,]/.test(css),
      (css.match(/\.feed\{[^}]*\}/)||[''])[0].slice(0,110));
   ok('and can actually shrink (min-height:0)', /\.feed\{[^}]*min-height:0/.test(css));
   ok('the column no longer scrolls too', /\.m-right\{[^}]*overflow:hidden/.test(css),
