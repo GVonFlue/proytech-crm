@@ -280,6 +280,40 @@ console.log('\nbookings that HELD — the denominator that stops junk counting')
   ok('an older meeting with no setById falls back to the name', older.held === 1);
 }
 
+console.log('\nevery number on the profile says which window it is');
+{
+  /* THE BUG THIS PINS, and it is one only looking could find.
+
+     The stat tiles are a SEVEN-DAY window; the standing bands and the mix
+     checks are ALL TIME, because SOP-01's curve is stated per week of tenure.
+     Both are right and they answer different questions — but unlabelled and
+     inches apart they read as a contradiction. On the real render the tile
+     said "1 per 22", the band said "1 per 24.3", and the check said "73 dials"
+     sitting directly above chips that totalled 44. Nothing on screen said why.
+
+     Structural, because the numbers themselves are correct — what was wrong
+     was that the screen did not say which question each was answering. */
+  const prof = fs.readFileSync('src/RepProfile.jsx', 'utf8');
+  ok('the made-bookings band names its scope', /bookings MADE · all time/.test(prof));
+  ok('the held-bookings band names its scope', /bookings that HELD · all time/.test(prof));
+  ok('the disposition chips name theirs', /className="scope">Last 7 days/.test(prof));
+  ok('the seven-day tiles already did', /sub="7 days"/.test(prof));
+
+  /* AND WHEN THE TWO READINGS DISAGREE, the screen says so rather than showing
+     a flattering headline in a positive colour with the honest figure beneath
+     it in red. A reader skimming takes the first one. */
+  ok('a made/held disagreement is surfaced, not left to be noticed',
+     /On the curve for bookings made, behind it for bookings that held/.test(prof));
+  ok('  and it fires only when made reads well and held does not',
+     /\(stand\.state === 'on' \|\| stand\.state === 'ahead'\)\s*\n?\s*&& standHeld\.state === 'behind'/.test(prof));
+
+  /* The condition is real: these are the numbers from the render that exposed
+     it — 73 dials, 3 booked, 1 held. */
+  ok('  those numbers do produce the disagreement',
+     W.standing(73, 3, 2).state === 'ahead' && W.standing(73, 1, 2).state === 'behind',
+     W.standing(73,3,2).state + ' vs ' + W.standing(73,1,2).state);
+}
+
 console.log('\nthe source says what it does not measure');
 {
   const src = fs.readFileSync('src/lib/repwork.js', 'utf8');
