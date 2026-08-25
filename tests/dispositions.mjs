@@ -161,6 +161,43 @@ console.log('\nthe five things SOP-03 has the rep asking for');
      b.website === 'alvarez.com');
 }
 
+console.log('\nthe calendar invite IS the notification');
+{
+  /* THE ATTENDEE CAP, confirmed rather than assumed. calendar-event.js REFUSES
+     rather than truncating when a list is too long, so a booking that quietly
+     exceeded it would fail entirely — and a normal booking must be nowhere
+     near. Prospect plus two owners is three. */
+  const cal = await import('../api/calendar-event.js');
+  ok('the cap is five', cal.MAX_ATTENDEES === 5, String(cal.MAX_ATTENDEES));
+  const normal = cal.inviteList(['rita@x.com', 'admin@getproytech.com', 'getproytech@gmail.com']);
+  ok('a normal booking is three attendees', normal.attendees.length === 3);
+  ok('  and does not trip the cap', normal.tooMany === false);
+  ok('  so Google is asked to mail them', cal.sendUpdatesFor(normal.attendees) === 'all');
+  /* It only trips past five, and refusing is the designed behaviour. */
+  ok('six would trip it', cal.inviteList(
+    ['a@x.com','b@x.com','c@x.com','d@x.com','e@x.com','f@x.com']).tooMany === true);
+  /* An owner with no email, or the same address twice, must not eat a slot. */
+  ok('duplicates collapse', cal.inviteList(['a@x.com','A@X.com']).attendees.length === 1);
+  ok('a lead with no email leaves two attendees, not a blank one',
+     cal.inviteList([undefined,'admin@getproytech.com','getproytech@gmail.com']).attendees.length === 2);
+  /* No attendees means no invitation mail, which is the right answer rather
+     than asking Google to notify an empty guest list. */
+  ok('nobody to invite means no mail is requested', cal.sendUpdatesFor([]) === 'none');
+
+  /* What Logan actually reads. Plain text, because a calendar description is
+     read on a phone lock screen as often as in a browser. */
+  const b = L.bookingBrief({ company:'Alvarez Roofing', name:'Rita', phone:'316', email:'r@x.com',
+    businessType:'Roofing', website:'alvarez.com',
+    brief:{ nameAsWritten:'Alvarez Roofing LLC', wants:'reroofs', area:'Wichita', photos:'Facebook' } },
+    { start:'2026-09-03T14:00' });
+  const txt = L.briefText(b);
+  ok('the description carries the contact block', /Phone: 316/.test(txt) && /Email: r@x.com/.test(txt));
+  ok('  and the five things', /Name as written/.test(txt) && /Wants calls for: reroofs/.test(txt)
+     && /Works: Wichita/.test(txt) && /Photos: Facebook/.test(txt));
+  ok('  and says so when there is no site, rather than leaving a blank line',
+     /Current site: not captured/.test(L.briefText({ ...b, website:'' })));
+}
+
 console.log('\nwho an escalation reaches when crm_team() is empty');
 {
   /* THE BUG THIS PINS. crm_team() returns [] on an install that has not run

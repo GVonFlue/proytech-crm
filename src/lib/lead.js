@@ -829,3 +829,24 @@ export const bookingBrief = (l, meeting) => {
     photos: bs(b.photos, 200),
   };
 };
+
+/* The brief as an event description — plain text, because a Google Calendar
+   description is read on a phone lock screen as often as in a browser.
+
+   ONE ASSEMBLY, shared with bookingBrief(), so what Logan reads in the invite
+   and what the CRM holds cannot drift. */
+export const briefText = (b) => {
+  const L = [];
+  if (b.contact) L.push(`Contact: ${b.contact}`);
+  if (b.phone) L.push(`Phone: ${b.phone}`);
+  if (b.email) L.push(`Email: ${b.email}`);
+  if (b.industry) L.push(`Industry: ${b.industry}`);
+  L.push('');
+  L.push('WHAT THEY ASKED FOR');
+  if (b.nameAsWritten) L.push(`Name as written: ${b.nameAsWritten}`);
+  L.push(`Current site: ${b.website || 'not captured'}`);
+  if (b.wants) L.push(`Wants calls for: ${b.wants}`);
+  if (b.area) L.push(`Works: ${b.area}`);
+  if (b.photos) L.push(`Photos: ${b.photos}`);
+  return L.join('\n');
+};

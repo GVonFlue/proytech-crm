@@ -252,6 +252,23 @@ console.log('\n#9 — BK MAKES A MEETING, which it did not');
      act && Array.isArray(act.tags) && act.tags.includes('Garrett'), JSON.stringify(act && act.tags));
   ok('  and the brief is on the lead', (w || {}).brief && (w || {}).brief.wants === 'answered',
      JSON.stringify((w || {}).brief));
+
+  /* GOOGLE IS DISCONNECTED IN THIS FIXTURE, which is the case that matters:
+     the invite IS the notification, so when it does not go the rep must not
+     walk away believing Logan has been told. */
+  ok('the booking still saves with Google disconnected', mtgs.length === 1);
+  ok('  and the meeting RECORDS that no invite went', mtgs[0] && !!mtgs[0].inviteFailed,
+     JSON.stringify(mtgs[0]));
+  ok('  and is not marked invited', mtgs[0] && mtgs[0].invited === false);
+  /* On the RECORD, not in a toast: a message about something that did not
+     happen must survive the screen being reopened ten minutes later. */
+  const body = curEl.textContent || '';
+  ok('the rep is told in words, not by an absent badge',
+     /NO CALENDAR INVITE WENT OUT/i.test(body), body.slice(0, 200));
+  ok('  and told what to do instead', /SOP-03|Text /i.test(body));
+  /* The dashboard tag fires either way — belt and braces. */
+  ok('the owners are still tagged even though the invite failed',
+     act && Array.isArray(act.tags) && act.tags.includes('Garrett'), JSON.stringify(act && act.tags));
 }
 
 console.log('\n#9 — Note is still one click away');

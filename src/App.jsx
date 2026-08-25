@@ -2276,6 +2276,18 @@ const CSS=`
 .disp-cb{display:flex;align-items:center;gap:9px;margin-top:8px}
 .disp-cb label{font-size:11.5px;font-weight:700;color:#4A5568}
 .disp-cb input{border:1px solid #E2E4EF;border-radius:8px;padding:6px 9px;font-size:12.5px;font-family:inherit}
+.bookmsg{display:flex;align-items:flex-start;gap:9px;margin-bottom:10px;padding:11px 13px;
+  border-radius:11px;border:1px solid rgba(31,157,85,.3);background:rgba(31,157,85,.07);
+  font-size:12.5px;line-height:1.55;color:#1a7d46;font-weight:600}
+.bookmsg.bad{border-color:rgba(209,67,67,.32);background:rgba(209,67,67,.07);color:#b4322e}
+.bookmsg svg{flex:none;margin-top:1px}
+.bookmsg button{margin-left:auto;background:none;border:none;color:inherit;opacity:.6;
+  cursor:pointer;padding:2px}
+.bookmsg button:hover{opacity:1}
+.mtg-b.noinvite{background:rgba(209,67,67,.1);color:#b4322e;border-color:rgba(209,67,67,.3)}
+.modal.lead .bookmsg{border-color:rgba(110,231,183,.28);background:rgba(110,231,183,.07);color:#6EE7B7}
+.modal.lead .bookmsg.bad{border-color:rgba(252,165,165,.32);background:rgba(252,165,165,.08);color:#FCA5A5}
+.modal.lead .mtg-b.noinvite{background:rgba(252,165,165,.12);color:#FCA5A5;border-color:rgba(252,165,165,.3)}
 .disp-brief{margin-top:12px;border-top:1px solid #E2E4EF;padding-top:12px;display:flex;
   flex-direction:column;gap:9px}
 .disp-brief-h{font-size:10.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
