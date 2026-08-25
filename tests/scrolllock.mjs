@@ -256,5 +256,43 @@ console.log('\nAND THE FEED MUST HAVE ROOM TO READ — the other half of the sam
        : 'reset in ' + app.slice(q1, q1 + 24) + ', override in ' + app.slice(q2, q2 + 24));
 }
 
+console.log('\nTHE COMPOSER IS A PANEL, so it needs gutters — paid for, and NOT by the feed');
+{
+  /* The composer is a bordered, 12px-rounded panel that shipped with padding:0.
+     Measured, the inset on all four sides was 1px, which is the border itself:
+     the chips ran to the frame, and so did the note box and the Log button.
+
+     THE INTERESTING PART IS THE FUNDING, not the padding. Horizontal costs
+     nothing anyone is fighting over. Vertical comes straight out of the feed
+     through the flex split, and that room was bought in #68 and #69 — so it is
+     paid for from three places that had slack instead, and the feed measures
+     172px before and after at a 502px column. */
+  const app = fs.readFileSync('src/App.jsx', 'utf8');
+
+  ok('the composer has real padding, not a frame drawn against its content',
+     /\.modal\.lead \.compose\{padding:12px 14px\}/.test(app));
+
+  /* The three sources. If any of these is reverted without also reverting the
+     padding, the difference silently comes out of the feed again. */
+  ok('  paid for out of the header, which is 126px of tiles and 82px of name',
+     /\.modal\.lead \.m-head\{padding-bottom:8px\}/.test(app));
+  ok('  and the jump bar',
+     /\.modal\.lead \.m-jump\{padding-top:6px;padding-bottom:6px\}/.test(app));
+  ok('  and the composer gaps that the padding makes partly redundant',
+     /\.modal\.lead \.compose \.act-types\{margin-bottom:8px\}/.test(app) &&
+     /\.modal\.lead \.compose \.dispbar\{margin-bottom:7px\}/.test(app) &&
+     /\.modal\.lead \.compose \.tagpick\{margin-top:6px\}/.test(app));
+
+  /* THE INVARIANT THIS SECTION EXISTS FOR. The floor is what makes "the feed
+     did not pay for it" checkable by anything other than my eye. */
+  ok('and the feed floor is untouched — the gutters did not come out of it',
+     /\.modal\.lead \.feed\{min-height:110px\}/.test(app));
+
+  /* Scoped, all of it. .m-head and .m-jump are not unique to the lead view. */
+  ok('nothing here moves another modal',
+     !/^\.m-head\{[^}]*padding-bottom:8px/m.test(app) &&
+     !/^\.m-jump\{[^}]*padding-top:6px/m.test(app));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
