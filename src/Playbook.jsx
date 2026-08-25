@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   BookOpen, Plus, Search, ArrowLeft, Eye, Send, Trash2, Loader2, Lock,
   AlertTriangle, CheckCircle2, FileText, Sparkles, EyeOff, X, Tag,
@@ -8,6 +8,7 @@ import { BRAND, tint } from './lib/brand';
 import {
   KB_CATEGORIES, newKbNote, normKbNote, normKbPub, searchKb, isBehind, behindSummary,
   kbModules, parseBlocks, parseInline, cautionNote, cautionItems, leadOf,
+  paginate, cardShape,
 } from './lib/kb';
 
 /* ============================================================
@@ -71,104 +72,158 @@ const PB_CSS = `
 .pb-mod{margin-top:26px}
 .pb-mod:first-of-type{margin-top:14px}
 .pb-mod-h{display:flex;align-items:center;gap:9px;margin-bottom:11px}
-.pb-mod-h b{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
+.pb-mod-h b{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
   color:var(--pb-dim)}
 .pb-mod-h i{flex:1;height:1px;background:var(--pb-line);font-style:normal}
 .pb-mod-h u{text-decoration:none;font-size:11px;font-weight:700;color:var(--pb-dim);opacity:.7}
 
-/* ---- tiles ---- */
+/* ---- tiles ----
+   WHITE. Not a brand wash. A colour at 6% over white is not that colour, it is
+   a pale version of it, and spread across the biggest surfaces on the screen
+   it reads as a tint nobody chose. Brand appears here as ONE saturated mark —
+   the left rule on the lead module — and nowhere else. */
 .pb-tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(216px,1fr));gap:10px}
 .pb-tile{text-align:left;background:white;border:1px solid var(--pb-line);border-radius:14px;
   padding:15px 15px 13px;cursor:pointer;display:flex;flex-direction:column;gap:7px;
   transition:border-color .12s,box-shadow .12s,transform .12s;font:inherit;color:inherit;width:100%}
-.pb-tile:hover{border-color:var(--pb-primary-line);box-shadow:0 10px 24px -20px var(--pb-shadow);
+.pb-tile:hover{border-color:var(--pb-primary);box-shadow:0 10px 24px -20px var(--pb-shadow);
   transform:translateY(-1px)}
 .pb-tile strong{font-size:14.5px;line-height:1.32;color:var(--pb-ink);font-weight:700}
 .pb-tile span{font-size:12px;line-height:1.45;color:var(--pb-dim)}
 .pb-tile .pb-go{display:flex;align-items:center;gap:4px;font-size:11px;font-weight:700;
   color:var(--pb-primary);margin-top:auto;padding-top:3px}
-
-/* The highest-frequency module gets the biggest target. A rep opening this
-   mid-call is reading a trigger phrase, not a title. */
 .pb-tiles.lead{grid-template-columns:repeat(auto-fill,minmax(248px,1fr))}
-.pb-tiles.lead .pb-tile{padding:18px 17px 15px;background:var(--pb-primary-wash);
-  border-color:var(--pb-primary-line)}
+.pb-tiles.lead .pb-tile{padding:18px 17px 15px;border-left:3px solid var(--pb-primary)}
 .pb-tiles.lead .pb-tile strong{font-size:16.5px}
 
 /* ---- the compliance strip ---- */
-.pb-strip{margin-top:18px;border:1px solid var(--pb-warn-line);background:var(--pb-warn-wash);
-  border-radius:14px;padding:13px 15px;cursor:pointer;width:100%;text-align:left;font:inherit;
-  display:flex;flex-direction:column;gap:9px}
+.pb-strip{margin-top:18px;border:1px solid var(--pb-warn-line);background:white;
+  border-left:3px solid var(--pb-warn);border-radius:14px;padding:13px 15px;cursor:pointer;
+  width:100%;text-align:left;font:inherit;display:flex;flex-direction:column;gap:9px}
 .pb-strip:hover{border-color:var(--pb-warn)}
 .pb-strip-h{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;
-  letter-spacing:.13em;text-transform:uppercase;color:var(--pb-warn)}
+  letter-spacing:.14em;text-transform:uppercase;color:var(--pb-warn)}
 .pb-strip-h svg{flex:none}
 .pb-chips{display:flex;flex-wrap:wrap;gap:6px}
 .pb-chip{font-size:11.5px;font-weight:650;color:var(--pb-warn);background:white;
   border:1px solid var(--pb-warn-line);border-radius:999px;padding:3px 10px;line-height:1.5}
 .pb-strip-f{font-size:11.5px;color:var(--pb-dim)}
 
-/* ---- one note ---- */
-.pb-note{max-width:720px}
-.pb-note h1{font-size:23px;line-height:1.25;margin:0;color:var(--pb-ink);font-weight:800;
-  letter-spacing:-.015em}
-.pb-cat{font-size:11px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
-  color:var(--pb-primary);margin-bottom:7px}
+/* ============================================================ THE CARD DECK
 
-/* SAY — the words out loud. This is the whole point of the screen: on a live
-   call the rep reads THIS and nothing else, so it is large, high-contrast and
-   physically separated from the reasoning underneath it. */
-.pb-say{border-left:3px solid var(--pb-primary);background:var(--pb-primary-wash);
-  border-radius:0 12px 12px 0;padding:15px 18px;margin:16px 0}
-.pb-say p{margin:0;font-size:18px;line-height:1.52;color:var(--pb-ink);font-weight:600;
-  letter-spacing:-.005em}
-.pb-say p+p{margin-top:13px;padding-top:13px;border-top:1px solid var(--pb-primary-line)}
+   A rep does not scroll mid-call. He looks at ONE card. So a card is a fixed
+   frame the height of the viewport, never taller, and a note that does not fit
+   paginates inside itself.
 
-/* WHY — secondary by construction. Smaller, lighter, never mistakable for a
-   line to read aloud. */
-.pb-p{font-size:13.5px;line-height:1.68;color:var(--pb-body);margin:11px 0}
-.pb-note h3{font-size:12.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
-  color:var(--pb-dim);margin:22px 0 8px}
-.pb-ul,.pb-ol{margin:11px 0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
-.pb-ul li,.pb-ol li{font-size:13.5px;line-height:1.6;color:var(--pb-body)}
-.pb-hr{border:none;border-top:1px solid var(--pb-line);margin:20px 0}
-.pb-note code{font-family:ui-monospace,monospace;font-size:12.5px;background:var(--pb-well);
+   .pb-cbody keeps overflow-y:auto as a NET, not as a design. The cost model in
+   lib/kb.js is supposed to make it never engage; if it is ever wrong, a rep
+   gets a scrollbar instead of a compliance rule he cannot see.            */
+.pb-deck{display:flex;flex-direction:column;align-items:stretch}
+/* THE 215px IS THE APP'S OWN CHROME: the page header, the "Back to the
+   playbook" control and this card's margins all sit above it, so subtracting
+   only the card's own offset overflows the window and the PAGE scrolls to
+   reach the nav — the same failure as a scrolling card, one layer out. */
+.pb-card{width:min(1140px,100%);height:min(720px,calc(100vh - 215px));display:flex;
+  flex-direction:column;background:white;border:1px solid var(--pb-line);border-radius:18px;
+  padding:24px 34px 14px;box-shadow:0 20px 46px -40px var(--pb-shadow)}
+.pb-ctop{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;flex:none}
+.pb-ctop .pb-cat{margin:0}
+.pb-ctop .pb-count{margin-left:auto;font-size:12px;font-weight:700;color:var(--pb-dim);
+  font-variant-numeric:tabular-nums}
+.pb-ctitle{font-size:20px;line-height:1.3;font-weight:700;color:var(--pb-ink);margin:5px 0 0;
+  letter-spacing:-.01em;flex:none}
+.pb-ckicker{font-size:11px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--pb-dim);margin-top:14px;flex:none}
+.pb-ckicker em{font-style:normal;opacity:.6;font-weight:700}
+.pb-crule{height:1px;background:var(--pb-line);margin:14px 0 0;flex:none}
+.pb-cbody{flex:1;min-height:0;overflow-y:auto;padding-top:6px}
+
+/* ---- TYPE HIERARCHY — five tiers, differing in KIND as well as size ----
+
+   say      28px 600   the words out loud. Twice the coaching, and the only
+                       thing on the card carrying a saturated brand mark.
+   title    20px 700   which card this is
+   kicker   11px 800   a signpost. Deliberately the SMALLEST thing: it is a
+                       label, and making it small is what stops it competing
+                       with the line he is about to read aloud.
+   body     15px 400   what to know
+   coaching 14px 400   why it works — dim, indented, visibly secondary        */
+.pb-eyebrow{font-size:13px;line-height:1.5;color:var(--pb-dim);margin:0 0 10px;font-style:italic}
+.pb-say{border-left:4px solid var(--pb-primary);background:var(--pb-well);
+  border-radius:0 12px 12px 0;padding:20px 24px;margin:0 0 18px}
+/* THE ONE PLACE TYPE SCALES WITH THE VIEWPORT.
+
+   Card BREAKS must never depend on window height — that is the whole argument
+   for paginating at the author's headings (lib/kb.js). Fitting a card's
+   content INSIDE the frame is a different question, and a fixed 28px cannot
+   satisfy both "one card, never a scroll" and "works on a laptop and on a
+   monitor". So the breaks stay stable and the spoken line scales between them.
+   Still the largest thing on the card at every size — about 2x the coaching. */
+.pb-say p{margin:0;font-size:clamp(19px,2.55vh,28px);line-height:1.42;color:var(--pb-ink);
+  font-weight:600;letter-spacing:-.012em}
+.pb-say p+p{margin-top:16px;padding-top:16px;border-top:1px solid var(--pb-line)}
+.pb-body .pb-p{font-size:15px;line-height:1.62;color:var(--pb-body);margin:0 0 12px}
+.pb-rest{margin-top:4px;padding-left:14px;border-left:2px solid var(--pb-line)}
+.pb-rest .pb-p{font-size:14px;line-height:1.65;color:var(--pb-dim);margin:0 0 10px}
+.pb-ul,.pb-ol{margin:0 0 12px;padding-left:20px;display:flex;flex-direction:column;gap:8px}
+.pb-ul li,.pb-ol li{font-size:15px;line-height:1.58;color:var(--pb-body)}
+.pb-rest .pb-ul li,.pb-rest .pb-ol li{font-size:14px;color:var(--pb-dim)}
+.pb-hr{border:none;border-top:1px solid var(--pb-line);margin:16px 0}
+.pb-card code{font-family:ui-monospace,monospace;font-size:13px;background:var(--pb-well);
   padding:1px 5px;border-radius:5px}
 
-/* CAUTION — compliance. Reads as a list of rules, never as prose. */
-.pb-caution{margin:16px 0;border:1px solid var(--pb-warn-line);background:var(--pb-warn-wash);
-  border-radius:12px;padding:6px 4px;display:flex;flex-direction:column}
-.pb-caution div{display:flex;gap:9px;align-items:flex-start;padding:9px 13px;font-size:13.5px;
+/* ---- caution: a list of rules, never prose ---- */
+.pb-caution{margin:0 0 12px;border:1px solid var(--pb-warn-line);background:white;
+  border-radius:12px;padding:4px 2px;display:flex;flex-direction:column}
+.pb-caution div{display:flex;gap:10px;align-items:flex-start;padding:11px 14px;font-size:15px;
   line-height:1.55;color:var(--pb-body)}
 .pb-caution div+div{border-top:1px solid var(--pb-warn-line)}
-.pb-caution svg{flex:none;margin-top:2px;color:var(--pb-warn)}
+.pb-caution svg{flex:none;margin-top:3px;color:var(--pb-warn)}
 .pb-caution b{color:var(--pb-warn);font-weight:750}
 
-/* Wide content scrolls inside itself. The swap table is six rows of four
-   columns and a phone is not four columns wide. */
-.pb-tw{overflow-x:auto;margin:16px 0;border:1px solid var(--pb-line);border-radius:12px}
-.pb-tw table{border-collapse:collapse;width:100%;min-width:520px}
-.pb-tw th{text-align:left;font-size:10.5px;font-weight:800;letter-spacing:.1em;
+/* ---- one table row, as a card ---- */
+.pb-rowcard{display:flex;flex-direction:column;gap:16px}
+.pb-rowcard div{display:flex;flex-direction:column;gap:5px}
+.pb-rowcard dt{font-size:10.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
+  color:var(--pb-dim)}
+.pb-rowcard dd{margin:0;font-size:18px;line-height:1.42;color:var(--pb-ink);font-weight:600}
+.pb-rowcard div:first-child dd{font-size:24px;letter-spacing:-.01em}
+
+/* ---- the whole table, for comparing ---- */
+.pb-tw{overflow:auto;margin:0 0 12px;border:1px solid var(--pb-line);border-radius:12px}
+.pb-tw table{border-collapse:collapse;width:100%;min-width:560px}
+.pb-tw th{text-align:left;font-size:10.5px;font-weight:800;letter-spacing:.11em;
   text-transform:uppercase;color:var(--pb-dim);padding:10px 13px;background:var(--pb-well);
-  border-bottom:1px solid var(--pb-line);white-space:nowrap}
-.pb-tw td{font-size:13px;line-height:1.55;color:var(--pb-body);padding:11px 13px;
+  border-bottom:1px solid var(--pb-line);white-space:nowrap;position:sticky;top:0}
+.pb-tw td{font-size:13.5px;line-height:1.55;color:var(--pb-body);padding:11px 13px;
   border-bottom:1px solid var(--pb-line);vertical-align:top}
 .pb-tw tr:last-child td{border-bottom:none}
 
-/* ---- owner status pills ----
-   Draft / behind / published, derived from BRAND rather than three hex
-   literals. The text colour is mixed TOWARDS ink, not used raw: a brand green
-   that reads well as a button is not readable as small text on its own wash,
-   and this pill is small text on its own wash. */
-.pb-pill.draft{background:var(--pb-well);color:var(--pb-dim)}
-.pb-pill.behind{background:var(--pb-gold-wash);color:var(--pb-gold-text)}
-.pb-pill.live{background:var(--pb-green-wash);color:var(--pb-green-text)}
+/* ---- navigation ---- */
+.pb-cnav{flex:none;display:flex;align-items:center;gap:12px;padding-top:12px;margin-top:8px;
+  border-top:1px solid var(--pb-line)}
+.pb-dots{display:flex;gap:6px;align-items:center}
+.pb-dot{width:7px;height:7px;border-radius:50%;background:var(--pb-line);border:none;padding:0;
+  cursor:pointer;transition:background .12s,transform .12s}
+.pb-dot.on{background:var(--pb-primary);transform:scale(1.35)}
+.pb-nav{margin-left:auto;display:flex;gap:8px}
+.pb-nav button{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;
+  font-weight:700;border:1px solid var(--pb-line);background:white;color:var(--pb-ink);
+  border-radius:10px;padding:8px 14px;cursor:pointer}
+.pb-nav button:hover:not(:disabled){border-color:var(--pb-primary);color:var(--pb-primary)}
+.pb-nav button:disabled{opacity:.35;cursor:default}
+.pb-nav button.next{border-color:var(--pb-primary);color:var(--pb-primary)}
 `;
 
 const pbVars = {
   '--pb-primary': BRAND.colors.cobalt,
-  '--pb-primary-wash': tint(BRAND.colors.cobalt, 0.06),
-  '--pb-primary-line': tint(BRAND.colors.cobalt, 0.26),
+  /* NO BRAND WASH. tint(cobalt, .06) resolves to rgb(242,244,253) — a pale
+     violet, not cobalt — and it used to fill the tiles and the say block, i.e.
+     the largest surfaces on the screen. A brand colour diluted to 6% is not
+     the brand colour; it is a tint nobody chose, and at that size it is the
+     first thing anyone notices. Brand now appears at FULL STRENGTH on small
+     marks only: the say block's rule, the active dot, the lead tiles' edge.
+     Large surfaces are white, or the neutral grey below. */
   '--pb-ink': BRAND.colors.ink,
   '--pb-body': tint(BRAND.colors.ink, 0.78),
   '--pb-dim': tint(BRAND.colors.ink, 0.52),
@@ -198,9 +253,8 @@ const Inline = ({ text }) => (
 
 /* One parsed note body. The kind ordering here mirrors lib/kb.js — `say`
    first, because it is the one a reader of this file should notice first. */
-function Blocks({ body }) {
-  const blocks = useMemo(() => parseBlocks(body), [body]);
-  if (!blocks.length) return <div className="empty">This note has no text yet.</div>;
+function Blocks({ blocks }) {
+  if (!blocks || !blocks.length) return null;
   return (
     <>
       {blocks.map((b, i) => {
@@ -239,6 +293,129 @@ function Blocks({ body }) {
         return <p className="pb-p" key={i}><Inline text={b.text} /></p>;
       })}
     </>
+  );
+}
+
+/* ============================================================ the card deck
+
+   ONE COMPONENT, RENDERED BY BOTH SCREENS. The owner's Preview and the rep's
+   note view call this same function — not a copy of it, and not a simpler
+   version. The Preview exists to answer "what does he actually get", and the
+   previous version answered it with `whiteSpace:'pre-wrap'` while the rep view
+   parsed the markdown, so the Preview showed ## and ** on screen and the rep
+   saw neither. It was lying in the one direction it must never lie, and it is
+   the reason a rendering bug shipped without being seen.
+
+   tests/playbookrep.mjs asserts both paths reach this component. */
+
+const CardBody = ({ card }) => {
+  const { eyebrow, say, rest } = cardShape(card.blocks);
+  const row = card.blocks.length === 1 && card.blocks[0].kind === 'rowcard' ? card.blocks[0] : null;
+
+  if (row) {
+    /* One table row, as a card. On a call he wants HIS industry, not a grid of
+       six — the grid is still the deck's last card, for comparing. */
+    return (
+      <dl className="pb-rowcard">
+        {row.cells.map((c, i) => (
+          <div key={i}>
+            <dt>{row.head[i] || ''}</dt>
+            <dd><Inline text={c} /></dd>
+          </div>
+        ))}
+      </dl>
+    );
+  }
+
+  return (
+    <>
+      {eyebrow && <p className="pb-eyebrow"><Inline text={eyebrow.text} /></p>}
+      {say && (
+        <div className="pb-say">
+          {say.paras.map((t, i) => <p key={i}><Inline text={t} /></p>)}
+        </div>
+      )}
+      {/* Prose that accompanies a spoken line is COACHING and is styled to
+          recede. The same prose standing alone is body copy. Same markup, two
+          meanings, and the difference is whether he is meant to read it now. */}
+      {rest.length > 0 && (
+        <div className={say ? 'pb-rest' : 'pb-body'}><Blocks blocks={rest} /></div>
+      )}
+    </>
+  );
+};
+
+export function NoteCards({ note }) {
+  const cards = useMemo(() => paginate(note && note.body), [note && note.body]);
+  const [i, setI] = useState(0);
+  const n = cards.length;
+  const at = Math.min(i, n - 1);
+  const card = cards[at] || { heading: '', blocks: [] };
+
+  /* Reset to the first card when the note changes. Without this, opening a
+     two-card note after a fourteen-card one lands on a card that no longer
+     exists, and `at` silently clamps to the LAST card — so he would open an
+     objection and see the coaching. */
+  useEffect(() => { setI(0); }, [note && note.id]);
+
+  /* Arrow keys, because a rep on a call has one hand. No wrap at either end:
+     stopping is how he can tell he has seen all of it. */
+  useEffect(() => {
+    const onKey = e => {
+      if (e.key === 'ArrowRight') setI(v => Math.min(n - 1, v + 1));
+      else if (e.key === 'ArrowLeft') setI(v => Math.max(0, v - 1));
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [n]);
+
+  return (
+    <div className="pb-deck">
+      <div className="pb-card">
+        <div className="pb-ctop">
+          <div className="pb-cat">{note.category}</div>
+          {n > 1 && <div className="pb-count">{at + 1} / {n}</div>}
+        </div>
+        <h1 className="pb-ctitle">{note.title}</h1>
+        {/* Built as a list and joined, so a card with no heading does not render
+            an orphaned separator before its position ("· 1 of 6"). */}
+        {(card.heading || card.pos || card.all) && (
+          <div className="pb-ckicker">
+            {(() => {
+              const lead = card.heading || (card.all ? 'All of them, side by side' : '');
+              const tail = [card.cont ? 'cont.' : '', card.pos ? `${card.pos[0]} of ${card.pos[1]}` : '']
+                .filter(Boolean);
+              return (<>
+                {lead}
+                {tail.length ? <em>{lead ? ' · ' : ''}{tail.join(' · ')}</em> : null}
+              </>);
+            })()}
+          </div>
+        )}
+        <div className="pb-crule" />
+        <div className="pb-cbody">
+          {card.blocks.length ? <CardBody card={card} /> : <div className="empty">This note has no text yet.</div>}
+        </div>
+        {n > 1 && (
+          <div className="pb-cnav">
+            <div className="pb-dots">
+              {cards.map((_, j) => (
+                <button key={j} className={'pb-dot' + (j === at ? ' on' : '')}
+                  aria-label={`Card ${j + 1} of ${n}`} onClick={() => setI(j)} />
+              ))}
+            </div>
+            <div className="pb-nav">
+              <button onClick={() => setI(v => Math.max(0, v - 1))} disabled={at === 0}>
+                <ArrowLeft size={14} /> Back
+              </button>
+              <button className="next" onClick={() => setI(v => Math.min(n - 1, v + 1))} disabled={at === n - 1}>
+                {cards[at + 1] ? (cards[at + 1].heading || 'Next') : 'Next'} <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -313,22 +490,15 @@ function RepList({ pub }) {
           <button className="btn btn-d btn-sm" onClick={() => setOpen(null)}>
             <ArrowLeft size={14} /> Back to the playbook
           </button>
-          <div className="pb-note" style={{ marginTop: 18 }}>
-            <div className="pb-cat">{note.category}</div>
-            <h1>{note.title}</h1>
-            <div className="ch-sub" style={{ marginTop: 6 }}>
-              {note.tags.length ? note.tags.join(' · ') : null}
-              {note.tags.length && note.publishedAt ? ' · ' : ''}
-              {note.publishedAt ? 'updated ' + fmtWhen(note.publishedAt) : ''}
-            </div>
-            <Blocks body={note.body} />
+          <div style={{ marginTop: 14 }}>
+            <NoteCards note={note} />
             {/* A compliance note is a reference, so it ends by saying what to do
                 when the answer is not on it — the script's own instruction, and
                 the thing that keeps a rep from guessing at the edge of it. */}
             {items.length > 0 && (
-              <div className="pb-strip-f" style={{ marginTop: 18 }}>
-                {items.length} rules. Anything not on this list that you are unsure
-                of is an escalation, not a judgement call.
+              <div className="pb-strip-f" style={{ marginTop: 12 }}>
+                {items.length} rules in total. Anything not on this list that you are
+                unsure of is an escalation, not a judgement call.
               </div>
             )}
           </div>
@@ -436,17 +606,21 @@ function Preview({ note, row, onBack, onPublish, publishing, alreadyLive }) {
         <code style={{ margin: '0 4px' }}>kb_publish()</code> copies from. They cannot disagree.
       </div>
 
-      <div className="hb-cols" style={{ marginTop: 16 }}>
-        <div className="hb-col win" style={{ flex: 2 }}>
+      {/* THE ACTUAL DECK, not a description of one.
+
+          This used to render the body as `whiteSpace:'pre-wrap'` while the rep
+          view parsed it — so the owner saw ## and ** on screen and the rep saw
+          neither, and the one screen whose entire job is "show me exactly what
+          he gets" was the only screen that could not. The columns are stacked
+          rather than side by side because a card is 1140px wide and a truthful
+          preview at half width would be a different lie. */}
+      <div style={{ marginTop: 16 }}>
+        <div className="hb-col win">
           <div className="hb-head"><CheckCircle2 size={15} /> Crosses to reps</div>
-          <div className="hud-brief" style={{ marginTop: 10 }}>
-            <div className="hud-top">
-              <div className="hud-t">{p.title || <em>Untitled</em>}</div>
-              <div className="hud-d">{p.category}{p.tags.length ? ' · ' + p.tags.join(', ') : ''}</div>
-            </div>
-            <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.62, padding: '12px 2px' }}>
-              {p.body || <em>This note has no text yet. Publishing it would show a rep an empty note.</em>}
-            </div>
+          <div style={{ marginTop: 12 }}>
+            {p.body
+              ? <NoteCards note={p} />
+              : <div className="empty">This note has no text yet. Publishing it would show a rep an empty note.</div>}
           </div>
           <div className="sec-hint" style={{ marginTop: 8 }}>
             {p.body.length.toLocaleString()} characters. Six fields cross, and they are the six columns
@@ -455,7 +629,7 @@ function Preview({ note, row, onBack, onPublish, publishing, alreadyLive }) {
           </div>
         </div>
 
-        <div className="hb-col" style={{ flex: 1 }}>
+        <div className="hb-col" style={{ marginTop: 14 }}>
           <div className="hb-head"><Lock size={15} /> Stays with you</div>
           <div className="hlist" style={{ marginTop: 10 }}>
             <div className="hli"><div><strong>Any transcript</strong><div className="ch-sub">There is no transcript column on either table. A recording is read once to draft the text and never stored.</div></div></div>
