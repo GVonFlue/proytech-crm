@@ -23,6 +23,7 @@ import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import { playbookGate, unreadSince } from './lib/kb';
 import RepProfile from './RepProfile';
+import { useScrollLock } from './lib/scrolllock';
 import Pocket from './Pocket';
 /* aliased: rateOf is already taken in this file by the <Rate> helper from
    AUDIT #7, which divides part/whole. This one is a meeting's pay rate. */
@@ -973,7 +974,13 @@ const CSS=`
    carries className="m-body" as a DEAD class with no rule behind it — reusing
    the name would have silently started styling a component this change never
    looked at. */
-.m-scroll{padding:4px 22px 22px;min-height:0;overflow-y:auto}
+/* overscroll-behavior:contain is the COMPANION to the body lock in
+   src/lib/scrolllock.js, not a duplicate of it. The lock stops the page moving
+   when the pointer is over the scrim; this stops SCROLL CHAINING — reaching the
+   end of the modal's own scroll and having the remaining momentum handed to
+   whatever is behind it. Both are needed: the lock alone still lets a trackpad
+   fling bleed through on iOS, and this alone does nothing for the scrim. */
+.m-scroll{padding:4px 22px 22px;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 .m-head h2{font-size:21px;color:${INK}}.m-head .co{font-size:16px;font-weight:500;color:#5A5680;margin-top:4px}
 .m-head .meta{font-size:11.5px;color:#A6A2BC;margin-top:6px}
 .m-head .qa{display:flex;gap:8px;margin-top:11px;flex-wrap:wrap}
@@ -1191,7 +1198,7 @@ const CSS=`
    section cards and the type scale, and it inherits tests/leadcontrast.mjs,
    which walks every text node in this view and fails dark-on-dark. A parallel
    class set would have looked identical on the day and drifted by the next. */
-.modal.lead.rp .m-body{padding-bottom:40px}
+.modal.lead.rp .m-scroll{padding-bottom:40px}
 .modal.lead .rp-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:10px}
 .modal.lead .rp-stat{background:rgba(56,189,248,.05);border:1px solid var(--line);border-radius:12px;
   padding:12px 14px;display:flex;flex-direction:column;gap:3px}
@@ -1557,7 +1564,7 @@ const CSS=`
   .m-grid.lead3{grid-template-columns:1fr;overflow-y:auto}
   .m-prep{border-right:0;border-bottom:1px solid #E8E9F2}
 }
-.m-left{padding:20px 22px;overflow-y:auto}/* hidden, not auto — the column itself must not scroll, or you get the two
+.m-left{padding:20px 22px;overflow-y:auto;overscroll-behavior:contain}/* hidden, not auto — the column itself must not scroll, or you get the two
    nested scrollbars that caused this */
 .m-right{padding:20px 22px;overflow:hidden;background:#fff;border-left:1px solid #E8E9F2;display:flex;flex-direction:column;min-height:0}
 /* everything above the feed keeps its natural height and stays put */
@@ -2716,7 +2723,7 @@ tbody tr.picked:hover{background:#E9EDFD}
 .badge.inv-paid{color:${GREEN};background:rgba(31,157,85,.1)}.badge.inv-overdue{color:${RED};background:rgba(209,67,67,.1)}
 .inv-modal{width:1080px;max-width:96vw}
 .inv-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.inv-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:0;overflow:auto;flex:1}
+.inv-body{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:0;overflow:auto;flex:1;overscroll-behavior:contain}
 .inv-edit{padding:20px 22px;overflow:auto;border-right:1px solid #E8E9F2}
 .inv-preview-wrap{padding:24px;background:#ECEEF5;overflow:auto;display:flex;flex-direction:column;align-items:center}
 .inv-design-stage{border:1px solid #E3E4EE;border-radius:14px;overflow:hidden;margin-top:4px}
@@ -3174,6 +3181,9 @@ function SetPassword({email,onDone,firstTime}){
 
 /* ===================== my account (everyone, including reps) ===================== */
 function AccountModal({name,email,role,onClose}){
+  /* The page behind a modal must not scroll. Unconditional and first — a hook
+     behind a branch is the rules-of-hooks crash this file has hit three times. */
+  useScrollLock();
   /* Which Gmail account the Email action opens. Gmail numbers the accounts you
      are signed into in the order you added them, so this belongs to the browser
      profile rather than the CRM user — it lives in localStorage, and it is here
@@ -6611,6 +6621,9 @@ const parseCSV=text=>{const rows=[];let row=[],cur='',q=false;
   return rows.filter(r=>r.some(c=>(c||'').trim()!==''));};
 
 function ImportModal({onClose,onImport,businessTypes}){
+  /* The page behind a modal must not scroll. Unconditional and first — a hook
+     behind a branch is the rules-of-hooks crash this file has hit three times. */
+  useScrollLock();
   /* Sheets and CSV land in the same place: both produce headers + rows and then
      run the same AI mapping, preview and import. The only difference is how the
      bytes arrive, so there's one code path after ingest(). */
@@ -7277,6 +7290,9 @@ function InvoicePreview({inv,settings,saveSettings}){
 }
 
 function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClose,onPaid}){
+  /* The page behind a modal must not scroll. Unconditional and first — a hook
+     behind a branch is the rules-of-hooks crash this file has hit three times. */
+  useScrollLock();
   const [inv,setInv]=useState(invoice);
   useEffect(()=>setInv(invoice),[invoice.id]);
   const patch=p=>{const n={...inv,...p};setInv(n);onSave(n);};
@@ -7507,6 +7523,9 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
 }
 
 function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
+  /* The page behind a modal must not scroll. Unconditional and first — a hook
+     behind a branch is the rules-of-hooks crash this file has hit three times. */
+  useScrollLock();
   const [d,setD]=useState({...task});
   const set=p=>setD(x=>({...x,...p}));
   /* Called, not rendered as <Knob/>. Defined inside TaskModal, it got a new
@@ -7842,6 +7861,9 @@ function Books({txns,upsertTxn,deleteTxn,leads,openLead,embedded}){
 }
 
 function TxnModal({txn,file,onSave,onDelete,onClose}){
+  /* The page behind a modal must not scroll. Unconditional and first — a hook
+     behind a branch is the rules-of-hooks crash this file has hit three times. */
+  useScrollLock();
   const [d,setD]=useState(txn?{...txn}:{id:uid(),type:file?'expense':'expense',date:todayISO(),amount:'',category:'',party:'',method:'Card',who:'Business',notes:'',receipt:null,createdAt:new Date().toISOString()});
   const [ai,setAi]=useState(null); // null | reading | done | off
   const [saving,setSaving]=useState(false);

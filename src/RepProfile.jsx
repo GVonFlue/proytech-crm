@@ -9,6 +9,7 @@ import {
 } from './lib/lead';
 import { repActivities, byDay, dayStats, dialsPerBooking, BLOCK_GAP_MIN } from './lib/repwork';
 import { playbookGate } from './lib/kb';
+import { useScrollLock } from './lib/scrolllock';
 
 /* ============================================================================
    A REP, OPENED LIKE A LEAD.
@@ -87,6 +88,9 @@ export default function RepProfile({
   rep, leads, stages, me, myUid, owner,
   kbPub, kbReads, lastSeen, notes, onAddNote, onDeleteNote, onResetPlaybook, onClose,
 }) {
+  /* The page behind a modal must not scroll — and this panel is taller than
+     the viewport, so without it the notes below the fold are unreachable. */
+  useScrollLock();
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -136,7 +140,11 @@ export default function RepProfile({
           <button className="m-x" onClick={onClose} aria-label="Close"><X size={18} /></button>
         </div>
 
-        <div className="m-body rp-body">
+        {/* m-scroll, NOT m-body. `.m-body` is a DEAD class with no rule behind
+            it — App.jsx says so at the point where .m-scroll was introduced —
+            so this panel had no overflow rule at all and everything below the
+            fold, including the notes, was simply unreachable. */}
+        <div className="m-scroll rp-body">
 
           {/* ---------------------------------------------------- their work */}
           <div className="msec">
