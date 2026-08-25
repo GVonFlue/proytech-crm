@@ -318,6 +318,43 @@ export const db = {
   /* What JARVIS may be given. Reads kb_published and does not name kb_notes,
      so an OWNER calling it gets published rows only, exactly like a rep. There
      is no argument to pass to widen it. */
+  /* ---- who has read what, and when anyone last signed in ----------------
+
+     kb_reads is APPEND-ONLY and has no write policy at all: every insert goes
+     through kb_mark_read(), which stamps auth.uid() and takes no parameter for
+     whose read it is. That is what makes the compliance acknowledgement worth
+     having — a rep cannot mark himself complete from a console, and nobody can
+     quietly edit one afterwards. REP-ACTIVITY-MIGRATION.sql.
+
+     Every one of these fails SOFT. An install that has not run the migration
+     yet must behave exactly as it did before: no progress, no gate, no last
+     seen — not a crash on the first render, and above all not a rep locked out
+     of the whole app because a function is missing. */
+  async getKbReads(repId) {
+    let q = supabase.from('kb_reads').select('id,rep_id,note_id,kind,at').order('at', { ascending: true });
+    if (repId) q = q.eq('rep_id', repId);
+    const { data, error } = await q;
+    if (error) { console.warn('[kb_reads]', error.message); return null; }
+    return data || [];
+  },
+  async kbMarkRead(noteId, kind = 'read') {
+    const { error } = await supabase.rpc('kb_mark_read', { p_note_id: noteId, p_kind: kind });
+    if (error) { console.warn('[kb_mark_read]', error.message); return false; }
+    return true;
+  },
+  async kbResetProgress(repId) {
+    const { error } = await supabase.rpc('kb_reset_progress', { p_rep: repId });
+    if (error) throw new Error(error.message || 'Could not reset that.');
+    return true;
+  },
+  /* auth.users.last_sign_in_at, read through a function because a browser can
+     only ever see its OWN. Owner gets the team; a rep gets exactly himself. */
+  async lastSeen() {
+    const { data, error } = await supabase.rpc('crm_last_seen');
+    if (error) { console.warn('[crm_last_seen]', error.message); return null; }
+    return (data || []).map(r => ({ id: r.id, lastSignInAt: r.last_sign_in_at || '' }));
+  },
+
   async kbAiContext() {
     const { data, error } = await supabase.rpc('kb_ai_context');
     if (error) { if (kbMissing(error)) return []; throw error; }
