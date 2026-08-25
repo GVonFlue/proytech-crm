@@ -37,7 +37,7 @@ import {
   lastTouch,
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
   MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames, bookingBrief, briefText,
-  timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom,
+  timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom, DEMO_MIN,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import { useScrollLock } from './lib/scrolllock';
@@ -173,13 +173,13 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
              The name is the nicety; the address is the fact. Two owners with
              no matching email means we decline to name one rather than guess,
              but the rep is no longer left with a nameless sentence. */
-          ? <div className="mtg-acct"><CalendarClock size={12}/>Goes on {
+          ? <div className="mtg-acct"><CalendarClock size={12}/><span>Goes on {
               calOwner&&gcalEmail ? <><b>{calOwner}</b>’s calendar — <b>{gcalEmail}</b></>
               : calOwner ? <><b>{calOwner}</b>’s Google Calendar</>
               : gcalEmail ? <><b>{gcalEmail}</b></>
               : <>the owner’s Google Calendar</>
-            }, not yours{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>
-          : <div className="mtg-acct"><CalendarClock size={12}/>Goes on <b>{gcalEmail||'the connected Google account'}</b>{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</div>)
+            }, not yours{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</span></div>
+          : <div className="mtg-acct"><CalendarClock size={12}/><span>Goes on <b>{gcalEmail||'the connected Google account'}</b>{invite&&emailOk?<> · invite to <b>{inviteEmail}</b></>:null}</span></div>)
       : (rep
           ? <div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected, so this won’t reach a calendar. {calOwner?<><b>{calOwner}</b> has to connect it</>:<>The owner has to connect it</>} — schedule anyway, the meeting is saved in the CRM either way.</span></div>
           : <div className="mtg-warn"><AlertTriangle size={13}/><span>Google Calendar isn’t connected, so this won’t reach a calendar. Open <b>Settings → Google Calendar</b> and hit Connect.</span></div>)}
@@ -438,7 +438,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   const growNote=e=>{ setAtext(e.target.value); sizeNote(e.target); };
   /* The page behind a modal must not scroll. Unconditional and first. */
   useScrollLock();
-  const [atype,setAtype]=useState('Call');const [adisp,setAdisp]=useState('');const [cbAt,setCbAt]=useState('');const [brief,setBrief]=useState({});const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
+  const [atype,setAtype]=useState('Call');const [adisp,setAdisp]=useState('');const [cbAt,setCbAt]=useState('');const [brief,setBrief]=useState({});const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(!!rep);
   const [wideFeed,setWideFeed]=useState(()=>{ try{return localStorage.getItem('pt_widefeed')==='1';}catch{return false;} });
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
@@ -732,7 +732,9 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     const tags=[...pendTags];
     const mid=uid(); const now=new Date().toISOString();
     const start=new Date(cbAt).toISOString();
-    const end=new Date(new Date(cbAt).getTime()+30*6e4).toISOString();
+    /* TEN. The length is DEMO_MIN, not a number chosen here — see lead.js for
+       why it is the script's number and not ours. */
+    const end=new Date(new Date(cbAt).getTime()+DEMO_MIN*6e4).toISOString();
     const merged={...draft,brief:{...brief}};
     const b=bookingBrief(merged,{start});
     const title=`Demo with ${b.company||'lead'}`;
@@ -1190,7 +1192,24 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
             {!composeOpen&&!isNew&&<button className="compose-open" onClick={()=>setComposeOpen(true)}>
               <Plus size={14}/>Log a call, note or text</button>}
             {(composeOpen||isNew)&&<div className="compose">
-            <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
+            {/* ONE WAY FOR A REP TO BOOK.
+
+                The MEETINGS panel's scheduler and the BK disposition do the
+                same job and write DIFFERENT records: doSchedule stamps no
+                `disp`, and dayStats counts a booking as disp==='BK'. So a rep
+                who booked through the scheduler got ZERO credit — his
+                dials-per-booking, his position on the SOP curve and his Booked
+                tile all read as though it never happened — while
+                bookingOutcomes, which counts MEETINGS, did see it. Two numbers
+                on his own profile disagreeing, caused by two paths.
+
+                He also skipped the brief and the contact check, so Logan got
+                no invite worth reading.
+
+                A rep books exactly one thing: the ten minutes with Logan. Type,
+                length and Meet link are not his decisions, so the scheduler is
+                an owner control and BK is his. */}
+            <div className="act-types">{ACT_TYPES.filter(t=>!(rep&&t.key==='Booked')).map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
               {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
             </div>
             {/* WHAT HAPPENED ON THE CALL. Shown to a rep only: the owners log
@@ -1209,6 +1228,23 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               {(adisp==='CB'||adisp==='BK')&&
                 <WhenPicker value={cbAt} onChange={setCbAt} businessType={draft.businessType}
                   label={adisp==='BK'?'The time you agreed':'Exactly when did they say?'}/>}
+              {/* WHOSE CALENDAR IT LANDS ON — moved here, not deleted.
+
+                  This line was written for reps (REP-AUDIT): a rep booking a
+                  demo needs to know the invite goes out from the OWNER's
+                  account and not his. It lived in the MEETINGS scheduler, which
+                  is now owner-only, so leaving it there would have retired a
+                  rep-facing answer from the only audience it was written for.
+                  It belongs wherever the rep actually books. */}
+              {adisp==='BK'&&(gcalConnected
+                ? <div className="mtg-acct"><CalendarClock size={12}/><span>
+                    The invite goes out from <b>{gcalEmail||'the connected Google account'}</b>
+                    {calOwner?<> — <b>{calOwner}</b>’s calendar</>:null}, not yours
+                    {draft.email?<> · <b>{draft.email}</b> gets one too</>:null}</span></div>
+                : <div className="mtg-warn"><AlertTriangle size={13}/><span>
+                    Google Calendar isn’t connected, so no invite will go out.
+                    {calOwner?<> <b>{calOwner}</b> has to connect it.</>:<> The owner has to connect it.</>}
+                    {' '}Book anyway — it saves, and you will be told to text them.</span></div>)}
               {/* THE FIVE THINGS, at the moment he has them.
 
                   SOP-03 has the rep asking for these on the call and texting
@@ -1244,7 +1280,22 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               {adisp&&!dispIsContact({disp:adisp})&&<div className="disp-note">
                 Logged as a dial. It does not count as contact, so this lead stays on the untouched list.
               </div>}
-              {dispErr&&<div className="disp-err"><AlertTriangle size={13}/>{dispErr}</div>}
+              {/* NOT UNTIL HE HAS DONE SOMETHING.
+
+                  The composer opens by default for a rep now, so rendering
+                  dispErr on mount greeted him with "Pick what happened on the
+                  call" before he had touched anything — an error about a form
+                  nobody has used yet, on every lead he opens. It nags, and a
+                  message that is always on screen is one nobody reads when it
+                  finally means something.
+
+                  Shown once he has picked a disposition or started typing.
+                  NOT on a press of the Log button: that button is disabled
+                  while dispErr stands, and a disabled button fires no click —
+                  a `tried` flag set from its handler could never become true.
+                  Its title carries the reason for anyone who hovers. */}
+              {dispErr&&(adisp||atext.trim())&&
+                <div className="disp-err"><AlertTriangle size={13}/>{dispErr}</div>}
             </div>}
             {atype==='Booked'
               ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner}
@@ -1457,7 +1508,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           {isNew&&<>
             <div className="dh mt"><MessageSquare size={13}/>First note</div>
             <div className="fn-block">
-              <div className="act-types">{ACT_TYPES.map(({key,icon:Ic})=><button key={key} className={'act-t '+(firstType===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setFirstType(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
+              <div className="act-types">{ACT_TYPES.filter(t=>!(rep&&t.key==='Booked')).map(({key,icon:Ic})=><button key={key} className={'act-t '+(firstType===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setFirstType(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
               <textarea className="fu-note" style={{marginTop:9}} rows={3} placeholder={`How'd the ${firstType.toLowerCase()} go? What did they say?`} value={firstNote} onChange={e=>setFirstNote(e.target.value)}/>
               <div className="fn-hint">{firstNote.trim()?<><CheckCircle2 size={12} color="var(--ok2)"/>Logs as a {firstType} from {who} the moment you save</>:'Optional — but log it now while it\u2019s fresh'}</div>
             </div>

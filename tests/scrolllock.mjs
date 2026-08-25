@@ -188,5 +188,73 @@ console.log('\nLOCKING THE PAGE IS HALF THE JOB — the modal must still scroll'
      /\.compose ~ \.afilter, \.compose ~ \.m-danger\{display:none\}/.test(app));
 }
 
+console.log('\nAND THE FEED MUST HAVE ROOM TO READ — the other half of the same fight');
+{
+  /* THE REGRESSION THIS PINS.
+
+     The composer opens by default for a rep. Measured in Chrome at a 764px
+     viewport, it took 293px of the 506px column and left the feed 79: not one
+     past entry fully visible, and the most recent note showing 49 percent of
+     itself. With the BK brief open the feed was 0px. So the rep could write and
+     could not read what was said last time — and seeing the last call is half
+     of why he opens the lead at all.
+
+     THE ORDER OF YIELDING IS THE WHOLE DESIGN, and it is what the rules below
+     encode: the Log button never gives (that was #66), then the note box gives,
+     then the feed gives down to its floor. Getting this backwards is not
+     theoretical — a 150px floor squeezed the composer to 223px against 233px of
+     furniture and put the Log button outside it again.
+
+     jsdom has no layout, so the pixels cannot be asserted here. These pin the
+     RULES that produce them; the measurements are in the PR body, taken in
+     Chrome against a bundle of this source. */
+  const app = fs.readFileSync('src/App.jsx', 'utf8');
+
+  /* Only the note box is elastic. If the composer itself is the flexible thing,
+     shrinking it scrolls the Log button out of reach. */
+  ok('the composer lays its parts out in a column',
+     /\.modal\.lead \.compose\{[^}]*flex-direction:column/.test(app));
+  ok('  and its furniture keeps its height — chips, dispbar, tags, Log button',
+     /\.modal\.lead \.compose>\*\{flex:none\}/.test(app));
+  ok('  so the note box alone absorbs the difference',
+     /\.modal\.lead \.compose \.act-input\{flex:0 1 auto/.test(app));
+
+  /* Six lines was right BEFORE the box could grow. sizeNote made the floor
+     unnecessary, and 112px of it was coming straight out of the feed. */
+  ok('  starting at three lines, not six, because it grows with what is typed',
+     /\.modal\.lead \.compose \.act-input\{[^}]*min-height:56px/.test(app));
+  const lead = fs.readFileSync('src/LeadView.jsx', 'utf8');
+  ok('  and it really does grow, or three lines would just be worse',
+     /onChange=\{growNote\}/.test(lead) && /const sizeNote/.test(lead));
+
+  /* Scoped, or the rep profile's note box shares the shrink. */
+  ok('the rep profile note box is not caught by this — it shares .act-input',
+     /className="act-input rp-note-in"/.test(fs.readFileSync('src/RepProfile.jsx', 'utf8')) &&
+     !/^\.act-input\{[^}]*flex:0 1 auto/m.test(app));
+
+  /* The floor. Bounded BELOW by one complete entry (33px day header + 77px item
+     + 9px gap) and ABOVE by the composer's own minimum. */
+  ok('the feed can never be squeezed out of existence',
+     /\.modal\.lead \.feed\{min-height:110px\}/.test(app));
+
+  /* A DESKTOP floor. On a phone the modal scrolls as one page and the feed is
+     not its own scroller — and .modal.lead .feed outranks the bare .feed in
+     that media query, so the phone rule has to be restated at equal weight or
+     the desktop floor silently follows it there. */
+  /* Asserted as CO-LOCATION with the bare .feed reset rather than against a
+     hardcoded breakpoint: the invariant is that the two travel together, and
+     this file should not also become the place that pins which px value the
+     phone layout uses. Walking back to the nearest @media additionally proves
+     the override is inside a query at all and not loose in the desktop rules,
+     where it would undo the floor everywhere. */
+  const reset = app.indexOf('.feed{flex:none;min-height:auto;overflow:visible}');
+  const at = app.indexOf('.modal.lead .feed{min-height:auto}');
+  const q1 = reset < 0 ? -1 : app.slice(0, reset).lastIndexOf('@media');
+  const q2 = at < 0 ? -2 : app.slice(0, at).lastIndexOf('@media');
+  ok('  and the phone rule still wins on a phone, at matching specificity',
+     at > 0 && q1 === q2, at < 0 ? 'the override is not there at all'
+       : 'reset in ' + app.slice(q1, q1 + 24) + ', override in ' + app.slice(q2, q2 + 24));
+}
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

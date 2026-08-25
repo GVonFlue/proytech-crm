@@ -865,6 +865,27 @@ export const briefText = (b) => {
 
    ORDERED BY WHEN PEOPLE ACTUALLY PICK UP, which SOP-01 states per industry.
    The lead's businessType decides which block leads. */
+/* HOW LONG THE DEMO IS — ten minutes, because that is the number the rep
+   already said out loud.
+
+   The script promises it six times: "Takes ten minutes", "Ten minutes, and if
+   yours is better, keep yours", "One job: ten minutes on Logan's calendar".
+   The prospect hears ten and then opens a calendar invite. If that invite says
+   anything else, the first written thing we ever send them contradicts the
+   first spoken thing we ever told them — over a detail we chose for our own
+   convenience. It shipped as thirty, then fifteen; both were wrong for the
+   same reason, and fifteen was wrong in the more insidious way because it
+   looked considered.
+
+   IF LOGAN NEEDS A BREATH BETWEEN DEMOS, that is a gap between slots on his
+   calendar, not a meeting longer than the one we sold. Named here and not
+   inlined at the booking so the next person changing it has to read this.
+
+   The owner-side MeetingScheduler keeps its own Length select and is
+   deliberately NOT bound to this: an owner picking 45 minutes for a real
+   meeting made no such promise. This is the cold-call demo only. */
+export const DEMO_MIN = 10;
+
 export const CALL_WINDOWS = [
   { key: 'trades', label: '8–10 and 4–6', match: /roof|hvac|plumb|auto|pdr|landscap|electric|concrete|paint/i,
     early: ['08:00','08:30','09:00','09:30'], late: ['16:00','16:30','17:00','17:30'] },

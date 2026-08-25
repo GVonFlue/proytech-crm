@@ -1133,6 +1133,10 @@ const CSS=`
 .modal.lead .msec{background:linear-gradient(180deg,rgba(15,20,51,.72),rgba(10,14,39,.5));
   border:1px solid var(--line)}
 .modal.lead .msec-t{color:var(--ink-mid)}
+/* The HOVER state needs its own override or it inherits the light theme's
+   cobalt — dark ink on the navy plate, unreadable exactly while somebody is
+   pointing at it. The base colour was overridden here and the hover was not. */
+.modal.lead .msec-h:hover .msec-t{color:var(--ink-hi)}
 .modal.lead .msec-s{color:var(--dim)}
 .modal.lead .msec.open{border-color:var(--line-hi);box-shadow:inset 2px 0 0 var(--arc)}
 /* BREATHING ROOM IN THE RECORD RAIL.
@@ -1624,6 +1628,27 @@ const CSS=`
    shrink:1 with min-height:0 lets it give back precisely the overflow and no
    more. The feed's basis:0 means it never competes for that space. */
 .compose{flex:0 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+/* INSIDE THE COMPOSER, ONLY THE NOTE BOX IS ELASTIC.
+
+   The composer opens by default for a rep, and measured on a 764px laptop it
+   took 293px of a 506px column and left the feed 79. Not one past entry was
+   fully visible and the most recent note showed 49 percent of itself. With the
+   BK brief open the feed was 0px — gone. So the rep could write, and could not
+   see what was said last time, which is half of why he opens the lead.
+
+   The composer could already shrink (min-height:0 above), but shrinking it
+   scrolls the Log button out of reach — the exact bug fixed in #66. So the
+   composer as a whole must NOT be the thing that gives: the chips, the
+   disposition bar, the tags and the Log button keep their height always, and
+   the note box alone absorbs the difference. It starts at three lines instead
+   of six and grows with what is typed, which is what sizeNote already does.
+
+   Six lines was the right fix BEFORE the box could grow; auto-grow made the
+   floor unnecessary and it stayed. Scoped to the modal composer so the rep
+   profile's note box, which shares .act-input, is untouched. */
+.modal.lead .compose{display:flex;flex-direction:column}
+.modal.lead .compose>*{flex:none}
+.modal.lead .compose .act-input{flex:0 1 auto;min-height:56px}
 /* WHILE COMPOSING, THE THINGS BEHIND THE COMPOSER GIVE UP THEIR SPACE.
 
    The composer element only exists in the DOM when it is open, so a sibling
@@ -2209,7 +2234,19 @@ const CSS=`
 .mtg-drow.noshow{background:rgba(209,67,67,.04)}
 .mtg-drow.needs{background:color-mix(in srgb,#E0662B 5%,#fff)}
 .mtg-flag{color:#D97706;font-weight:700}
-.mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
+/* THE TEXT IS ONE FLEX ITEM, and it has to be.
+
+   This was a non-wrapping flex row containing several separate text nodes and
+   <b> elements — each becomes its own anonymous flex item, so in a narrow
+   column they overflowed the rounded container instead of wrapping and the
+   line was unreadable. .mtg-warn directly below it always wrapped its message
+   in a <span> for exactly this reason; this one did not.
+
+   align-items:flex-start so the icon sits with the FIRST line once the text
+   wraps to two, rather than floating in the vertical middle of the block. */
+.mtg-acct{display:flex;align-items:flex-start;gap:6px;font-size:11.5px;line-height:1.5;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
+.mtg-acct svg{flex:none;margin-top:2px}
+.mtg-acct>span{min-width:0}
 .mtg-acct b{color:${INK};font-weight:700}
 .today-clear{display:flex;align-items:center;gap:9px;font-size:13px;color:#5B6478;margin-bottom:18px}
 .today{margin-bottom:18px}
@@ -2778,6 +2815,18 @@ tbody tr.picked:hover{background:#E9EDFD}
    nothing and takes only what is left after the composer has what it needs. */
 .feed{margin-top:12px;display:flex;flex-direction:column;flex:1 1 0;min-height:0;overflow-y:auto;
   scrollbar-width:thin;scrollbar-color:#D8D9E6 transparent}
+/* AND A FLOOR, so the feed can never be squeezed out of existence.
+
+   BOUNDED FROM BOTH SIDES, both bounds measured in Chrome at 764px:
+     BELOW by one complete entry — a day header (33px) plus an item (77px) plus
+     the 9px gap. Under that, "what was said last time" is a fragment.
+     ABOVE by the composer's own minimum. At 150px the composer was squeezed to
+     223px against 233px of furniture and THE LOG BUTTON FELL OUT OF IT. The
+     feed yields last: the button always wins, then the note box, then this.
+   110px leaves the shortest entry whole with room to show the next beginning.
+   Idle it is not even reached — the feed gets 131px and the last note renders
+   at 100 percent. It binds only while a long note is being typed. */
+.modal.lead .feed{min-height:110px}
 .feed::-webkit-scrollbar{width:7px}
 .feed::-webkit-scrollbar-thumb{background:#D8D9E6;border-radius:4px}
 .feed::-webkit-scrollbar-thumb:hover{background:#BFC0D4}
@@ -3042,6 +3091,11 @@ tbody tr.picked:hover{background:#E9EDFD}
   .m-left,.m-right{overflow:visible}
   .m-right{min-height:auto}
   .feed{flex:none;min-height:auto;overflow:visible}
+  /* The desktop floor is a DESKTOP rule. Here the modal scrolls as one page and
+     the feed is not its own scroller, so a minimum height would be meaningless
+     at best. Restated at matching specificity because .modal.lead .feed beats a
+     bare .feed even inside this query. */
+  .modal.lead .feed{min-height:auto}
   .m-right{border-left:none;border-top:1px solid #E8E9F2}
   .modal{max-height:94vh}
   /* The header was ONE flex row: the title fought the nav buttons and the fact

@@ -107,10 +107,21 @@ const openLead = async () => { await nav('Leads');
   if (row) await click(row); await settle(140); };
 const openComposer = async () => { const o = curEl.querySelector('.compose-open'); if (o) { await click(o); await settle(); } };
 const chips = () => [...curEl.querySelectorAll('.tagchip')].map(b => (b.textContent || '').trim());
+/* WHERE THE "whose calendar is this" LINE LIVES, per role.
+
+   It used to live only in the MEETINGS scheduler. A rep no longer has that
+   chip — the scheduler and the BK disposition were two ways to book the same
+   meeting writing DIFFERENT records, so a rep now has exactly one — and the
+   line moved to the BK path with him. An owner still books through the
+   scheduler and still sees it there. This opens whichever path the signed-in
+   role actually has, which is what these assertions were always about. */
 const openScheduler = async () => {
-  const b = [...curEl.querySelectorAll('.act-t')].find(x => /^Meeting Booked$/.test((x.textContent || '').trim()));
-  if (!b) throw new Error('no "Meeting Booked" chip');
-  await click(b); await settle();
+  const chip = [...curEl.querySelectorAll('.act-t')].find(x => /^Meeting Booked$/.test((x.textContent || '').trim()));
+  if (chip) { await click(chip); await settle(); return 'scheduler'; }
+  const bk = [...curEl.querySelectorAll('.disp-b')].find(x => ((x.querySelector('b') || {}).textContent || '') === 'BK');
+  if (!bk) throw new Error('no booking path at all');
+  await click(bk); await settle();
+  return 'bk';
 };
 const schedText = () => {
   const el = curEl.querySelector('.mtg-acct') || curEl.querySelector('.mtg-warn');
