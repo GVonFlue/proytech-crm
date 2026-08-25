@@ -36,7 +36,7 @@ import {
   referralsOut, mkReferral, introducedLeads, referralTarget,
   lastTouch,
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
-  MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames,
+  MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames, bookingBrief, briefText,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import { useScrollLock } from './lib/scrolllock';
@@ -230,6 +230,12 @@ export function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
         <option value="">+ type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
       </select>
       {m.invited&&<span className="mtg-b"><UserPlus size={10}/>invited</span>}
+      {/* THE INVITE THAT DID NOT GO, ON THE RECORD. A toast disappears; this is
+          the state a rep or an owner reopens the lead and sees. Without it the
+          only difference between "Logan was told" and "Logan was not told" is
+          the absence of a badge, which is not a difference anybody notices. */}
+      {m.inviteFailed&&<span className="mtg-b noinvite" title={m.inviteFailed}>
+        <AlertTriangle size={10}/>no invite sent</span>}
       {m.meet&&(m.meetLink?<a className="mtg-b link" href={m.meetLink} target="_blank" rel="noreferrer"><Video size={10}/>Join</a>:<span className="mtg-b"><Video size={10}/>Meet</span>)}
       {m.htmlLink&&<a className="mtg-b link" href={m.htmlLink} target="_blank" rel="noreferrer"><Expand size={10}/>Calendar</a>}
     </div></div>
@@ -653,6 +659,68 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     return '';
   })();
 
+  /* ---- BK: a real Google event, not only a local record ------------------
+
+     THE INVITE IS THE NOTIFICATION. calendar-event.js already sets
+     sendUpdates=all, so Google mails every attendee — the owners get the
+     booking in the place a meeting belongs, with no new OAuth scope, no new
+     service and no new failure coupling. The five things ride in the event
+     description.
+
+     THE BOOKING SAVES EVEN IF THE INVITE DOES NOT. Google being disconnected
+     or down must never cost a rep a booking he actually made — a far worse
+     failure than a missing email. So the record is written either way, and the
+     OUTCOME IS STORED ON THE MEETING rather than shown as a toast that
+     disappears: `invited:true`, or `inviteFailed` with the reason. A rep who
+     has to fall back to the SOP-03 text must be able to see that he does, ten
+     minutes later, on a screen he reopens. */
+  const [bookMsg,setBookMsg]=useState(null);
+  const bookIt=async()=>{
+    const t=atext.trim()||dispLabel('BK')+'.';
+    const tags=[...pendTags];
+    const mid=uid(); const now=new Date().toISOString();
+    const start=new Date(cbAt).toISOString();
+    const end=new Date(new Date(cbAt).getTime()+30*6e4).toISOString();
+    const merged={...draft,brief:{...brief}};
+    const b=bookingBrief(merged,{start});
+    const title=`Demo with ${b.company||'lead'}`;
+
+    /* The owners, and the lead. SOP-03 has the rep saying "you will get a
+       calendar invite from Logan in the next few minutes" — so the prospect is
+       an attendee, or the app makes the rep a liar. Drop `draft.email` from
+       this list to make it internal-only. Three people on a normal booking,
+       well inside calendar-event.js's cap of five. */
+    const owners=ownerNames(teamRoster,users);
+    const ownerEmails=(users||[]).filter(u=>u&&u.role==='owner'&&u.active!==false&&u.email).map(u=>u.email);
+    const attendees=[...new Set([draft.email,...ownerEmails].filter(Boolean))];
+
+    let ev={eventId:'',htmlLink:''}, failed='';
+    if(gcalConnected&&createCalendarEvent){
+      try{ ev=await createCalendarEvent({title,start,end,notes:briefText(b),attendees,meet:false}); }
+      catch(e){ failed=(e&&e.message)||'Google would not create the event.'; }
+    } else {
+      failed='Google Calendar is not connected on this install.';
+    }
+
+    const meeting={id:mid,eventId:ev.eventId||'',htmlLink:ev.htmlLink||'',
+      title,mtype:'Demo',start,end,status:'',who,setBy:me,setById:myUid||'',
+      createdAt:now,logged:true,dateUnknown:false,
+      invited:!failed,...(failed?{inviteFailed:failed}:{})};
+    /* The dashboard tag fires either way — belt and braces, and the same
+       @mention path SO/HV/DNC already use rather than a second mechanism. */
+    const allTags=[...new Set([...tags,...owners])];
+    const act={id:uid(),ts:now,type:'Booked',disp:'BK',mtype:'Demo',meetingId:mid,cbAt,
+      text:stripTagText(t,tags)||t,who,...(myUid?{whoId:myUid}:{}),...(allTags.length?{tags:allTags}:{})};
+    const patch={brief:{...brief},meetings:[...(draft.meetings||[]),meeting],
+      activities:[act,...(draft.activities||[])]};
+    setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
+    setBookMsg(failed
+      ? {bad:true,t:`Booked, and saved — but NO CALENDAR INVITE WENT OUT. ${failed} Text ${owners.join(' and ')||'the owners'} the details now, the way SOP-03 describes.`}
+      : {t:`Booked. Calendar invite sent to ${attendees.length} ${attendees.length===1?'person':'people'} — ${owners.join(' and ')||'the owners'}${draft.email?' and the prospect':''}.`});
+    setAtext(''); setPendTags([]); setComposeOpen(false); setAdisp(''); setCbAt('');
+    setBrief({}); if(noteRef.current) noteRef.current.style.height='';
+  };
+
   const logIt=()=>{
     if(dispErr) return;
     const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:'')
@@ -665,27 +733,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
        Held/No-show control, nothing in Upcoming or Needs status, and nothing
        for the show rate or held-bookings to be true of. The disposition said
        "booked" and the app did not agree. */
-    if(adisp==='BK'){
-      const mid=uid(); const now=new Date().toISOString();
-      const start=new Date(cbAt).toISOString();
-      const meeting={id:mid,title:`Demo with ${draft.company||draft.name||'lead'}`,mtype:'Demo',
-        start,end:start,status:'',who,setBy:me,setById:myUid||'',createdAt:now,
-        logged:true,dateUnknown:false};
-      /* The owners are tagged the way SO/HV/DNC already are — the SAME
-         @mention path, not a second mechanism. A booked call is the most
-         time-critical thing a rep produces. */
-      const owners=ownerNames(teamRoster,users);
-      const allTags=[...new Set([...tags,...owners])];
-      const act={id:uid(),ts:now,type:'Booked',disp:'BK',mtype:'Demo',meetingId:mid,cbAt,
-        text:stripTagText(t,tags)||t,who,...(myUid?{whoId:myUid}:{}),...(allTags.length?{tags:allTags}:{})};
-      const patch={brief:{...brief},meetings:[...(draft.meetings||[]),meeting],
-        activities:[act,...(draft.activities||[])]};
-      setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
-      if(onBooked) onBooked({...draft,...patch},meeting);
-      setAtext(''); setPendTags([]); setComposeOpen(false); setAdisp(''); setCbAt('');
-      setBrief({}); if(noteRef.current) noteRef.current.style.height='';
-      return;
-    }
+    if(adisp==='BK'){ bookIt(); return; }
 
     if(atype==='Booked'){
       /* a logged meeting IS a meeting — create the record so it shows up with a
@@ -1077,6 +1125,16 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
             })()}
             {/* collapsed to a single row until you actually want to write
                 something — the feed is what you came for */}
+            {/* WHAT THE REP SEES WHEN THE INVITE DID NOT GO. He must not walk
+                away believing Logan has been told. Rendered ABOVE the composer
+                so it survives the composer closing, and dismissable rather
+                than auto-hiding — a message about something that did not
+                happen should not disappear on its own. */}
+            {bookMsg&&<div className={'bookmsg'+(bookMsg.bad?' bad':'')}>
+              {bookMsg.bad?<AlertTriangle size={15}/>:<CheckCircle2 size={15}/>}
+              <div>{bookMsg.t}</div>
+              <button onClick={()=>setBookMsg(null)} aria-label="Dismiss"><X size={13}/></button>
+            </div>}
             {!composeOpen&&!isNew&&<button className="compose-open" onClick={()=>setComposeOpen(true)}>
               <Plus size={14}/>Log a call, note or text</button>}
             {(composeOpen||isNew)&&<div className="compose">
