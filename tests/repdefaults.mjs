@@ -46,8 +46,11 @@ const ago = n => new Date(Date.now() - n * 864e5).toISOString();
    signed in or the row is not there to click. Parameterised rather than
    hardcoded to the rep — the owner blocks at the bottom sign in as someone
    else. */
+/* email and phone are present because BK refuses to save without them — "a
+   booked call with a missing mobile is a no-show" (SOP-03). A fixture without
+   them tests the wrong gate. */
 const LEAD = (ownerName, ownerId) => ([{ id:'l1', name:'Call Me', company:'Call Co', stage:'new',
-  owner: ownerName, owner_id: ownerId,
+  owner: ownerName, owner_id: ownerId, email:'call@co.test', phone:'3165550100',
   createdAt: ago(5), meetings:[], deals:[], dealValue:0, activities:[] }]);
 
 /* ---- bundle once, remount per scenario --------------------------------- */
@@ -128,6 +131,10 @@ const OWNER = (over = {}) => ({ id:'u_boss', name:'Garrett', email:'garrett@getp
 /* Choose a disposition in the rep composer, and fill the callback time when the
    code needs one. The code lives in the <b> inside the button, so this matches
    on that rather than on the button's whole label. */
+const setV2 = async (el, v) => {
+  const st = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
+  await act(async () => { st.call(el, v); el.dispatchEvent(new dom.window.Event('input', { bubbles: true })); });
+};
 const pickDisp = async (code, at) => {
   const b = [...curEl.querySelectorAll('.disp-b')].find(x => ((x.querySelector('b') || {}).textContent || '') === code);
   if (b) await click(b);
@@ -197,6 +204,54 @@ console.log('\n#9 — Call counts as a touch, which is the whole point');
   ok('  because the stored type is one REACHED_TYPES knows',
      ['Call','Text','Email','Meeting','Booked','Payment'].includes(((w || {}).activities || [])[0]?.type),
      JSON.stringify(((w || {}).activities || [])[0]));
+}
+
+console.log('\n#9 — BK MAKES A MEETING, which it did not');
+{
+  /* THE BUG THIS PINS. logIt branched on `atype`, and the disposition bar only
+     renders when atype==='Call' — so a rep marking BK fell through to the
+     plain-activity branch and NO MEETING RECORD WAS EVER CREATED. No
+     Held/No-show control, nothing in Upcoming, and nothing for the show rate
+     or held-bookings to be true of. The disposition said "booked" and the app
+     did not agree. */
+  await boot({ users: [REP, OWNER()], gcal: { connected:false, email:'' } });
+  await openLead(); await openComposer();
+  const ta = curEl.querySelector('.act-input');
+  await setV(ta, 'Booked her for Thursday.');
+  ok('picked BK', await pickDisp('BK', '2026-09-03T14:00'));
+
+  /* And it refuses to save without the five things — the same reasoning that
+     already gates name, email and mobile. */
+  const btnNow = [...curEl.querySelectorAll('button')].find(b => /^Log /.test((b.textContent || '').trim()));
+  await click(btnNow); await settle();
+  const blocked = globalThis.__WRITES__.filter(x => x.id === 'l1').at(-1);
+  ok('BK will not save without what Logan needs to build it',
+     !blocked || !(blocked.meetings || []).length,
+     JSON.stringify((blocked || {}).meetings || []));
+
+  const ins = [...curEl.querySelectorAll('.disp-brief input')].filter(i => i.type !== 'checkbox');
+  ok('the brief asks for five things', ins.length === 5,
+     String(ins.length) + ' | err: ' + ((curEl.querySelector('.disp-err') || {}).textContent || 'none'));
+  for (const i of ins) await setV2(i, 'answered');
+
+  const btn2 = [...curEl.querySelectorAll('button')].find(b => /^Log /.test((b.textContent || '').trim()));
+  ok('the composer accepts it once the brief is complete', btn2 && !btn2.disabled,
+     'err: ' + ((curEl.querySelector('.disp-err') || {}).textContent || 'none'));
+  await click(btn2); await settle(140);
+  const w = globalThis.__WRITES__.filter(x => x.id === 'l1').at(-1);
+  const mtgs = (w || {}).meetings || [];
+  ok('now BK creates a MEETING record', mtgs.length === 1, JSON.stringify(mtgs));
+  ok('  with the time the rep agreed, not the moment he typed',
+     mtgs[0] && String(mtgs[0].start).startsWith('2026-09-03'), (mtgs[0] || {}).start);
+  ok('  and a real date, so it lands in Upcoming rather than Needs a date',
+     mtgs[0] && mtgs[0].dateUnknown === false);
+  const act = ((w || {}).activities || [])[0];
+  ok('  the activity is type Booked carrying disp BK',
+     act && act.type === 'Booked' && act.disp === 'BK', JSON.stringify(act));
+  ok('  the owners are tagged the way SO/HV/DNC already are',
+     act && Array.isArray(act.tags) && act.tags.includes('Garrett'), JSON.stringify(act && act.tags));
+  ok('  and the brief is on the lead', (w || {}).brief && (w || {}).brief.wants === 'answered',
+     JSON.stringify((w || {}).brief));
 }
 
 console.log('\n#9 — Note is still one click away');

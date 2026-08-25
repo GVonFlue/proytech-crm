@@ -1,6 +1,8 @@
 /* ============================================================================
    POST /api/notify — tells the owners something happened.
-   Currently one event: a rep converted a lead to a client.
+   Two events: a rep converted a lead to a client, and a rep BOOKED A CALL.
+   The second is the urgent one — a conversion can wait until morning, a demo
+   at ten cannot — and it carries everything SOP-03 has the rep texting Logan.
 
    TWO SEPARATE PROBLEMS WERE FIXED HERE, AND THE SECOND IS THE REAL ONE.
 
@@ -150,6 +152,63 @@ export default async function handler(req, res) {
   const when = esc(String(body.when || new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })).slice(0, 60));
 
   const link = safeLink(body.link, appUrl());
+
+  /* ---- a booked call ------------------------------------------------------
+
+     THE MOST TIME-CRITICAL THING A REP PRODUCES, and until now nothing told
+     anybody. notify.js fired on conversion only, which is the LEAST urgent of
+     the two: a conversion can wait until morning, a demo at ten cannot.
+
+     SOP-03 has the rep texting Logan within ten minutes — business name,
+     contact, phone, email, the time, industry, and the five things — because
+     Logan builds their site in the half hour before the call and cannot start
+     until it lands. This email carries all of it, so the text is a courtesy
+     rather than the only copy.
+
+     EVERY FIELD COMES FROM THE RECORD. The composer refuses to save a BK
+     without them (dispErr in LeadView), which is what makes it safe to send
+     this without checking whether it is complete. */
+  if (kind === 'booked') {
+    const b = body.brief && typeof body.brief === 'object' ? body.brief : {};
+    const F = v => esc(String(v == null ? '' : v).slice(0, 400));
+    const row = (label, v, fallback) => {
+      const val = F(v) || (fallback ? `<i style="color:#A6A2BC">${esc(fallback)}</i>` : '');
+      return val ? `<tr><td style="padding:6px 14px 6px 0;color:#8E89A8;white-space:nowrap;vertical-align:top">${esc(label)}</td><td style="padding:6px 0;color:#181530">${val}</td></tr>` : '';
+    };
+    const subj = `${rep} booked ${F(b.company) || client}${b.when ? ` — ${F(b.when)}` : ''}`;
+    const html2 = `<div style="font-family:-apple-system,Segoe UI,Inter,sans-serif;font-size:15px;color:#181530;line-height:1.5">
+      <p style="margin:0 0 4px;font-size:17px;font-weight:600">Booked call</p>
+      <p style="margin:0 0 16px;color:#56527a"><b>${rep}</b> booked <b>${F(b.company) || client}</b>.</p>
+      <table style="border-collapse:collapse;font-size:14px;margin:0 0 16px">
+        ${row('When', b.when)}
+        ${row('Contact', b.contact)}
+        ${row('Phone', b.phone)}
+        ${row('Email', b.email)}
+        ${row('Industry', b.industry)}
+      </table>
+      <p style="margin:0 0 8px;font-size:13px;font-weight:700;letter-spacing:.06em;color:#8E89A8;text-transform:uppercase">What they asked for</p>
+      <table style="border-collapse:collapse;font-size:14px;margin:0 0 16px">
+        ${row('Name as written', b.nameAsWritten)}
+        ${row('Current site', b.website, 'not captured')}
+        ${row('Wants calls for', b.wants)}
+        ${row('Works', b.area)}
+        ${row('Photos', b.photos)}
+      </table>
+      ${link ? `<p style="margin:0"><a href="${esc(link)}" style="color:#2B4DE0">Open the lead</a></p>` : ''}
+    </div>`;
+    try {
+      const r = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${RESEND}` },
+        body: JSON.stringify({ from: FROM, to, subject: subj, html: html2 }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) return res.status(200).json({ ok: false, reason: 'send_failed', detail: j.message || j.name || r.status });
+      return res.status(200).json({ ok: true, id: j.id || null, to, rejected: dropped.length });
+    } catch (e) {
+      return res.status(200).json({ ok: false, reason: 'send_error', detail: String((e && e.message) || e).slice(0, 200) });
+    }
+  }
 
   const subject = kind === 'conversion'
     ? `${rep} converted ${client}`

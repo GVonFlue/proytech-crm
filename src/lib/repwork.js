@@ -164,3 +164,165 @@ export const SOP_BENCHMARK = [
   { key: 'wk12',   label: 'Weeks 1-2',        perBooking: 27.5, from: 25, to: 30 },
   { key: 'wk4',    label: 'By week 4',        perBooking: 16.5, from: 15, to: 18 },
 ];
+
+/* ============================================================================
+   POSITION AGAINST THE BENCHMARK — the part that says what to DO.
+   ----------------------------------------------------------------------------
+   A count tells you what happened. SOP-01 states what SHOULD happen, and the
+   gap between the two is the only thing anybody acts on:
+
+     Logan            1 booking per 13 dials
+     weeks 1-2        1 per 25-30
+     by week 4        1 per 15-18
+
+   So the profile reads his rate AGAINST the band for the week he is actually
+   in, and says on / behind / ahead rather than printing a number and leaving
+   the arithmetic to whoever is looking.
+   ========================================================================== */
+
+/* WHICH DAY DID HE START?
+
+   His FIRST DISPOSITIONED ACTIVITY, not his account creation. An account made
+   three weeks before he dialled would put him at week four on day one, and the
+   benchmark would call a brand-new rep "behind" on his first afternoon.
+
+   Overridable, because a rep may have been dialling before the codes shipped —
+   `rep.startedOn` wins when it is set. */
+export const startedOn = (rep, acts) => {
+  const override = S(rep && rep.startedOn, 20).slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(override)) return override;
+  let first = '';
+  for (const a of A(acts)) {
+    if (!a || !a.disp || !a.ts) continue;
+    const d = S(a.ts, 40).slice(0, 10);
+    if (!first || d < first) first = d;
+  }
+  return first;
+};
+
+export const daysSinceStart = (start, today) => {
+  if (!start) return null;
+  const a = new Date(start + 'T12:00:00').getTime();
+  const b = new Date((today || new Date().toISOString().slice(0, 10)) + 'T12:00:00').getTime();
+  if (isNaN(a) || isNaN(b)) return null;
+  return Math.max(0, Math.round((b - a) / 864e5));
+};
+
+/* Week 1 is days 0-6. Returns null when there is no start date, because "week
+   one" for a rep who has never dialled is a claim about somebody who has not
+   started. */
+export const weekNo = days => (days == null ? null : Math.floor(days / 7) + 1);
+
+/* SOP-02: "At day fourteen we sit down and decide whether this is working."
+   The profile counts toward it so nobody has to remember. */
+export const DECISION_DAY = 14;
+
+/** The band he should be inside, for the week he is in. */
+export function bandFor(week) {
+  if (week == null) return null;
+  if (week <= 2) return { from: 25, to: 30, label: 'weeks 1–2' };
+  if (week === 3) return { from: 18, to: 25, label: 'week 3' };   /* between the two stated points */
+  return { from: 15, to: 18, label: 'by week 4' };
+}
+
+/** Where he sits against it.
+ *
+ *  DIALS PER BOOKING IS INVERTED — lower is better — which is exactly the kind
+ *  of comparison that gets written backwards once and then believed. `ahead`
+ *  means FEWER dials per booking than the band's best.
+ *
+ *  Returns `{ state: 'unknown' }` rather than a verdict when the sample cannot
+ *  support one. A confident "behind" off nine dials is worse than no answer:
+ *  it is a judgement about a person made from noise. */
+export function standing(dials, bookings, week, sampleMin = 30) {
+  const band = bandFor(week);
+  if (!band) return { state: 'unknown', why: 'no start date yet', band: null };
+  if (dials < sampleMin) return { state: 'unknown', why: `only ${dials} dials — too early to say`, band };
+  if (!bookings) {
+    /* No bookings yet is only bad news once he has had enough dials to expect
+       one. Past the band's worst, it IS the signal. */
+    return dials > band.to
+      ? { state: 'behind', why: `${dials} dials, none booked`, band, rate: null }
+      : { state: 'unknown', why: `${dials} dials, none booked yet`, band, rate: null };
+  }
+  const rate = dials / bookings;
+  const state = rate < band.from ? 'ahead' : rate <= band.to ? 'on' : 'behind';
+  return { state, band, rate: Math.round(rate * 10) / 10 };
+}
+
+/* ---------------------------------------------------------------- the mix */
+
+/* TWO NAMED CHECKS, NOT A MIX CHART.
+
+   A chart invites reading noise as signal. These are the two readings SOP-02
+   exists to make, and each carries a different action:
+
+     no NF and no DNC   he is not qualifying — every call ends soft, so the
+                        log cannot tell you whether the list or the offer is
+                        the problem.
+     almost nothing but he is dialling a bad list. That is not a coaching
+     NA                 problem and coaching him harder will not fix it.
+
+   BOTH ARE HELD until the sample can support them. A judgement the numbers
+   cannot carry is worse than no judgement — it is the same failure as a
+   confident booking rate off nine dials, aimed at a person. */
+export const MIX_SAMPLE_MIN = 30;
+
+export function mixChecks(byCode, sampleMin = MIX_SAMPLE_MIN) {
+  const by = byCode || {};
+  const total = Object.values(by).reduce((a, b) => a + b, 0);
+  if (total < sampleMin) return { ready: false, total, need: sampleMin - total, checks: [] };
+
+  const checks = [];
+  const na = (by.NA || 0) + (by.BAD || 0);
+  const qualifying = (by.NF || 0) + (by.DNC || 0);
+
+  if (!qualifying) checks.push({
+    key: 'noQualify', bad: true,
+    title: 'Nothing marked not-a-fit or do-not-call',
+    body: `Across ${total} dials, not one was disqualified. Every call is ending soft, which means the log cannot tell you whether the list, the opener or the offer is the problem — the thing SOP-02 exists to answer.`,
+  });
+
+  if (total > 0 && na / total >= 0.9) checks.push({
+    key: 'allNA', bad: true,
+    title: 'Almost nothing but no-answers',
+    body: `${Math.round((na / total) * 100)}% of ${total} dials never reached anybody. That is a list problem rather than a skill problem, and coaching the script will not move it.`,
+  });
+
+  return { ready: true, total, need: 0, checks };
+}
+
+/* ---- bookings that actually HELD ------------------------------------------
+
+   DIALS-PER-BOOKING REWARDS BOOKING ANYTHING. A rep can hit the SOP-01 band on
+   appointments that never happen, and the number would say he is on the curve
+   while Logan sits on five no-shows. That is the failure mode the target
+   itself creates, so the profile reads BOTH: booked, and booked-and-held.
+
+   Read from the MEETING record, which carries Held/No-show, and not from the
+   BK activity — the activity says an appointment was made, the meeting says
+   what became of it. Those are different facts and only one of them is
+   evidence the rep is booking real business. */
+export function bookingOutcomes(leads, rep) {
+  let booked = 0, held = 0, noshow = 0, undecided = 0;
+  const id = S(rep && rep.id, 60);
+  const name = S(rep && rep.name, 60).trim().toLowerCase();
+  for (const l of A(leads)) {
+    for (const m of A(l && l.meetings)) {
+      if (!m) continue;
+      const mine = (id && S(m.setById, 60)) ? S(m.setById, 60) === id
+        : (!!name && S(m.setBy, 60).trim().toLowerCase() === name);
+      if (!mine) continue;
+      booked++;
+      if (m.status === 'held') held++;
+      else if (m.status === 'noshow') noshow++;
+      else undecided++;
+    }
+  }
+  return { booked, held, noshow, undecided };
+}
+
+/* The show rate, as a PROPORTION over decided meetings only — an appointment
+   nobody has marked yet is not evidence either way and must not be counted as
+   a failure. Same denominator the dashboard's showRate uses. */
+export const decidedOf = o => (o ? o.held + o.noshow : 0);

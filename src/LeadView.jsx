@@ -36,7 +36,7 @@ import {
   referralsOut, mkReferral, introducedLeads, referralTarget,
   lastTouch,
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
-  MAX_ATTEMPTS,
+  MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import { useScrollLock } from './lib/scrolllock';
@@ -346,7 +346,7 @@ function ReferralAdd({leads,onAdd}){
   </div>);
 }
 
-export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
+export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,onBooked,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -380,7 +380,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   const growNote=e=>{ setAtext(e.target.value); sizeNote(e.target); };
   /* The page behind a modal must not scroll. Unconditional and first. */
   useScrollLock();
-  const [atype,setAtype]=useState('Call');const [adisp,setAdisp]=useState('');const [cbAt,setCbAt]=useState('');const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
+  const [atype,setAtype]=useState('Call');const [adisp,setAdisp]=useState('');const [cbAt,setCbAt]=useState('');const [brief,setBrief]=useState({});const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(false);
   const [wideFeed,setWideFeed]=useState(()=>{ try{return localStorage.getItem('pt_widefeed')==='1';}catch{return false;} });
   const [openSec,setOpenSec]=useState({});
   const [showMore,setShowMore]=useState(false);
@@ -631,6 +631,9 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
      dispErr is what STOPS the write. Every rule SOP-02 states as something the
      rep must remember is re-imposed here instead, because a model told not to
      do something is a request and a rep told not to do something is a Tuesday. */
+  /* Seeded from the lead so a re-booking does not ask again for what is
+     already known, and so a half-filled brief survives closing the composer. */
+  useEffect(()=>{ setBrief(briefOf(draft)); },[draft.id]);
   const dispErr=(()=>{
     if(!dispRequired(rep,atype)) return '';
     if(!adisp) return 'Pick what happened on the call.';
@@ -638,6 +641,15 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     if(adisp==='CB'&&!cbAt) return 'A callback needs the day AND the time they gave you — not "next week".';
     if(adisp==='NF'&&!atext.trim()) return 'Not a fit needs a reason. A disqualify with no reason is a lost lead dressed up as a decision.';
     if(adisp==='BK'&&!(draft.name&&draft.email&&draft.phone)) return 'Booked needs their name, email and mobile on the lead first — a booked call with a missing mobile is a no-show.';
+    /* THE TIME. The most time-critical field in Logan's half hour, and the BK
+       path captured none of it — a booking with no time is a text he has to
+       send anyway. Same requirement CB already carries, for a weaker reason. */
+    if(adisp==='BK'&&!cbAt) return 'A booking needs the day AND the time you agreed. Logan builds their site in the half hour before it.';
+    /* THE FIVE THINGS. SOP-03 has the rep asking for these on the call, so this
+       is recording what he already has in front of him — and it is what lets
+       the notification replace the text instead of duplicating it. */
+    if(adisp==='BK'){ const miss=briefMissing({...draft,brief}); if(miss.length)
+      return 'Booked still needs: '+miss.map(k=>k==='website'?'their current website (or tick "no website")':(BRIEF_FIELDS.find(f=>f.key===k)||{}).label).join(' · '); }
     return '';
   })();
 
@@ -646,6 +658,35 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     const t=atext.trim()||(atype==='Booked'?`${logMtype} booked.`:'')
       ||(adisp?dispLabel(adisp)+'.':''); if(!t)return;
     const tags=[...pendTags];
+
+    /* BK MAKES A MEETING. This branched on `atype` alone, and the disposition
+       bar only renders when atype==='Call' — so a rep marking BK fell through
+       to the plain-activity branch and NO MEETING RECORD WAS EVER CREATED. No
+       Held/No-show control, nothing in Upcoming or Needs status, and nothing
+       for the show rate or held-bookings to be true of. The disposition said
+       "booked" and the app did not agree. */
+    if(adisp==='BK'){
+      const mid=uid(); const now=new Date().toISOString();
+      const start=new Date(cbAt).toISOString();
+      const meeting={id:mid,title:`Demo with ${draft.company||draft.name||'lead'}`,mtype:'Demo',
+        start,end:start,status:'',who,setBy:me,setById:myUid||'',createdAt:now,
+        logged:true,dateUnknown:false};
+      /* The owners are tagged the way SO/HV/DNC already are — the SAME
+         @mention path, not a second mechanism. A booked call is the most
+         time-critical thing a rep produces. */
+      const owners=ownerNames(teamRoster,users);
+      const allTags=[...new Set([...tags,...owners])];
+      const act={id:uid(),ts:now,type:'Booked',disp:'BK',mtype:'Demo',meetingId:mid,cbAt,
+        text:stripTagText(t,tags)||t,who,...(myUid?{whoId:myUid}:{}),...(allTags.length?{tags:allTags}:{})};
+      const patch={brief:{...brief},meetings:[...(draft.meetings||[]),meeting],
+        activities:[act,...(draft.activities||[])]};
+      setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
+      if(onBooked) onBooked({...draft,...patch},meeting);
+      setAtext(''); setPendTags([]); setComposeOpen(false); setAdisp(''); setCbAt('');
+      setBrief({}); if(noteRef.current) noteRef.current.style.height='';
+      return;
+    }
+
     if(atype==='Booked'){
       /* a logged meeting IS a meeting — create the record so it shows up with a
          Held/No-show control, not just a line in the activity feed. It has no
@@ -667,7 +708,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
          dashboard through openTagsFor, which already works and which they
          already read. The tag rides in the same write for the same reason the
          manual ones do. */
-      const owners=(teamRoster||[]).filter(u=>u&&u.role==='owner').map(u=>u.name).filter(Boolean);
+      const owners=ownerNames(teamRoster,users);
       const escalate=adisp==='SO'||adisp==='HV'||adisp==='DNC';
       const allTags=[...new Set(escalate?[...tags,...owners]:tags)];
       const extra={
@@ -1055,9 +1096,41 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                     <b>{d.code}</b>{d.label}
                   </button>))}
               </div>
-              {adisp==='CB'&&<div className="disp-cb">
-                <label>Exactly when?</label>
+              {(adisp==='CB'||adisp==='BK')&&<div className="disp-cb">
+                <label>{adisp==='BK'?'The time you agreed':'Exactly when?'}</label>
                 <input type="datetime-local" value={cbAt} onChange={e=>setCbAt(e.target.value)}/>
+              </div>}
+              {/* THE FIVE THINGS, at the moment he has them.
+
+                  SOP-03 has the rep asking for these on the call and texting
+                  them to Logan within ten minutes, because Logan builds the
+                  site in the half hour before the appointment. Asking here is
+                  recording what is already in front of him — and it is what
+                  lets the notification carry everything the text carried,
+                  instead of the app sending half and a human sending the rest. */}
+              {adisp==='BK'&&<div className="disp-brief">
+                <div className="disp-brief-h">What Logan needs to build it</div>
+                {BRIEF_FIELDS.map(f=>(
+                  <div className="field full" key={f.key}>
+                    <label>{f.label}<span> — {f.hint}</span></label>
+                    <input value={brief[f.key]||''} placeholder={f.hint}
+                      onChange={e=>setBrief(b=>({...b,[f.key]:e.target.value}))}/>
+                  </div>
+                ))}
+                <div className="field full">
+                  <label>Their current website<span> — leave blank and tick below if they have none</span></label>
+                  <input value={draft.website||''} placeholder="alvarezroofing.com"
+                    onChange={e=>set({website:e.target.value})}/>
+                  {/* An empty website means one of two different things: nobody
+                      asked, or they have none. Those must not render the same —
+                      the first is a gap Logan chases, the second is an answer
+                      he can build against. */}
+                  <label className="disp-none">
+                    <input type="checkbox" checked={!!brief.noWebsite}
+                      onChange={e=>setBrief(b=>({...b,noWebsite:e.target.checked}))}/>
+                    They do not have a website
+                  </label>
+                </div>
               </div>}
               {adisp&&!dispIsContact({disp:adisp})&&<div className="disp-note">
                 Logged as a dial. It does not count as contact, so this lead stays on the untouched list.

@@ -56,6 +56,7 @@ import ContentStudio from './ContentStudio';
 import {
   ACT_TYPES, CLIENT_PHASES, CMSN_STATE, COBALT, DATE_LEAD_DEFAULT, DEFAULT_CLIENT_PHASES,
   DEFAULT_DELIVERY_TRACKS, DEFAULT_OPTIONS, GOLD, GREEN, INDIGO, INK, MEETING_TYPES,
+  bookingBrief,
   ONBOARDING, ONB_ITEMS, OWNERS, POOL_OWNER, PRIORITIES, REACHED_TYPES, RED, REL_TIERS,
   actLabel, activeTracks, allMeetings, anyPayments, blankFirst, bookedCount, calendarOwner,
   cashConfirmed, clientOverall, closedDealsTotal, cmsnAmount, cmsnOf, dateVocab, datelessOf,
@@ -1208,6 +1209,31 @@ const CSS=`
 .modal.lead .rp-stat i{font-style:normal;font-size:11.5px;color:var(--ink-mid)}
 .modal.lead .rp-stat.good b{color:#6EE7B7}
 .modal.lead .rp-stat.gold b{color:#FCD34D}
+/* ---- where he stands ----
+   The state is carried by a LEFT EDGE and the label, never by colour alone —
+   "behind" must still read as behind in a screenshot, in greyscale, and to
+   anyone who does not see red and green apart. */
+.modal.lead .rp-stand{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.modal.lead .rp-band{border:1px solid var(--line);border-left:3px solid var(--line);
+  background:rgba(56,189,248,.04);border-radius:10px;padding:11px 14px;display:flex;
+  flex-direction:column;gap:3px}
+.modal.lead .rp-band b{font-size:15px;font-weight:700;color:var(--ink-hi)}
+.modal.lead .rp-band i{font-style:normal;font-size:12px;color:var(--ink-mid);line-height:1.5}
+.modal.lead .rp-band.on{border-left-color:#6EE7B7}
+.modal.lead .rp-band.on b{color:#6EE7B7}
+.modal.lead .rp-band.ahead{border-left-color:#7DD3FC}
+.modal.lead .rp-band.ahead b{color:#7DD3FC}
+.modal.lead .rp-band.behind{border-left-color:#FCA5A5}
+.modal.lead .rp-band.behind b{color:#FCA5A5}
+.modal.lead .rp-band.unknown{border-left-color:var(--line-hi)}
+.modal.lead .rp-band.unknown b{color:var(--ink-mid)}
+.modal.lead .rp-band.day{border-left-color:#FCD34D}
+.modal.lead .rp-check{display:flex;gap:10px;align-items:flex-start;margin-top:10px;
+  border:1px solid rgba(252,211,77,.28);background:rgba(252,211,77,.07);border-radius:10px;
+  padding:11px 13px}
+.modal.lead .rp-check svg{flex:none;margin-top:2px;color:#FCD34D}
+.modal.lead .rp-check b{display:block;font-size:13.5px;color:var(--ink-hi);margin-bottom:3px}
+.modal.lead .rp-check span{font-size:12.5px;line-height:1.6;color:var(--ink-mid)}
 .modal.lead .rp-codes{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .modal.lead .rp-codes span{display:inline-flex;align-items:baseline;gap:6px;background:rgba(56,189,248,.06);
   border:1px solid var(--line);border-radius:9px;padding:5px 10px;font-size:12px;color:var(--ink-hi)}
@@ -2248,6 +2274,18 @@ const CSS=`
 .disp-cb{display:flex;align-items:center;gap:9px;margin-top:8px}
 .disp-cb label{font-size:11.5px;font-weight:700;color:#4A5568}
 .disp-cb input{border:1px solid #E2E4EF;border-radius:8px;padding:6px 9px;font-size:12.5px;font-family:inherit}
+.disp-brief{margin-top:12px;border-top:1px solid #E2E4EF;padding-top:12px;display:flex;
+  flex-direction:column;gap:9px}
+.disp-brief-h{font-size:10.5px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
+  color:${COBALT}}
+.disp-brief .field label span{font-weight:400;color:#8E89A8}
+.disp-none{display:flex!important;flex-direction:row!important;align-items:center;gap:7px;
+  margin-top:7px;font-size:12px;font-weight:600;color:#56527a;cursor:pointer}
+.disp-none input{width:auto;margin:0}
+.modal.lead .disp-brief{border-top-color:var(--line)}
+.modal.lead .disp-brief-h{color:#7DD3FC}
+.modal.lead .disp-brief .field label span{color:var(--ink-lo)}
+.modal.lead .disp-none{color:var(--ink-mid)}
 .disp-note{margin-top:7px;font-size:11.5px;color:#6B7280;line-height:1.5}
 .disp-err{display:flex;align-items:flex-start;gap:7px;margin-top:8px;font-size:12px;font-weight:600;
   color:#b4322e;line-height:1.5}
@@ -3952,6 +3990,26 @@ export default function App(){
      well makes attribution exact from here on without rewriting a single old
      row — src/lib/repwork.js checks the id first and falls back to the name, so
      the numbers get better as new rows arrive rather than going blank. */
+  /* A BOOKED CALL EMAILS THE OWNERS.
+
+     notify.js fired on conversion only, which is the less urgent of the two: a
+     conversion can wait until morning, a demo at ten cannot. The tag on the
+     activity already puts it on their dashboard; this is for the half hour
+     before the call, when Logan is building the site and is not looking at a
+     dashboard.
+
+     bookingBrief() assembles it — the SAME function any screen showing the
+     brief would use, so the email and the record cannot drift. Fire and
+     forget: a rep is not held on a call waiting for an email provider, and
+     the activity and the tag have already landed regardless. */
+  const notifyBooked=(lead,meeting)=>{
+    try{
+      apiPost('/api/notify',{kind:'booked',rep:me,client:lead.company||lead.name||'a lead',
+        brief:bookingBrief(lead,meeting),
+        to:(settings.notifyEmails||'').split(',').map(x=>x.trim()).filter(x=>x.includes('@')),
+        link:window.location.origin});
+    }catch{}
+  };
   const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(myUid?{whoId:myUid}:{}),...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) putLead(updated); };
   const delActivity=(id,aid)=>{ let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) putLead(updated); };
   /* deleting is an owner action — the database enforces it too (leads_delete
@@ -4414,7 +4472,7 @@ export default function App(){
       lastSeen={(lastSeen||[]).find(x=>x.id===repOpen.id)} notes={repNotes}
       onAddNote={addRepNote} onDeleteNote={delRepNote} onResetPlaybook={resetKbProgress}
       onClose={()=>{setRepOpen(null);setRepNotes(null);}}/>}
-    {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting} inbound={inbound}/>}
+    {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} onBooked={notifyBooked} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting} inbound={inbound}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }
