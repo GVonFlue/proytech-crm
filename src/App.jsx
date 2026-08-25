@@ -1133,6 +1133,10 @@ const CSS=`
 .modal.lead .msec{background:linear-gradient(180deg,rgba(15,20,51,.72),rgba(10,14,39,.5));
   border:1px solid var(--line)}
 .modal.lead .msec-t{color:var(--ink-mid)}
+/* The HOVER state needs its own override or it inherits the light theme's
+   cobalt — dark ink on the navy plate, unreadable exactly while somebody is
+   pointing at it. The base colour was overridden here and the hover was not. */
+.modal.lead .msec-h:hover .msec-t{color:var(--ink-hi)}
 .modal.lead .msec-s{color:var(--dim)}
 .modal.lead .msec.open{border-color:var(--line-hi);box-shadow:inset 2px 0 0 var(--arc)}
 /* BREATHING ROOM IN THE RECORD RAIL.
@@ -2209,7 +2213,19 @@ const CSS=`
 .mtg-drow.noshow{background:rgba(209,67,67,.04)}
 .mtg-drow.needs{background:color-mix(in srgb,#E0662B 5%,#fff)}
 .mtg-flag{color:#D97706;font-weight:700}
-.mtg-acct{display:flex;align-items:center;gap:6px;font-size:11.5px;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
+/* THE TEXT IS ONE FLEX ITEM, and it has to be.
+
+   This was a non-wrapping flex row containing several separate text nodes and
+   <b> elements — each becomes its own anonymous flex item, so in a narrow
+   column they overflowed the rounded container instead of wrapping and the
+   line was unreadable. .mtg-warn directly below it always wrapped its message
+   in a <span> for exactly this reason; this one did not.
+
+   align-items:flex-start so the icon sits with the FIRST line once the text
+   wraps to two, rather than floating in the vertical middle of the block. */
+.mtg-acct{display:flex;align-items:flex-start;gap:6px;font-size:11.5px;line-height:1.5;color:#6B6A83;background:#F7F8FC;border:1px solid #E4E5EF;border-radius:10px;padding:7px 10px;margin-bottom:10px}
+.mtg-acct svg{flex:none;margin-top:2px}
+.mtg-acct>span{min-width:0}
 .mtg-acct b{color:${INK};font-weight:700}
 .today-clear{display:flex;align-items:center;gap:9px;font-size:13px;color:#5B6478;margin-bottom:18px}
 .today{margin-bottom:18px}

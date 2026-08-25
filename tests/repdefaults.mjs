@@ -115,11 +115,25 @@ const schedText = () => {
 /* The chip reads "Meeting Booked" — actLabel() renames this one type and only
    this one, which is exactly the sort of thing a /^Booked$/ selector misses
    while looking correct. */
+/* WHERE THE "whose calendar is this" LINE LIVES, per role.
+
+   It used to live only in the MEETINGS scheduler. A rep no longer has that
+   chip — the scheduler and the BK disposition were two ways to book the same
+   meeting writing DIFFERENT records, so a rep now has exactly one — and the
+   line moved to the BK path with him. An owner still books through the
+   scheduler and still sees it there.
+
+   So this opens whichever booking path the signed-in role actually has, which
+   is what these assertions were always really about. */
 const openScheduler = async () => {
-  const b = [...curEl.querySelectorAll('.act-t')].find(x => /^Meeting Booked$/.test((x.textContent || '').trim()));
-  if (!b) throw new Error('no "Meeting Booked" chip: ' +
-    [...curEl.querySelectorAll('.act-t')].map(x => (x.textContent || '').trim()).join(' | '));
-  await click(b); await settle();
+  const chip = [...curEl.querySelectorAll('.act-t')].find(x => /^Meeting Booked$/.test((x.textContent || '').trim()));
+  if (chip) { await click(chip); await settle(); return 'scheduler'; }
+  const bk = [...curEl.querySelectorAll('.disp-b')].find(x => ((x.querySelector('b') || {}).textContent || '') === 'BK');
+  if (!bk) throw new Error('no booking path at all: chips=' +
+    [...curEl.querySelectorAll('.act-t')].map(x => (x.textContent || '').trim()).join(' | ') +
+    ' disps=' + [...curEl.querySelectorAll('.disp-b')].map(x => (x.querySelector('b') || {}).textContent).join(' '));
+  await click(bk); await settle();
+  return 'bk';
 };
 
 const REP   = { id:'u_owner', name:'Dana', email:'dana@getproytech.com', role:'rep', pools:['Inbound'],
@@ -286,6 +300,56 @@ console.log('\n#9 — BK MAKES A MEETING, which it did not');
      act && Array.isArray(act.tags) && act.tags.includes('Garrett'), JSON.stringify(act && act.tags));
 }
 
+console.log('\nTHE COMPOSER IS THE SCREEN, and there is one way to book');
+{
+  await boot({ users: [REP, OWNER()], gcal: { connected:false, email:'' } });
+  await openLead();
+  /* A rep opens a lead to LOG A CALL. Making him click a button to reach the
+     thing he came for is a click on every lead, all day. */
+  ok('the composer is open the moment a rep opens a lead',
+     !!curEl.querySelector('.compose'), 'no .compose on arrival');
+  ok('  and it is ready to type into', !!curEl.querySelector('.act-input'));
+
+  /* NOT AN ERROR BEFORE HE HAS TOUCHED IT. Opening by default meant dispErr
+     rendered on mount — "Pick what happened on the call" on every lead, about
+     a form nobody had used. A message always on screen is one nobody reads
+     when it finally matters. */
+  ok('he is not scolded before he has done anything',
+     !curEl.querySelector('.disp-err'),
+     (curEl.querySelector('.disp-err') || {}).textContent || '');
+  /* The gate itself is NOT weakened — the button is still refused. */
+  const btn = [...curEl.querySelectorAll('button')].find(b => /^Log /.test((b.textContent || '').trim()));
+  ok('  but the button is still disabled until it is answered', btn && btn.disabled);
+  ok('  and carries the reason for anyone who hovers', /what happened/i.test(btn.title || ''), btn.title);
+  /* The error appears as soon as he engages — typing counts. */
+  await setV(curEl.querySelector('.act-input'), 'Rang her.');
+  ok('  and it appears once he starts typing', !!curEl.querySelector('.disp-err'),
+     'no error after typing');
+
+  /* ONE BOOKING PATH. The scheduler and BK wrote different records — the
+     scheduler stamps no disp, and dayStats counts a booking as disp==='BK', so
+     a rep booking through it got zero credit while bookingOutcomes (which
+     counts meetings) still saw it. Two numbers on his own profile disagreeing. */
+  const chips = [...curEl.querySelectorAll('.act-t')].map(x => (x.textContent || '').trim());
+  ok('a rep has no Meeting Booked chip', !chips.includes('Meeting Booked'), chips.join(' | '));
+  ok('  because BK is his one way to book',
+     [...curEl.querySelectorAll('.disp-b')].some(x => ((x.querySelector('b') || {}).textContent || '') === 'BK'));
+  ok('  and the other types are untouched',
+     ['Note','Call','Text','Email'].every(k => chips.includes(k)), chips.join(' | '));
+}
+
+console.log('\nan owner keeps the scheduler, and the collapsed composer');
+{
+  await boot({ users: [OWNER(), REP], gcal: { connected:false, email:'' } });
+  await openLead();
+  /* An owner opens a lead to READ it. The composer open by default would cost
+     them the top third of the feed for something they use occasionally. */
+  ok('the composer stays collapsed for an owner', !curEl.querySelector('.compose'));
+  await openComposer();
+  const chips = [...curEl.querySelectorAll('.act-t')].map(x => (x.textContent || '').trim());
+  ok('  and the scheduler is still theirs', chips.includes('Meeting Booked'), chips.join(' | '));
+}
+
 console.log('\n#9 — Note is still one click away');
 {
   await boot({ users: [REP, OWNER()], gcal: { connected:false, email:'' } });
@@ -337,7 +401,12 @@ console.log('\n#3 DISCONNECTED — the rep is not sent to a page they cannot ope
   ok('it still warns nothing reaches a calendar', /isn’t connected|isn't connected/.test(t), t);
   ok('it does NOT tell a rep to open Settings', !/Settings/.test(t), t);
   ok('  it names who can connect it instead', /Garrett/.test(t), t);
-  ok('  and says the CRM keeps the meeting either way', /saved in the CRM/.test(t), t);
+  /* The INTENT — a rep must know the booking is not lost when Google is down —
+     matched on the fact rather than on one phrasing. The BK path says "it
+     saves"; the owner scheduler says "saved in the CRM either way". Pinning the
+     exact sentence would make this a test of copy. */
+  ok('  and says the booking is kept either way', /it saves|saved in the CRM/.test(t), t);
+  ok('  and tells him what to do instead', /text them|text .* the details/i.test(t), t);
 }
 
 console.log('\n#3 DISCONNECTED — a blank name still names somebody');
