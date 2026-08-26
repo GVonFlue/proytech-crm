@@ -1547,10 +1547,18 @@ const CSS=`
   outline-color:var(--arc);box-shadow:0 0 22px -10px var(--arc)}
 .modal.lead .slot.soft.on{background:var(--gold);border-color:var(--gold);color:#1B1200;
   outline-color:var(--gold);box-shadow:0 0 22px -10px var(--gold)}
+.modal.lead .slot-unver{background:rgba(224,162,43,.1);border-color:rgba(224,162,43,.32);color:#F1DFBB}
+.modal.lead .slot-unver b{color:#F6E7C8}
 .modal.lead .slot-note{color:var(--dim)}
 .modal.lead .slot-note.ok{color:var(--ok2)}
 .modal.lead .slot-note.warn{color:var(--gold2)}
 .modal.lead .slot-none{color:var(--dim)}
+.modal.lead .slot.pref{box-shadow:inset 0 -2.5px 0 var(--arc)}
+.modal.lead .slot.soft.pref{box-shadow:inset 0 -2.5px 0 var(--gold)}
+.modal.lead .slot.on.pref{box-shadow:0 0 22px -10px var(--arc)}
+.modal.lead .slot.soft.on.pref{box-shadow:0 0 22px -10px var(--gold)}
+.modal.lead .slot-why{color:var(--dim)}
+.modal.lead .slot-why svg{color:var(--arc2)}
 .modal.lead .mtg-b.soft{background:rgba(224,162,43,.16);color:var(--gold2)}
 .modal.lead .mtg-b.unver{background:rgba(193,53,43,.18);color:#F3B9B4}
 .modal.lead .deal-add-btn{background:transparent;border-color:var(--line);color:var(--arc2)}
@@ -2157,7 +2165,9 @@ const CSS=`
 .slot-note.ok{color:#3d7a52}
 .slot-note.warn{color:#9a5a16}
 .slot-note svg{flex:none}
-.slot-unver{margin:0 0 9px}
+.slot-unver{display:flex;align-items:flex-start;gap:7px;background:#FFF7ED;border:1px solid #FCD9B6;
+  color:#9a5a16;border-radius:9px;padding:9px 11px;font-size:12.5px;line-height:1.45;margin:0 0 9px}
+.slot-unver svg{flex:none;margin-top:2px}
 .slotgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:7px}
 .slot{border:1.5px solid #E1E2EC;background:#fff;border-radius:9px;padding:9px 6px;font-size:12.5px;
   font-weight:700;color:#56527a;cursor:pointer;font-variant-numeric:tabular-nums;text-align:center;
@@ -2174,6 +2184,16 @@ const CSS=`
 .slot.soft.on{outline-color:#E0A22B;background:#E0A22B;border-color:#E0A22B;color:#fff}
 .slot:focus-visible{outline:2px solid ${COBALT};outline-offset:2px}
 .slot-none{margin-top:9px;font-size:12.5px;color:#7a769c;line-height:1.5}
+/* SOP-01 emphasis. A hairline underline, not a colour: the four states already
+   spend colour, and a fifth hue on top of them would make the grid harder to
+   read at arm's length rather than easier. */
+.slot.pref{box-shadow:inset 0 -2.5px 0 ${COBALT}}
+.slot.soft.pref{box-shadow:inset 0 -2.5px 0 #E0A22B}
+.slot.on.pref{box-shadow:none}
+.slot-why{display:flex;align-items:center;gap:5px;margin-top:8px;font-size:11.5px;
+  font-weight:600;color:#7a769c}
+.slot-why svg{flex:none;color:${COBALT}}
+.whenp.gated .whenp-row{margin-bottom:9px}
 .mtg-b.soft{background:#FFF4E2;color:#8a5c14}
 .mtg-b.unver{background:#FDECEA;color:#9a3c33}
 .mtg-toggles{display:flex;gap:8px;flex-wrap:wrap}

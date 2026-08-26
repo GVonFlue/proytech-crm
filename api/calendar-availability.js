@@ -37,6 +37,22 @@ const API = 'https://www.googleapis.com/calendar/v3/calendars';
 const PAGE = 250;
 const MAX_PAGES = 10;
 
+/** The exact URL we ask Google for. Exported so the diagnostic reports the
+ *  REQUEST THAT WAS ACTUALLY MADE rather than a second construction of it that
+ *  could differ from the real one in precisely the way being investigated. */
+export function eventsUrl(id, timeMin, timeMax, pageToken = '') {
+  const q = new URLSearchParams({
+    singleEvents: 'true',            // expand recurrences into instances
+    orderBy: 'startTime',            // only legal WITH singleEvents
+    showDeleted: 'false',
+    maxResults: String(PAGE),
+    timeMin: new Date(timeMin).toISOString(),
+    timeMax: new Date(timeMax).toISOString(),
+  });
+  if (pageToken) q.set('pageToken', pageToken);
+  return `${API}/${encodeURIComponent(id)}/events?${q}`;
+}
+
 /** Every event touching [timeMin, timeMax) on one calendar. Throws rather than
  *  returning empty: an unread calendar is NOT an empty calendar, and the whole
  *  design depends on never confusing the two. */
@@ -44,16 +60,7 @@ export async function readCalendar(id, token, timeMin, timeMax, fetchFn = fetch)
   const out = [];
   let pageToken = '';
   for (let i = 0; i < MAX_PAGES; i++) {
-    const q = new URLSearchParams({
-      singleEvents: 'true',            // expand recurrences into instances
-      orderBy: 'startTime',            // only legal WITH singleEvents
-      showDeleted: 'false',
-      maxResults: String(PAGE),
-      timeMin: new Date(timeMin).toISOString(),
-      timeMax: new Date(timeMax).toISOString(),
-    });
-    if (pageToken) q.set('pageToken', pageToken);
-    const r = await fetchFn(`${API}/${encodeURIComponent(id)}/events?${q}`, {
+    const r = await fetchFn(eventsUrl(id, timeMin, timeMax, pageToken), {
       headers: { Authorization: 'Bearer ' + token },
     });
     const j = await r.json().catch(() => ({}));

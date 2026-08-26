@@ -10,7 +10,7 @@
    calendar, and the difference between those two sentences is the entire
    feature.                                                                   */
 import { test, testAsync, report } from './assert.mjs';
-import { readCalendar } from '../api/calendar-availability.js';
+import { eventsUrl, readCalendar } from '../api/calendar-availability.js';
 import { probeWindow } from '../api/calendar-probe.js';
 import { BANANA } from '../src/lib/availability.js';
 
@@ -97,6 +97,25 @@ await testAsync('a runaway page loop refuses rather than answering from a partia
   try { await readCalendar('primary', 'tok', DAY0, DAY1, g.fetchFn); } catch (e) { threw = e; }
   if (!threw) throw new Error('answered from a truncated read');
   if (!/partial/.test(threw.message)) throw new Error('wrong reason: ' + threw.message);
+});
+
+/* ---- the diagnostic ------------------------------------------------------ */
+
+await testAsync('the diagnostic reports the URL the real read actually used', async () => {
+  /* Two constructions of the same URL is how a diagnostic comes back clean
+     while the real request is malformed — the exact failure it exists to find.
+     One builder, used by both, so that cannot happen. */
+  const g = fakeGoogle([{ items: [] }]);
+  await readCalendar('primary', 'tok', DAY0, DAY1, g.fetchFn);
+  eq(g.calls[0], eventsUrl('primary', DAY0, DAY1), 'same URL');
+});
+
+test('the page token is the only thing that changes between pages', () => {
+  const a = new URL(eventsUrl('primary', DAY0, DAY1));
+  const b = new URL(eventsUrl('primary', DAY0, DAY1, 'p2'));
+  a.searchParams.set('pageToken', 'p2');
+  eq(b.searchParams.get('pageToken'), 'p2', 'token set');
+  eq(b.search.split('&').sort().join('&'), a.search.split('&').sort().join('&'), 'otherwise identical');
 });
 
 /* ---- the probe ---------------------------------------------------------- */
