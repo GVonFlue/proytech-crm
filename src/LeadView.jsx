@@ -24,6 +24,10 @@
 import React, { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { BRAND } from './lib/brand';
 import {
+  DEMO_MINUTES, SLOT_MINUTES, TZ_DEFAULT,
+  isBookable, markSlots, slotAt, slotWallClock, slotsForDay,
+} from './lib/availability.js';
+import {
   ACT_TYPES, CMSN_STATE, DATE_LEAD_DEFAULT, DEFAULT_DELIVERY_TRACKS,
   MEETING_TYPES, OWNERS, PRIORITIES, REL_TIERS, actLabel, activeTracks, allMeetings,
   blankFirst, bookedCount, calendarOwner, clientOverall, closedDealsTotal, cmsnAmount,
@@ -103,7 +107,74 @@ import { DateFix, PriBadge, StageBadge } from './LeadBits';
 /* `rep` and `calOwner` drive the two lines at the top of this form and nothing
    else. Passed in rather than derived here: this component is presentational,
    and Modal already holds both users[] and the role. */
-export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSchedule,onLogUndated,recentLocations}){
+/* THE LATTICE A REP PICKS FROM.
+   ============================================================================
+
+   MODULE SCOPE, DELIBERATELY. Defining this inside MeetingScheduler would give
+   it a new function identity every render, React would unmount and remount the
+   whole grid on each keystroke elsewhere in the form, and the selected chip
+   would lose its focus ring mid-booking. That is the same fault the Next Action
+   field had, written up at length further down this file; it is not being
+   reintroduced two hundred lines above the explanation.
+
+   It holds no state. What slot is picked belongs to the form that submits it.
+
+   WHAT A REP IS AND IS NOT TOLD. Open and soft look different, because the
+   choice between "take an empty slot" and "displace something" is his to make
+   and he cannot make it if they look the same. What is being displaced is NOT
+   shown — he is deciding whether, never which, and the contents of the owner's
+   calendar have no business on a rep's screen to answer a question he was not
+   asked. */
+const SLOT_STATE = {
+  open:    { cls: 'open',    hint: 'Free' },
+  soft:    { cls: 'soft',    hint: 'Free — a soft block is here, booking it displaces that' },
+  blocked: { cls: 'blocked', hint: 'Booked' },
+  past:    { cls: 'past',    hint: 'Gone' },
+};
+
+function SlotGrid({ slots, picked, onPick, checked, loading, error, onRetry }) {
+  return (<div className="slotgrid-wrap">
+    <div className="slot-head">
+      <label>Time</label>
+      {loading
+        ? <span className="slot-note"><Loader2 size={11} className="spin"/>Checking the calendar…</span>
+        : checked
+          ? <span className="slot-note ok"><CalendarClock size={11}/>Checked just now · {SLOT_MINUTES} min hold, {DEMO_MINUTES} min demo</span>
+          : <span className="slot-note warn"><AlertTriangle size={11}/>Not checked</span>}
+    </div>
+    {/* THE DEGRADED BANNER. A rep with a prospect saying yes must not be told
+        to wait, so every slot stays tappable when the calendar is unreachable.
+        What he must not do is believe it was checked — so the grid says so on
+        its face, the chips are drawn differently, and the booking is stamped
+        unverified where the owner will see it. */}
+    {!loading && !checked && <div className="mtg-warn slot-unver">
+      <AlertTriangle size={13}/>
+      <span>{error||'Couldn’t reach the calendar.'} These times are <b>not checked against anyone’s calendar</b> — book if you have to, and it will be flagged for review.
+        {onRetry&&<> <button type="button" className="linkbtn" onClick={onRetry}>Try again</button></>}</span>
+    </div>}
+    <div className={'slotgrid'+(checked?'':' unverified')}>
+      {slots.map(s=>{
+        const st=SLOT_STATE[s.state]||SLOT_STATE.blocked;
+        /* Unchecked means unknown, and unknown is not the same as free. Every
+           chip is offered, none of them claims to be open. */
+        /* Unchecked does not make yesterday bookable. Whether a time has gone
+           is a fact about the clock, not about Google, so it survives the
+           calendar being unreachable. */
+        const cls=checked?st.cls:(s.state==='past'?'past':'unknown');
+        const can=checked?isBookable(s):s.state!=='past';
+        return (<button key={s.hhmm} type="button" disabled={!can}
+          className={'slot '+cls+(picked===s.hhmm?' on':'')}
+          title={checked?st.hint:'Not checked against the calendar'}
+          onClick={()=>can&&onPick(s.hhmm)}>{s.label}</button>);
+      })}
+    </div>
+    {checked&&!slots.some(isBookable)&&<div className="slot-none">
+      Nothing free on this day. Try another date, or use <b>No date yet — just log it</b> below and it lands in the owner’s queue.
+    </div>}
+  </div>);
+}
+
+export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSchedule,onLogUndated,recentLocations,readAvailability}){
   const [date,setDate]=useState(todayISO());
   const [time,setTime]=useState('10:00');
   const [dur,setDur]=useState(30);
@@ -116,6 +187,50 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
   const [busy,setBusy]=useState(false);
   const [err,setErr]=useState('');
   const [addEmail,setAddEmail]=useState('');
+  /* ---- AVAILABILITY, FOR REPS ONLY ------------------------------------------
+     The owner keeps the free time field: "no custom times" is a rule about
+     reps, and the person who has to escalate to cannot be the person who is
+     blocked. A rep gets the lattice and nothing else — 3:45 is an escalation,
+     not a booking, and the escape hatch is the undated log below. */
+  const [slots,setSlots]=useState([]);
+  const [picked,setPicked]=useState('');
+  const [checked,setChecked]=useState(false);
+  const [availErr,setAvailErr]=useState('');
+  const [loadingAvail,setLoadingAvail]=useState(false);
+  const [reload,setReload]=useState(0);
+  /* The calendar owner's zone, as the server reported it. Held in state rather
+     than assumed, so that changing CALENDAR_TZ on the server moves the grid
+     and the booking together instead of moving one of them. */
+  const [tz,setTz]=useState(TZ_DEFAULT);
+  /* READ LIVE, EVERY TIME THE PICKER OPENS OR THE DAY CHANGES. Not cached: a
+     rep is on the phone, one call is nothing, and a cached grid is a grid that
+     is wrong at exactly the moment it matters. */
+  useEffect(()=>{
+    if(!rep) return;
+    let dead=false;
+    setLoadingAvail(true); setChecked(false); setAvailErr(''); setPicked('');
+    (async()=>{
+      const j=readAvailability?await readAvailability(date):{ok:false,error:'Availability checking isn’t wired up.'};
+      if(dead) return;
+      const zone=(j&&j.tz)||TZ_DEFAULT;
+      if(j&&j.ok){
+        /* The server's clock decides what is past, not the browser's. A laptop
+           an hour out would otherwise grey out slots that are live, or offer
+           ones that have gone. */
+        setTz(zone);
+        setSlots(markSlots(slotsForDay(date,zone),j.intervals||[],{now:j.now||Date.now()}));
+        setChecked(true); setAvailErr('');
+      }else{
+        setSlots(markSlots(slotsForDay(date,zone),[],{now:Date.now()}));
+        setChecked(false);
+        setAvailErr(j&&j.error==='not_connected'
+          ? 'Google Calendar isn’t connected, so nothing could be checked.'
+          : (j&&j.error)||'Couldn’t reach the calendar.');
+      }
+      setLoadingAvail(false);
+    })();
+    return ()=>{ dead=true; };
+  },[rep,date,reload,readAvailability]);
   /* both the Meetings section and the activity composer can be on screen at
      once, so the quarter-hour datalist needs an id of its own per instance */
   const [listId]=useState(()=>'mtgq-'+Math.random().toString(36).slice(2,8));
@@ -131,23 +246,82 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
   const emailOk=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail);
   const pad=n=>String(n).padStart(2,'0');
   const localISO=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
+  /* THE RE-CHECK, IMMEDIATELY BEFORE THE BOOKING.
+     Google has no conditional create — no "insert only if this window is still
+     free" — so the window between seeing a slot and taking it cannot be closed,
+     only narrowed. The picker may have been open for minutes while the rep
+     talked; this shrinks the exposure to one round trip.
+
+     IT ALSO CLOSES THE TWO-REP RACE, and for a reason worth writing down: the
+     booking we create lands on the very calendar we read, carrying no colour,
+     which makes it HARD. So a slot another rep took thirty seconds ago comes
+     back as blocked here with no shared lock, no extra table and no second
+     source of truth. The calendar is the lock.
+
+     What survives is the sub-second gap between this read and the insert. That
+     one is not closable with this API, and pretending otherwise by verifying
+     afterwards would only tell us later what looking at the calendar already
+     would. Returns the slot to book, or null if the rep must be told no. */
+  const recheck=async()=>{
+    const j=readAvailability?await readAvailability(date):null;
+    const zone=(j&&j.tz)||TZ_DEFAULT;
+    if(!j||!j.ok){
+      /* We could not confirm AT THE MOMENT OF BOOKING. The rep is not blocked —
+         that rule holds whatever Google is doing — but the flag has to mean
+         "verified when it was taken", so an unconfirmable booking is stamped
+         unverified even if the grid was green a minute ago. */
+      setChecked(false);
+      setAvailErr((j&&j.error)||'Couldn’t reach the calendar.');
+      const fresh=markSlots(slotsForDay(date,zone),[],{now:Date.now()});
+      setSlots(fresh);
+      return {slot:slotAt(fresh,picked),zone,verified:false,soft:false};
+    }
+    const fresh=markSlots(slotsForDay(date,zone),j.intervals||[],{now:j.now||Date.now()});
+    setTz(zone); setSlots(fresh); setChecked(true); setAvailErr('');
+    const slot=slotAt(fresh,picked);
+    if(!slot||!isBookable(slot)) return null;
+    return {slot,zone,verified:true,soft:slot.state==='soft'};
+  };
   const go=async()=>{
     setErr('');
-    const startDt=new Date(`${date}T${time}:00`);
-    if(isNaN(startDt)){ setErr('Pick a valid date and time.'); return; }
     if(invite&&!emailOk){ setErr('That email doesn’t look right — fix it or switch off Invite client.'); return; }
-    const endDt=new Date(startDt.getTime()+dur*60000);
     const t=title.trim()||`${mtype} with ${lead.name||lead.company||'client'}`;
-    setBusy(true);
+    let when=null, verified=true, displaced=false;
+    if(rep){
+      if(!picked){ setErr('Pick a time.'); return; }
+      setBusy(true);
+      const again=await recheck();
+      if(!again){
+        setBusy(false);
+        setPicked('');
+        setErr('That time just filled — it’s gone from the list. Pick another.');
+        return;
+      }
+      if(!again.slot){ setBusy(false); setErr('That time is no longer on the list. Pick another.'); return; }
+      when=slotWallClock(again.slot,again.zone||tz);
+      verified=again.verified; displaced=again.soft;
+    }else{
+      const startDt=new Date(`${date}T${time}:00`);
+      if(isNaN(startDt)){ setErr('Pick a valid date and time.'); return; }
+      const endDt=new Date(startDt.getTime()+dur*60000);
+      when={start:localISO(startDt),end:localISO(endDt)};
+      setBusy(true);
+    }
     try{
       /* a typed address rides along IN THE SAME PATCH as the meeting. Saving it
          separately looks fine and silently loses it: both writes read the same
          stale draft inside one tick and the second overwrites the first. */
-      await onSchedule({title:t,mtype,start:localISO(startDt),end:localISO(endDt),
+      await onSchedule({title:t,mtype,start:when.start,end:when.end,
         invited:invite&&emailOk,attendees:(invite&&emailOk)?[inviteEmail]:[],meet,notes:notes.trim(),
         location:meet?'':loc.trim(),
+        /* Two facts about HOW this was booked, carried onto the meeting so the
+           owner sees them where he already looks rather than in a new channel:
+           whether a calendar actually confirmed it, and whether taking it
+           pushed one of his own soft blocks aside. */
+        availabilityChecked:verified,displacedSoft:displaced,
         saveEmail:(invite&&emailOk&&!leadEmail)?inviteEmail:''});
       setTitle('');setNotes('');setLoc('');setInvite(false);setMeet(false);setAddEmail('');
+      if(rep){ setPicked(''); setReload(n=>n+1); }
     }catch(e){ setErr(e.message||'Could not schedule'); }
     setBusy(false);
   };
@@ -187,8 +361,18 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
     <div className="fgrid">
       <div className="field full"><label>Title</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder={`${mtype} with ${lead.name||lead.company||'client'}`}/></div>
       <div className="field"><label>Date</label><input type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
-      <div className="field"><label>Time</label><input type="time" step={900} value={time} onChange={e=>setTime(e.target.value)} list={listId}/></div>
-      <div className="field"><label>Length</label><select value={dur} onChange={e=>setDur(+e.target.value)}>{[15,30,45,60,90,120].map(m=><option key={m} value={m}>{m<60?m+' min':(m/60)+' hr'+(m%60?' 30m':'')}</option>)}</select></div>
+      {/* THE FORK. A rep gets the lattice — half hours, 8 to 8, only what is
+          actually free. The owner keeps the free time field and the length
+          dropdown, because the person a rep escalates 3:45 TO cannot be the
+          person the rule blocks. Same component, one condition, so the two
+          cannot drift into two screens that disagree. */}
+      {rep
+        ? <div className="field full slotfield">{SlotGrid({slots,picked,onPick:setPicked,checked,
+            loading:loadingAvail,error:availErr,onRetry:()=>setReload(n=>n+1)})}</div>
+        : <>
+            <div className="field"><label>Time</label><input type="time" step={900} value={time} onChange={e=>setTime(e.target.value)} list={listId}/></div>
+            <div className="field"><label>Length</label><select value={dur} onChange={e=>setDur(+e.target.value)}>{[15,30,45,60,90,120].map(m=><option key={m} value={m}>{m<60?m+' min':(m/60)+' hr'+(m%60?' 30m':'')}</option>)}</select></div>
+          </>}
       <div className="field"><label>&nbsp;</label><div className="mtg-toggles">
         <label className={'mtg-chk'+(invite?' on':'')}><input type="checkbox" checked={invite} onChange={e=>setInvite(e.target.checked)}/><UserPlus size={13}/>Invite client</label>
         <label className={'mtg-chk'+(meet?' on':'')}><input type="checkbox" checked={meet} onChange={e=>setMeet(e.target.checked)}/><Video size={13}/>Meet link</label>
@@ -231,6 +415,13 @@ export function MeetingList({meetings,onRemove,onStatus,onType,onTime}){
         <option value="">+ type</option>{MEETING_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
       </select>
       {m.invited&&<span className="mtg-b"><UserPlus size={10}/>invited</span>}
+      {/* Where the owner already looks. Not a notification: a booking that
+          pushed a soft block aside is worth knowing about, and worth knowing
+          about ONCE, next to the meeting it describes. */}
+      {m.displacedSoft&&<span className="mtg-b soft" title="Booked over one of your Banana blocks">
+        <CalendarClock size={10}/>displaced a soft block</span>}
+      {m.availabilityChecked===false&&<span className="mtg-b unver" title="Google was unreachable when this was booked — nothing was checked against a calendar">
+        <AlertTriangle size={10}/>not checked</span>}
       {/* THE INVITE THAT DID NOT GO, ON THE RECORD. A toast disappears; this is
           the state a rep or an owner reopens the lead and sees. Without it the
           only difference between "Logan was told" and "Logan was not told" is
@@ -404,7 +595,7 @@ function WhenPicker({value,onChange,businessType,label}){
   </div>);
 }
 
-export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,onBooked,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
+export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,onBooked,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,readAvailability,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
@@ -504,7 +695,14 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
    moved. Stamped once, at creation, and never changed. */
   const doSchedule=async(m)=>{ let ev={eventId:'',htmlLink:'',meetLink:''};
     if(gcalConnected) ev=await createCalendarEvent(m);
-    const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,setBy:me,setById:myUid||'',invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',location:m.location||'',createdAt:new Date().toISOString(),dateUnknown:false};
+    /* HOW it was booked rides on the meeting, not on a side channel. Both
+       fields default to the honest answer for a booking that never went near
+       an availability check: the owner's own bookings are not "unverified",
+       they are simply not subject to the rule, so undefined reads as neither
+       flag rather than as a warning on every meeting he makes himself. */
+    const meeting={id:uid(),eventId:ev.eventId,htmlLink:ev.htmlLink,meetLink:ev.meetLink,title:m.title,mtype:m.mtype||'Other',status:'',start:m.start,end:m.end,setBy:me,setById:myUid||'',invited:!!m.invited,meet:!!m.meet,notes:m.notes||'',location:m.location||'',createdAt:new Date().toISOString(),dateUnknown:false,
+      ...(m.availabilityChecked===false?{availabilityChecked:false}:{}),
+      ...(m.displacedSoft?{displacedSoft:true}:{})};
     const activity={id:uid(),ts:new Date().toISOString(),type:'Booked',mtype:m.mtype||'Other',meetingId:meeting.id,text:`${m.mtype||'Meeting'} booked: ${m.title} — ${fmtDate(m.start)}`,who:me};
     set({meetings:[...(draft.meetings||[]),meeting],activities:[activity,...(draft.activities||[])],
       ...(m.saveEmail?{email:m.saveEmail}:{})}); return meeting; };
@@ -1318,7 +1516,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 <div className="disp-err"><AlertTriangle size={13}/>{dispErr}</div>}
             </div>}
             {atype==='Booked'
-              ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner}
+              ? <div className="bookc"><MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner} readAvailability={readAvailability}
                   onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/></div>
               : null}
             {atype==='Payment'
@@ -1580,7 +1778,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               (()=>{ const bc=bookedCount(draft); const ms=draft.meetings||[]; if(!ms.length) return bc?`${bc} booked`:'none scheduled'; const next=[...ms].filter(m=>new Date(m.end||m.start).getTime()>=Date.now()).sort((a,b)=>(a.start||'').localeCompare(b.start||''))[0]; return (bc?`${bc} booked · `:'')+(next?`next: ${fmtMeetingTime(next.start)}`:`${ms.length} past`); })(),
               <>
                 <MeetingList meetings={draft.meetings} onRemove={doRemove} onStatus={doStatus} onTime={doTime} onType={(mt,v)=>{tagMeeting&&tagMeeting(draft.id,mt.id,v);setDraft(d=>({...d,meetings:(d.meetings||[]).map(x=>x.id===mt.id?{...x,mtype:v}:x)}));}}/>
-                <MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner} onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/>
+                <MeetingScheduler lead={draft} gcalConnected={gcalConnected} gcalEmail={gcalEmail} rep={rep} calOwner={calOwner} readAvailability={readAvailability} onSchedule={doSchedule} onLogUndated={doLogUndated} recentLocations={recentLocations}/>
               </>, (draft.meetings||[]).some(m=>new Date(m.end||m.start).getTime()>=Date.now()))}
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
               [draft.source,draft.businessType!=='—'?draft.businessType:null,sOf(draft.stage,stages)?.label,PRIORITIES[draft.priority]?.label].filter(Boolean).join(' · ')||'not set',

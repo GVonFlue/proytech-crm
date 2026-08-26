@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, Fragment } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Fragment } from 'react';
 import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, Legend, AreaChart, Area
@@ -1524,6 +1524,35 @@ const CSS=`
   color:var(--dim)}
 .modal.lead .feed-wide{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13);color:var(--dim)}
 .modal.lead .feed-wide:hover{border-color:var(--line-hi);color:var(--ink-hi)}
+/* ---- THE LATTICE, IN THE DARK VIEW ----------------------------------------
+   The light rules above paint white chips, and a white chip inside this modal
+   is the exact fault leadcontrast.mjs was written to catch — a slab floating in
+   a dark room. Every state is restated here against the plate.
+
+   The hierarchy rule this file already follows decides the glow: a bookable
+   slot is a thing you ACT on, so it is flat and quiet. The lit edge is spent
+   on the two chips that are the app telling you something — the one you have
+   selected, and a soft block you would be displacing. */
+.modal.lead .slot{background:rgba(5,7,26,.42);border-color:var(--line);color:var(--ink-mid)}
+.modal.lead .slot.open{background:rgba(5,7,26,.42);border-color:var(--line-hi);color:var(--ink-hi)}
+.modal.lead .slot.open:hover{border-color:var(--arc);background:rgba(56,189,248,.09)}
+.modal.lead .slot.soft{border-style:dashed;border-color:rgba(224,162,43,.5);
+  background:rgba(224,162,43,.09);color:var(--gold2)}
+.modal.lead .slot.soft:hover{border-color:var(--gold);background:rgba(224,162,43,.16)}
+.modal.lead .slot.blocked,.modal.lead .slot.past{background:rgba(5,7,26,.66);
+  border-color:rgba(56,189,248,.09);color:var(--dim)}
+.modal.lead .slot.unknown{border-style:dashed;border-color:rgba(56,189,248,.22);color:var(--ink-mid);
+  background:rgba(5,7,26,.42)}
+.modal.lead .slot.on{background:var(--arc);border-color:var(--arc);color:#04121C;
+  outline-color:var(--arc);box-shadow:0 0 22px -10px var(--arc)}
+.modal.lead .slot.soft.on{background:var(--gold);border-color:var(--gold);color:#1B1200;
+  outline-color:var(--gold);box-shadow:0 0 22px -10px var(--gold)}
+.modal.lead .slot-note{color:var(--dim)}
+.modal.lead .slot-note.ok{color:var(--ok2)}
+.modal.lead .slot-note.warn{color:var(--gold2)}
+.modal.lead .slot-none{color:var(--dim)}
+.modal.lead .mtg-b.soft{background:rgba(224,162,43,.16);color:var(--gold2)}
+.modal.lead .mtg-b.unver{background:rgba(193,53,43,.18);color:#F3B9B4}
 .modal.lead .deal-add-btn{background:transparent;border-color:var(--line);color:var(--arc2)}
 .modal.lead .deal-add-btn:hover{border-color:var(--arc);color:var(--ink-hi);background:rgba(56,189,248,.06)}
 .modal.lead .pay-bar{background:rgba(5,7,26,.6)}
@@ -2114,6 +2143,39 @@ const CSS=`
   .mj-l{display:none}
 }
 .mtg-form{margin-top:6px}
+/* ---- THE BOOKING LATTICE -------------------------------------------------
+   Four states, and they have to be tellable apart at arm's length on a phone
+   while somebody is talking. So they differ by FILL as well as by colour:
+   open is solid and reads as a button, soft is outlined and reads as a
+   caveat, blocked and past recede. Colour alone would fail the one rep who
+   cannot distinguish these two hues, and this is a grid where picking the
+   wrong chip means displacing something.                                   */
+.slotfield{margin-top:2px}
+.slot-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:7px}
+.slot-head label{margin:0}
+.slot-note{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;color:#7a769c}
+.slot-note.ok{color:#3d7a52}
+.slot-note.warn{color:#9a5a16}
+.slot-note svg{flex:none}
+.slot-unver{margin:0 0 9px}
+.slotgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(84px,1fr));gap:7px}
+.slot{border:1.5px solid #E1E2EC;background:#fff;border-radius:9px;padding:9px 6px;font-size:12.5px;
+  font-weight:700;color:#56527a;cursor:pointer;font-variant-numeric:tabular-nums;text-align:center;
+  transition:border-color .12s,background .12s}
+.slot.open{border-color:color-mix(in srgb,${COBALT} 34%,#E1E2EC);background:color-mix(in srgb,${COBALT} 6%,#fff);color:${COBALT}}
+.slot.open:hover{border-color:${COBALT}}
+/* dashed = "yes, but". The border does the talking before the colour does. */
+.slot.soft{border-style:dashed;border-color:#E0A22B;background:#FFFBF3;color:#8a5c14}
+.slot.soft:hover{background:#FFF4E2}
+.slot.blocked,.slot.past{background:#F4F4F8;border-color:#EAEAF1;color:#A9A7BC;cursor:not-allowed;font-weight:600}
+.slot.past{text-decoration:line-through}
+.slot.unknown{border-style:dashed;border-color:#CFCEDE;color:#6E6B8C;background:#FAFAFD}
+.slot.on{outline:2px solid ${COBALT};outline-offset:1px;background:${COBALT};color:#fff;border-color:${COBALT}}
+.slot.soft.on{outline-color:#E0A22B;background:#E0A22B;border-color:#E0A22B;color:#fff}
+.slot:focus-visible{outline:2px solid ${COBALT};outline-offset:2px}
+.slot-none{margin-top:9px;font-size:12.5px;color:#7a769c;line-height:1.5}
+.mtg-b.soft{background:#FFF4E2;color:#8a5c14}
+.mtg-b.unver{background:#FDECEA;color:#9a3c33}
 .mtg-toggles{display:flex;gap:8px;flex-wrap:wrap}
 .mtg-chk{display:inline-flex;align-items:center;gap:6px;border:1.5px solid #E1E2EC;border-radius:9px;padding:8px 11px;font-size:12.5px;font-weight:600;color:#56527a;cursor:pointer}
 .mtg-chk input{display:none}
@@ -3495,6 +3557,26 @@ export default function App(){
     return {eventId:j.eventId,htmlLink:j.htmlLink||'',meetLink:j.meetLink||''};
   };
   const deleteCalendarEvent=async(eventId)=>{ if(!eventId)return; try{ await apiPost('/api/calendar-event',{action:'delete',eventId}); }catch{} };
+  /* reads the calendars that decide whether a slot is free. Lives here beside
+     the other two rather than inside LeadView so there is still exactly ONE
+     apiPost on this path — the token attaching is the fiddly part and it is
+     already solved once. Returns the raw answer; the grid decides what to show.
+     NEVER THROWS: an unreachable calendar has to leave a rep booking, so the
+     failure is a value the caller renders, not an exception it must catch. */
+  /* useCallback WITH NO DEPENDENCIES, AND THAT IS THE WHOLE REASON IT IS HERE.
+     The scheduler re-reads availability whenever this function changes. Defined
+     inline it would be a new function on every App render — new identity, fresh
+     fetch, state update, another render. A live calendar read is precisely the
+     wrong thing to put on that treadmill: every open lead modal would hammer
+     Google for as long as it stayed open. apiPost is module scope, so there is
+     genuinely nothing to depend on. */
+  const readAvailability=useCallback(async(date)=>{
+    try{
+      const r=await apiPost('/api/calendar-availability',{date});
+      const j=await r.json().catch(()=>null);
+      return j||{ok:false,error:'The availability check gave no answer.'};
+    }catch(e){ return {ok:false,error:(e&&e.message)||'Could not reach the calendar.'}; }
+  },[]);
   /* ---- people & roles. Declared with every other hook, ABOVE the auth gates:
      a hook added below an early return blanks the app the moment someone
      signs in ("Rendered more hooks than during the previous render"). ---- */
@@ -4645,7 +4727,7 @@ export default function App(){
       lastSeen={(lastSeen||[]).find(x=>x.id===repOpen.id)} notes={repNotes}
       onAddNote={addRepNote} onDeleteNote={delRepNote} onResetPlaybook={resetKbProgress}
       onClose={()=>{setRepOpen(null);setRepNotes(null);}}/>}
-    {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} onBooked={notifyBooked} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} tagMeeting={tagMeeting} inbound={inbound}/>}
+    {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} onBooked={notifyBooked} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} readAvailability={readAvailability} tagMeeting={tagMeeting} inbound={inbound}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }

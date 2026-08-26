@@ -20,6 +20,29 @@ export const OAUTH_SCOPES = [
   'openid',
 ].join(' ');
 
+/* WHICH CALENDARS DECIDE WHETHER A SLOT IS FREE.
+   Comma-separated ids, and an id is an email address. 'primary' means the
+   connected account's own calendar — the one events are written to.
+
+   There are two because both people are on the call. My hard commitments and
+   my Banana blocks live on mine; his live on his, which is shared into this
+   account at "See all event details" (free/busy sharing hides the colour, and
+   the colour IS the rule). A slot has to be clear on every one of them.
+
+   Not a picker: enumerating calendars needs calendarList scope, which this
+   grant deliberately does not carry — adding it invalidates the existing
+   consent and 403s every Sheets read until somebody reconnects. Configuration
+   is cheaper than a dropdown that costs a reconnect. */
+export const calendarIds = () => {
+  const raw = String(process.env.CALENDAR_IDS || '').trim();
+  const ids = raw ? raw.split(',').map(s => s.trim()).filter(Boolean) : [];
+  return ids.length ? ids : ['primary'];
+};
+
+/* One zone decides everything: the calendar owner's. Never the rep's browser —
+   see src/lib/availability.js for why an hour of drift is worse than no check. */
+export const calendarTz = () => process.env.CALENDAR_TZ || 'America/Chicago';
+
 export const appUrl = () => process.env.APP_URL || 'https://proytech-crm.vercel.app';
 export const redirectUri = () => process.env.GOOGLE_REDIRECT_URI || (appUrl() + '/api/google-callback');
 
