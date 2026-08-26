@@ -21,7 +21,7 @@
    runs.
    ========================================================================== */
 
-import React, { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BRAND } from './lib/brand';
 import {
   DEMO_MINUTES, SLOT_MINUTES, TZ_DEFAULT,
@@ -85,6 +85,7 @@ import {
   Tag,
   Target,
   Trash2,
+  Star,
   UserCheck,
   UserPlus,
   Users,
@@ -107,6 +108,94 @@ import { DateFix, PriBadge, StageBadge } from './LeadBits';
 /* `rep` and `calOwner` drive the two lines at the top of this form and nothing
    else. Passed in rather than derived here: this component is presentational,
    and Modal already holds both users[] and the role. */
+/* ONE AVAILABILITY READ, SHARED BY EVERY CONTROL THAT NEEDS IT.
+   ============================================================================
+
+   There are two booking surfaces in this file — WhenPicker in the disposition
+   bar, which is how a rep books off a call, and MeetingScheduler in the
+   Meetings section. They need identical answers to "is 3pm free", and the fast
+   way to get two screens that disagree is to give them a state machine each.
+   So the fetch, the marking, the degraded fallback and the pre-booking re-check
+   all live here once (ENGINEERING §2, §5).
+
+   `enabled` rather than a bare early return: hooks cannot be called
+   conditionally, and a control that is on screen but not gated still has to
+   render something.                                                          */
+function useAvailability({ enabled, date, readAvailability }) {
+  const [slots, setSlots] = useState([]);
+  const [checked, setChecked] = useState(false);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [tz, setTz] = useState(TZ_DEFAULT);
+
+  /* READ LIVE, every time the picker opens or the day changes. Not cached: a
+     rep is on the phone, one call is nothing, and a cached grid is wrong at
+     exactly the moment it matters. */
+  useEffect(() => {
+    if (!enabled || !date) { setSlots([]); setChecked(false); setError(''); return undefined; }
+    let dead = false;
+    setLoading(true); setChecked(false); setError('');
+    (async () => {
+      const j = readAvailability ? await readAvailability(date) : { ok: false, error: 'Availability checking isn’t wired up.' };
+      if (dead) return;
+      const zone = (j && j.tz) || TZ_DEFAULT;
+      setTz(zone);
+      if (j && j.ok) {
+        /* The server's clock decides what is past, not the browser's. A laptop
+           an hour out would grey out live slots or offer gone ones. */
+        setSlots(markSlots(slotsForDay(date, zone), j.intervals || [], { now: j.now || Date.now() }));
+        setChecked(true); setError('');
+      } else {
+        setSlots(markSlots(slotsForDay(date, zone), [], { now: Date.now() }));
+        setChecked(false);
+        setError(j && j.error === 'not_connected'
+          ? 'Google Calendar isn’t connected, so nothing could be checked.'
+          : (j && j.error) || 'Couldn’t reach the calendar.');
+      }
+      setLoading(false);
+    })();
+    return () => { dead = true; };
+  }, [enabled, date, reload, readAvailability]);
+
+  /* THE RE-CHECK, IMMEDIATELY BEFORE THE BOOKING.
+     Google has no conditional create — no "insert only if this window is still
+     free" — so the gap between seeing a slot and taking it cannot be closed,
+     only narrowed. The picker may have been open for minutes while the rep
+     talked; this shrinks it to one round trip.
+
+     IT ALSO CLOSES THE TWO-REP RACE, for a reason worth writing down: the
+     booking we create lands on the very calendar we read, carrying no colour,
+     which makes it HARD. A slot another rep took thirty seconds ago comes back
+     blocked here with no lock, no extra table and no second source of truth.
+     The calendar is the lock.
+
+     Returns null when the rep must be told no. */
+  const recheck = useCallback(async (hhmm) => {
+    if (!date || !hhmm) return null;
+    const j = readAvailability ? await readAvailability(date) : null;
+    const zone = (j && j.tz) || TZ_DEFAULT;
+    setTz(zone);
+    if (!j || !j.ok) {
+      /* Could not confirm AT THE MOMENT OF BOOKING. The rep is not blocked —
+         that holds whatever Google is doing — but the flag has to mean
+         "verified when it was taken", so an unconfirmable booking is stamped
+         unverified even if the grid was green a minute ago. */
+      const fresh = markSlots(slotsForDay(date, zone), [], { now: Date.now() });
+      setSlots(fresh); setChecked(false);
+      setError((j && j.error) || 'Couldn’t reach the calendar.');
+      return { slot: slotAt(fresh, hhmm), zone, verified: false, soft: false };
+    }
+    const fresh = markSlots(slotsForDay(date, zone), j.intervals || [], { now: j.now || Date.now() });
+    setSlots(fresh); setChecked(true); setError('');
+    const slot = slotAt(fresh, hhmm);
+    if (!slot || !isBookable(slot)) return null;
+    return { slot, zone, verified: true, soft: slot.state === 'soft' };
+  }, [date, readAvailability]);
+
+  return { slots, checked, error, loading, tz, recheck, refresh: () => setReload(n => n + 1) };
+}
+
 /* THE LATTICE A REP PICKS FROM.
    ============================================================================
 
@@ -132,10 +221,19 @@ const SLOT_STATE = {
   past:    { cls: 'past',    hint: 'Gone' },
 };
 
-function SlotGrid({ slots, picked, onPick, checked, loading, error, onRetry }) {
+function SlotGrid({ slots, picked, onPick, checked, loading, error, onRetry, preferred, label, why }) {
+  /* SOP-01 EMPHASISES, IT NEVER ADDS. The call windows say when a trade or a
+     desk business picks up, and that is worth a rep's eye — but the lattice is
+     decided by the calendar and nothing else. A preferred time that is booked
+     stays booked and unmarked; a free time outside the window is still offered.
+     Emphasis rather than re-ordering, so the same time is always in the same
+     place: a grid that reshuffles is one a rep has to read carefully every
+     time, which is the opposite of what a control used mid-call is for. */
+  const pref = new Set(Array.isArray(preferred) ? preferred : []);
+  const anyPref = slots.some(s => pref.has(s.hhmm) && (s.state === 'open' || s.state === 'soft'));
   return (<div className="slotgrid-wrap">
     <div className="slot-head">
-      <label>Time</label>
+      <label>{label || 'Time'}</label>
       {loading
         ? <span className="slot-note"><Loader2 size={11} className="spin"/>Checking the calendar…</span>
         : checked
@@ -147,7 +245,12 @@ function SlotGrid({ slots, picked, onPick, checked, loading, error, onRetry }) {
         What he must not do is believe it was checked — so the grid says so on
         its face, the chips are drawn differently, and the booking is stamped
         unverified where the owner will see it. */}
-    {!loading && !checked && <div className="mtg-warn slot-unver">
+    {/* ITS OWN CLASS, NOT .mtg-warn. That selector already means "which Google
+        account this booking lands on", and another component reads the first
+        .mtg-warn in the modal to find it. Borrowing the class for a second,
+        unrelated warning made this banner answer a question it was never asked
+        — ENGINEERING §2, one layer down. */}
+    {!loading && !checked && <div className="slot-unver">
       <AlertTriangle size={13}/>
       <span>{error||'Couldn’t reach the calendar.'} These times are <b>not checked against anyone’s calendar</b> — book if you have to, and it will be flagged for review.
         {onRetry&&<> <button type="button" className="linkbtn" onClick={onRetry}>Try again</button></>}</span>
@@ -162,15 +265,27 @@ function SlotGrid({ slots, picked, onPick, checked, loading, error, onRetry }) {
            calendar being unreachable. */
         const cls=checked?st.cls:(s.state==='past'?'past':'unknown');
         const can=checked?isBookable(s):s.state!=='past';
+        /* marked only when it is actually takeable — a star on a blocked chip
+           is an invitation to tap something that cannot be tapped */
+        const star=pref.has(s.hhmm)&&can;
         return (<button key={s.hhmm} type="button" disabled={!can}
-          className={'slot '+cls+(picked===s.hhmm?' on':'')}
+          className={'slot '+cls+(picked===s.hhmm?' on':'')+(star?' pref':'')}
           title={checked?st.hint:'Not checked against the calendar'}
           onClick={()=>can&&onPick(s.hhmm)}>{s.label}</button>);
       })}
     </div>
-    {checked&&!slots.some(isBookable)&&<div className="slot-none">
-      Nothing free on this day. Try another date, or use <b>No date yet — just log it</b> below and it lands in the owner’s queue.
-    </div>}
+    {why&&anyPref&&<div className="slot-why"><Star size={10}/>{why}</div>}
+    {/* Shown whenever NOTHING on this day can be tapped, not only when the
+        calendar answered. Late in the evening every slot on today's lattice has
+        already started, so a rep opening the picker at 9pm saw twenty-four dead
+        chips and no explanation — the commonest way to hit this, and the one
+        case the old condition did not cover. */}
+    {!loading&&slots.length>0&&!slots.some(s=>checked?isBookable(s):s.state!=='past')&&
+      <div className="slot-none">
+        {slots.every(s=>s.state==='past')
+          ? <>Every slot today has already started. Pick another day.</>
+          : <>Nothing free on this day. Try another day, or log it with no date and it lands in the owner’s queue.</>}
+      </div>}
   </div>);
 }
 
@@ -189,48 +304,14 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
   const [addEmail,setAddEmail]=useState('');
   /* ---- AVAILABILITY, FOR REPS ONLY ------------------------------------------
      The owner keeps the free time field: "no custom times" is a rule about
-     reps, and the person who has to escalate to cannot be the person who is
-     blocked. A rep gets the lattice and nothing else — 3:45 is an escalation,
-     not a booking, and the escape hatch is the undated log below. */
-  const [slots,setSlots]=useState([]);
+     reps, and the person a rep escalates 3:45 TO cannot be the person the rule
+     blocks. Through the SAME hook WhenPicker uses, so the two booking surfaces
+     in this file cannot answer "is 3pm free" differently (ENGINEERING §2). */
+  const av=useAvailability({enabled:!!rep,date,readAvailability});
   const [picked,setPicked]=useState('');
-  const [checked,setChecked]=useState(false);
-  const [availErr,setAvailErr]=useState('');
-  const [loadingAvail,setLoadingAvail]=useState(false);
-  const [reload,setReload]=useState(0);
-  /* The calendar owner's zone, as the server reported it. Held in state rather
-     than assumed, so that changing CALENDAR_TZ on the server moves the grid
-     and the booking together instead of moving one of them. */
-  const [tz,setTz]=useState(TZ_DEFAULT);
-  /* READ LIVE, EVERY TIME THE PICKER OPENS OR THE DAY CHANGES. Not cached: a
-     rep is on the phone, one call is nothing, and a cached grid is a grid that
-     is wrong at exactly the moment it matters. */
-  useEffect(()=>{
-    if(!rep) return;
-    let dead=false;
-    setLoadingAvail(true); setChecked(false); setAvailErr(''); setPicked('');
-    (async()=>{
-      const j=readAvailability?await readAvailability(date):{ok:false,error:'Availability checking isn’t wired up.'};
-      if(dead) return;
-      const zone=(j&&j.tz)||TZ_DEFAULT;
-      if(j&&j.ok){
-        /* The server's clock decides what is past, not the browser's. A laptop
-           an hour out would otherwise grey out slots that are live, or offer
-           ones that have gone. */
-        setTz(zone);
-        setSlots(markSlots(slotsForDay(date,zone),j.intervals||[],{now:j.now||Date.now()}));
-        setChecked(true); setAvailErr('');
-      }else{
-        setSlots(markSlots(slotsForDay(date,zone),[],{now:Date.now()}));
-        setChecked(false);
-        setAvailErr(j&&j.error==='not_connected'
-          ? 'Google Calendar isn’t connected, so nothing could be checked.'
-          : (j&&j.error)||'Couldn’t reach the calendar.');
-      }
-      setLoadingAvail(false);
-    })();
-    return ()=>{ dead=true; };
-  },[rep,date,reload,readAvailability]);
+  /* a new day is a new lattice; a slot picked on Tuesday means nothing on
+     Wednesday, and leaving it selected books the wrong day */
+  useEffect(()=>{ setPicked(''); },[date]);
   /* both the Meetings section and the activity composer can be on screen at
      once, so the quarter-hour datalist needs an id of its own per instance */
   const [listId]=useState(()=>'mtgq-'+Math.random().toString(36).slice(2,8));
@@ -246,42 +327,6 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
   const emailOk=/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail);
   const pad=n=>String(n).padStart(2,'0');
   const localISO=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:00`;
-  /* THE RE-CHECK, IMMEDIATELY BEFORE THE BOOKING.
-     Google has no conditional create — no "insert only if this window is still
-     free" — so the window between seeing a slot and taking it cannot be closed,
-     only narrowed. The picker may have been open for minutes while the rep
-     talked; this shrinks the exposure to one round trip.
-
-     IT ALSO CLOSES THE TWO-REP RACE, and for a reason worth writing down: the
-     booking we create lands on the very calendar we read, carrying no colour,
-     which makes it HARD. So a slot another rep took thirty seconds ago comes
-     back as blocked here with no shared lock, no extra table and no second
-     source of truth. The calendar is the lock.
-
-     What survives is the sub-second gap between this read and the insert. That
-     one is not closable with this API, and pretending otherwise by verifying
-     afterwards would only tell us later what looking at the calendar already
-     would. Returns the slot to book, or null if the rep must be told no. */
-  const recheck=async()=>{
-    const j=readAvailability?await readAvailability(date):null;
-    const zone=(j&&j.tz)||TZ_DEFAULT;
-    if(!j||!j.ok){
-      /* We could not confirm AT THE MOMENT OF BOOKING. The rep is not blocked —
-         that rule holds whatever Google is doing — but the flag has to mean
-         "verified when it was taken", so an unconfirmable booking is stamped
-         unverified even if the grid was green a minute ago. */
-      setChecked(false);
-      setAvailErr((j&&j.error)||'Couldn’t reach the calendar.');
-      const fresh=markSlots(slotsForDay(date,zone),[],{now:Date.now()});
-      setSlots(fresh);
-      return {slot:slotAt(fresh,picked),zone,verified:false,soft:false};
-    }
-    const fresh=markSlots(slotsForDay(date,zone),j.intervals||[],{now:j.now||Date.now()});
-    setTz(zone); setSlots(fresh); setChecked(true); setAvailErr('');
-    const slot=slotAt(fresh,picked);
-    if(!slot||!isBookable(slot)) return null;
-    return {slot,zone,verified:true,soft:slot.state==='soft'};
-  };
   const go=async()=>{
     setErr('');
     if(invite&&!emailOk){ setErr('That email doesn’t look right — fix it or switch off Invite client.'); return; }
@@ -290,7 +335,7 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
     if(rep){
       if(!picked){ setErr('Pick a time.'); return; }
       setBusy(true);
-      const again=await recheck();
+      const again=await av.recheck(picked);
       if(!again){
         setBusy(false);
         setPicked('');
@@ -298,7 +343,7 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
         return;
       }
       if(!again.slot){ setBusy(false); setErr('That time is no longer on the list. Pick another.'); return; }
-      when=slotWallClock(again.slot,again.zone||tz);
+      when=slotWallClock(again.slot,again.zone||av.tz);
       verified=again.verified; displaced=again.soft;
     }else{
       const startDt=new Date(`${date}T${time}:00`);
@@ -321,7 +366,7 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
         availabilityChecked:verified,displacedSoft:displaced,
         saveEmail:(invite&&emailOk&&!leadEmail)?inviteEmail:''});
       setTitle('');setNotes('');setLoc('');setInvite(false);setMeet(false);setAddEmail('');
-      if(rep){ setPicked(''); setReload(n=>n+1); }
+      if(rep){ setPicked(''); av.refresh(); }
     }catch(e){ setErr(e.message||'Could not schedule'); }
     setBusy(false);
   };
@@ -367,8 +412,8 @@ export function MeetingScheduler({lead,gcalConnected,gcalEmail,rep,calOwner,onSc
           person the rule blocks. Same component, one condition, so the two
           cannot drift into two screens that disagree. */}
       {rep
-        ? <div className="field full slotfield">{SlotGrid({slots,picked,onPick:setPicked,checked,
-            loading:loadingAvail,error:availErr,onRetry:()=>setReload(n=>n+1)})}</div>
+        ? <div className="field full slotfield">{SlotGrid({slots:av.slots,picked,onPick:setPicked,
+            checked:av.checked,loading:av.loading,error:av.error,onRetry:av.refresh})}</div>
         : <>
             <div className="field"><label>Time</label><input type="time" step={900} value={time} onChange={e=>setTime(e.target.value)} list={listId}/></div>
             <div className="field"><label>Length</label><select value={dur} onChange={e=>setDur(+e.target.value)}>{[15,30,45,60,90,120].map(m=><option key={m} value={m}>{m<60?m+' min':(m/60)+' hr'+(m%60?' 30m':'')}</option>)}</select></div>
@@ -561,7 +606,7 @@ function ReferralAdd({leads,onAdd}){
    says "Thursday at 3:45". Both write the same value through joinWhen, so the
    two halves cannot disagree.
    ========================================================================== */
-function WhenPicker({value,onChange,businessType,label}){
+function WhenPicker({value,onChange,businessType,label,avail,day:gDay,onDay}){
   const {day,time}=splitWhen(value);
   const [raw,setRaw]=useState(false);
   const [fine,setFine]=useState(false);
@@ -572,6 +617,39 @@ function WhenPicker({value,onChange,businessType,label}){
      usually already agreed, and making him tap a chip he would have chosen
      anyway is the kind of friction this control exists to remove. */
   const pickTime=t=>onChange(joinWhen(day||days[0].iso,t));
+  /* ---- GATED: a rep booking a demo -----------------------------------------
+     `avail` is passed ONLY for BK, and only for a rep. When it is here the
+     curated DEFAULT_TIMES list does not appear at all — 8am to 8pm means 8am to
+     8pm, and a list that skipped 11:30, noon and 12:30 was deciding on the
+     rep's behalf that those hours do not exist. The lattice is the whole
+     bookable day, minus whatever the calendar says is taken.
+
+     +15 AND "ANOTHER TIME" ARE BOTH GONE HERE, and that is the point rather
+     than a side effect: a grid that can be bypassed is not a gate. Quarter
+     hours and a raw datetime-local each made 3:45 bookable, which is the exact
+     thing this is for. 3:45 is an escalation — the undated log below takes it
+     and puts it in the owner's queue. Both survive untouched on the owner's own
+     controls, and for a rep's CALLBACK, which is when a prospect said to ring
+     back and has nothing to do with anybody's calendar. */
+  if(avail){
+    /* THE DAY IS ITS OWN STATE HERE, not read back out of `value`.
+       joinWhen() returns '' unless BOTH halves are present, so a day chip that
+       wrote joinWhen(iso,'') would discard the very day it was selecting and
+       the grid would silently keep showing today. The gated control therefore
+       reports the day upward the moment it is tapped — the caller needs it
+       anyway, to know which day to read availability for. */
+    return (<div className="whenp gated">
+      <div className="whenp-row">
+        {days.map(d=>(
+          <button key={d.iso} type="button" className={'whenp-c'+(gDay===d.iso?' on':'')}
+            onClick={()=>{ onDay&&onDay(d.iso); onChange(''); }}>{d.label}</button>
+        ))}
+      </div>
+      {SlotGrid({slots:avail.slots,picked:time,onPick:t=>onChange(joinWhen(gDay,t)),
+        checked:avail.checked,loading:avail.loading,error:avail.error,onRetry:avail.refresh,
+        preferred:times,label,why})}
+    </div>);
+  }
   return (<div className="whenp">
     <label className="whenp-l">{label}</label>
     <div className="whenp-row">
@@ -924,15 +1002,51 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
      disappears: `invited:true`, or `inviteFailed` with the reason. A rep who
      has to fall back to the SOP-03 text must be able to see that he does, ten
      minutes later, on a screen he reopens. */
+  /* THE GATE LIVES WHERE THE BOOKING LIVES. cbAt is Modal's state and bookIt is
+     Modal's function, so the same hook that feeds the grid does the re-check
+     before the event is created. Putting the read inside WhenPicker would have
+     left bookIt unable to re-check without a second copy of it.
+     Enabled for a REP marking BK only: a callback is not a demo and consumes
+     nobody's calendar. */
+  /* The first day WhenPicker offers, which skips weekends — not todayISO(),
+     or a Saturday booking session reads a day no chip can select. */
+  const [bkDay,setBkDay]=useState(()=>nextDays(1)[0].iso);
+  const bkAvail=useAvailability({enabled:!!rep&&adisp==='BK',date:bkDay,readAvailability});
   const [bookMsg,setBookMsg]=useState(null);
   const bookIt=async()=>{
     const t=atext.trim()||dispLabel('BK')+'.';
     const tags=[...pendTags];
+    /* RE-CHECK BEFORE ANYTHING IS WRITTEN. Not after the meeting record, not
+       in parallel with it: a booking that is refused must leave no trace, or
+       the dashboard counts a demo that never existed. */
+    let verified=true, displaced=false, slotStart=null;
+    if(rep){
+      const again=await bkAvail.recheck(splitWhen(cbAt).time);
+      if(!again||!again.slot){
+        setBookMsg({bad:true,t:'That time just filled — it’s gone from the list. Pick another.'});
+        return;
+      }
+      verified=again.verified; displaced=again.soft; slotStart=again.slot.start;
+    }
     const mid=uid(); const now=new Date().toISOString();
-    const start=new Date(cbAt).toISOString();
+    /* THE INSTANT COMES FROM THE SLOT, NOT FROM PARSING cbAt.
+       cbAt is 'YYYY-MM-DDTHH:MM' with no zone, and new Date() reads that in the
+       BROWSER'S zone. A rep travelling, or a laptop left on the wrong zone,
+       would book an hour or more away from the slot the availability check just
+       approved — the grid would say 3pm, the invite would say 4pm, and both
+       would look right to the person who caused it.
+
+       The slot already carries the instant, computed in the CALENDAR OWNER'S
+       zone by the same code that decided the slot was free. Using it means the
+       time that was verified is the time that gets booked, and the rep's
+       machine has no vote. The owner's own path keeps parsing cbAt: he is the
+       calendar, so his local time IS the calendar's. */
+    const start=new Date(slotStart!=null?slotStart:new Date(cbAt).getTime()).toISOString();
     /* TEN. The length is DEMO_MIN, not a number chosen here — see lead.js for
-       why it is the script's number and not ours. */
-    const end=new Date(new Date(cbAt).getTime()+DEMO_MIN*6e4).toISOString();
+       why it is the script's number and not ours. The half-hour lattice is what
+       gives Logan his gap between demos; the meeting stays the ten minutes the
+       prospect was promised. */
+    const end=new Date(new Date(start).getTime()+DEMO_MIN*6e4).toISOString();
     const merged={...draft,brief:{...brief}};
     const b=bookingBrief(merged,{start});
     const title=`Demo with ${b.company||'lead'}`;
@@ -957,7 +1071,10 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     const meeting={id:mid,eventId:ev.eventId||'',htmlLink:ev.htmlLink||'',
       title,mtype:'Demo',start,end,status:'',who,setBy:me,setById:myUid||'',
       createdAt:now,logged:true,dateUnknown:false,
-      invited:!failed,...(failed?{inviteFailed:failed}:{})};
+      invited:!failed,...(failed?{inviteFailed:failed}:{}),
+      /* how it was booked, where the owner already looks */
+      ...(verified===false?{availabilityChecked:false}:{}),
+      ...(displaced?{displacedSoft:true}:{})};
     /* The dashboard tag fires either way — belt and braces, and the same
        @mention path SO/HV/DNC already use rather than a second mechanism. */
     const allTags=[...new Set([...tags,...owners])];
@@ -1445,6 +1562,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               </div>
               {(adisp==='CB'||adisp==='BK')&&
                 <WhenPicker value={cbAt} onChange={setCbAt} businessType={draft.businessType}
+                  avail={(rep&&adisp==='BK')?bkAvail:null} day={bkDay} onDay={setBkDay}
                   label={adisp==='BK'?'The time you agreed':'Exactly when did they say?'}/>}
               {/* WHOSE CALENDAR IT LANDS ON — moved here, not deleted.
 

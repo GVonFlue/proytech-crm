@@ -284,6 +284,39 @@ unreachable from a lead. Consolidate before anything else inherits both.
 
 ---
 
+## 6b. "I could not find it" is not "it does not exist"
+
+A search that returns nothing has proved one thing: that search returned
+nothing. It has not proved the thing is absent. Those are different claims and
+only one of them is ever justified by a failed grep.
+
+**What this cost.** Planning the booking lattice, I searched for the existing
+time picker with `BEST_TIMES|bestTime|slots|SLOT|halfHour|pickup` and `SOP`, got
+nothing back, and reported "there is no chip grid — the scheduler is a free time
+input." The grid was in `src/lib/lead.js` the whole time, named `DEFAULT_TIMES`,
+`CALL_WINDOWS`, `timesFor` and `WhenPicker`. Not one of those words was in my
+search.
+
+The plan was then built on the false negative. The availability lattice went
+into `MeetingScheduler`, which is the OWNER's control; the rep books through
+`WhenPicker` in the disposition bar. Everything shipped, tested green, 84
+assertions, and did nothing at all on the screen it was for — because the
+premise underneath it was a search result reported as a fact.
+
+**The rule.** Before writing "there is no X" about this codebase:
+
+1. Search for the CONCEPT from at least two directions — a name you would give
+   it, and a literal from the UI (a rendered time like `'09:30'`, a label a user
+   reads, a CSS class).
+2. Search the render path, not just the module you expect: who calls the screen
+   the user described, and what does that call actually mount.
+3. If both come back empty, write **"I could not find it"** and name where you
+   looked. That sentence invites the correction that "it does not exist" forecloses.
+
+A negative asserted from one failed grep is the cheapest possible mistake to
+make and one of the most expensive to notice, because everything downstream is
+built correctly on top of it and the tests all pass.
+
 ## 7. Known gaps
 
 - Import has no duplicate detection. The event guest importer has the right

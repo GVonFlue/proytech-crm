@@ -19,6 +19,7 @@
    owner to prove their view did not move.                                    */
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
+import { TZ_DEFAULT, zonedToUtc } from '../src/lib/availability.js';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',
   { url: 'https://crm.test/', pretendToBeVisual: true });
@@ -62,7 +63,10 @@ function scriptPromise() {
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); } else { fail++; console.log('  FAIL ' + n + (x ? ' — ' + String(x).slice(0, 240) : '')); } };
 
-/* google-status is the only /api/* this screen calls. Each mount sets it. */
+/* google-status and calendar-availability are the /api/* this screen calls.
+   Availability is left FAILING on purpose: this file is about the composer
+   default and whose calendar a booking lands on, and the degraded path is the
+   one where a rep can still book. */
 let GCAL = { connected: false, email: '' };
 globalThis.fetch = async u => String(u).includes('google-status')
   ? { ok: true, json: async () => GCAL }
@@ -183,9 +187,23 @@ const pickDisp = async (code, at) => {
      driving the escape hatch would leave the two-tap path untested. One day
      chip, one time chip. */
   if (at) {
-    const day = curEl.querySelector('.whenp-row .whenp-c:not(.t)');
-    if (day) await click(day);
-    const time = curEl.querySelector('.whenp-c.t');
+    const days = [...curEl.querySelectorAll('.whenp-row .whenp-c:not(.t)')];
+    if (days[0]) await click(days[0]);
+    /* A REP NOW PICKS FROM THE AVAILABILITY LATTICE. .whenp-c.t only exists on
+       the owner's ungated picker; a rep gets .slot chips. With the calendar
+       unreachable every slot renders unchecked and tappable, which is the
+       degraded behaviour this file exercises — tests/slotgrid.mjs owns the
+       checked path. */
+    /* WALK FORWARD UNTIL A DAY HAS SOMETHING TAKEABLE. Run this suite after 8pm
+       and every slot on today's lattice has already started — all twenty-four
+       correctly disabled, and a test that only ever tried today would fail for
+       the time of day rather than for a defect. */
+    let time = curEl.querySelector('.whenp.gated .slot:not([disabled])');
+    for (let i = 1; !time && i < days.length; i++) {
+      await click(days[i]);
+      time = curEl.querySelector('.whenp.gated .slot:not([disabled])');
+    }
+    if (!time) time = curEl.querySelector('.whenp-c.t');
     if (time) await click(time);
   }
   return !!b;
@@ -293,9 +311,17 @@ console.log('\n#9 — BK MAKES A MEETING, which it did not');
   const bkAct = ((w || {}).activities || [])[0];
   const chipTimeStr = (bkAct && bkAct.cbAt) || '';
   ok('  the picker wrote a day AND a time', /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(chipTimeStr), chipTimeStr);
-  ok('  and the meeting starts at exactly that moment',
-     mtgs[0] && new Date(mtgs[0].start).getTime() === new Date(chipTimeStr).getTime(),
-     (mtgs[0] || {}).start + ' vs ' + chipTimeStr);
+  /* THE INSTANT IS RESOLVED IN THE CALENDAR'S ZONE, NOT THE RUNNER'S.
+     This used to compare against new Date(cbAt), which parses a zoneless string
+     in whatever zone the machine happens to be in — green in Chicago, an hour
+     out on a UTC runner, and the comment above already admitted as much. The
+     booking now takes its instant from the slot the availability check
+     approved, computed in CALENDAR_TZ, so that is what gets asserted. */
+  const [cy, cmo, cd] = chipTimeStr.slice(0, 10).split('-').map(Number);
+  const [chh, cmi] = chipTimeStr.slice(11, 16).split(':').map(Number);
+  ok('  and the meeting starts at exactly that moment, in the calendar\'s zone',
+     mtgs[0] && new Date(mtgs[0].start).getTime() === zonedToUtc(cy, cmo, cd, chh, cmi, TZ_DEFAULT),
+     (mtgs[0] || {}).start + ' vs ' + chipTimeStr + ' in ' + TZ_DEFAULT);
   ok('  which is not the moment he typed',
      mtgs[0] && Math.abs(new Date(mtgs[0].start) - new Date(mtgs[0].createdAt)) > 60000,
      (mtgs[0] || {}).start + ' vs created ' + (mtgs[0] || {}).createdAt);

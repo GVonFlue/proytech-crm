@@ -152,6 +152,38 @@ Run it once per install before trusting a grid. If `colorId` 5 is ever not
 Banana, the failure is silent and dangerous in one direction: some *other*
 colour becomes soft and reps book over it.
 
+### Which control a rep actually books through
+
+`WhenPicker`, in the disposition bar — a rep logs the call, marks **BK**, and
+picks the day and time he agreed. Not `MeetingScheduler`: the composer's
+"Meeting Booked" tab is filtered out for reps
+(`ACT_TYPES.filter(t => !(rep && t.key === 'Booked'))`), so that control is the
+owner's.
+
+The availability lattice was first built into `MeetingScheduler` and did nothing
+whatsoever on the screen it was for. Both surfaces now read through one
+`useAvailability` hook so they cannot answer "is 3pm free" differently, and
+`tests/slotgrid.mjs` navigates the rep's path deliberately.
+
+For a rep marking BK the curated `DEFAULT_TIMES` list does not appear at all,
+and neither does `+15` or "Another time…". Both made 3:45 bookable, and a grid
+that can be bypassed is not a gate. They remain on the owner's controls, and on
+a rep's **CB** (callback) — a callback is when a prospect said to ring back and
+consumes nobody's calendar, so it is not gated.
+
+### How long the event is
+
+Ten minutes, from `DEMO_MIN` — the number the script promises the prospect six
+times. The half-hour lattice is what gives Logan his gap between demos; the
+meeting itself stays the length that was sold. Note this differs from the
+owner's `MeetingScheduler`, which books the whole slot.
+
+The instant comes from the SLOT, not from parsing the picked string. A zoneless
+`YYYY-MM-DDTHH:MM` parsed with `new Date()` resolves in the *browser's* zone, so
+a rep on a laptop set to the wrong zone would book an hour away from the slot
+the check had just approved — the grid saying 3pm and the invite saying 4pm,
+both looking right to whoever caused it.
+
 ### When Google is unreachable
 
 The rep is never blocked. The full lattice renders, the grid says on its face
