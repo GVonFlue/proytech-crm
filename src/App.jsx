@@ -3115,14 +3115,76 @@ tbody tr.picked:hover{background:#E9EDFD}
 .inv-toggles{display:flex;flex-wrap:wrap;gap:18px;margin-top:14px}
 .invtog{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:${INK};cursor:pointer}
 .invtog input{width:16px;height:16px;accent-color:${COBALT};cursor:pointer}
+/* ---------------------------------------------------------------- invoice print
+   Lay the invoice out FOR paper rather than letting the browser shrink the app
+   to fit it. The old rules hid the app with visibility:hidden, which keeps every
+   element in layout flow: the page stayed as wide and as tall as the CRM, so the
+   browser scaled the whole thing down to fit the sheet and spilled onto a second
+   one. Hence "tiny, squashed at the top, two pages".
+   Verified by generating an actual PDF, not by reading the CSS. */
+@page{ size:8.5in 11in; margin:0.5in }
 @media print{
-  body *{visibility:hidden!important}
-  #invprint,#invprint *{visibility:visible!important}
-  #invprint{position:absolute!important;left:0;top:0;width:100%;box-shadow:none!important;border-radius:0!important;padding:0!important}
-  .scrim2{position:static!important;background:none!important;padding:0!important}
-  .ip-drag,.inv-page-tools{display:none!important}
-  .ip-sec{box-shadow:none!important;cursor:default!important}
-  #invprint{box-shadow:none!important;min-height:0!important;padding:0!important}
+  /* keep the colour: the logo, the blue INVOICE header, the blue Total Due */
+  html,body,#invprint,#invprint *{ -webkit-print-color-adjust:exact!important; print-color-adjust:exact!important }
+
+  html,body{ background:#fff!important; width:auto!important; height:auto!important; min-height:0!important;
+    margin:0!important; padding:0!important; overflow:visible!important }
+
+  /* every bit of app chrome gone — display:none, so it occupies no space either */
+  .sb,.main,.scrim,.top,.body,.m-back,.hamb,
+  .inv-bar,.inv-actions,.inv-edit,.inv-page-tools,.sec-toolbar,
+  .swapbtn,.ip-drag,.btn,button,.toast,.tooltip{ display:none!important }
+
+  /* .pt is the shell: flex, min-height:100vh and a page-grey background. Left
+     alone it prints as a full-height grey column and pushes a second sheet. */
+  .pt{ display:block!important; min-height:0!important; height:auto!important;
+    background:none!important; background-color:transparent!important; color:#3a3850!important }
+
+  /* unwrap the modal stack — each of these otherwise imposes a viewport-sized,
+     scrolling, grey-backed box that prints as a band around the invoice */
+  .scrim2,.inv-modal,.inv-body,.inv-preview-wrap,.inv-design-stage{
+    position:static!important; display:block!important; inset:auto!important;
+    width:auto!important; max-width:none!important;
+    height:auto!important; max-height:none!important; min-height:0!important;
+    margin:0!important; padding:0!important;
+    background:none!important; background-color:transparent!important;
+    box-shadow:none!important; border:0!important; border-radius:0!important;
+    overflow:visible!important; align-items:initial!important; justify-content:initial!important;
+    grid-template-columns:none!important }
+
+  /* The sheet. 660px is the width the design is drawn at on screen; zoom scales
+     it to the 7.5in printable width, so type, padding and rule weights all keep
+     their proportions and simply land at paper size. Widening the box without
+     scaling the type is what makes printed output look thin and wrong. */
+  #invprint{
+    zoom:1.0909;                       /* 660px -> 7.5in printable width */
+    width:660px!important; max-width:660px!important;
+    aspect-ratio:auto!important; min-height:0!important; margin:0!important;
+    /* the sheet's own 6.5%/7% inset is its margin ON SCREEN, where the page
+       edge is visible against grey. On paper the 0.5in @page margin already is
+       that margin, so keeping both insets the text about an inch and prints it
+       narrow. Drop it and let the text block fill the printable width. */
+    padding:0!important;
+    box-shadow:none!important; border-radius:0!important; background:#fff!important }
+
+  /* editing affordances are not part of the document */
+  .ip-sec{ box-shadow:none!important; cursor:default!important; outline:none!important }
+  .ip-sec.sel{ box-shadow:none!important }
+  .ip-block:hover .ip-drag{ opacity:0!important }
+
+  /* Keep the SHORT blocks atomic. Deliberately not .ip-block as a whole: the
+     line-item table lives in one, and forbidding a break inside it pushes a long
+     item list onto a fresh sheet and wastes a page. */
+  .ip-billto,.ip-totals,.ip-pay,.ip-notes,.ip-top{ break-inside:avoid; page-break-inside:avoid }
+
+  /* the item list may flow across sheets, never mid-row, headings repeating */
+  .ip-table{ break-inside:auto }
+  .ip-table tr{ break-inside:avoid; page-break-inside:avoid }
+  .ip-table thead{ display:table-header-group }
+  .ip-table tfoot{ display:table-footer-group }
+
+  .ip-pay a{ text-decoration:none!important }
+  a[href]:after{ content:none!important }
 }
 .fu-hero{display:flex;align-items:center;gap:22px;background:linear-gradient(120deg,${INDIGO} 0%,${COBALT} 100%);border-radius:18px;padding:22px 26px;margin-bottom:22px;color:#fff;box-shadow:0 14px 40px -20px ${COBALT}}
 .fu-hero-l{flex:none}.fu-hero-n{font-family:'Space Grotesk';font-size:46px;font-weight:600;line-height:1}
