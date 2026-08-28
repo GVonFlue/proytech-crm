@@ -2107,6 +2107,21 @@ const CSS=`
 .rc-root b:hover{text-decoration:underline}
 .web-card{padding:14px}
 .web-actions{margin-left:auto;display:flex;gap:8px}
+.task-sec{display:flex;align-items:center;gap:10px;margin:4px 0 12px;flex-wrap:wrap}
+.task-sec.free{margin-top:26px;padding-top:20px;border-top:1px solid #E8E9F2}
+.task-sec h3{display:flex;align-items:center;gap:7px;font-family:'Space Grotesk';font-size:15px;font-weight:600;color:${INK};margin:0}
+.task-sec h3 svg{color:${COBALT}}
+.task-cap{font-size:12px;font-weight:700;color:#6a6788;background:#F0F1F7;border-radius:20px;padding:3px 10px;font-variant-numeric:tabular-nums}
+.task-cap.over{background:rgba(216,138,61,.15);color:#9A5B18}
+.task-cap.plain{background:#F0F1F7;color:#8b88a0;font-weight:600}
+.task-cap-note{font-size:12.5px;color:#9A5B18;font-weight:500}
+.task-sec-sub{margin-left:auto;font-size:11.5px;color:#a6a2bc}
+.task-list{display:flex;flex-direction:column;gap:10px}
+.task-empty{padding:18px}
+.task-focus{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #E2E3EE;background:#fff;border-radius:9px;color:#c3c2d4;cursor:pointer;padding:0;transition:.14s}
+.task-focus:hover{color:${COBALT};border-color:${COBALT}}
+.task-focus.on{background:${COBALT};border-color:${COBALT};color:#fff}
+.task-picked{font-size:11px;font-weight:600;color:#9A5B18;background:rgba(216,138,61,.13);border-radius:20px;padding:2px 9px;cursor:help}
 .task-daypick{display:flex;align-items:center;gap:6px}
 .day-chip{border:1px solid #E1E2EC;background:#fff;border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:700;color:#56527a;cursor:pointer}
 .day-chip.on{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);color:${COBALT}}
@@ -7776,8 +7791,37 @@ const TASK_OWNERS=[...BRAND.team,'Both'];
 const OWNER_PALETTE=[COBALT,'#7A5CC8','#0E9AA7','#D97706'];
 const ownerColor=o=>{const i=BRAND.team.indexOf(o);return i>=0?OWNER_PALETTE[i%OWNER_PALETTE.length]:GREEN;};
 const meOwner=me=>BRAND.team.includes(me)?me:(BRAND.team[0]||'');
-const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:todayISO(),revenue:3,urgency:3,effort:3,done:false,doneAt:'',doneBy:'',aiRank:null,aiReason:'',createdAt:new Date().toISOString()});
+const newTask=owner=>({id:uid(),title:'',notes:'',owner:owner||'Both',leadId:'',due:todayISO(),revenue:3,urgency:3,effort:3,done:false,doneAt:'',doneBy:'',aiRank:null,aiReason:'',focusDate:'',focusCount:0,lastFocusDay:'',createdAt:new Date().toISOString()});
 const taskScore=t=>num(t.revenue)*num(t.urgency);
+
+/* ---- Focus ----------------------------------------------------------------
+   Focus is a flag, not a date. A due date is a commitment to someone else;
+   Focus is what you decided to work on now, and the two are different enough
+   that conflating them puts next week's work in today's list.
+
+   The flag is stored as the DAY IT WAS SET rather than as a boolean, so it
+   expires on its own: no nightly job, no midnight timer, and it is still
+   correct if nobody opens the CRM for three days.
+
+   The day rolls at 4am, not midnight, so working late doesn't clear the list
+   out from under you mid-evening. */
+const FOCUS_ROLLOVER_HOUR=4;
+const FOCUS_CAP=6;
+function focusDay(now){
+  const d=now?new Date(now):new Date();
+  if(d.getHours()<FOCUS_ROLLOVER_HOUR) d.setDate(d.getDate()-1);
+  return isoOf(d);
+}
+const isFocus=t=>!!t&&t.focusDate===focusDay();
+/* Picking a task counts once per day however many times it is toggled, so the
+   pile can show what you keep choosing and not finishing. lastFocusDay is the
+   guard: without it, off-and-on in one afternoon reads as two picks. */
+function withFocus(t,on){
+  const day=focusDay();
+  if(!on) return {...t,focusDate:''};
+  const firstToday=t.lastFocusDay!==day;
+  return {...t,focusDate:day,lastFocusDay:day,focusCount:num(t.focusCount)+(firstToday?1:0)};
+}
 
 function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
   const [who,setWho]=useState('all');
@@ -7867,7 +7911,7 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
         <button className={'seg-b '+(show==='all'?'on':'')} onClick={()=>setShow('all')}>All</button>
       </div>
       <div className="seg">
-        {[['today','Today'],['later','Upcoming'],['none','No date'],['all','All']].map(([k,label])=>(
+        {[['today','Due today'],['later','Upcoming'],['none','No date'],['all','All']].map(([k,label])=>(
           <button key={k} className={'seg-b '+(when===k?'on':'')} onClick={()=>setWhen(k)}>
             {label}<span className="seg-n">{whenCounts[k]}</span>
           </button>))}
@@ -7884,8 +7928,12 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
     {when==='today'&&whenCounts.today===0&&whenCounts.none>0&&<div className="task-hint" style={{marginBottom:14}}><CalendarClock size={15}/>
       {`Nothing is dated for today. ${whenCounts.none} ${whenCounts.none===1?'task has':'tasks have'} no date on ${whenCounts.none===1?'it':'them'} \u2014 tap the date chip on any task to schedule it.`}</div>}
 
-    {ordered.length? <div style={{display:'flex',flexDirection:'column',gap:10}}>
-      {ordered.map(t=>{
+    {(()=>{
+      /* Focus and Free time are SECTIONS, not another filter. Who / Show /
+         Due-date still slice both — filters filter, sections group. A fourth
+         filter chip is the version that would fight the three already here. */
+      const taskRow=t=>{
+      
         const du=t.due?daysUntil(t.due):null;
         const dueColor=du==null?'#8b88a0':du<0?RED:du===0?GOLD:'#5A5680';
         const dueLabel=t.due?(du<0?`${-du}d overdue`:du===0?'Due today':du===1?'Due tomorrow':`Due in ${du}d`):'No date';
@@ -7901,17 +7949,50 @@ function Tasks({tasks,leads,me,upsertTask,deleteTask,saveTasks,open,rep}){
               <span className="pill" style={{background:ownerColor(t.owner)+'1A',color:ownerColor(t.owner)}}><span className="dot" style={{background:ownerColor(t.owner)}}/>{t.owner}</span>
               {t.leadId&&leadName(t.leadId)&&(()=>{const l=leads.find(x=>x.id===t.leadId);const isC=l&&l.isClient;return <span className="pill" style={{background:isC?'rgba(31,157,85,.12)':'#F0F1F7',color:isC?'#1a7d46':'#5A5680',cursor:open?'pointer':'default'}} onClick={e=>{if(open){e.stopPropagation();open(t.leadId);}}} title={open?'Open '+(isC?'client':'lead'):undefined}>{isC?<Building2 size={11}/>:<Contact2 size={11}/>}{leadName(t.leadId)}{isC?' · client':''}</span>;})()}
               <label className="task-due-chip" style={{background:du!=null&&du<0?'rgba(209,67,67,.1)':'#F0F1F7',color:dueColor}} title="Tap to reschedule"><CalendarClock size={11}/>{dueLabel}<input type="date" value={t.due||''} onChange={e=>upsertTask({...t,due:e.target.value})}/></label>
+              {!t.done&&!isFocus(t)&&num(t.focusCount)>1&&
+                <span className="task-picked" title={'Pulled into Focus on '+num(t.focusCount)+' separate days and still open \u2014 worth asking whether it is blocked or badly scoped'}>
+                  {'picked '+num(t.focusCount)+'\u00d7'}</span>}
               <span style={{fontSize:11,color:'#a6a2bc'}}>{`Impact ${t.revenue} \u00b7 Urgency ${t.urgency} \u00b7 Effort ${t.effort}`}</span>
             </div>
           </div>
           <div style={{display:'flex',gap:4,flex:'none'}}>
+            <button className={'task-focus'+(isFocus(t)?' on':'')} onClick={()=>upsertTask(withFocus(t,!isFocus(t)))}
+              title={isFocus(t)?'Take out of Focus':'Pull into Focus for today'}
+              aria-pressed={isFocus(t)}><Target size={15}/></button>
             <button className="m-x" style={{width:30,height:30}} onClick={()=>setEdit(t)} title="Edit"><SlidersHorizontal size={15}/></button>
             <button className="m-x" style={{width:30,height:30}} onClick={()=>{if(window.confirm('Delete this task?'))deleteTask(t.id);}} title="Delete"><Trash2 size={15}/></button>
           </div>
         </div>);
-      })}
-    </div>
-    : <div className="empty">{show==='done'?'Nothing checked off yet.':'No tasks yet. Add your first one above \u2014 dump everything in your head here.'}</div>}
+      };
+      const focusList=ordered.filter(isFocus);
+      const pile=ordered.filter(t=>!isFocus(t));
+      const focusOpen=focusList.filter(t=>!t.done).length;
+      const pileOpen=pile.filter(t=>!t.done).length;
+      /* Soft cap. It warns and never blocks: a cap that refuses you at 4pm when
+         something urgent lands is how a tool gets abandoned. Open tasks only —
+         finishing work should not eat your cap. */
+      const over=focusOpen>FOCUS_CAP;
+      if(!ordered.length) return <div className="empty">{show==='done'?'Nothing checked off yet.':'No tasks yet. Add your first one above \u2014 dump everything in your head here.'}</div>;
+      return (<>
+        <div className="task-sec">
+          <h3><Target size={16}/>Focus</h3>
+          <span className={'task-cap'+(over?' over':'')}>{focusOpen} / {FOCUS_CAP}</span>
+          {over&&<span className="task-cap-note">Over six \u2014 something should come off.</span>}
+          <span className="task-sec-sub">Clears at 4am</span>
+        </div>
+        {focusList.length
+          ? <div className="task-list">{focusList.map(taskRow)}</div>
+          : <div className="empty task-empty">{'Nothing picked yet. Hit the target on anything below to pull it into today.'}</div>}
+
+        <div className="task-sec free">
+          <h3><ListTodo size={16}/>Free time</h3>
+          <span className="task-cap plain">{pileOpen}</span>
+        </div>
+        {pile.length
+          ? <div className="task-list">{pile.map(taskRow)}</div>
+          : <div className="empty task-empty">{'Nothing in the pile.'}</div>}
+      </>);
+    })()}
 
     {edit&&<TaskModal task={edit} leads={leads} rep={rep} me={me} onSave={t=>{upsertTask(t);setEdit(null);}} onDelete={id=>{deleteTask(id);setEdit(null);}} onClose={()=>setEdit(null)}/>}
   </>);
