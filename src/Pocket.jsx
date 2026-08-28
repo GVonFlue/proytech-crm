@@ -7,6 +7,7 @@ import { BRAND } from './lib/brand';
 import { matchSegment, explainMatch } from './lib/pocketmatch';
 import { newMeetingLog, emptyExtraction, todayISO } from './lib/meetinglog';
 import { newKbNote } from './lib/kb';
+import PersonPicker from './PersonPicker';
 
 /* ============================================================
    POCKET RECORDING — the source, and what you make from it.
@@ -143,11 +144,13 @@ function Proposal({ p, leads, leadName, onCreate, onSkip, busy }) {
             </button>
           </div>
           {showTargets && (
-            <select value={targetId} onChange={e => { setTargetId(e.target.value); setShowTargets(false); }} style={{ marginTop: 8 }}>
-              <option value="">— pick —</option>
-              {(leads || []).filter(l => (dest === 'relationship') === !!l.isRelationship)
-                .slice(0, 400).map(l => <option key={l.id} value={l.id}>{l.name || l.company}</option>)}
-            </select>
+            <div style={{ marginTop: 8 }}>
+              <PersonPicker
+                people={(leads || []).filter(l => (dest === 'relationship') === !!l.isRelationship)}
+                value={targetId}
+                onChange={id => { setTargetId(id); setShowTargets(false); }}
+                emptyLabel={'\u2014 pick \u2014'} placeholder="Search a name or business…"/>
+            </div>
           )}
           {targetId && <div className="sec-hint" style={{ marginTop: 6 }}>Will be filed on <b>{leadName.get(targetId) || 'that record'}</b>.</div>}
         </div>

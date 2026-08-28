@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import JSZip from 'jszip';
 import MeetingLog from './MeetingLog';
+import PersonPicker from './PersonPicker';
 import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
@@ -61,7 +62,7 @@ import {
   actLabel, activeTracks, allMeetings, anyPayments, blankFirst, bookedCount, calendarOwner,
   cashConfirmed, clientOverall, closedDealsTotal, cmsnAmount, cmsnOf, dateVocab, datelessOf,
   dayLabel, daysToDate, daysUntil, dealBits, dealsOf, depositPaidAt, evNum, fmtDate,
-  fmtMeetingTime, fmtStamp, introChain, isDateless, isPoolLead, isUpsellDeal, isoOf,
+  fmtMeetingTime, fmtStamp, introChain, isDateless, isPoolLead, isUpsellDeal, isoOf, personLabel,
   keyDatesOf, labelVocab, labelsOf, manualSponsorships, meetingsOf, needsDate,
   normEntry, num, nurtureDaysOf, onbSkipped, openSaleValue, owedBy, pct, poolList,
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
@@ -1106,6 +1107,32 @@ const CSS=`
   outline:none;border-color:rgba(56,189,248,.6);box-shadow:0 0 0 3px rgba(56,189,248,.12)}
 .modal.lead input::placeholder,.modal.lead textarea::placeholder{color:var(--faint)}
 .modal.lead label{color:var(--dim)}
+
+/* The dark rule reaches the shared person picker too. It is mounted inside the
+   lead view (Introduced by) and inside Relationships, both dark surfaces, so a
+   picker painting its own white is a light box in the middle of one — which is
+   exactly what tests/leadcontrast.mjs caught. Same tokens as everything else
+   here, so the second surface cannot drift into a slightly different navy. */
+.modal.lead .pp-face,.relsurface .pp-face{
+  background:rgba(56,189,248,.05);border-color:var(--line-hi);color:var(--ink-hi)}
+.modal.lead .pp-face:hover,.relsurface .pp-face:hover{border-color:rgba(56,189,248,.45)}
+.modal.lead .pp-face svg,.relsurface .pp-face svg,
+.modal.lead .pp-search svg,.relsurface .pp-search svg{color:var(--dim)}
+.modal.lead .pp-val.none,.relsurface .pp-val.none{color:var(--faint)}
+.modal.lead .pp-open,.relsurface .pp-open{
+  background:var(--plate2);border-color:rgba(56,189,248,.45);
+  box-shadow:0 22px 52px -20px rgba(0,0,0,.85)}
+.modal.lead .pp-search,.relsurface .pp-search{border-bottom-color:var(--line)}
+.modal.lead .pp-search input,.relsurface .pp-search input{
+  background:none;border:none;color:var(--ink-hi)}
+.modal.lead .pp-row,.relsurface .pp-row{color:var(--ink)}
+.modal.lead .pp-row.hi,.relsurface .pp-row.hi{background:rgba(56,189,248,.14)}
+.modal.lead .pp-row.none,.relsurface .pp-row.none,
+.modal.lead .pp-row.blank,.relsurface .pp-row.blank{color:var(--dim)}
+.modal.lead .pp-group,.relsurface .pp-group{color:var(--faint)}
+.modal.lead .pp-empty,.relsurface .pp-empty,
+.modal.lead .pp-more,.relsurface .pp-more{color:var(--dim)}
+.modal.lead .pp-more,.relsurface .pp-more{border-top-color:var(--line)}
 .modal.lead .m-x{color:var(--arc2);border-color:var(--line-hi);background:rgba(56,189,248,.05)}
 .modal.lead .m-x:hover{background:rgba(56,189,248,.14)}
 
@@ -2122,6 +2149,34 @@ const CSS=`
 .task-focus:hover{color:${COBALT};border-color:${COBALT}}
 .task-focus.on{background:${COBALT};border-color:${COBALT};color:#fff}
 .task-picked{font-size:11px;font-weight:600;color:#9A5B18;background:rgba(216,138,61,.13);border-radius:20px;padding:2px 9px;cursor:help}
+/* ---- PersonPicker: one type-ahead for every person field ---- */
+.pp{position:relative;width:100%}
+.pp-face{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;
+  padding:10px 12px;border:1px solid #E1E2EC;border-radius:10px;background:#fff;color:${INK};
+  font:inherit;font-size:14px;cursor:pointer;text-align:left}
+.pp-face:hover{border-color:#C9CBDD}
+.pp-face svg{color:#9b98ad;flex:none}
+.pp.off .pp-face{opacity:.55;cursor:not-allowed}
+.pp-val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pp-val.none{color:#a6a2bc}
+.pp-open{position:absolute;left:0;right:0;top:0;z-index:60;background:#fff;border:1px solid ${COBALT};
+  border-radius:10px;box-shadow:0 18px 44px -18px rgba(24,21,48,.42)}
+.pp-search{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid #EDEEF5}
+.pp-search svg{color:#9b98ad;flex:none}
+.pp-search input{flex:1;min-width:0;border:none;outline:none;font:inherit;font-size:14px;color:${INK};background:none}
+.pp-clear{border:none;background:none;color:#9b98ad;cursor:pointer;padding:2px;display:flex}
+.pp-clear:hover{color:${RED}}
+.pp-list{max-height:290px;overflow:auto;padding:4px}
+.pp-row{padding:9px 11px;border-radius:8px;font-size:14px;color:${INK};cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pp-row.hi{background:#EEF1FE}
+.pp-row.sel{font-weight:600}
+.pp-row.none{color:#8b88a0}
+.pp-row.blank{color:#a6a2bc;font-style:italic}
+.pp-group{padding:9px 11px 4px;font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:#a6a2bc}
+.pp-empty{padding:14px 12px;font-size:13.5px;color:#8b88a0}
+.pp-more{padding:8px 12px;border-top:1px solid #EDEEF5;font-size:12px;color:#a6a2bc}
 .task-daypick{display:flex;align-items:center;gap:6px}
 .day-chip{border:1px solid #E1E2EC;background:#fff;border-radius:9px;padding:9px 12px;font-size:12.5px;font-weight:700;color:#56527a;cursor:pointer}
 .day-chip.on{border-color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);color:${COBALT}}
@@ -2620,7 +2675,11 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .ev-tick{background:none;border:0;cursor:pointer;color:#C9C5D9;display:inline-flex;padding:0}
 .ev-row.ms.done .ev-tick{color:${GREEN}}
 .ev-pick{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1 1 260px}
-.ev-pick select,.ev-pick input{border:1px solid #E4E5EF;border-radius:9px;padding:7px 9px;font-size:12.5px;font-family:inherit;min-width:0;flex:1 1 130px}
+/* the <select> here is now the shared PersonPicker; this styles the "or type
+   a new name" input beside it. Scoped with :not(.pp-search input) so it does
+   not re-add a border to the picker's own search field. */
+.ev-pick>input{border:1px solid #E4E5EF;border-radius:9px;padding:7px 9px;font-size:12.5px;font-family:inherit;min-width:0;flex:1 1 130px}
+.ev-pick .pp{flex:1 1 190px;min-width:0}
 .ev-or{font-size:11.5px;color:#A5A2BC}
 .ev-seed{display:flex;align-items:center;gap:12px;padding:6px 0 14px;font-size:13px;color:#8E89A8}
 .ev-sum{margin-top:14px;border-top:1px solid #E4E5EF;padding-top:12px}
@@ -6412,10 +6471,10 @@ function EventsPage({events,saveEvent,removeEvent,leads,quickLead,open,me}){
     setPick('');
   };
   const Picker=({onPick})=>(<div className="ev-pick">
-    <select value={pick.startsWith('new:')?'':pick} onChange={e=>setPick(e.target.value)}>
-      <option value="">Pick from your CRM…</option>
-      {pool.map(l=><option key={l.id} value={l.id}>{nameOf(l)}{l.isClient?' · client':l.isRelationship?' · relationship':''}</option>)}
-    </select>
+    <PersonPicker people={pool} value={pick.startsWith('new:')?'':pick}
+      onChange={id=>setPick(id)} emptyLabel={'Pick from your CRM\u2026'}
+      placeholder="Search a name or business…"
+      groupBy={l=>l.isClient?'Clients':l.isRelationship?'Relationships':'Leads'}/>
     <span className="ev-or">or</span>
     <input placeholder="Type a new name" value={pick.startsWith('new:')?pick.slice(4):''}
       onChange={e=>setPick('new:'+e.target.value)}/>
@@ -7734,7 +7793,7 @@ function InvoiceModal({invoice,leads,settings,saveSettings,onSave,onDelete,onClo
       <div className="inv-body">
         <div className="inv-edit">
           <div className="dh"><Contact2 size={13}/>Bill To</div>
-          <div className="field" style={{marginBottom:10}}><label>Client (auto-fills)</label><select value={inv.clientId||''} onChange={e=>pickClient(e.target.value)}><option value="">— Manual / no client —</option>{leads.map(l=><option key={l.id} value={l.id}>{l.company||l.name}</option>)}</select></div>
+          <div className="field" style={{marginBottom:10}}><label>Client (auto-fills)</label><PersonPicker people={leads} value={inv.clientId||''} onChange={id=>pickClient(id)} emptyLabel={'\u2014 Manual / no client \u2014'} placeholder="Search a client or business…"/></div>
           <div className="fgrid">
             <div className="field"><label>Company</label><input value={bt.company||''} onChange={e=>setBT({company:e.target.value})}/></div>
             <div className="field"><label>Contact name</label><input value={bt.name||''} onChange={e=>setBT({name:e.target.value})}/></div>
@@ -8021,18 +8080,9 @@ function TaskModal({task,leads,onSave,onDelete,onClose,rep,me}){
             : <select value={d.owner} onChange={e=>set({owner:e.target.value})}>{TASK_OWNERS.map(o=><option key={o} value={o}>{o}</option>)}</select>}</div>
           <div className="field"><label>Due date</label><input type="date" value={d.due||''} onChange={e=>set({due:e.target.value})}/></div>
           <div className="field full"><label>Link to a client or lead</label>
-            <select value={d.leadId||''} onChange={e=>set({leadId:e.target.value})}>
-              <option value="">— none —</option>
-              {(()=>{ const lbl=l=>(l.company?l.company+(l.name?` (${l.name})`:''):l.name)||'Untitled';
-                const by=f=>leads.filter(f).sort((a,b)=>lbl(a).localeCompare(lbl(b)));
-                const cli=by(l=>l.isClient), lds=by(l=>!l.isClient&&!l.isRelationship), rel=by(l=>l.isRelationship&&!l.isClient);
-                return (<>
-                  {cli.length>0&&<optgroup label="Clients">{cli.map(l=><option key={l.id} value={l.id}>{lbl(l)}</option>)}</optgroup>}
-                  {lds.length>0&&<optgroup label="Leads">{lds.map(l=><option key={l.id} value={l.id}>{lbl(l)}</option>)}</optgroup>}
-                  {rel.length>0&&<optgroup label="Relationships">{rel.map(l=><option key={l.id} value={l.id}>{lbl(l)}</option>)}</optgroup>}
-                </>);
-              })()}
-            </select>
+            <PersonPicker people={leads} value={d.leadId||''} onChange={id=>set({leadId:id})}
+              emptyLabel={'\u2014 none \u2014'} placeholder="Search a client, lead or business…"
+              groupBy={l=>l.isClient?'Clients':l.isRelationship?'Relationships':'Leads'}/>
           </div>
         </div>
         {Knob({label:"Revenue impact",field:"revenue",hint:"how much cash it moves"})}

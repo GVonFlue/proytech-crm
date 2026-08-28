@@ -54,17 +54,17 @@ const segBtn=label=>[...document.querySelectorAll('.seg-b')].find(b=>(b.textCont
 
 await nav('Tasks');
 console.log('\nthe control');
-const today=segBtn('Today'), later=segBtn('Upcoming'), none=segBtn('No date');
-ok('Today / Upcoming / No date chips exist', !!today&&!!later&&!!none);
-ok('Today counts 3 (2 overdue + 1 due today, open only)',
-   /Today\s*3(?!\d)/.test((today&&today.textContent||'').replace(/\s+/g,' ')), (today&&today.textContent||'').trim());
+const today=segBtn('Due today'), later=segBtn('Upcoming'), none=segBtn('No date');
+ok('Due today / Upcoming / No date chips exist', !!today&&!!later&&!!none);
+ok('Due today counts 3 (2 overdue + 1 due today, open only)',
+   /Due today\s*3(?!\d)/.test((today&&today.textContent||'').replace(/\s+/g,' ')), (today&&today.textContent||'').trim());
 ok('Upcoming counts 2', /Upcoming\s*2(?!\d)/.test((later&&later.textContent||'').replace(/\s+/g,' ')), (later&&later.textContent||'').trim());
 ok('No date counts 2', /No date\s*2(?!\d)/.test((none&&none.textContent||'').replace(/\s+/g,' ')), (none&&none.textContent||'').trim());
 
 console.log('\nAll (default) is unchanged');
 ok('shows all 7 open tasks', titles().length===7, 'n='+titles().length+' :: '+titles().join(' | '));
 
-console.log('\nToday');
+console.log('\nDue today');
 await click(today);
 const tt=titles();
 ok('shows exactly 3', tt.length===3, tt.join(' | '));
@@ -84,11 +84,51 @@ const nd=titles();
 ok('No date shows only undated', nd.length===2&&nd.every(t=>/undated|No date at all/i.test(t)), nd.join(' | '));
 
 console.log('\nit combines with Done, it does not replace it');
-await click(segBtn('Today'));
+await click(segBtn('Due today'));
 const doneBtn=[...document.querySelectorAll('.seg-b')].find(b=>(b.textContent||'').trim()==='Done');
 if(doneBtn){ await click(doneBtn);
   const dn=titles();
   ok('Today + Done shows the completed one only', dn.length===1&&/Done and dusted/.test(dn[0]), dn.join(' | ')); }
+
+console.log('\nFocus / Free time');
+/* Back to a view where every OPEN task is visible. segBtn matches the first
+   chip with that label and three rows own an "All", so the date filter is
+   picked off the end deliberately. The previous block left Show on Done, and
+   the cap counts open tasks only — so reading it there would have measured
+   nothing and looked like a broken counter. */
+const allChips=()=>[...document.querySelectorAll('.seg-b')].filter(b=>(b.textContent||'').trim().startsWith('All'));
+await click(segBtn('Open')); await act(async()=>{await new Promise(r=>setTimeout(r,60));});
+await click(allChips().at(-1)); await act(async()=>{await new Promise(r=>setTimeout(r,60));});
+const secs=()=>[...document.querySelectorAll('.task-sec h3')].map(h=>(h.textContent||'').trim());
+const inSec=cls=>{const l=document.querySelector(cls); return l?[...l.querySelectorAll('.card span')]
+  .map(e=>(e.textContent||'').trim()).filter(t=>/Overdue by|Due today|Due tomorrow|Due next week|No date at all|Another undated|Done and dusted/.test(t)):[];};
+const lists=()=>[...document.querySelectorAll('.task-list')];
+const focusBtns=()=>[...document.querySelectorAll('.task-focus')];
+
+ok('both sections render', secs().some(t=>/Focus/.test(t))&&secs().some(t=>/Free time/.test(t)), secs().join(' | '));
+ok('the cap reads 0 of 6 to start', /0 \/ 6/.test((document.querySelector('.task-cap')||{}).textContent||''),
+   (document.querySelector('.task-cap')||{}).textContent||'none');
+const before=lists().length;
+ok('everything starts in the pile', focusBtns().length>0 && !document.querySelector('.task-focus.on'));
+
+/* one click, no edit form */
+await click(focusBtns()[0]); await act(async()=>{await new Promise(r=>setTimeout(r,70));});
+ok('one click moves a task into Focus', !!document.querySelector('.task-focus.on'));
+ok('the cap counts it', /1 \/ 6/.test((document.querySelector('.task-cap')||{}).textContent||''),
+   (document.querySelector('.task-cap')||{}).textContent||'none');
+ok('Focus is a section, not a fourth filter chip',
+   ![...document.querySelectorAll('.seg-b')].some(b=>/^Focus$/.test((b.textContent||'').trim())));
+
+/* and back out again, same one click */
+await click(document.querySelector('.task-focus.on')); await act(async()=>{await new Promise(r=>setTimeout(r,70));});
+ok('clicking again puts it back in the pile', !document.querySelector('.task-focus.on'));
+ok('the cap drops back', /0 \/ 6/.test((document.querySelector('.task-cap')||{}).textContent||''),
+   (document.querySelector('.task-cap')||{}).textContent||'none');
+
+/* the due-date filter still means due date, and says so */
+ok('the date chip is now unambiguous', !!segBtn('Due today') && ![...document.querySelectorAll('.seg-b')]
+   .some(b=>(b.textContent||'').trim().startsWith('Today')),
+   [...document.querySelectorAll('.seg-b')].map(b=>(b.textContent||'').trim()).join(' | '));
 
 console.log('\nliteral escape sequences are gone');
 const body=document.body.textContent||'';

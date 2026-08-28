@@ -49,6 +49,16 @@ const btn=re=>[...document.querySelectorAll('button')].find(b=>re.test((b.textCo
 const seg=l=>[...document.querySelectorAll('.seg-b')].find(b=>(b.textContent||'').trim()===l);
 const field=lab=>{const f=[...document.querySelectorAll('.field')].find(e=>((e.querySelector('label')||{}).textContent||'').trim()===lab);
   return f?f.querySelector('input,select'):null;};
+/* The raw <select> in .ev-pick is now the shared PersonPicker: a button that
+   opens a search box and a list of rows. Rows commit on mousedown, not click,
+   so the list is not torn down by the blur before the choice registers. */
+const ppOpen=async root=>{await click(root.querySelector('.pp-face'));await settle(40);};
+const ppRows=root=>[...root.querySelectorAll('.pp-row:not(.none)')].map(r=>(r.textContent||'').trim());
+const ppGroups=root=>[...root.querySelectorAll('.pp-group')].map(g=>(g.textContent||'').trim());
+const ppType=async(root,q)=>{await setVal(root.querySelector('.pp-search input'),q);await settle(40);};
+const ppPick=async(root,re)=>{const r=[...root.querySelectorAll('.pp-row')].find(x=>re.test(x.textContent||''));
+  if(r)await act(async()=>{r.dispatchEvent(new dom.window.MouseEvent('mousedown',{bubbles:true}));});
+  await settle(40);return !!r;};
 const ev=()=>globalThis.__EVENT_WRITES__.at(-1);
 const pad=n=>String(n).padStart(2,'0');
 const day=n=>{const d=new Date(Date.now()+n*864e5);return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;};
@@ -94,11 +104,18 @@ await setVal(lab,'Catering'); await settle(20);
 await setVal(document.querySelector('.ev-row .ev-amt'),'150'); await settle();
 ok('label and price saved', ev().slots[0].label==='Catering'&&ev().slots[0].price==='150',
    JSON.stringify(ev().slots[0]));
-const sel=document.querySelector('.ev-pick select');
-ok('the picker lists CRM contacts', [...sel.options].some(o=>/Dustin Kihle/.test(o.textContent))
-   && [...sel.options].some(o=>/relationship/.test(o.textContent)), [...sel.options].map(o=>o.textContent).join(' | '));
-await act(async()=>{const s=Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype,'value').set;
-  s.call(sel,'c1'); sel.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+const pick=document.querySelector('.ev-pick');
+await ppOpen(pick);
+ok('the picker lists CRM contacts', ppRows(pick).some(t=>/Dustin Kihle/.test(t)), ppRows(pick).join(' | '));
+ok('shown as name \u2014 business', ppRows(pick).some(t=>/Dustin Kihle \u2014 Kihle Roofing/.test(t)), ppRows(pick).join(' | '));
+ok('relationships are grouped, not suffixed', ppGroups(pick).some(g=>/Relationships/.test(g)), ppGroups(pick).join(' | '));
+/* the whole point of the change: 170+ leads is a wall you cannot scroll */
+await ppType(pick,'kihle');
+ok('typing a name narrows it', ppRows(pick).length===1 && /Dustin/.test(ppRows(pick)[0]), ppRows(pick).join(' | '));
+await ppType(pick,'adeas');
+ok('the BUSINESS name finds them too', ppRows(pick).some(t=>/Robin/.test(t)), ppRows(pick).join(' | '));
+await ppType(pick,'kihle');
+ok('picked a row', await ppPick(pick,/Dustin/));
 await click(btn(/^Add$/)); await settle();
 ok('sponsor attached from the CRM', ev().slots[0].contactId==='c1'&&/Dustin/.test(ev().slots[0].contactName),
    JSON.stringify(ev().slots[0]));
@@ -115,9 +132,10 @@ ok('sourced to the event', lw && lw.source==='Suite Night · August', lw&&lw.sou
 
 console.log('\nguest list and seat maths');
 await click(seg('Guest list')); await settle();
-const gsel=document.querySelector('.ev-pick select');
-await act(async()=>{const s=Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype,'value').set;
-  s.call(gsel,'c2'); gsel.dispatchEvent(new dom.window.Event('change',{bubbles:true}));});
+const gpick=document.querySelector('.ev-pick');
+await ppOpen(gpick);
+await ppType(gpick,'robin');
+ok('guest picker found Robin by name', await ppPick(gpick,/Robin/));
 await click(btn(/^Add$/)); await settle();
 ok('guest added as invited', (ev().guests||[]).length===1 && ev().guests[0].status==='invited');
 const kpiV=lab2=>{const k=[...document.querySelectorAll('.kpi')].find(e=>

@@ -973,3 +973,74 @@ export const splitWhen = (v) => {
   const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(s);
   return m ? { day: m[1], time: m[2] } : { day: '', time: '' };
 };
+
+/* ---- how a person is written, everywhere -----------------------------------
+   Six pickers across four files each had their own idea of how to label a
+   person: "name || company", "company || name", "Company (Name)", "name ·
+   company", and two more. So the same lead read differently depending on which
+   screen you were on, and you could not search for one reliably.
+
+   One convention: NAME — BUSINESS. Both when we have both, whichever exists
+   when we have one, and something identifying rather than a blank row when we
+   have neither.
+
+   `businessType` defaults to an em dash elsewhere in this codebase and CSV
+   imports happily carry a literal "-" into a name field, so a value that is
+   only punctuation is treated as no value at all. Otherwise a picker shows a
+   row reading "-" that cannot be searched for or recognised. */
+const JUNK_LABEL = /^[\s\-–—._/\\|]*$/;
+const clean = v => {
+  const s = (v == null ? '' : String(v)).trim();
+  if (!s || JUNK_LABEL.test(s)) return '';
+  if (/^(n\/?a|none|unknown|null|undefined|tbd|\?+)$/i.test(s)) return '';
+  return s;
+};
+
+/* the person's own name, with the junk values stripped */
+export const personName = l => clean(l && l.name);
+/* the business, same treatment */
+export const personBiz  = l => clean(l && l.company);
+
+/* "Devin Hammann — Kleen Stripe". Never returns an empty string: a lead with
+   no name and no company falls back to whatever identifies it, so it stays
+   findable instead of rendering as a blank or a dash. */
+export function personLabel(l) {
+  if (!l) return '';
+  const n = personName(l), b = personBiz(l);
+  if (n && b) return `${n} — ${b}`;
+  if (n || b) return n || b;
+  const contact = clean(l.email) || clean(l.phone);
+  return contact ? `Unnamed — ${contact}` : 'Unnamed';
+}
+
+/* true when the record carries neither a name nor a business. These are real
+   records — usually a half-finished import — so pickers sort them last rather
+   than hiding them, which would make them unreachable and look like data loss. */
+export const isUnlabelled = l => !personName(l) && !personBiz(l);
+
+/* What a type-ahead matches on. Both name and business, so either gets you
+   there, plus email and phone because people search by the thing they have in
+   front of them. Digits are kept bare so "3165550142" finds "(316) 555-0142". */
+export function personSearchText(l) {
+  if (!l) return '';
+  const parts = [personName(l), personBiz(l), clean(l.email), clean(l.phone)];
+  const phone = clean(l && l.phone).replace(/\D/g, '');
+  if (phone) parts.push(phone);
+  return parts.filter(Boolean).join(' ').toLowerCase();
+}
+
+/* Ranked match: every whitespace-separated term must appear somewhere, so
+   "kleen devin" and "devin kleen" both land. Returns a score for ordering —
+   a name that starts with what you typed beats one that merely contains it. */
+export function personMatch(l, q) {
+  const query = (q || '').trim().toLowerCase();
+  if (!query) return 0;
+  const hay = personSearchText(l);
+  const terms = query.split(/\s+/).filter(Boolean);
+  if (!terms.every(t => hay.includes(t))) return -1;
+  const n = personName(l).toLowerCase(), b = personBiz(l).toLowerCase();
+  if (n.startsWith(query) || b.startsWith(query)) return 3;
+  if (n.split(/\s+/).some(w => w.startsWith(query)) ||
+      b.split(/\s+/).some(w => w.startsWith(query))) return 2;
+  return 1;
+}

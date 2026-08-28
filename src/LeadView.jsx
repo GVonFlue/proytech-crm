@@ -41,7 +41,7 @@ import {
   lastTouch,
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
   MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames, bookingBrief, briefText,
-  timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom, DEMO_MIN,
+  timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom, DEMO_MIN, personLabel,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import { useScrollLock } from './lib/scrolllock';
@@ -94,6 +94,7 @@ import {
 } from 'lucide-react';
 import { apptEarnings, payModels } from './lib/reppay';
 import { DateFix, PriBadge, StageBadge } from './LeadBits';
+import PersonPicker from './PersonPicker';
 
 /* The ONE place a meeting gets booked. The Meetings section and the activity
    log's "Meeting Booked" button both render this, so there is a single path to
@@ -577,7 +578,7 @@ function ReferralAdd({leads,onAdd}){
   return (<div className="rl-form">
     <input list="rl-leads" className="rl-in" autoFocus placeholder="Who did you send them?"
       value={who} onChange={e=>setWho(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()}/>
-    <datalist id="rl-leads">{(leads||[]).map(l=><option key={l.id} value={l.name||l.company||''}/>)}</datalist>
+    <datalist id="rl-leads">{(leads||[]).map(l=><option key={l.id} value={personLabel(l)}/>)}</datalist>
     <input className="rl-in" placeholder="Note (optional)" value={note} onChange={e=>setNote(e.target.value)}
       onKeyDown={e=>e.key==='Enter'&&add()}/>
     <input type="date" className="rl-in rl-date" value={when} onChange={e=>setWhen(e.target.value)}/>
@@ -1249,10 +1250,9 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
         {draft.isRelationship&&<div className="tier-btns">{REL_TIERS.map(([k,l,c])=><button key={k} type="button" className={'tier-btn'+((draft.relTier||'new')===k?' on':'')} style={{'--tc':c}} onClick={()=>set({relTier:k})}><span className="tier-dot"/>{l}</button>)}</div>}
         <div className="fgrid" style={{marginTop:10}}>
           <div className="field"><label>Introduced by</label>
-            <select value={draft.introducedBy||''} onChange={e=>set({introducedBy:e.target.value})}>
-              <option value="">— nobody / direct —</option>
-              {candidates.map(x=><option key={x.id} value={x.id}>{x.name}{x.company?' · '+x.company:''}</option>)}
-            </select>
+            <PersonPicker people={candidates} value={draft.introducedBy||''}
+              onChange={id=>set({introducedBy:id})}
+              emptyLabel={'\u2014 nobody / direct \u2014'} placeholder="Search a name or business…"/>
           </div>
           {F({label:'How you know them',k:'relNote'})}
         </div>
