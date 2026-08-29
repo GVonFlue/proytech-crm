@@ -384,6 +384,7 @@ export default function Jarvis({
           who: 'them',
           text: salvaged || why,
           beyond: parsed.beyond || '',
+          model: j.model || '',
           note: salvaged && (parsed.malformed || j.stopReason === 'max_tokens') ? why : '',
           error: !salvaged,
           actions: actions.map(a => ({ ...a, state: 'open' })),
@@ -499,6 +500,10 @@ export default function Jarvis({
               <div className="jv-tag">
                 {m.who === 'me' ? (me || 'You') : AI_NAME}
                 {m.stats && m.stats.hydrated > 0 ? ` · read ${m.stats.hydrated} in full` : ''}
+                {/* which model answered. Without it, "the split did not hold"
+                    and "the cheap model cannot hold the split" look identical
+                    from the outside, and they need different fixes. */}
+                {m.model ? ` · ${/haiku/i.test(m.model) ? 'fast' : /opus/i.test(m.model) ? 'opus' : 'deep'}` : ''}
               </div>
               <div className="jv-body">{m.text}</div>
               {m.beyond && (

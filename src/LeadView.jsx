@@ -570,7 +570,13 @@ function ReferralAdd({leads,onAdd}){
   const [note,setNote]=useState('');
   const [when,setWhen]=useState(todayISO());
   const [open,setOpen]=useState(false);
-  const match=(leads||[]).find(l=>((l.name||l.company||'').toLowerCase())===who.trim().toLowerCase());
+  /* The datalist now offers "Name — Business", so matching on the bare name
+     alone silently stopped linking: picking a real lead off the list produced
+     an UNLINKED entry carrying the whole label as its name. Match the label
+     too — and keep the bare forms, because typing just a name still counts. */
+  const norm=v=>String(v||'').trim().toLowerCase();
+  const match=(leads||[]).find(l=>{ const q=norm(who); if(!q) return false;
+    return norm(personLabel(l))===q||norm(l.name)===q||norm(l.company)===q; });
   const add=()=>{ const name=who.trim(); if(!name) return;
     onAdd({leadId:match?match.id:'',name:match?(match.name||match.company||name):name,note,sentAt:when||todayISO()});
     setWho(''); setNote(''); setWhen(todayISO()); setOpen(false); };
