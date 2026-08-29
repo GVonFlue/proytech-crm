@@ -125,8 +125,10 @@ select
   m->>'start'        as starts,
   m->>'feeState'     as fee_state,
   m->>'fee'          as fee
-from leads l, jsonb_array_elements(l.data->'meetings') m
+from leads l
+cross join lateral jsonb_array_elements(
+  case when jsonb_typeof(l.data->'meetings') = 'array'
+       then l.data->'meetings' else '[]'::jsonb end) m
 where coalesce((l.data->>'isRelationship')::boolean, false)
-  and jsonb_typeof(l.data->'meetings') = 'array'
   and coalesce(m->>'setById', m->>'setBy', '') <> ''
 order by m->>'start' desc;
