@@ -41,7 +41,7 @@ import {
   lastTouch,
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
   MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames, bookingBrief, briefText,
-  timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom, DEMO_MIN, personLabel,
+  timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom, DEMO_MIN, personLabel, countsAsBusiness,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import { useScrollLock } from './lib/scrolllock';
@@ -2115,10 +2115,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 who flips a lead carrying a live deal into a relationship must
                 not lose the panel that edits it; hiding data a person entered
                 is worse than a slightly odd-looking screen. */}
-            {(!draft.isRelationship
-              ||openDealsTotal>0||(draft.closedDeals||[]).length>0
-              ||num(draft.retainer)>0||(Array.isArray(draft.payments)&&draft.payments.length>0))
-              &&Sec('deal',<DollarSign size={13}/>,'Deal',
+            {countsAsBusiness(draft)&&Sec('deal',<DollarSign size={13}/>,'Deal',
               (openDealsTotal>0||num(draft.retainer)>0)?[openDealsTotal>0?usd(openDealsTotal):null,openDeals.length>1?`${openDeals.length} deals`:null,num(draft.retainer)>0?usd(draft.retainer)+'/mo':null].filter(Boolean).join(' · '):'not set',
               <>
                 {(draft.closedDeals||[]).length>0&&(()=>{ const hist=draft.closedDeals||[];

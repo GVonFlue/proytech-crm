@@ -63,6 +63,7 @@ import {
   cashConfirmed, clientOverall, closedDealsTotal, cmsnAmount, cmsnOf, dateVocab, datelessOf,
   dayLabel, daysToDate, daysUntil, dealBits, dealsOf, depositPaidAt, evNum, fmtDate,
   fmtMeetingTime, fmtStamp, introChain, isDateless, isPoolLead, isUpsellDeal, isoOf, personLabel,
+  countsAsBusiness, hasRealDeal,
   keyDatesOf, labelVocab, labelsOf, manualSponsorships, meetingsOf, needsDate,
   normEntry, num, nurtureDaysOf, onbSkipped, openSaleValue, owedBy, pct, poolList,
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
@@ -4031,6 +4032,15 @@ export default function App(){
   const teamNames=users.length?users.filter(u=>u.active!==false).map(u=>u.name):BRAND.team;
   /* relationships are people, not deals — keep them out of the sales views */
   const bizLeads=useMemo(()=>leads.filter(l=>!l.isRelationship),[leads]);
+  /* THE MONEY SET. Everything that belongs in the pipeline, the forecast and
+     the money tiles — every business lead, plus any relationship carrying a
+     real deal. One definition, in lib/lead, shared with the lead view's Deal
+     panel so a screen cannot disagree with the record it is reading.
+
+     This replaces bizLeads on every screen that shows a money total. bizLeads
+     survives for Clients and Invoices, which are lists of clients rather than
+     sums. */
+  const moneyLeads=useMemo(()=>leads.filter(countsAsBusiness),[leads]);
 
   /* Lifted from below the auth early-returns so the Jarvis metrics hook can sit
      with every other hook. Same predicate as before, still the only one. */
@@ -4042,11 +4052,12 @@ export default function App(){
   const inMyWorld=l=>!rep||l.owner_id===myUid||l.owner===me||(l.pool&&myPools.includes(l.pool));
   const scoped=leads.filter(inMyWorld);
   const scopedBiz=bizLeads.filter(inMyWorld);
+  const scopedMoney=moneyLeads.filter(inMyWorld);
   /* Jarvis is a second screen, and ENGINEERING.md §2 says two screens must never
      disagree — so every dollar it reports comes out of useMetrics, the SAME hook
      the Dashboard uses, over the SAME scopedBiz list. Jarvis derives no money of
      its own. A rep gets null: the figures never enter the request at all. */
-  const jvMetrics=useMetrics(scopedBiz,stages,settings,txns);
+  const jvMetrics=useMetrics(scopedMoney,stages,settings,txns);
   /* INBOUND REFERRAL VALUE, for whichever record is open.
 
      Run through useMetrics — the SAME hook the Dashboard uses — over the leads
@@ -4840,14 +4851,14 @@ export default function App(){
       </div>
       <div className="body">
         {!loaded?<div className="empty">Loading…</div>:
-          view==='huddle'?<Huddle leads={scopedBiz} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
+          view==='huddle'?<Huddle leads={scopedMoney} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} leads={scopedBiz} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null}/>:
+          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
           view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
-          view==='pipeline'?<Pipeline leads={scopedBiz} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedBiz.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
+          view==='pipeline'?<Pipeline leads={scopedMoney} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedMoney.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
           view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen} delBatch={delBatch} users={users} reassignMany={reassignMany}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
@@ -4860,7 +4871,7 @@ export default function App(){
           view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
           view==='content'?<ContentStudio/>:
-          view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} users={users} payouts={payouts} />:
+          view==='money'?<MoneyPage txns={txns} upsertTxn={upsertTxn} deleteTxn={deleteTxn} leads={scopedMoney} payLeads={scoped} openLead={openLead} settings={settings} saveSettings={saveSettings} stages={stages} users={users} payouts={payouts} />:
           <SettingsPage settings={settings} saveSettings={saveSettings} leads={leads} saveLeads={saveLeads} invoices={invoices} saveInvoices={saveInvoices} gcal={gcal} onDisconnectGcal={disconnectGcal} refreshGcal={refreshGcal}
             isOwner={isOwner} users={users} me={me} myUid={myUid} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassignLeads={reassignLeads} noUsers={noUsers} pockets={pockets} refreshPockets={pocketRefresh} updateLead={updateLead} payouts={payouts} addPayout={addPayout} openRep={isOwner?openRep:null}/>}
       </div>
@@ -8127,7 +8138,12 @@ const paymentTxns=leads=>(leads||[]).flatMap(l=>paymentRows(l).map(p=>({
      Coming   — committed cash over 90 days (contractual only, never pipeline)
      History  — profit and loss by month
      Where    — expenses by category, and which clients are worth it           */
-function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSettings,stages,users,payouts}){
+/* `leads` is the MONEY set — business leads plus relationships carrying a real
+   deal. `payLeads` is everybody, and it is deliberately wider: apptEarnings
+   pays a setter for an appointment they booked, and a booked appointment is
+   work done however the record is filed. Narrowing that list would have been a
+   pay cut delivered as a refactor. */
+function MoneyPage({txns,upsertTxn,deleteTxn,leads,payLeads,openLead,settings,saveSettings,stages,users,payouts}){
   const [tab,setTab]=useState('now');
   /* computed here rather than passed in — `metrics` is local to Dashboard and
      Money, so threading it through the router would mean lifting it for one
@@ -8168,7 +8184,7 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,openLead,settings,saveSetting
      not after. Approved-and-unpaid is the debt; pending is a claim the owner has
      not agreed to yet and is shown separately rather than folded in. */
   const repRows=(users||[]).filter(u=>u.role==='rep'&&u.active!==false&&num(u.appointment_rate)>0)
-    .map(u=>{ const e=apptEarnings(leads,u.id,num(u.appointment_rate));
+    .map(u=>{ const e=apptEarnings(payLeads||leads,u.id,num(u.appointment_rate));
       const paid=(payouts||[]).filter(p=>String(p.rep_id)===String(u.id)).reduce((a,p)=>a+num(p.amount),0);
       return {u,e,paid,owed:Math.max(0,e.approvedTotal-paid)}; });
   const repOwed=repRows.reduce((a,r)=>a+r.owed,0);

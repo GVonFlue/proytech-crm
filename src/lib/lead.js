@@ -486,6 +486,30 @@ export const contractedTotal=l=>{
   const open=dealsOf(l).reduce((a,d)=>a+dealBits(d),0);
   return closed+open;
 };
+/* ---- one record, two jobs -------------------------------------------------
+   A relationship can also be a genuine lead. The rule for whether it counts as
+   business is NOT the isRelationship flag — it is whether real money is
+   attached, which is the same test the lead view already used to decide
+   whether to keep showing the Deal panel on a record somebody flipped into a
+   relationship (LeadView, the 'deal' section).
+
+   That test lived inline in one component while the money screens filtered on
+   the flag instead, which is how the Dashboard and the Money page came to
+   disagree. It lives here now and both call it, so they cannot drift apart. */
+export const hasRealDeal=l=>{
+  if(!l) return false;
+  if(dealsOf(l).reduce((a,d)=>a+dealBits(d),0)>0) return true;
+  if((Array.isArray(l.closedDeals)?l.closedDeals:[]).length>0) return true;
+  if(num(l.retainer)>0) return true;
+  if(paymentRows(l).length>0) return true;
+  return false;
+};
+/* Does this record belong in the pipeline, the forecast and the money tiles?
+   Every business lead does. A relationship does only once it carries a real
+   deal — so a connector never inflates the pipeline, and a connector who
+   actually bought something is not quietly missing from revenue. */
+export const countsAsBusiness=l=>!!l&&(!l.isRelationship||hasRealDeal(l));
+
 /* What's still owed. A lead with NO payments logged but a confirmed deposit is
    treated as settled, because that's exactly how revenue counts it — the legacy
    fallback. Saying "revenue counted" and "still owes it" about the same client
