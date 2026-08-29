@@ -114,6 +114,21 @@ const CSS = `
   border:1px solid rgba(224,162,43,.3);color:#F6E7C8;box-shadow:inset -2px 0 0 var(--gold)}
 .jv-err .jv-body{background:linear-gradient(90deg,rgba(193,53,43,.2),rgba(193,53,43,.06));
   border-color:rgba(193,53,43,.45);color:#FFC9C2;box-shadow:inset 2px 0 0 var(--hot)}
+/* Why a reply came back odd, said out loud rather than swallowed. Amber, not
+   red: the answer above is still the model's own words and may well be usable
+   — this explains the shape it arrived in. */
+.jv-note{margin-top:7px;padding:8px 12px;border-radius:9px;font-size:12.5px;line-height:1.55;
+  background:rgba(224,162,43,.1);border:1px solid rgba(224,162,43,.3);color:#F2D89C;
+  box-shadow:inset 2px 0 0 var(--gold)}
+/* Reasoning that is NOT from the records. Deliberately unlike the answer above
+   it: no cobalt plate, no lit edge, a dashed border and a label that says so.
+   The user should be able to tell the two apart across the room, without
+   reading a word of either. */
+.jv-beyond{margin-top:8px;padding:10px 13px;border-radius:11px;
+  border:1px dashed rgba(127,216,255,.34);background:rgba(127,216,255,.04)}
+.jv-beyond-tag{font-family:'Space Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.18em;
+  text-transform:uppercase;color:rgba(127,216,255,.62);margin-bottom:6px}
+.jv-beyond-body{font-size:13.5px;line-height:1.62;color:#BDEAFA;white-space:pre-wrap;word-break:break-word}
 
 /* ------------------------------------------------------------- the actions */
 .jv-acts{display:flex;flex-direction:column;gap:7px;margin-top:10px;width:100%}
@@ -353,9 +368,24 @@ export default function Jarvis({
       } else {
         const parsed = parseReply(j.text);
         const { actions } = validateActions(parsed.actions, { visibleIds, rep, teamNames });
+        /* NEVER throw the model's own words away. This used to fall back to a
+           flat "I could not put an answer together for that one", which is an
+           error message wearing an answer's clothes: it told you nothing, and
+           it discarded the one piece of evidence that would have explained it.
+           The raw reply is worth more than a tidy apology — and when there is
+           genuinely nothing to show, say which of the three things happened. */
+        const salvaged = (parsed.answer || '').trim() || String(j.text || '').trim();
+        const why = !String(j.text || '').trim()
+          ? 'The assistant returned an empty reply. Nothing was lost on your side — ask again.'
+          : j.stopReason === 'max_tokens'
+            ? 'That answer ran past the length limit and came back cut off. Ask for it in two narrower questions and it will fit.'
+            : 'That reply came back in a shape I could not read. The raw text is below.';
         setMsgs(m => [...m, {
           who: 'them',
-          text: parsed.answer || 'I could not put an answer together for that one.',
+          text: salvaged || why,
+          beyond: parsed.beyond || '',
+          note: salvaged && (parsed.malformed || j.stopReason === 'max_tokens') ? why : '',
+          error: !salvaged,
           actions: actions.map(a => ({ ...a, state: 'open' })),
           stats,
         }]);
@@ -471,6 +501,13 @@ export default function Jarvis({
                 {m.stats && m.stats.hydrated > 0 ? ` · read ${m.stats.hydrated} in full` : ''}
               </div>
               <div className="jv-body">{m.text}</div>
+              {m.beyond && (
+                <div className="jv-beyond">
+                  <div className="jv-beyond-tag">Not from your records — my reasoning</div>
+                  <div className="jv-beyond-body">{m.beyond}</div>
+                </div>
+              )}
+              {m.note && <div className="jv-note">{m.note}</div>}
 
               {!!(m.actions && m.actions.length) && (
                 <div className="jv-acts">

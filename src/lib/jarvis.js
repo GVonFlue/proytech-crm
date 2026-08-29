@@ -160,6 +160,8 @@ export function indexLine(l, opts = {}) {
   if (l.isClient) line.client = str(l.clientPhase || 'intake', 30);
   if (l.isRelationship) { line.rel = 1; line.tier = str(l.relTier, 4); }
   if (l.introducedBy) line.via = str(l.introducedBy, 60);
+  if (l.pastSponsor) line.spon = 1;
+  if (arr(l.labels).length) line.tags = arr(l.labels).map(x => str(x, 30)).slice(0, 6);
 
   /* Money only for owners. Absent, not blanked — a null still tells a model
      there is a field worth asking about. */
@@ -222,6 +224,19 @@ export function detailOf(l, opts = {}) {
     relTier: str(l.relTier, 4),
     relNote: str(l.relNote, 600),
     custom: l.custom && typeof l.custom === 'object' ? l.custom : {},
+    /* Labels and key dates were on every record and reached the assistant on
+       none of them. For a connector they are most of what you actually know:
+       the tag you filed them under, and the date you meant to remember. */
+    labels: arr(l.labels).map(x => str(x, 40)).slice(0, 20),
+    keyDates: arr(l.keyDates).slice(0, 12).map(k => ({
+      what: str(k && (k.label || k.what), 60), when: str(k && (k.date || k.when), 12),
+    })),
+    /* Sponsorship is a whole relationship this CRM tracks and never mentioned.
+       Asked about a connector who has sponsored an event, the assistant could
+       only infer it from activity notes — which is why it talked around it. */
+    pastSponsor: !!l.pastSponsor,
+    potentialSponsor: !!l.potentialSponsor,
+    sponsorTier: str(l.sponsorTier, 40),
     meetings: arr(l.meetings).slice(0, 12).map(m => ({
       d: m && m.start ? iso(m.start) : '', type: str(m && (m.mtype || m.type), 40),
       status: str(m && m.status, 20), title: str(m && m.title, 120),
@@ -236,6 +251,11 @@ export function detailOf(l, opts = {}) {
     d.closedAt = str(l.closedAt, 12);
     d.deals = arr(l.deals).slice(0, 10).map(x => ({ label: str(x.label, 60), setup: num(x.setup), website: num(x.website), integration: num(x.integration) }));
     d.payments = arr(l.payments).slice(0, 20).map(p => ({ d: str(p.date, 12), amt: num(p.amount), note: str(p.note, 80) }));
+    d.sponsorAmount = num(l.sponsorAmount);
+    d.retainerStart = str(l.retainerStart, 12);
+    d.closedDeals = arr(l.closedDeals).slice(0, 12).map(x => ({
+      label: str(x && x.label, 60), when: str(x && (x.closedAt || x.date), 12), value: num(x && x.value),
+    }));
   }
   return rep ? redactMoney(d) : d;
 }
@@ -265,6 +285,76 @@ export function keywords(q) {
  *  hot (recent touch, upcoming follow-up), because a bare "where are we at"
  *  with no name in it should still return something useful rather than nothing.
  */
+/* ---- the introduction graph ------------------------------------------------
+   The index carries `via` (the introducer's record ID) on each lead, which is
+   the FORWARD edge only. Answering "who has Brandon introduced" from that means
+   finding Brandon's id and then scanning every other line for via===that id — a
+   reverse ID join across the whole book. A model will sometimes do that and
+   sometimes not, which is exactly what was happening: the graph was reachable
+   but only when the user said "look at the relationships web" out loud.
+
+   So precompute the reverse edge. Only people who actually have one appear, so
+   this stays small — on a 170-lead book it is a few dozen rows, not 170.
+
+   referralsOut is the other direction again: who the OWNER sent TO this person.
+   "Who should he meet" is half about who you have already put in front of him,
+   and it was on the record and never sent. */
+export function buildGraph(leads) {
+  const all = arr(leads);
+  const byId = new Map(all.map(l => [String(l.id), l]));
+  const label = l => {
+    const n = str(l && l.name, 80).trim(), c = str(l && l.company, 80).trim();
+    if (n && c) return `${n} — ${c}`;
+    return n || c || 'Unnamed';
+  };
+
+  const introduced = new Map();          // introducer id -> [introduced ids]
+  for (const l of all) {
+    if (!l || !l.introducedBy) continue;
+    const via = String(l.introducedBy);
+    if (via === String(l.id)) continue;  // a record pointing at itself is not an introduction
+    if (!byId.has(via)) continue;        // dangling edge: the introducer was deleted
+    if (!introduced.has(via)) introduced.set(via, []);
+    introduced.get(via).push(String(l.id));
+  }
+
+  const nodes = [];
+  for (const [id, kids] of introduced) {
+    const l = byId.get(id);
+    nodes.push({
+      id, name: label(l),
+      rel: l.isRelationship ? 1 : 0,
+      tier: str(l.relTier, 12),
+      introduced: kids.slice(0, 60),
+      introducedNames: kids.slice(0, 60).map(k => label(byId.get(k))),
+    });
+  }
+  /* busiest connectors first — that is nearly always what the question is about */
+  nodes.sort((a, b) => b.introduced.length - a.introduced.length);
+
+  /* who the owner has sent TO each person */
+  const sent = [];
+  for (const l of all) {
+    const outs = arr(l && l.referralsOut);
+    if (!outs.length) continue;
+    sent.push({
+      id: String(l.id), name: label(l),
+      to: outs.slice(0, 40).map(r => {
+        const hit = r && r.leadId ? byId.get(String(r.leadId)) : null;
+        return {
+          name: hit ? label(hit) : str(r && r.name, 80),
+          id: hit ? String(hit.id) : '',
+          when: str(r && r.sentAt, 12),
+          note: str(r && r.note, 160),
+        };
+      }),
+    });
+  }
+  sent.sort((a, b) => b.to.length - a.to.length);
+
+  return { introducers: nodes.slice(0, 80), sentTo: sent.slice(0, 80) };
+}
+
 export function pickDetail(leads, question, pinned = [], limit = JARVIS_MAX_DETAIL) {
   const all = arr(leads);
   const pin = new Set(arr(pinned).map(String));
@@ -350,6 +440,8 @@ export function buildPayload(opts) {
     index: arr(leads).map(l => indexLine(l, { rep, stages })),
     /* A handful of leads, thick. */
     detail: detailLeads.map(l => detailOf(l, { rep, stages })),
+    /* The introduction network, both directions, precomputed. */
+    graph: buildGraph(leads),
     openTasks: arr(tasks).filter(t => t && !t.done).slice(0, 40).map(t => ({
       id: str(t.id, 40), title: str(t.title, 200), owner: str(t.owner, 40),
       due: str(t.due, 12), lead: str(t.lead, 80),
@@ -466,9 +558,13 @@ export function parseReply(text) {
     const m = raw.match(/\{[\s\S]*\}/);
     if (m) { try { o = JSON.parse(m[0]); } catch { /* fall through */ } }
   }
-  if (!o || typeof o !== 'object') return { answer: raw, actions: [], cited: [], malformed: true };
+  if (!o || typeof o !== 'object') return { answer: raw, beyond: '', actions: [], cited: [], malformed: true };
   return {
     answer: str(o.answer, 6000),
+    /* Kept as its own field all the way to the screen. A heading inside the
+       prose would be a promise the model can blur mid-paragraph; a separate
+       field cannot be blurred, only left empty. */
+    beyond: str(o.beyond, 4000),
     actions: arr(o.actions),
     cited: arr(o.cited).map(x => str(x, 40)).slice(0, 20),
     malformed: false,
