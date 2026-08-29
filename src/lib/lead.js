@@ -45,6 +45,18 @@ export const DEFAULT_OPTIONS={
   service:['Web Design','AI Integration','Both','Unknown','Missed-Call Text-Back','AI Receptionist','Booking / Scheduling','CRM Setup','Full Front Office'],
   nextAction:['Schedule Coffee','Schedule Sit Down','Text in 1 Week','Visit and Introduce','Send Proposal','Follow Up Call','Close','—'],
   owner:[...BRAND.team,BRAND.pool],
+  /* HOW the money arrived, and WHAT IT WAS FOR. Two separate questions that
+     used to live mashed together in one free-text note ("square deposit"),
+     which worked only while one person typed four exact phrases — a single
+     "sqare deposit" and that payment was uncategorisable forever.
+
+     payMethod drives the card-fee estimate: Square costs a percentage plus a
+     fixed amount per payment, Venmo and cash cost nothing, so the fee is a
+     property of the rail rather than of the revenue. payPurpose groups the
+     P&L. Both editable in Settings like every other list here, so a new
+     payment rail does not need a developer. */
+  payMethod:['Square','Venmo','Cash','Check','Bank transfer','Other'],
+  payPurpose:['Deposit','Final payment','Retainer','Milestone','Other'],
   /* Who someone IS, not what stage they're at — so you can reach every veteran
      or first responder at once when something relevant comes up. Deliberately
      separate from @mention tags, which mean "act on this". Editable in
@@ -486,6 +498,41 @@ export const contractedTotal=l=>{
   const open=dealsOf(l).reduce((a,d)=>a+dealBits(d),0);
   return closed+open;
 };
+/* ---- card fees ------------------------------------------------------------
+   The CRM records payments GROSS — the invoice amount, not what landed in the
+   bank after the processor's cut. So a Square fee is real money leaving that
+   appears nowhere, and it is NOT a percentage of revenue: a Venmo payment of
+   the same size costs nothing. It is a property of the rail.
+
+   Only a card rail carries one. Anything else, and anything with no method
+   recorded, contributes zero — an unknown payment is never assumed to be card,
+   because understating this line is the safe direction. A number that is too
+   low gets checked; one that is too high gets believed. */
+export const CARD_METHODS=['Square'];
+export const isCardPayment=p=>!!p&&CARD_METHODS.indexOf(String(p.method||''))!==-1;
+/* rate lives in settings so it is correctable from a statement without a deploy */
+export const cardFeeOf=(p,fees)=>{
+  if(!isCardPayment(p)) return 0;
+  const pct=num(fees&&fees.cardPct), fixed=num(fees&&fees.cardFixed);
+  const amt=num(p.amount);
+  if(amt<=0) return 0;
+  return (amt*pct/100)+fixed;
+};
+/* The estimate AND how much of the book it actually covers. Callers render the
+   coverage next to the number rather than choosing whether to mention it. */
+export function cardFeeSummary(payments,fees){
+  const rows=Array.isArray(payments)?payments:[];
+  let fee=0,counted=0,inferred=0,unknown=0,free=0;
+  rows.forEach(p=>{
+    if(!p) return;
+    if(!p.method){ unknown++; return; }
+    if(p.methodSource==='inferred') inferred++;
+    if(isCardPayment(p)){ fee+=cardFeeOf(p,fees); counted++; }
+    else free++;
+  });
+  return { fee:Math.round(fee*100)/100, counted, inferred, unknown, free, total:rows.length };
+}
+
 /* ---- one record, two jobs -------------------------------------------------
    A relationship can also be a genuine lead. The rule for whether it counts as
    business is NOT the isRelationship flag — it is whether real money is

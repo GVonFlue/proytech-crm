@@ -2943,7 +2943,12 @@ tbody tr.picked:hover{background:#E9EDFD}
 .act-input{width:100%;padding:11px 12px;border:1px solid #DEDFEA;border-radius:10px;font-size:13.5px;font-family:'Inter';resize:vertical;min-height:112px;line-height:1.5}
 .act-input:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
 .act-t.pay.on{border-color:${GREEN};background:color-mix(in srgb,${GREEN} 10%,#fff);color:#1a7d46}
-.pay-compose-row{display:flex;gap:8px}
+.pay-compose-row{display:flex;gap:8px;flex-wrap:wrap}
+/* how it arrived / what it was for — two fields that used to be two words
+   mashed into the note. Sized to sit on the row, wrapping on a phone. */
+.pc-sel{border:1px solid #DEDFEA;border-radius:10px;padding:10px 9px;background:#fff;
+  font:inherit;font-size:13.5px;color:${INK};flex:1 1 140px;min-width:0}
+.pc-sel:focus{outline:none;border-color:${GREEN};box-shadow:0 0 0 3px color-mix(in srgb,${GREEN} 18%,#fff)}
 .pc-amt{display:flex;align-items:center;border:1px solid #DEDFEA;border-radius:10px;padding:0 10px;background:#fff;flex:none;width:120px}
 .pc-amt:focus-within{border-color:${GREEN};box-shadow:0 0 0 3px color-mix(in srgb,${GREEN} 18%,#fff)}
 .pc-amt span{color:#8E89A8;font-weight:700;font-size:14px}
@@ -9002,6 +9007,31 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <OptionEditor label="Lead Source" items={settings.options.source} onChange={a=>setOptions('source',a)}/>
       <OptionEditor label="Business Type" items={settings.options.businessType} onChange={a=>setOptions('businessType',a)}/>
       <OptionEditor label="Next Action" items={settings.options.nextAction} onChange={a=>setOptions('nextAction',a)}/>
+      <OptionEditor label="Payment Method" items={settings.options.payMethod||[]} onChange={a=>setOptions('payMethod',a)}/>
+      <OptionEditor label="Payment Purpose" items={settings.options.payPurpose||[]} onChange={a=>setOptions('payPurpose',a)}/>
+      {/* The processor's cut. Recorded GROSS payments mean this money leaves
+          without appearing anywhere, and it is a property of the rail, not of
+          the revenue — Venmo of the same size costs nothing. Seeded at Square's
+          published invoice rate; correct it from a statement. */}
+      <div style={{marginBottom:18}}>
+        <div style={{fontSize:12.5,fontWeight:700,color:INK,marginBottom:4}}>Card fee</div>
+        <div style={{fontSize:12,color:'#8b88a0',marginBottom:9}}>
+          Used to estimate what Square takes. Shown as a memo beside your P&amp;L, never added to it —
+          the Square statement you log is the only figure that counts.
+        </div>
+        <div className="addrow" style={{gap:10}}>
+          <label style={{display:'flex',alignItems:'center',gap:6,fontSize:13}}>
+            <input type="number" step="0.01" style={{width:90}}
+              value={(settings.fees||{}).cardPct ?? 3.3}
+              onChange={e=>saveSettings({...settings,fees:{...(settings.fees||{}),cardPct:num(e.target.value)}})}/>% of the payment
+          </label>
+          <label style={{display:'flex',alignItems:'center',gap:6,fontSize:13}}>plus $
+            <input type="number" step="0.01" style={{width:90}}
+              value={(settings.fees||{}).cardFixed ?? 0.30}
+              onChange={e=>saveSettings({...settings,fees:{...(settings.fees||{}),cardFixed:num(e.target.value)}})}/>per payment
+          </label>
+        </div>
+      </div>
       {/* labelVocab falls back to the defaults when this has never been saved,
           so the editor has to be seeded with the same list or the first edit
           would wipe every built-in label. */}

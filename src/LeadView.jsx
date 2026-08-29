@@ -721,6 +721,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   const [firstNote,setFirstNote]=useState('');
   const [logMtype,setLogMtype]=useState('Coffee');
   const [payAmt,setPayAmt]=useState('');const [payNote,setPayNote]=useState('');
+  const [payMethod,setPayMethod]=useState('');const [payPurpose,setPayPurpose]=useState('');
   /* who can log a payment from the composer: owners always; reps only if the
      owner has switched it on for the install. */
   const canLogPayment=!rep||(settings&&settings.repPayments);
@@ -1157,12 +1158,18 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   const logPaymentFromComposer=()=>{
     const amount=num(payAmt); if(amount<=0){ window.alert('Enter a payment amount.'); return; }
     const note=payNote.trim();
-    const pay={id:uid(),amount,date:todayISO(),note};
+    /* method and purpose are their own fields now. They used to be two words
+       mashed into the note, which worked only while one person typed four exact
+       phrases. methodSource records whether a human chose it or a migration
+       read it off an old note — the two must never look alike on screen. */
+    const pay={id:uid(),amount,date:todayISO(),note,
+      method:payMethod||'',purpose:payPurpose||'',
+      methodSource:payMethod?'recorded':''};
     const pays=Array.isArray(draft.payments)?draft.payments:[];
     const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who};
     const patch={payments:[...pays,pay],activities:[act,...(draft.activities||[])]};
     setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
-    setPayAmt(''); setPayNote('');
+    setPayAmt(''); setPayNote(''); setPayMethod(''); setPayPurpose('');
   };
   const create=()=>{
     if(!draft.name.trim()){window.alert('Add a name first.');return;}
@@ -1647,7 +1654,15 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               ? <div className="pay-compose">
                   <div className="pay-compose-row">
                     <div className="pc-amt"><span>$</span><input type="number" inputMode="decimal" placeholder="0.00" value={payAmt} onChange={e=>setPayAmt(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/></div>
-                    <input className="pc-note" placeholder="Note (e.g. Square deposit)" value={payNote} onChange={e=>setPayNote(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/>
+                    <select className="pc-sel" value={payMethod} onChange={e=>setPayMethod(e.target.value)} aria-label="How it arrived">
+                      <option value="">How did it arrive?</option>
+                      {(opt.payMethod||[]).map(m=><option key={m} value={m}>{m}</option>)}
+                    </select>
+                    <select className="pc-sel" value={payPurpose} onChange={e=>setPayPurpose(e.target.value)} aria-label="What it was for">
+                      <option value="">What was it for?</option>
+                      {(opt.payPurpose||[]).map(m=><option key={m} value={m}>{m}</option>)}
+                    </select>
+                    <input className="pc-note" placeholder="Note (optional)" value={payNote} onChange={e=>setPayNote(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/>
                   </div>
                 </div>
               : atype==='Booked' ? null
@@ -2202,8 +2217,19 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                     if(dRaw===null) return;
                     const date=String(dRaw).trim().slice(0,10);
                     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)){ window.alert('Please use YYYY-MM-DD, e.g. 2026-08-07.'); return; }
-                    const note=(window.prompt('Note (e.g. "Square deposit", "balance on delivery") — optional:','')||'').trim();
-                    const pay={id:uid(),amount,date,note};
+                    /* method drives the card fee and purpose groups the P&L,
+                       so they are asked rather than inferred from a note. Both
+                       optional: an unanswered method reads as unknown and is
+                       excluded from the fee, never assumed to be a card. */
+                    const mList=(opt.payMethod||[]);
+                    const mRaw=(window.prompt('How did it arrive? ('+mList.join(' / ')+') \u2014 optional:','')||'').trim();
+                    const method=mList.find(x=>x.toLowerCase()===mRaw.toLowerCase())||'';
+                    const pList=(opt.payPurpose||[]);
+                    const pRaw=(window.prompt('What was it for? ('+pList.join(' / ')+') \u2014 optional:','')||'').trim();
+                    const purpose=pList.find(x=>x.toLowerCase()===pRaw.toLowerCase())||'';
+                    const note=(window.prompt('Note \u2014 optional:','')||'').trim();
+                    const pay={id:uid(),amount,date,note,method,purpose,
+                      methodSource:method?'recorded':''};
                     const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who:me};
                     set({payments:[...pays,pay],activities:[act,...(draft.activities||[])]});
                   };
