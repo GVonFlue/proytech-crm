@@ -19,7 +19,7 @@
 // OWNER ONLY. It returns event titles, which is exactly what the availability
 // endpoint deliberately strips before answering a rep. That asymmetry is the
 // point: the owner debugging his own calendar may see it, a rep may not.
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 import { calendarIds, calendarTz, getAccessToken } from './_google.js';
 import { eventsUrl, readCalendar } from './calendar-availability.js';
 import { BANANA, busyFrom, classifyEvent, dayWindow, markSlots, slotsForDay } from '../src/lib/availability.js';
@@ -29,7 +29,7 @@ const iso = ts => (Number.isFinite(ts) ? new Date(ts).toISOString() : String(ts)
 export default async function handler(req, res) {
   const gate = await guard(req, res, {
     name: 'calendar-debug', perIp: 30, windowMin: 10, perDay: 200,
-    maxChars: 500, requireOwner: true,
+    maxChars: 500, requireAdmin: true,
   });
   if (!gate.ok) return;
   sweep();

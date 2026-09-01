@@ -76,6 +76,7 @@ const SELLABLE = {
   'huddle.js':         'huddle',
   'meeting-log.js':    'mlog',
   'calendar-event.js': 'meetings',
+  'calendar-availability.js': 'meetings',
   'import-leads.js':   'leads',
   'parse-receipt.js':  'money',
   'rank-tasks.js':     'tasks',
@@ -101,6 +102,11 @@ const NOT_SELLABLE = {
   'google-status.js':     'integration status, not a sellable section',
   'google-disconnect.js': 'integration teardown, not a sellable section',
   'sheet-read.js':        'reads through the connected Google account; plumbing',
+  /* Admin-only diagnostics for the Google connection. Gating them on the
+     section they diagnose would switch off the tool you reach for when that
+     section is the thing misbehaving. */
+  'calendar-debug.js':    'admin-only diagnostic for the calendar integration',
+  'calendar-probe.js':    'admin-only diagnostic for the calendar integration',
   'notify.js':            'transactional mail, not a section',
   /* Has no call site anywhere in src/. Left ungated deliberately rather than
      guessed at: gating an endpoint whose caller you cannot find is how a live
