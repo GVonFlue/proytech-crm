@@ -215,8 +215,38 @@ function ScopeSeg({view,setView,counts,canAll}){
    this array plus a modulesV bump. */
 const ALL_MODULES=[['jarvis',AI_NAME],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
-const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
-  if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
+/* TWO LAYERS, AND THE DIRECTION MATTERS.
+
+   VITE_MODULES     the CEILING — what this install bought. It lives in the
+                    deployment's environment, which only the operator can edit.
+   settings.modules shaping WITHIN the ceiling. This is an app_settings row and
+                    the install's own admin has WRITE access to it by design —
+                    that is what lets them turn off what they do not use.
+
+   Until now this was a FALLBACK chain: settings.modules was checked first and
+   returned whole, so the row the client can edit did not merely narrow the
+   ceiling, it REPLACED it. A Solo install could open Settings, tick a module
+   belonging to a tier they had not bought, and have it. Not circumvention — a
+   button.
+
+   So the two layers now INTERSECT, and the intersection can only ever narrow.
+   Unset VITE_MODULES means no ceiling and every module is allowed, which is the
+   right default: an unset entitlement must not brick an install that never had
+   tiers. The ceiling is also filtered through ALL_MODULES so a stale name in the
+   environment cannot resurrect a section this app no longer ships (see AUDIT #17
+   on 'pipeline' above).
+
+   THIS IS PACKAGING, NOT A PRIVACY BOUNDARY. It decides which tabs render. The
+   endpoint behind a hidden tab is only closed because guard({ module }) checks
+   the same ceiling on the SERVER, where a fetch cannot argue with it — and even
+   that is a packaging line, not a claim that gated data is unreachable. Row
+   Level Security is what makes data unreachable. */
+const modList=settings=>{
+  const all=ALL_MODULES.map(m=>m[0]);
+  const ceiling=(BRAND.modules&&BRAND.modules.length)?BRAND.modules.filter(k=>all.includes(k)):all;
+  const shaped=(settings&&Array.isArray(settings.modules))?settings.modules:null;
+  return shaped?ceiling.filter(k=>shaped.includes(k)):ceiling;
+};
 const modOn=(settings,k)=>ALWAYS_ON.includes(k)||modList(settings).includes(k);
 
 /* ============================================================================
