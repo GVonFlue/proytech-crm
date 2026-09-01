@@ -25,6 +25,10 @@
 
 process.env.SUPABASE_URL = 'https://x.supabase.co';
 process.env.SUPABASE_SERVICE_KEY = 'service-key';
+/* The package asks whether the caller's role is in ADMIN_ROLES rather than
+   asking for 'owner' by name. Unset, it correctly refuses everybody — which
+   here would look like a broken route instead of an unconfigured install. */
+process.env.ADMIN_ROLES = 'owner';
 process.env.ANTHROPIC_API_KEY_CONTENT = 'sk-ant-test-key-not-real';
 process.env.CRON_SECRET = 'the-cron-secret';
 
@@ -90,7 +94,7 @@ globalThis.fetch = async (url, opts = {}) => {
   }
   /* guard()'s own plumbing */
   if (u.includes('/auth/v1/user')) return json({ id: 'uid-owner' });
-  if (u.includes('/rpc/crm_whoami')) return json([{ role: 'owner', active: true }]);
+  if (u.includes('/rpc/core_whoami')) return json([{ role: 'owner', active: true }]);
   if (u.includes('api_hits')) return method === 'POST' ? json([]) : json([]);
 
   if (u.includes('content_usage')) {
@@ -252,7 +256,7 @@ console.log('\nthe scheduled run');
   un();
   ok('Vercel\'s cron gets in with CRON_SECRET on a GET', res.code === 200, res.code + ' ' + JSON.stringify(res.body).slice(0, 160));
   ok('  and it generated a real slate', wrote(/content_posts/, 'POST').length === 1);
-  ok('  without asking Postgres who it is', seen(/crm_whoami/).length === 0);
+  ok('  without asking Postgres who it is', seen(/core_whoami/).length === 0);
 }
 {
   reset();
@@ -313,7 +317,7 @@ console.log('\na refused scheduled run says why');
   ok('  saying it did not MATCH', /did not match/i.test(res.body.error || ''), res.body.error);
   ok('  and telling you to redeploy', /redeploy/i.test(res.body.error || ''), res.body.error);
   ok('  spending nothing', seen(/api\.anthropic\.com/).length === 0);
-  ok('  and never asking Supabase who it is', seen(/auth\/v1\/user|crm_whoami/).length === 0,
+  ok('  and never asking Supabase who it is', seen(/auth\/v1\/user|core_whoami/).length === 0,
     'the old path burned a Supabase round trip to produce a wrong answer');
 }
 {

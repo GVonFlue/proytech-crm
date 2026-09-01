@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 import {
   brandContext, underCap, loadPost, patchPost, logUsage, askAnthropic,
 } from './_content.js';
@@ -40,7 +40,7 @@ const OPERATION = 'regenerate';
 export default async function handler(req, res) {
   const gate = await guard(req, res, {
     name: 'content-regenerate', perIp: 30, windowMin: 60, perDay: 200,
-    maxChars: 2000, requireOwner: true,
+    maxChars: 2000, requireAdmin: true,
   });
   if (!gate.ok) return;
   sweep();

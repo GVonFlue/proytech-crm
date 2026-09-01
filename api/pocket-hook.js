@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 import { RAW_MAX, str, patchFrom, recordingIdOf, upsertMerge, markDeleted } from './_pocket.js';
 
 // api/pocket-hook.js — Pocket AI posts every recording here.
@@ -26,7 +26,7 @@ import { RAW_MAX, str, patchFrom, recordingIdOf, upsertMerge, markDeleted } from
 // WRITES BYPASS RLS, ON PURPOSE
 //
 //   This writes pocket_recordings with SUPABASE_SERVICE_KEY, the same key
-//   _guard.js already uses for api_hits. RLS governs the browser and cannot
+//   @getproytech/core/guard already uses for api_hits. RLS governs the browser and cannot
 //   govern a caller with no session; VERIFY-RLS.md §7 proves the browser side
 //   and says so explicitly.
 //
@@ -129,7 +129,7 @@ export default async function handler(req, res) {
   if (!signatureOk(raw, sig, ts))  { res.status(401).json({ error: 'Bad signature.' }); return; }
 
   /* guard() reads req.body for its size check and has a string branch, so
-     handing it the raw string measures the true payload and _guard.js needs no
+     handing it the raw string measures the true payload and @getproytech/core/guard needs no
      change. maxChars matches RAW_MAX deliberately: a guard 413 and a readRaw
      413 must not disagree, or a legitimate recording is refused by one limit
      after passing the other. */

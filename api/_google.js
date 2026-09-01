@@ -7,7 +7,7 @@
 //
 // The refresh token lives in a `secrets` table that Row Level Security blocks
 // from the browser; only the service-role key (here on the server) can read it.
-import { SUPA_KEY, SUPA_URL } from './_env.js';
+import { supaKey, supaUrl } from '@getproytech/core/env';
 import { createClient } from '@supabase/supabase-js';
 
 export const OAUTH_SCOPES = [
@@ -47,8 +47,8 @@ export const appUrl = () => process.env.APP_URL || 'https://proytech-crm.vercel.
 export const redirectUri = () => process.env.GOOGLE_REDIRECT_URI || (appUrl() + '/api/google-callback');
 
 function store() {
-  const url = SUPA_URL;
-  const key = SUPA_KEY;
+  const url = supaUrl();
+  const key = supaKey();
   if (!url || !key) return null;
   return createClient(url, key, { auth: { persistSession: false } });
 }

@@ -7,9 +7,10 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node tests/all.mjs"
+    "test": "proytech-check-deps && node tests/all.mjs"
   },
   "dependencies": {
+    "@getproytech/core": "^0.2.1",
     "@supabase/supabase-js": "^2.45.4",
     "jszip": "^3.10.1",
     "lucide-react": "^0.383.0",

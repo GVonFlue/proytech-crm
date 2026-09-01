@@ -1,130 +1,167 @@
-/* The rate limiter guards your Anthropic bill, so it gets tested like it
-   matters. Pure logic — no DOM, no React. */
-/* env FIRST: _guard.js reads SUPABASE_URL/KEY at module scope, and ES imports
-   are hoisted — setting them after a static import leaves the limiter
-   unconfigured, where it correctly fails open and every test passes for the
-   wrong reason. */
-process.env.SUPABASE_URL='https://x.supabase.co';
-process.env.SUPABASE_SERVICE_KEY='k';
-const { guard, ipOf } = await import('../api/_guard.js');
+/* ============================================================================
+   tests/guard.mjs — is THIS repo wired to the shared platform correctly?
 
-let pass=0,fail=0;
-const ok=(n,c,x='')=>{c?(pass++,console.log('  ok  '+n)):(fail++,console.log('  FAIL '+n+(x?' — '+x:'')));};
+   WHAT MOVED, AND WHY THIS FILE SHRANK FROM 130 LINES.
 
-/* an in-memory stand-in for the Supabase counter table */
-const store=[]; let reachable=true;
-globalThis.fetch=async(url,opts={})=>{
-  if(!reachable) throw new Error('supabase down');
-  const u=String(url);
-  if(u.includes('/auth/v1/user')){
-    const tok=(opts.headers||{}).authorization||'';
-    return /good/.test(tok)?{ok:true,json:async()=>({id:'u1'})}:{ok:false,json:async()=>({})};
-  }
-  if((opts.method||'GET')==='POST'&&u.includes('api_hits')){
-    store.push(JSON.parse(opts.body)); return {ok:true,text:async()=>'[]'};
-  }
-  if(u.includes('api_hits')){
-    const b=decodeURIComponent((u.match(/bucket=eq\.([^&]+)/)||[])[1]||'');
-    const since=(u.match(/at=gte\.([^&]+)/)||[])[1];
-    const cutoff=since?new Date(decodeURIComponent(since)).getTime():0;
-    const rows=store.filter(r=>r.bucket===b&&new Date(r.at).getTime()>=cutoff);
-    return {ok:true,text:async()=>JSON.stringify(rows.map(()=>({id:1})))};
-  }
-  return {ok:false,text:async()=>''};
+   The BEHAVIOUR of the guard — per-IP and global rate limits, 413 on an
+   oversized body and the numbers in its hint, 401 on a missing or bad token,
+   failing open on an unreachable ledger and closed on an unprovable role — is
+   now tested inside @getproytech/core, once, against all three installs' rules.
+   It was tested here too, against a local copy, and that copy would have drifted
+   from the package the first time either changed. A duplicated test is a
+   duplicated implementation one layer up: it keeps passing while the thing it
+   describes moves out from under it.
+
+   WHAT STAYED IS WHAT ONLY THIS REPO CAN GET WRONG:
+
+     * a route that reaches for the deleted local copies, which resolves to
+       nothing and fails at RUNTIME, in production, on the first request rather
+       than at build time
+     * a local platform file creeping back in, which is how the four copies
+       happened the first time
+     * a sellable route that declares no module, which makes the tier sold on it
+       unenforceable — the tab hides and the endpoint keeps answering
+     * the .npmrc that resolves the private package going missing
+
+   Auth coverage lives in tests/apiauth.mjs and is not repeated here.
+
+   Reads source. Runs anywhere. Run with: npm test
+   ========================================================================== */
+import fs from 'node:fs';
+import path from 'node:path';
+
+let pass = 0, fail = 0;
+const ok = (n, c, x = '') => { c ? (pass++, console.log('  ok  ' + n))
+                                 : (fail++, console.log('  FAIL ' + n + (x ? ' — ' + x : ''))); };
+const read = f => fs.readFileSync(path.join('api', f), 'utf8');
+const routes = fs.readdirSync('api').filter(f => f.endsWith('.js') && !f.startsWith('_')).sort();
+
+console.log('\nthe local platform copies are gone and nothing reaches for them');
+{
+  const gone = ['_guard.js', '_env.js', '_spend.js'];
+  const back = gone.filter(f => fs.existsSync(path.join('api', f)));
+  ok('no local copy has crept back in', back.length === 0,
+     `these will drift from the package: ${back.join(', ')}`);
+
+  const stale = fs.readdirSync('api').filter(f => f.endsWith('.js'))
+    .filter(f => /from '\.\/_(guard|env|spend)\.js'/.test(read(f)));
+  ok('nothing still imports one', stale.length === 0,
+     `${stale.join(', ')} import a file that no longer exists — this fails at runtime, not at build`);
+}
+
+console.log('\nplatform code comes from the package');
+{
+  const users = fs.readdirSync('api').filter(f => f.endsWith('.js'))
+    .filter(f => /\bguard\(req|\bsupaUrl\(\)|\bcostOf\(/.test(read(f)));
+  const unsourced = users.filter(f => !/from '@getproytech\/core\//.test(read(f)));
+  ok('every file using platform code imports it from @getproytech/core',
+     unsourced.length === 0, unsourced.join(', '));
+  ok('  and that is a real set, not an empty one', users.length >= 10, users.length + ' files');
+}
+
+/* ---------------------------------------------------------------------------
+   THE SELLABLE SURFACE.
+
+   Every route is in exactly one of these two lists, asserted below, so adding a
+   route forces the question "is this something a tier is sold on?" to be
+   answered by a person rather than defaulted to "no" by silence.
+
+   A route with no `module:` can never be gated. The tab hides in the browser and
+   the endpoint keeps answering, which is the difference between packaging and a
+   claim of enforcement.
+   --------------------------------------------------------------------------- */
+const SELLABLE = {
+  'jarvis.js':         'jarvis',
+  'kb-draft.js':       'playbook',
+  'huddle.js':         'huddle',
+  'meeting-log.js':    'mlog',
+  'calendar-event.js': 'meetings',
+  'import-leads.js':   'leads',
+  'parse-receipt.js':  'money',
+  'rank-tasks.js':     'tasks',
 };
-const mkRes=()=>{const r={code:0,body:null,headers:{}};
-  r.status=c=>{r.code=c;return r;}; r.json=b=>{r.body=b;return r;};
-  r.setHeader=(k,v)=>{r.headers[k]=v;}; r.end=()=>r; return r;};
-const mkReq=(ip,body,tok)=>({method:'POST',
-  headers:{'x-forwarded-for':ip,...(tok?{authorization:'Bearer '+tok}:{})},
-  socket:{remoteAddress:ip},body:body||{q:'hi'}});
 
-console.log('\nper-IP limit');
-store.length=0;
-let blocked=0;
-for(let i=0;i<8;i++){ const res=mkRes();
-  const g=await guard(mkReq('1.1.1.1'),res,{name:'t1',perIp:5,perDay:9999});
-  if(!g.ok) blocked++; }
-ok('the first 5 get through, the rest are blocked', blocked===3, blocked+' blocked of 8');
-{ const res=mkRes(); await guard(mkReq('1.1.1.1'),res,{name:'t1',perIp:5,perDay:9999});
-  ok('a blocked caller gets 429', res.code===429, 'code '+res.code);
-  ok('and a retry-after header', !!res.headers['retry-after'], JSON.stringify(res.headers)); }
-{ const res=mkRes();
-  const g=await guard(mkReq('2.2.2.2'),res,{name:'t1',perIp:5,perDay:9999});
-  ok('a DIFFERENT ip is unaffected', g.ok===true, 'code '+res.code); }
+const NOT_SELLABLE = {
+  /* Content Studio is gated by the BUILD (CONTENT_STUDIO_ON), not by the module
+     list — see canOpen() in src/App.jsx, which says why. A `module:` here would
+     be a second, disagreeing switch for one feature. */
+  'content-slate.js':      'gated by CONTENT_STUDIO_ON, not by the module list',
+  'content-regenerate.js': 'gated by CONTENT_STUDIO_ON, not by the module list',
+  'content-usage.js':      'gated by CONTENT_STUDIO_ON, not by the module list',
+  /* Pocket has no key in ALL_MODULES, so there is nothing for a ceiling to
+     name. If it ever becomes sellable it needs the key FIRST, then the module:
+     here — in that order, or the endpoint gates against a name no tier sells. */
+  'pocket-segment.js':  'no ALL_MODULES key exists for Pocket',
+  'pocket-backfill.js': 'no ALL_MODULES key exists for Pocket',
+  'pocket-hook.js':     'webhook, no session and no tab — HMAC signed',
+  /* Integrations and plumbing. Connecting Google is not a section on the price
+     list; the sections that USE it (meetings, mlog) are gated instead. */
+  'google-auth.js':       'OAuth handshake',
+  'google-callback.js':   'OAuth handshake, hit by Google itself',
+  'google-status.js':     'integration status, not a sellable section',
+  'google-disconnect.js': 'integration teardown, not a sellable section',
+  'sheet-read.js':        'reads through the connected Google account; plumbing',
+  'notify.js':            'transactional mail, not a section',
+  /* Has no call site anywhere in src/. Left ungated deliberately rather than
+     guessed at: gating an endpoint whose caller you cannot find is how a live
+     feature you forgot about starts answering 403. */
+  'conversation.js':      'no call site in src/ — see the note in tests/guard.mjs',
+};
 
-console.log('\nglobal cap — the one that stops a botnet');
-store.length=0;
-let through=0;
-/* every request from a unique IP, so per-IP never fires. Only the global cap
-   can stop this, which is the entire point of having one. */
-for(let i=0;i<12;i++){ const res=mkRes();
-  const g=await guard(mkReq('10.0.0.'+i),res,{name:'t2',perIp:99,perDay:7});
-  if(g.ok) through++; }
-ok('a distributed flood is capped at the daily limit', through===7, through+' got through, cap was 7');
-{ const res=mkRes(); await guard(mkReq('10.9.9.9'),res,{name:'t2',perIp:99,perDay:7});
-  ok('it returns 429', res.code===429);
-  ok('and does NOT leak where the ceiling is',
-     !/\d/.test(String(res.body&&res.body.error||'')), JSON.stringify(res.body)); }
+console.log('\nevery sellable route declares the module it belongs to');
+for (const [f, key] of Object.entries(SELLABLE)) {
+  const src = read(f);
+  ok(f + " declares module: '" + key + "'",
+     new RegExp("module:\\s*'" + key + "'").test(src),
+     'belongs to a sellable section but the endpoint cannot be gated');
+}
 
-console.log('\noversized input');
-{ const res=mkRes();
-  const g=await guard(mkReq('3.3.3.3',{q:'x'.repeat(20000)}),res,{name:'t3',maxChars:5000});
-  ok('a huge paste is rejected', g.ok===false&&res.code===413, 'code '+res.code);
-  ok('before any counter is touched', !store.some(r=>r.bucket.includes('t3')),
-     JSON.stringify(store.map(r=>r.bucket))); }
+console.log('\nthe two lists together cover every route, so a new one forces a decision');
+{
+  const unclassified = routes.filter(f => !SELLABLE[f] && !NOT_SELLABLE[f]);
+  ok('no route is unclassified', unclassified.length === 0,
+     `${unclassified.join(', ')} — add to SELLABLE with a module, or to NOT_SELLABLE with a reason`);
 
-console.log('\nthe size limit is per endpoint, and says so');
-{ /* the same body against two endpoints: one that takes a pasted transcript
-     and one that takes a sheet link. A single shared default cannot be right
-     for both, which is the whole point of setting it per call site. */
-  const body={transcript:'x'.repeat(150000)};
-  const big=mkRes(); const gb=await guard(mkReq('6.6.6.6',body),big,{name:'t7a',maxChars:260000});
-  ok('a 150k transcript gets through an endpoint sized for one', gb.ok===true, 'code '+big.code);
-  const small=mkRes(); const gs=await guard(mkReq('6.6.6.6',body),small,{name:'t7b',maxChars:4000});
-  ok('and is refused by one that is not', gs.ok===false&&small.code===413, 'code '+small.code); }
-{ const res=mkRes();
-  await guard(mkReq('7.7.7.7',{q:'x'.repeat(9000)}),res,{name:'t8',maxChars:5000});
-  const b=res.body||{};
-  const hint=String(b.hint||'');
-  /* the sender's actual question is "how much has to come out", and it cannot
-     be answered from the limit alone */
-  ok('the message states the actual size', /9,0\d\d/.test(hint), hint);
-  ok('and the limit for THIS endpoint', /5,000/.test(hint), hint);
-  ok('and the machine-readable pair is there too', b.chars>9000&&b.limit===5000,
-     JSON.stringify({chars:b.chars,limit:b.limit}));
-  ok('over = how much to trim', b.over===b.chars-b.limit, JSON.stringify({over:b.over}));
-  ok('the size reported is the whole body, not one field', b.chars>9000&&b.chars<9100, String(b.chars)); }
+  const ghosts = [...Object.keys(SELLABLE), ...Object.keys(NOT_SELLABLE)].filter(f => !routes.includes(f));
+  ok('and neither list names a route that no longer exists', ghosts.length === 0, ghosts.join(', '));
 
-console.log('\nauth');
-store.length=0;
-{ const res=mkRes();
-  const g=await guard(mkReq('4.4.4.4',null),res,{name:'t4',requireAuth:true});
-  ok('no token is refused', g.ok===false&&res.code===401, 'code '+res.code); }
-{ const res=mkRes();
-  const g=await guard(mkReq('4.4.4.4',null,'bad'),res,{name:'t4',requireAuth:true});
-  ok('a bad token is refused', g.ok===false&&res.code===401, 'code '+res.code); }
-{ const res=mkRes();
-  const g=await guard(mkReq('4.4.4.4',null,'good'),res,{name:'t4',requireAuth:true});
-  ok('a valid token gets through', g.ok===true, 'code '+res.code);
-  ok('and the user is returned', g.user&&g.user.id==='u1'); }
+  /* The reverse: a route declaring a module while sitting in NOT_SELLABLE means
+     the two lists disagree, and the code wins at runtime. */
+  const contradictory = Object.keys(NOT_SELLABLE).filter(f => /module:\s*'/.test(read(f)));
+  ok('nothing in NOT_SELLABLE quietly declares a module anyway',
+     contradictory.length === 0, contradictory.join(', '));
+}
 
-console.log('\nwhen Supabase is down');
-store.length=0; reachable=false;
-{ const res=mkRes();
-  const g=await guard(mkReq('5.5.5.5'),res,{name:'t5',perIp:1,perDay:1});
-  ok('it fails OPEN, not closed', g.ok===true,
-     'a limiter that takes the site down when its own store hiccups is worse than the problem');
-  ok('and does not block the caller', g.ok===true&&res.code===0, 'code '+res.code); }
-reachable=true;
+console.log('\nthe keys the server gates on are keys the client actually ships');
+{
+  /* THE HALF THAT CANNOT BE CHECKED FROM EITHER SIDE ALONE.
 
-console.log('\nmethod and IP handling');
-{ const res=mkRes();
-  const g=await guard({method:'GET',headers:{},socket:{}},res,{name:'t6'});
-  ok('GET is rejected', g.ok===false&&res.code===405, 'code '+res.code); }
-ok('the first x-forwarded-for entry is used, not the last',
-   ipOf({headers:{'x-forwarded-for':'9.9.9.9, 10.0.0.1, 172.16.0.1'},socket:{}})==='9.9.9.9',
-   ipOf({headers:{'x-forwarded-for':'9.9.9.9, 10.0.0.1'},socket:{}}));
+     guard({ module: 'x' }) compares against the MODULES ceiling; the sidebar
+     compares against ALL_MODULES. Nothing makes those two agree, so a route
+     gating on a key no tier sells — a typo, or a key renamed on one side only —
+     is invisible: the endpoint 403s for every install whose ceiling is set, and
+     the tab it belongs to is fine, so it reads as a broken feature rather than
+     as a gate. */
+  const app = fs.readFileSync(path.join('src', 'App.jsx'), 'utf8');
+  const line = (app.match(/^const ALL_MODULES=.*$/m) || [''])[0];
+  const known = [...line.matchAll(/\['([a-z-]+)'/g)].map(m => m[1]);
+  ok('ALL_MODULES was found and parsed', known.length > 5, known.length + ' keys');
+  const orphans = Object.entries(SELLABLE).filter(([, key]) => !known.includes(key));
+  ok('every module: a route gates on exists in ALL_MODULES',
+     orphans.length === 0,
+     orphans.map(([f, k]) => `${f} gates on '${k}'`).join(', ') + ` — known: ${known.join(',')}`);
+}
+
+console.log('\nthe .npmrc that resolves the private package is committed');
+{
+  /* Without it npm falls through to PUBLIC npm, where the @getproytech scope is
+     ours — which is what keeps that fall-through a clean 404 rather than an
+     install of somebody else's code next to a service key. */
+  const npmrc = fs.readFileSync('.npmrc', 'utf8');
+  ok('the scope points at GitHub Packages', /@getproytech:registry=https:\/\/npm\.pkg\.github\.com/.test(npmrc));
+  ok('the token comes from the environment', /_authToken=\$\{NPM_TOKEN\}/.test(npmrc));
+  ok('and no real token is committed', !/ghp_|github_pat_/.test(npmrc));
+}
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
-process.exit(fail?1:0);
+process.exit(fail ? 1 : 0);

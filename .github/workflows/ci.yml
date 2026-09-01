@@ -49,8 +49,24 @@ jobs:
 
       # `ci`, not `install`: it installs exactly what package-lock.json pins and
       # fails rather than silently resolving something newer.
+      #
+      # NPM_TOKEN resolves @getproytech/core, which is private. The committed
+      # .npmrc points the scope at GitHub Packages and reads the token from the
+      # environment; without it npm falls through to public npm and 404s, and
+      # every step below fails for a reason that looks nothing like the cause.
       - name: Install
         run: npm ci
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # Its own step, before the build, so the failure names itself. A
+      # dependency that only resolves on one machine has shipped three times
+      # across these repos; each time the build failed somewhere downstream and
+      # the message pointed at a corrupt tarball rather than at the commit.
+      # Also runs inside `npm test`, which is what catches it on the author's
+      # machine before it can be pushed at all.
+      - name: Dependencies resolve from the registry
+        run: npx proytech-check-deps
 
       # First, because a broken build is the fastest and clearest failure there
       # is — and because every suite esbuilds src/App.jsx itself, so a build

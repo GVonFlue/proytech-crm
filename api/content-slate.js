@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 import {
   brandContext, underCap, loadResearch, loadPerformance, insertPosts,
   markResearchUsed, logUsage, askAnthropic, isCronCaller, cronDenial,
@@ -25,8 +25,8 @@ import {
 // TWO CALLERS, TWO AUTHENTICATIONS
 //
 //   1. The owner, pressing "Generate next week" — a POST carrying a Supabase
-//      JWT, checked by guard({ requireOwner:true }), which asks Postgres
-//      through crm_whoami() rather than trusting anything in the body.
+//      JWT, checked by guard({ requireAdmin:true }), which asks Postgres
+//      through core_whoami() rather than trusting anything in the body.
 //   2. Vercel's scheduler — a GET carrying `Bearer $CRON_SECRET`, compared
 //      with timingSafeEqual in _content.js.
 //
@@ -62,10 +62,10 @@ export default async function handler(req, res) {
 
     // maxChars is small on purpose: the only body this route accepts is
     // { dry_run }. The shared default is sized for a chat box and this is not
-    // one — _guard.js says to set it per endpoint for exactly this reason.
+    // one — @getproytech/core/guard says to set it per endpoint for exactly this reason.
     const gate = await guard(req, res, {
       name: 'content-slate', perIp: 6, windowMin: 60, perDay: 40,
-      maxChars: 2000, requireOwner: true,
+      maxChars: 2000, requireAdmin: true,
     });
     if (!gate.ok) return;
     sweep();

@@ -327,8 +327,8 @@ console.log('\nboth routes are guarded, and the cron leg is not a hole');
   const shared = await read('api/_content.js');
 
   for (const [n, s] of [['content-slate', slate], ['content-regenerate', regen]]) {
-    ok(n + ' goes through the shared guard', /guard\(req,\s*res/.test(s) && /from '\.\/_guard\.js'/.test(s));
-    ok(n + ' requires an OWNER, not just a session', /requireOwner:\s*true/.test(s));
+    ok(n + ' goes through the shared guard', /guard\(req,\s*res/.test(s) && /from '@getproytech\/core\/guard'/.test(s));
+    ok(n + ' requires an ADMIN, not just a session', /requireAdmin:\s*true/.test(s));
     ok(n + ' sets its own maxChars', /maxChars:\s*\d+/.test(s));
     ok(n + ' checks the spend cap', /underCap\(/.test(s));
   }
@@ -580,8 +580,8 @@ console.log('\ncarousel slides — headline and body, old rows still readable');
 console.log('\nthe new route, and the file that stopped being greppable');
 {
   const usage = await read('api/content-usage.js');
-  ok('content-usage goes through the shared guard', /guard\(req,\s*res/.test(usage) && /from '\.\/_guard\.js'/.test(usage));
-  ok('  and is owner-only — monthly spend is company money', /requireOwner:\s*true/.test(usage));
+  ok('content-usage goes through the shared guard', /guard\(req,\s*res/.test(usage) && /from '@getproytech\/core\/guard'/.test(usage));
+  ok('  and is admin-only — monthly spend is company money', /requireAdmin:\s*true/.test(usage));
   ok('  it generates nothing', !/askAnthropic/.test(usage), 'a read-only route must not be able to spend');
   ok('  and an unreadable ledger is NOT reported as zero', /spent === null/.test(usage) && /503/.test(usage),
     '$0.00 is a plausible value for "nothing spent yet"');

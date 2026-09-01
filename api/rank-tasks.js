@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 // Vercel serverless function — ranks the open task list with Claude.
 // Requires env var ANTHROPIC_API_KEY (already set in Vercel for parse-receipt.js).
 // The key NEVER reaches the browser; it only lives here on the server.
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   // endpoints cost money, so an open one is a direct line to the card.
   // The open task list as JSON. Generous, because a busy install with a few
   // hundred tasks is a normal Monday, not an attack.
-  const gate = await guard(req, res, { name: 'rank-tasks', perIp: 30, perDay: 900, maxChars: 120000, requireAuth: true });
+  const gate = await guard(req, res, { name: 'rank-tasks', perIp: 30, perDay: 900, maxChars: 120000, requireAuth: true, module: 'tasks' });
   if (!gate.ok) return;
   sweep();
 

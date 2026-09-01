@@ -31,7 +31,7 @@ console.log('\nevery route either checks a session or is a known exception');
 const open = [];
 for (const f of files.sort()) {
   const src = await fs.readFile(path.join(root, 'api', f), 'utf8');
-  const guarded = /guard\(req,\s*res/.test(src) && /require(Auth|Owner):\s*true/.test(src);
+  const guarded = /guard\(req,\s*res/.test(src) && /require(Auth|Admin):\s*true/.test(src);
   const signed  = /timingSafeEqual|createHmac/.test(src);
   if (guarded || signed) { ok(f + ' checks the caller', true); continue; }
   open.push(f);
@@ -47,7 +47,7 @@ console.log('\nthe audit document matches the code');
   /* the reverse: nothing claimed open that has since been fixed */
   for (const f of Object.keys(KNOWN_OPEN)) {
     const src = await fs.readFile(path.join(root, 'api', f), 'utf8').catch(() => '');
-    const nowGuarded = /guard\(req,\s*res/.test(src) && /require(Auth|Owner):\s*true/.test(src);
+    const nowGuarded = /guard\(req,\s*res/.test(src) && /require(Auth|Admin):\s*true/.test(src);
     ok(f + ' is still open (remove it from KNOWN_OPEN once fixed)', !nowGuarded,
        'this route is guarded now — delete its KNOWN_OPEN entry so the list stays true');
   }
@@ -57,7 +57,7 @@ console.log('\ngoogle-status specifically — the one this PR closes');
 {
   const src = await fs.readFile(path.join(root, 'api/google-status.js'), 'utf8');
   ok('it requires a session', /requireAuth:\s*true/.test(src));
-  ok('  through the shared guard, not a second auth path', /from '\.\/_guard\.js'/.test(src));
+  ok('  through the shared guard, not a second auth path', /from '@getproytech\/core\/guard'/.test(src));
   ok('  and it is rate limited like everything else', /perIp:/.test(src));
   ok('it still returns connected + email for a real session', /connected:.*refresh_token/.test(src));
 
@@ -75,17 +75,40 @@ console.log('\ngoogle-disconnect — owner-only, not merely signed-in');
   /* There is ONE Google connection per install (ENGINEERING §6). A rep who can
      sever it switches booking off for everybody, so requireAuth is not enough
      here and requireOwner is the whole point of the change. */
-  ok('it requires an OWNER', /requireOwner:\s*true/.test(src));
-  ok('  through the shared guard, not a second auth path', /from '\.\/_guard\.js'/.test(src));
+  ok('it requires an ADMIN', /requireAdmin:\s*true/.test(src));
+  ok('  through the shared guard, not a second auth path', /from '@getproytech\/core\/guard'/.test(src));
 
-  const g = await fs.readFile(path.join(root, 'api/_guard.js'), 'utf8');
-  ok('the role comes from crm_whoami, not the request body', /crm_whoami/.test(g));
-  ok('  and the owner check fails CLOSED', /catch\s*{\s*\n?\s*return false/.test(g), 'isOwner must return false when it cannot prove ownership');
+  /* WHAT USED TO BE ASSERTED HERE, AND WHY IT IS NOT ANY MORE.
 
+     Two claims about _guard.js's internals: that the role came from a
+     security-definer function rather than from the request body, and that the
+     check failed CLOSED. Both are the PACKAGE's behaviour now, tested inside
+     @getproytech/core once, against all three installs. Re-asserting them here
+     against a copy this repo no longer owns is a duplicated test, which is a
+     duplicated implementation one layer up: it keeps passing while the thing it
+     claims to describe drifts out from under it.
+
+     The role check also changed SHAPE in the move. It used to ask for
+     role === 'owner' by name; the package asks whether the caller's role is in
+     ADMIN_ROLES, set on the deployment. That is why nothing below spells a role
+     — and it is why ADMIN_ROLES must be set on this install before this lands,
+     because requireAdmin with no roles configured refuses everybody rather than
+     erroring, which looks exactly like working software. */
   const bf = await fs.readFile(path.join(root, 'api/pocket-backfill.js'), 'utf8');
-  ok('there is ONE owner check, not one per endpoint',
-     /import\s*{[^}]*isOwner[^}]*}\s*from '\.\/_guard\.js'/.test(bf),
+  ok('there is ONE admin check, not one per endpoint',
+     /import\s*{[^}]*isAdmin[^}]*}\s*from '@getproytech\/core\/guard'/.test(bf),
      'pocket-backfill still defines its own copy');
+
+  /* The bug this shape prevents shipped into Dwell: a route asking for 'owner'
+     by name, on an install whose admins are called something else, does not
+     error — it refuses everyone, quietly, for months. */
+  for (const f of files) {
+    const src = await fs.readFile(path.join(root, 'api', f), 'utf8')
+      .then(t => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, ''));
+    ok('  ' + f + ' names no role for an AUTH decision',
+       !/require(Owner|Manager|Leader)\s*:/.test(src) && !/\bisOwner\s*\(/.test(src),
+       'use requireAdmin and set ADMIN_ROLES');
+  }
 }
 
 console.log('\nthe half that is easy to forget: the client has to send the token');
