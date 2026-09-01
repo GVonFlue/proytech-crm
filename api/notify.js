@@ -51,15 +51,13 @@
                       Shared with the Google flow; api/_google.js holds the
                       default if it is unset.
    ========================================================================== */
-import { SUPA_KEY, SUPA_URL } from './_env.js';
-import { guard, sweep } from './_guard.js';
+import { supaKey, supaUrl } from '@getproytech/core/env';
+import { guard, sweep } from '@getproytech/core/guard';
 // appUrl(), not a second copy of the app's URL and its fallback. Two spellings
 // of "where this app lives" drift, and the one that drifts here silently drops
 // the only link in the email.
 import { appUrl } from './_google.js';
 
-const SUPA = SUPA_URL;
-const KEY  = SUPA_KEY;
 
 const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 const usd = v => '$' + Math.round(Number(v) || 0).toLocaleString();
@@ -94,11 +92,11 @@ export function safeLink(wanted, app) {
 /** Active owners' addresses, read with the service key because a rep's own
  *  token cannot see anybody else's crm_users row. */
 async function ownerEmails() {
-  if (!SUPA || !KEY) return [];
+  if (!supaUrl() || !supaKey()) return [];
   try {
     const r = await fetch(
-      `${SUPA}/rest/v1/crm_users?role=eq.owner&active=is.true&select=email`,
-      { headers: { apikey: KEY, authorization: `Bearer ${KEY}` } });
+      `${supaUrl()}/rest/v1/crm_users?role=eq.owner&active=is.true&select=email`,
+      { headers: { apikey: supaKey(), authorization: `Bearer ${supaKey()}` } });
     if (!r.ok) return [];
     const rows = await r.json();
     return (Array.isArray(rows) ? rows : []).map(u => norm(u && u.email)).filter(e => e.includes('@'));

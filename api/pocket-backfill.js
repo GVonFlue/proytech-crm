@@ -1,4 +1,4 @@
-import { guard, sweep, isOwner } from './_guard.js';
+import { guard, sweep, isAdmin } from '@getproytech/core/guard';
 import { str, asList, readTranscript, recordingIdOf, upsertMerge, findTranscriptIn, keyShape, TRANSCRIPT_MAX } from './_pocket.js';
 
 // api/pocket-backfill.js — pull recordings that predate the webhook.
@@ -26,7 +26,7 @@ import { str, asList, readTranscript, recordingIdOf, upsertMerge, findTranscript
 //   without the check below they could cause writes to it and fill the owner's
 //   queue with noise.
 //
-//   So the role is verified server-side by calling crm_whoami() with the
+//   So the role is verified server-side by calling core_whoami() with the
 //   CALLER'S OWN JWT. That function is security definer and derives the role
 //   from auth.uid(), so a caller cannot assert their own role. Deliberately NOT
 //   a role passed up in the request body: that is a claim, not a check.
@@ -50,7 +50,7 @@ const PK   = process.env.POCKET_API_KEY;
    surfaced so the screen can say so rather than quietly showing a subset. */
 const PAGE_LIMIT = 20;
 
-/* isOwner() now lives in api/_guard.js — google-disconnect.js needs the same
+/* isAdmin() now lives in @getproytech/core/guard — google-disconnect.js needs the same
    question answered and two copies of an authorisation check is one copy too
    many. Behaviour here is unchanged; only the 403 message below is local, and
    it stays local because "Only an owner can import recordings" beats the
@@ -129,7 +129,7 @@ export default async function handler(req, res) {
   sweep();
 
   const token = String(req.headers.authorization || '').replace(/^Bearer /i, '');
-  if (!(await isOwner(token))) {
+  if (!(await isAdmin(token))) {
     res.status(403).json({ ok: false, error: 'Only an owner can import recordings.' });
     return;
   }

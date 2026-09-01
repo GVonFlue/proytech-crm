@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 // Meeting Log — turns a raw team-meeting transcript into structured JSON.
 //
 // This is the one place in the app that reads a raw transcript. Everything
@@ -25,7 +25,7 @@ export default async function handler(req, res) {
   // cap, it is a number that would only ever be reached by something going
   // wrong.
   const gate = await guard(req, res, {
-    name: 'meeting-log', perIp: 30, perDay: 50, maxChars: 260000, requireAuth: true,
+    name: 'meeting-log', perIp: 30, perDay: 50, maxChars: 260000, requireAuth: true, module: 'mlog',
   });
   if (!gate.ok) return;
   sweep();

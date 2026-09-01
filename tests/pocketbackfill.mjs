@@ -16,12 +16,16 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); } els
 const SUPA = 'https://test.supabase.co';
 process.env.SUPABASE_URL = SUPA;
 process.env.SUPABASE_SERVICE_KEY = 'service-key';
+/* The package asks whether the caller's role is in ADMIN_ROLES rather than
+   asking for 'owner' by name. Unset, it correctly refuses everybody — which
+   here would look like a broken route instead of an unconfigured install. */
+process.env.ADMIN_ROLES = 'owner';
 process.env.POCKET_API_KEY = 'pk_test';
 /* Set BEFORE any import of pocket-hook.js — it reads the secret at module
    scope, so setting it later gives a module that refuses everything. */
 process.env.POCKET_WEBHOOK_SECRET = 'whsec';
 
-/* -------------------------------- stubs: PostgREST, crm_whoami, Pocket API */
+/* -------------------------------- stubs: PostgREST, core_whoami, Pocket API */
 
 let DB, ROLE, POCKET_LIST, POCKET_DETAIL, POCKET_STATUS, CALLS;
 const reset = () => {
@@ -45,7 +49,7 @@ globalThis.fetch = async (url, opts = {}) => {
   CALLS.push({ u, method });
   const reply = (status, out) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(out), json: async () => out });
 
-  if (u.includes('/rest/v1/rpc/crm_whoami')) return reply(200, [{ role: ROLE, active: true, setup: true, name: 'Garrett' }]);
+  if (u.includes('/rest/v1/rpc/core_whoami')) return reply(200, [{ role: ROLE, active: true, setup: true, name: 'Garrett' }]);
   if (u.includes('/rest/v1/api_hits')) { if (method === 'GET') return reply(200, []); return reply(201, []); }
   if (u.includes('/auth/v1/user')) return reply(200, { id: 'u_owner' });
 
@@ -109,14 +113,14 @@ console.log('\nthe role is asked of POSTGRES, not taken from the request');
   reset(); ROLE = 'rep';
   const res = await call({ action: 'import', id: 'rec_sunday', role: 'owner', who: { role: 'owner' } });
   ok('claiming to be an owner in the body changes nothing', res.code === 403, res.code);
-  ok('  crm_whoami was actually called', CALLS.some(c => c.u.includes('crm_whoami')));
+  ok('  core_whoami was actually called', CALLS.some(c => c.u.includes('core_whoami')));
 }
 
 console.log('\nfailing to PROVE ownership is not permission');
 {
   reset();
   const real = globalThis.fetch;
-  globalThis.fetch = async (u, o) => (String(u).includes('crm_whoami') ? { ok: false, status: 500, json: async () => ({}), text: async () => '' } : real(u, o));
+  globalThis.fetch = async (u, o) => (String(u).includes('core_whoami') ? { ok: false, status: 500, json: async () => ({}), text: async () => '' } : real(u, o));
   const res = await call({ action: 'import', id: 'rec_sunday' });
   globalThis.fetch = real;
   ok('the check failing closes the door rather than opening it', res.code === 403, res.code);

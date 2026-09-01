@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 // Vercel serverless function — reads a receipt (PDF or image) with Claude and returns structured fields.
 // Requires env var ANTHROPIC_API_KEY (set in Vercel → Project → Settings → Environment Variables).
 // The key NEVER reaches the browser; it only lives here on the server.
@@ -10,7 +10,7 @@ export default async function handler(req, res) {
   // every single upload before it reached the model. The real ceiling here is
   // the platform body limit; this just keeps a hand-rolled body from being
   // unbounded.
-  const gate = await guard(req, res, { name: 'parse-receipt', perIp: 30, perDay: 900, maxChars: 5000000, requireAuth: true });
+  const gate = await guard(req, res, { name: 'parse-receipt', perIp: 30, perDay: 900, maxChars: 5000000, requireAuth: true, module: 'money' });
   if (!gate.ok) return;
   sweep();
 

@@ -15,14 +15,14 @@
 // left alone here: it is where the missing OAuth `state` has to be generated,
 // and that fix touches google-callback.js and the stored-config format too.
 // See API-AUDIT.md.
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 import { clearGoogle } from './_google.js';
 
 export default async function handler(req, res) {
-  // requireOwner implies requireAuth. Tiny body: an action with no arguments.
+  // requireAdmin implies requireAuth. Tiny body: an action with no arguments.
   const gate = await guard(req, res, {
     name: 'google-disconnect', perIp: 10, windowMin: 10, perDay: 100,
-    maxChars: 500, requireOwner: true,
+    maxChars: 500, requireAdmin: true,
   });
   if (!gate.ok) return;
   sweep();

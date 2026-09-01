@@ -1,4 +1,4 @@
-import { guard } from './_guard.js';
+import { guard } from '@getproytech/core/guard';
 import { brandContext, spentCentsThisMonth } from './_content.js';
 
 // api/content-usage.js — what has been spent this month, and the ceiling.
@@ -34,7 +34,7 @@ export default async function handler(req, res) {
   // the body is always {}.
   const gate = await guard(req, res, {
     name: 'content-usage', perIp: 120, windowMin: 60, perDay: 4000,
-    maxChars: 500, requireOwner: true,
+    maxChars: 500, requireAdmin: true,
   });
   if (!gate.ok) return;
 

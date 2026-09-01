@@ -1,5 +1,5 @@
-import { guard, sweep } from './_guard.js';
-import { costOf, spentThisMonth, logSpend } from './_spend.js';
+import { guard, sweep } from '@getproytech/core/guard';
+import { costOf, spentThisMonth, logSpend } from '@getproytech/core/spend';
 
 // api/pocket-segment.js — split one recording into PROPOSED outputs.
 //

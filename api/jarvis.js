@@ -1,5 +1,5 @@
-import { guard, sweep } from './_guard.js';
-import { costOf, spentThisMonth, logSpend } from './_spend.js';
+import { guard, sweep } from '@getproytech/core/guard';
+import { costOf, spentThisMonth, logSpend } from '@getproytech/core/spend';
 
 // api/jarvis.js — the CRM assistant.
 //
@@ -150,7 +150,7 @@ export default async function handler(req, res) {
   // unlimited.
   const gate = await guard(req, res, {
     name: 'jarvis', perIp: 40, windowMin: 10, perDay: 1200,
-    maxChars: 400000, requireAuth: true,
+    maxChars: 400000, requireAuth: true, module: 'jarvis',
   });
   if (!gate.ok) return;
   sweep();

@@ -1,5 +1,5 @@
-import { guard, sweep } from './_guard.js';
-import { costOf, spentThisMonth, logSpend } from './_spend.js';
+import { guard, sweep } from '@getproytech/core/guard';
+import { costOf, spentThisMonth, logSpend } from '@getproytech/core/spend';
 
 // api/kb-draft.js — turn a meeting transcript into a DRAFT Playbook note.
 //
@@ -74,7 +74,7 @@ export default async function handler(req, res) {
   // as meeting-log.js, and the 413 now states the actual numbers.
   const gate = await guard(req, res, {
     name: 'kb-draft', perIp: 20, windowMin: 10, perDay: 60,
-    maxChars: 260000, requireAuth: true,
+    maxChars: 260000, requireAuth: true, module: 'playbook',
   });
   if (!gate.ok) return;
   sweep();
