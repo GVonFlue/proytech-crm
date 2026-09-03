@@ -64,14 +64,32 @@ const QUOTED = { id:'quo', name:'Big Prospect', stage:'discovery', dealValue:900
 const LOST = { id:'lost', name:'Gone', stage:'lost', dealValue:4000,
   deals:[{ id:'dl', setup:4000 }], closedDeals:[], payments:[] };
 
-/* INVOICED — won 60 days ago, invoice raised and 30 days past due. The only
-   row entitled to the word "overdue". */
+/* INVOICED — won 60 days ago, invoice raised and 10 days past due. The only
+   row entitled to the word "overdue".
+
+   TEN days, not thirty. The ordering case below has to show a past-due invoice
+   outranking an OLDER un-billed sale, and the un-billed one (HALF) is aged from
+   `${PREV}-03` — which is 26 days out on the 1st of a short month and 33 on the
+   28th. Against a flat 30 it crossed over and the demonstration inverted on
+   some days of the month and not others. Ten clears the floor on every
+   calendar. Caught by tests/clockwarp.mjs at 2026-10-01. */
+/* 120 DAYS, NOT 60. "Last month" reaches back (day-of-month + length of last
+   month) days, which is as much as 62 — so a flat 60 lands INSIDE last month
+   whenever you run this late in a long month. On 2026-12-31 it did: Late
+   Payer's $1 joined last month's revenue (401, not 400) and its whole $1,999
+   balance joined owedFromMonth(PREV) (2,399, not 400). Four assertions, wrong
+   for the calendar rather than for the code — the same shape as the bug this
+   PR is about, in the test written to prove that bug was fixed.
+   120 clears 62 on every calendar, so this record is always strictly older than
+   the month before this one. Caught by tests/clockwarp.mjs at 2026-12-31. */
+const SALE_LONG_AGO = 120;
 const INVOICED = { id:'inv', name:'Late Payer', stage:'signed', isClient:true,
-  closedAt:daysAgoISO(60), convertedAt:daysAgoISO(60), dealValue:2000,
+  closedAt:daysAgoISO(SALE_LONG_AGO), convertedAt:daysAgoISO(SALE_LONG_AGO), dealValue:2000,
   deals:[{ id:'di', setup:2000 }], closedDeals:[],
-  payments:[{ id:'pi', amount:1, date:daysAgoISO(60) }] };
+  payments:[{ id:'pi', amount:1, date:daysAgoISO(SALE_LONG_AGO) }] };
+const INVOICE_PAST_DUE_DAYS = 10;
 const INVOICES = [
-  { id:'iv1', number:'INV-0007', clientId:'inv', status:'sent', dueDate:daysAgoISO(30) },
+  { id:'iv1', number:'INV-0007', clientId:'inv', status:'sent', dueDate:daysAgoISO(INVOICE_PAST_DUE_DAYS) },
   { id:'iv2', number:'INV-0001', clientId:'half', status:'paid', dueDate:daysAgoISO(90) },
 ];
 
@@ -97,7 +115,8 @@ console.log('\nrevenue for a month is one function taking the month');
 
   /* This month: Half's $200 + No Dates' $100 = $300 client, plus $300
      hand-entered income. Late Payer's $1 is dated 60 days ago and belongs to
-     whatever month that was — which is the point of a cash-basis figure.
+     whatever month that was (SALE_LONG_AGO ago, deliberately older than last
+     month too) — which is the point of a cash-basis figure.
      The $5,000 contribution is cash and is NOT revenue. */
   ok('this month counts only this month\'s payments', t.clientRevenueMonth === 300, String(t.clientRevenueMonth));
   ok('  plus hand-entered income',                    t.otherIncomeMonth === 300, String(t.otherIncomeMonth));
@@ -148,7 +167,8 @@ console.log('\nage is two different facts and the row says which');
   const byId = Object.fromEntries(rows.map(r => [r.id, r]));
 
   ok('an unpaid invoice makes it genuinely overdue', byId.inv.basis === 'invoice', byId.inv.basis);
-  ok('  aged from the DUE date, not the sale',       byId.inv.days === 30, String(byId.inv.days));
+  ok('  aged from the DUE date, not the sale',
+     byId.inv.days === INVOICE_PAST_DUE_DAYS && byId.inv.days !== SALE_LONG_AGO, String(byId.inv.days));
   ok('  and it names the invoice',                   byId.inv.invoice === 'INV-0007', byId.inv.invoice);
 
   ok('no invoice means aged from the sale',          byId.half.basis === 'sale', byId.half.basis);

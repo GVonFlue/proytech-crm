@@ -40,6 +40,16 @@ const root = path.resolve(here, '..');
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); } else { fail++; console.log('  FAIL ' + n + (x ? ' — ' + String(x).slice(0, 260) : '')); } };
 
+/* The rule dates come from the APP, not from a copy of them here. A fixture
+   that restates a product constant is a second definition of it, and the whole
+   reason this cast broke is that it restated a date the app owns. Built before
+   the DOM so the anchors below can use them. */
+{
+  const c = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true, write:false,
+    format:'esm', platform:'neutral', external:['lucide-react','react'], define:{'import.meta.env':'{}'} });
+  fs.writeFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '.bmc.mjs'), c.outputFiles[0].text);
+}
+
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://crm.test/', pretendToBeVisual: true });
 for (const k of ['window','document','HTMLElement','Element','Node','Event','CustomEvent','MouseEvent','getComputedStyle',
  'requestAnimationFrame','cancelAnimationFrame','localStorage','sessionStorage','history','location','navigator','MutationObserver']) {
@@ -51,8 +61,64 @@ dom.window.ResizeObserver = globalThis.ResizeObserver;
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 dom.window.confirm = () => true;
 
+/* ---- WHERE EVERY DATE IN THIS FILE COMES FROM ----------------------------
+   This cast used to mix two kinds of date and write both as literals, which is
+   how it broke. On 1 September 2026 one payment written as '2026-08-07' stopped
+   being "this month", $1,249.50 left the window, and §1 went red — on a
+   calendar boundary, for a reason that had nothing to do with what §1 checks.
+   A test that goes red on a schedule trains you to ignore it, and §1 is the
+   test meant to shout the day the Dashboard and the Money page diverge.
+
+   So there are no date literals below. Every one is derived from an anchor, and
+   there are exactly two anchors because there are exactly two things a date
+   here can mean:
+
+     D(dd)        "this month" — relative to the CLOCK. A payment that has to
+                  land in the month the dashboard is currently showing.
+
+     LEGACY(dd)   "before payment tracking existed" — relative to a PRODUCT
+                  CONSTANT, not to the calendar. These records exist to prove
+                  the legacy fallback still protects history, and what makes
+                  them legacy is being older than PAYMENTS_FROM / CASH_RULE_FROM
+                  — never being "in July". Writing July was a coincidence of
+                  when the constant happened to be set.
+
+   Deriving the second kind from the constant means moving PAYMENTS_FROM (which
+   lib/lead.js explicitly contemplates) moves the fixture with it, instead of
+   silently reclassifying half the cast.                                     */
+const { CASH_RULE_FROM, PAYMENTS_FROM } = await import('./.bmc.mjs?v=' + Date.now());
+
 const MONTH = new Date().toISOString().slice(0, 7);           // the app's "this month"
 const D = d => `${MONTH}-${d}`;
+
+/* The older of the two rule dates, so LEGACY() clears BOTH boundaries. */
+const RULE = (CASH_RULE_FROM < PAYMENTS_FROM ? CASH_RULE_FROM : PAYMENTS_FROM);
+/* One month before the rule: legacy by construction, and still a whole month
+   wide so the records inside it can be ordered against each other. */
+const LEGACY_MONTH = (() => { const d = new Date(RULE + 'T00:00:00Z');
+  d.setUTCDate(0);                                   // last day of the prior month
+  return d.toISOString().slice(0, 7); })();
+const LEGACY = d => `${LEGACY_MONTH}-${d}`;
+/* n days before an ISO day, for createdAt — a lead created a fixed 2026-06-01
+   drifted further from its own close date every month, until the cast described
+   a business with multi-year sales cycles. Held relative to the close instead. */
+const BEFORE = (iso, n) => { const d = new Date(iso.slice(0, 10) + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+const STAMP = iso => iso.slice(0, 10) + 'T10:00:00.000Z';
+
+/* THE GUARD THAT WOULD HAVE CAUGHT THIS CLASS OF BREAK.
+   The cast only means what it says while the two anchors stay on the right
+   sides of the rule. Half these records are legacy and half are modern, and if
+   the clock and the constant ever overlap the two halves swap places — every
+   assertion still runs, several invert, and the failure looks like a revenue
+   bug rather than a fixture that no longer describes what it claims.
+   Refuse loudly instead. */
+if (!(LEGACY_MONTH < RULE.slice(0, 7))) {
+  throw new Error(`moneyaudit fixture: LEGACY_MONTH ${LEGACY_MONTH} is not before the rule month ${RULE.slice(0,7)} — the legacy half of the cast is no longer legacy.`);
+}
+if (!(MONTH >= PAYMENTS_FROM.slice(0, 7))) {
+  throw new Error(`moneyaudit fixture: the clock says ${MONTH}, which is BEFORE PAYMENTS_FROM (${PAYMENTS_FROM}). Every record this file dates with D() is meant to be a MODERN close that needs a real payment row; before that boundary they are all legacy and cases #21/#22 invert. Fix the clock, or move PAYMENTS_FROM back.`);
+}
 
 globalThis.__WRITES__=[]; globalThis.__MANY__=[]; globalThis.__TASKS__=[];
 globalThis.__USER_WRITES__=[]; globalThis.__EVENTS__=[]; globalThis.__EVENT_WRITES__=[];
@@ -72,9 +138,9 @@ globalThis.__SETTINGS__={ goals:{ revenue: 10000, closed: 5 } };
 const ALVAREZ = {
   id:'l_alvarez', name:'Rita Alvarez', company:'Alvarez Realty', stage:'signed',
   isClient:true, clientPhase:'intake', owner:'Garrett',
-  createdAt:'2026-06-01T10:00:00.000Z', convertedAt:'2026-07-01', closedAt:'2026-07-01',
+  createdAt:STAMP(BEFORE(LEGACY('01'),30)), convertedAt:LEGACY('01'), closedAt:LEGACY('01'),
   dealValue:0, deals:[], meetings:[], activities:[],
-  closedDeals:[{ id:'cd1', label:'Website build', amount:5000, closedAt:'2026-07-14' }],
+  closedDeals:[{ id:'cd1', label:'Website build', amount:5000, closedAt:LEGACY('14') }],
   payments:[{ id:'p1', amount:2000, date:D('05'), note:'deposit' }],
   retainerActive:false, retainer:0,
 };
@@ -83,8 +149,8 @@ const ALVAREZ = {
    on dealValue. Gives avgDeal a second, differently-shaped data point. */
 const KAUFMANN = {
   id:'l_kaufmann', name:'Mark Kaufmann', company:'Delta Freight', stage:'signed',
-  isClient:true, owner:'Garrett', createdAt:'2026-06-01T10:00:00.000Z',
-  convertedAt:'2026-07-02', closedAt:'2026-07-02',
+  isClient:true, owner:'Garrett', createdAt:STAMP(BEFORE(LEGACY('02'),30)),
+  convertedAt:LEGACY('02'), closedAt:LEGACY('02'),
   dealValue:3000, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
   retainerActive:false, retainer:0,
 };
@@ -93,7 +159,7 @@ const KAUFMANN = {
    with no deposit ticked). Counts for WIN RATE and not for revenue: the #5 case. */
 const PENDING = {
   id:'l_pending', name:'Dana Ruiz', company:'Ruiz Co', stage:'signed',
-  isClient:true, owner:'Garrett', createdAt:'2026-08-01T10:00:00.000Z',
+  isClient:true, owner:'Garrett', createdAt:STAMP(BEFORE(D('10'),30)),
   convertedAt:D('10'), closedAt:D('10'),
   dealValue:4000, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
   retainerActive:false, retainer:0,
@@ -101,7 +167,7 @@ const PENDING = {
 
 const LOST = {
   id:'l_lost', name:'Gone Away', company:'Nope Ltd', stage:'lost', owner:'Garrett',
-  createdAt:'2026-06-01T10:00:00.000Z', dealValue:0, deals:[], meetings:[], activities:[],
+  createdAt:STAMP(BEFORE(LEGACY('01'),30)), dealValue:0, deals:[], meetings:[], activities:[],
   closedDeals:[], payments:[],
 };
 
@@ -109,7 +175,7 @@ const LOST = {
    step. Gives #8 something to count. */
 const THISMONTH = {
   id:'l_thismonth', name:'Fresh Signing', company:'Fresh Co', stage:'signed',
-  isClient:true, owner:'Garrett', createdAt:'2026-08-01T10:00:00.000Z',
+  isClient:true, owner:'Garrett', createdAt:STAMP(BEFORE(D('12'),30)),
   convertedAt:D('12'), closedAt:D('12'), onbSkip:['deposit_paid'], onboarding:{},
   dealValue:1500, deals:[], meetings:[], activities:[], closedDeals:[],
   payments:[{ id:'p9', amount:1500, date:D('12'), note:'paid on signing' }],
@@ -120,7 +186,7 @@ const THISMONTH = {
    out with `v > 0`, so the tile read one more than the list. */
 const FREEBIE = {
   id:'l_freebie', name:'Favour Job', company:'Favour Ltd', stage:'signed',
-  isClient:true, owner:'Garrett', createdAt:'2026-08-02T10:00:00.000Z',
+  isClient:true, owner:'Garrett', createdAt:STAMP(BEFORE(D('13'),30)),
   convertedAt:D('13'), closedAt:D('13'), onbSkip:['deposit_paid'], onboarding:{},
   dealValue:0, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
   retainerActive:false, retainer:0,
@@ -131,7 +197,7 @@ const FREEBIE = {
    it again as an upsell row made the panel sum to more than the tile. */
 const OPENUPSELL = {
   id:'l_openups', name:'Both Ways', company:'Both Ltd', stage:'proposal', owner:'Garrett',
-  createdAt:'2026-08-03T10:00:00.000Z', dealValue:2200, meetings:[], activities:[],
+  createdAt:STAMP(BEFORE(D('03'),30)), dealValue:2200, meetings:[], activities:[],
   deals:[{ id:'d1', label:'Site', setup:1500 },
          { id:'d2', label:'Extra module', setup:700, upsell:true }],
   closedDeals:[], payments:[], retainerActive:false, retainer:0,
@@ -141,8 +207,8 @@ const OPENUPSELL = {
    useMetrics counts it in upsellValue and its dealValue is not in openValue. */
 const WONUPSELL = {
   id:'l_wonups', name:'Repeat Custom', company:'Repeat Ltd', stage:'signed',
-  isClient:true, owner:'Garrett', createdAt:'2026-06-05T10:00:00.000Z',
-  convertedAt:'2026-07-05', closedAt:'2026-07-05',
+  isClient:true, owner:'Garrett', createdAt:STAMP(BEFORE(LEGACY('05'),30)),
+  convertedAt:LEGACY('05'), closedAt:LEGACY('05'),
   dealValue:900, meetings:[], activities:[],
   deals:[{ id:'d3', label:'Phase two', setup:900, upsell:true }],
   closedDeals:[], payments:[], retainerActive:false, retainer:0,
@@ -152,7 +218,7 @@ const WONUPSELL = {
    ticked, NO payment logged. The fallback used to report it as collected. */
 const POPPELL = {
   id:'l_poppell', name:'Poppell Insurance', company:'Poppell', stage:'signed',
-  isClient:true, owner:'Garrett', createdAt:'2026-08-05T10:00:00.000Z',
+  isClient:true, owner:'Garrett', createdAt:STAMP(BEFORE(D('17'),30)),
   convertedAt:D('17'), closedAt:D('17'), onbSkip:['deposit_paid'], onboarding:{},
   dealValue:1199, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
   retainerActive:false, retainer:0,
@@ -162,8 +228,8 @@ const POPPELL = {
    this one, or switching the rule on deletes historical revenue. */
 const OLDCLOSE = {
   id:'l_oldclose', name:'Last Year Co', company:'Last Year', stage:'signed',
-  isClient:true, owner:'Garrett', createdAt:'2026-06-01T10:00:00.000Z',
-  convertedAt:'2026-07-20', closedAt:'2026-07-20',
+  isClient:true, owner:'Garrett', createdAt:STAMP(BEFORE(LEGACY('20'),30)),
+  convertedAt:LEGACY('20'), closedAt:LEGACY('20'),
   dealValue:800, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
   retainerActive:false, retainer:0,
 };
@@ -177,16 +243,19 @@ const OLDCLOSE = {
    $1,498.50, which is why one setup payment carries a retainer part. */
 const JUSTUS = {
   id:'l_justus', name:'Justus', company:'Justus Co', stage:'signed',
-  isClient:true, owner:'Garrett', createdAt:'2026-06-10T10:00:00.000Z',
-  convertedAt:'2026-07-10', closedAt:'2026-07-10',
+  isClient:true, owner:'Garrett', createdAt:STAMP(BEFORE(LEGACY('10'),30)),
+  convertedAt:LEGACY('10'), closedAt:LEGACY('10'),
   dealValue:1011.75, deals:[{ id:'dj', label:'Automations', setup:1011.75 }],
   meetings:[], activities:[],
-  closedDeals:[{ id:'cdj', label:'Package', amount:2499, closedAt:'2026-07-21' }],
+  closedDeals:[{ id:'cdj', label:'Package', amount:2499, closedAt:LEGACY('21') }],
   /* UNCLASSIFIED — the record as it stands before the review screen runs.
      The $1,498.50 is $1,249.50 of package plus $249 of retainer, and until
      somebody says so the whole thing pays down the automations deal. */
   payments:[
-    { id:'pj1', amount:1498.50, date:'2026-07-21', note:'square deposit' },
+    /* The deposit taken at the close, deliberately in a PRIOR month so it is
+       not part of this month's collected figure. LEGACY(), not a literal: as a
+       literal it drifted further from its own sibling payment every month. */
+    { id:'pj1', amount:1498.50, date:LEGACY('21'), note:'square deposit' },
     /* D(), not a literal: this payment is "the balance, paid this month", and
        a hardcoded month made that claim false the moment the month rolled over.
        See the note above the cast. */
@@ -199,13 +268,13 @@ const JUSTUS = {
 /* AUDIT #26. Two quoted retainers — a rate agreed at sale, no start date. They
    must contribute $0 to MRR and be named beside it. */
 const QUOTED_A = { id:'l_qa', name:'Jeff Schnell', company:'Schnell', stage:'signed', isClient:true,
-  owner:'Garrett', createdAt:'2026-07-01T10:00:00.000Z', convertedAt:'2026-07-05', closedAt:'2026-07-05',
+  owner:'Garrett', createdAt:STAMP(BEFORE(LEGACY('05'),30)), convertedAt:LEGACY('05'), closedAt:LEGACY('05'),
   dealValue:0, deals:[], meetings:[], activities:[], closedDeals:[], payments:[],
   retainerActive:true, retainer:79, retainerStart:'' };
 const QUOTED_B = { ...QUOTED_A, id:'l_qb', name:'Level Up Co', company:'Level Up', retainer:99 };
 /* One genuinely billing, with a start date somebody set. */
 const BILLING = { ...QUOTED_A, id:'l_bill', name:'Billing Client', company:'Bill Co',
-  retainer:150, retainerStart:'2026-07-01',
+  retainer:150, retainerStart:LEGACY('01'),
   retainerPayments:[{ id:'rp', amount:150, date:D('05'), period:MONTH }] };
 
 globalThis.__LEADS__=[ALVAREZ, KAUFMANN, PENDING, LOST, THISMONTH, FREEBIE, OPENUPSELL, WONUPSELL, POPPELL, OLDCLOSE, JUSTUS, QUOTED_A, QUOTED_B, BILLING];

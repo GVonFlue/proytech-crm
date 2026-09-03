@@ -28,10 +28,26 @@ const iso = d => new Date(d).toISOString();
    is month-scoped by default, so on the 1st or 2nd of a month a "3 days ago"
    fixture lands in the previous month and every past-dated tab reads 0 —
    a calendar artifact that looks exactly like a broken filter. */
-const daysBack = Math.min(3, Math.max(0, new Date().getDate() - 1));
-const past = iso(Date.now() - daysBack*864e5);
+/* MEASURED IN MILLISECONDS, NOT WHOLE DAYS. As `Math.min(3, getDate()-1)`
+   days this clamped to ZERO on the 1st, putting the "real past meeting with no
+   status" control at exactly now — and a meeting starting now is not past, so
+   Needs-status read 0 and four assertions failed. The old shape fixed the month
+   boundary and broke past-ness on the same day: `npm test` on the 1st of any
+   month failed this suite. Found with tests/clockwarp.mjs, which is what that
+   tool is for.
+
+   Clamped to the start of this month instead, so the fixture sits as far back
+   as it can while staying inside the month — three days when there is room,
+   twelve hours at noon on the 1st. RESIDUAL LIMIT, stated rather than hidden:
+   in the first hour of the 1st no instant is both past and in this month, so
+   the floor below reaches into the previous month and this suite can still
+   fail. One hour a month instead of one day a month. */
+const monthStart = (() => { const n = new Date();
+  return new Date(n.getFullYear(), n.getMonth(), 1).getTime(); })();
+const backMs = Math.min(3*864e5, Math.max(36e5, Date.now() - monthStart));
+const past = iso(Date.now() - backMs);
 const future = iso(Date.now() + 3*864e5);
-const longPast = iso(Date.now() - (daysBack + 7)*864e5);   // only used for createdAt, month doesn't matter
+const longPast = iso(Date.now() - backMs - 7*864e5);   // only used for createdAt, month doesn't matter
 globalThis.__LEADS__ = [
   { id:'l1', name:'Legacy Booked', company:'Legacy Booked', stage:'new', createdAt:longPast,
     activities:[{ id:'a1', ts:past, type:'Booked', mtype:'Coffee', text:'Coffee booked.', who:'Garrett' }], meetings:[] },
