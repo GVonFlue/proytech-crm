@@ -65,7 +65,7 @@ import {
   fmtMeetingTime, fmtStamp, introChain, isDateless, isPoolLead, isUpsellDeal, isoOf, personLabel,
   countsAsBusiness, hasRealDeal,
   paidInMonth, closedDealsInMonth, closedDealsCountInMonth,
-  revenueForMonth, owedRows, owedFromMonth, owedSince,
+  revenueForMonth, closesForMonth, moneyMonths, owedRows, owedFromMonth, owedSince,
   keyDatesOf, labelVocab, labelsOf, manualSponsorships, meetingsOf, needsDate,
   normEntry, num, nurtureDaysOf, onbSkipped, openSaleValue, owedBy, pct, poolList,
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
@@ -580,6 +580,27 @@ const usdK=v=>{v=num(v);return Math.abs(v)>=1000?'$'+(v/1000).toFixed(v%1000===0
 const daysSince=ts=>Math.floor((Date.now()-new Date(ts))/86400000);
 const monthKey=d=>{d=new Date(d);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;};
 const monthLabel=k=>{const[y,m]=k.split('-');return new Date(+y,+m-1,1).toLocaleString('en-US',{month:'short'});};
+/* "September 2026" for prose — a drilldown title, a subtitle clause — and
+   "Sep 2026" for the control, which lives in a 250px tile beside an uppercase
+   label and wraps it if it takes any more room. */
+const monthName=k=>{ const [y,mo]=String(k).split('-');
+  return new Date(+y,+mo-1,1).toLocaleString('en-US',{month:'long',year:'numeric'}); };
+const monthShort=k=>{ const [y,mo]=String(k).split('-');
+  return new Date(+y,+mo-1,1).toLocaleString('en-US',{month:'short',year:'numeric'}); };
+/* ONE month picker, for every tile that has one.
+   Module scope, not inside Dashboard, for two reasons: a component declared
+   inside a component is a new type on every render and gets remounted
+   (tests/remountguard.mjs), and two tiles copying a select between them is how
+   they would come to disagree about what "This month" is called or which
+   months are offered. Same control, same option list, same wording.
+   It does NOT stop its own clicks — Kpi's `control` slot does that, because the
+   tile is a button and changing the month must not also open a drilldown. */
+function MonthPicker({value,onChange,options,current,label}){
+  return (<select className="kpi-month" value={value} aria-label={label}
+    onChange={e=>onChange(e.target.value)}>
+    {(options||[]).map(k=><option key={k} value={k}>{k===current?'This month':monthShort(k)}</option>)}
+  </select>);
+}
 const lastNMonths=n=>{const out=[];const d=new Date();d.setDate(1);for(let i=n-1;i>=0;i--){const x=new Date(d);x.setMonth(d.getMonth()-i);out.push(monthKey(x));}return out;};
 const sIdx=(k,stages)=>{const i=stages.findIndex(s=>s.key===k);return i<0?0:i;};
 /* REP-AUDIT #14. `rep` is threaded in for ONE column. A rep is paid on the deal
@@ -5019,10 +5040,8 @@ function useMetrics(leads,stages,settings,txns){
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
     /* a won lead only counts once the money is confirmed — see cashConfirmed */
-    let awaitingCash=0,awaitingValue=0;
-    /* filled from revenueForMonth() below — declared here because the closes
-       block between the two reads them. */
-    let awaitingLog=0,awaitingLogValue=0;
+    /* filled from closesForMonth() and revenueForMonth() below. */
+    let awaitingCash=0,awaitingValue=0,awaitingLog=0,awaitingLogValue=0;
     /* A lead that BOTH reached a won stage this month AND has a deal archived
        into closedDeals this month used to fire both branches and count twice —
        which is why the tile said 3 over a list of 2. The drilldown dedupes by
@@ -5041,16 +5060,13 @@ function useMetrics(leads,stages,settings,txns){
        closes, closedMonthValue is its value, and the drilldown renders its
        rows. They cannot disagree because there is nothing left to disagree
        with. ENGINEERING §2 — make them share one function. */
-    const closedRows=[];
-    leads.forEach(l=>{ const cmCount=closedDealsCountInMonth(l,mKey);
-      const wonHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey;
-      const confirmed=cashConfirmed(l);
-      if(wonHere&&!confirmed){ awaitingCash++; awaitingValue+=num(l.dealValue); }
-      if(cmCount>0) closedRows.push({id:l.id,closes:cmCount,value:closedDealsInMonth(l,mKey)});
-      else if(wonHere&&confirmed) closedRows.push({id:l.id,closes:1,value:num(l.dealValue)});
-    });
-    const closedMonth=closedRows.reduce((a,r)=>a+r.closes,0);
-    const closedMonthValue=closedRows.reduce((a,r)=>a+r.value,0);
+    /* ONE FUNCTION, in lib/lead.js, which the Deals Closed picker also calls
+       with a different month — the same arrangement revenueForMonth() has, and
+       for the same reason: a picker that owned a second copy of this could
+       disagree with the tile it sits on. */
+    const cm=closesForMonth(leads,stages,mKey);
+    const {closedRows,closedMonth,closedMonthValue}=cm;
+    awaitingCash=cm.awaitingCash; awaitingValue=cm.awaitingValue;
 
     /* AUDIT #1. The dashboard read payments-plus-legacy; the Money page summed
        every 'in' transaction. Same label, two numbers, in both directions.
@@ -5252,20 +5268,31 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
      reasoning as addedRange above. */
   const [revMonth,setRevMonth]=useState(mKey);
   const pastMonth=revMonth!==mKey;
+  /* Deals Closed picks its own month, on the same terms: current month on every
+     mount, nothing persisted.
+
+     ITS OWN STATE, NOT SHARED WITH REVENUE. Decided rather than asked, and
+     reversible in a line if it reads wrong. A picker sits ON a tile and scopes
+     THAT tile; one that silently moved the tile beside it would be the
+     surprising half of the choice, and the two answer different questions —
+     "what arrived in August" and "what was signed in August" are not the same
+     month's worth of work when a deal closes in one month and pays in the next
+     (which is the exact case tests/split.mjs exists for).
+     The cost is a row that can show two months at once, so each tile NAMES its
+     month on screen the moment it leaves the current one. */
+  const [closedMonth,setClosedMonth]=useState(mKey);
+  const closedPast=closedMonth!==mKey;
   /* The SAME function useMetrics calls, with a different month. Not a second
      copy of the arithmetic — see revenueForMonth() in lib/lead.js. When
      revMonth is the current month these are identical to m.* by construction. */
   const rv=useMemo(()=>revenueForMonth(leads,stages,txns,revMonth),[leads,stages,txns,revMonth]);
-  /* Twelve months back, plus any earlier month that actually has money in it —
-     an install opened in January must still be able to look at last March. */
-  const monthOpts=useMemo(()=>{
-    const set=new Set(lastNMonths(12));
-    leads.forEach(l=>{ paymentRows(l).forEach(p=>{ if(p.date) set.add(String(p.date).slice(0,7)); });
-      (l.closedDeals||[]).forEach(d=>{ if(d.closedAt) set.add(String(d.closedAt).slice(0,7)); }); });
-    (txns||[]).forEach(t=>{ if(t&&t.date&&(t.type==='income'||t.type==='contribution')) set.add(String(t.date).slice(0,7)); });
-    set.add(mKey);
-    return [...set].filter(k=>k<=mKey).sort().reverse();
-  },[leads,txns,mKey]);
+  const cl=useMemo(()=>closesForMonth(leads,stages,closedMonth),[leads,stages,closedMonth]);
+  /* Twelve months back, plus any earlier month that actually has something in
+     it — an install opened in January must still be able to look at last March.
+     ONE list, shared by both pickers, built in lib/lead.js: a tile whose
+     dropdown was missing a month the tile beside it offered would be the same
+     two-screens-two-answers bug in a smaller box. */
+  const monthOpts=useMemo(()=>moneyMonths(leads,txns,mKey,lastNMonths(12)),[leads,txns,mKey]);
   /* The owed breakdown. Rows are owedBy() per lead and nothing is filtered but
      zero, so they sum to m.outstanding — the panel cannot contradict the tile
      it opens from (ENGINEERING §2). */
@@ -5458,7 +5485,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
      dealValue, so the row read $0 for a deal that was closed properly — which
      is exactly what made the panel look broken while every total was right. */
   const wonRowValue=(l,scoped)=>scoped
-    ? ((l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l)?num(l.dealValue):0)+closedDealsInMonth(l,mKey))
+    ? ((l.closedAt&&String(l.closedAt).slice(0,7)===closedMonth&&cashConfirmed(l)?num(l.dealValue):0)+closedDealsInMonth(l,closedMonth))
     : ((cashConfirmed(l)?num(l.dealValue):0)+closedDealsTotal(l));
   /* AUDIT #8. In MONTH view the rows come straight from m.closedRows — the same
      array the tile's count and its value are made of — so the panel renders the
@@ -5470,7 +5497,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
   const wonLeads=(()=>{
     if(wonScope==='month'){
       const byId=new Map(leads.map(l=>[l.id,l]));
-      return (m.closedRows||[]).map(r=>({l:byId.get(r.id),v:r.value,setup:r.value,deals:r.closes}))
+      return (cl.closedRows||[]).map(r=>({l:byId.get(r.id),v:r.value,closes:r.closes}))
         .filter(r=>r.l)
         .sort((a,b)=>(b.l.closedAt||'').localeCompare(a.l.closedAt||''));
     }
@@ -5482,7 +5509,7 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
       .filter(r=>r.v>0||sOf(r.l.stage,stages).won)
       .sort((a,b)=>(b.l.closedAt||'').localeCompare(a.l.closedAt||'')); })();
   const wonShownTotal=wonLeads.reduce((a,r)=>a+r.v,0);
-  const wonShownCloses=wonScope==='month'?wonLeads.reduce((a,r)=>a+r.deals,0):wonLeads.length;
+  const wonShownCloses=wonScope==='month'?wonLeads.reduce((a,r)=>a+num(r.closes),0):wonLeads.length;
   const retLeads=leads.filter(billsMrr).sort((a,b)=>num(b.retainer)-num(a.retainer));
   const quotedLeads=leads.filter(l=>quotedRate(l)>0).sort((a,b)=>num(b.retainer)-num(a.retainer));
   const onboardedLeads=leads.filter(l=>l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey);
@@ -5686,8 +5713,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
           that month is added as its own clause rather than replacing the
           total, so the picker links to the debt without redefining it. */}
       <Kpi label="Revenue Collected" value={usd(G.revenue>0?rv.revenueMonth:m.weighted)} icon={<Target size={14}/>}
-        control={<select className="kpi-month" value={revMonth} onChange={e=>setRevMonth(e.target.value)} aria-label="Which month">
-          {monthOpts.map(k=><option key={k} value={k}>{k===mKey?'This month':monthShort(k)}</option>)}</select>}
+        control={<MonthPicker value={revMonth} onChange={setRevMonth} options={monthOpts} current={mKey}
+          label="Which month, for revenue collected"/>}
         pace={pastMonth?1:undefined}
         d={<>{G.revenue>0?revenueSplit(rv):'weighted forecast'}
           {pastMonth&&<> · <b>{monthName(revMonth)}</b></>}
@@ -5695,7 +5722,18 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
           {m.outstanding>0&&pastMonth&&<> · {usd(owedThisMonth)} of it on work won in {monthName(revMonth)}</>}
           {rv.awaitingLog>0&&<> · {rv.awaitingLog} {pastMonth?`closed in ${monthName(revMonth)}`:'closed this month'} with no payment logged</>}</>}
         onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={rv.revenueMonth}/>
-      <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.closedMonthValue)} closed`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
+      {/* Same picker, same rules, same wording as Revenue Collected — the two
+          tiles differ in what they count and in nothing else. Without a closes
+          goal set the tile falls back to an ALL-TIME won count, which no month
+          picker can scope, so the control only appears when there is a monthly
+          number for it to move. Offering a picker that changes nothing is worse
+          than not offering one. */}
+      <Kpi variant="green" label="Deals Closed" value={G.closed>0?cl.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>}
+        control={G.closed>0?<MonthPicker value={closedMonth} onChange={setClosedMonth} options={monthOpts} current={mKey}
+          label="Which month, for deals closed"/>:undefined}
+        pace={closedPast?1:undefined}
+        d={G.closed>0?`${closedPast?monthName(closedMonth):'this month'} · ${usd(cl.closedMonthValue)} closed`:`${usd(m.wonValue)} setup`}
+        onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={cl.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} billing · ${usdK(m.mrr*12)}/yr`+(m.quotedCount>0?` · quoted ${usd(m.quotedMrr)} across ${m.quotedCount} client${m.quotedCount===1?'':'s'}, not started`:'')} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
     {drill==='pipeline'&&(()=>{
@@ -5804,21 +5842,32 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     {/* The header states BOTH numbers the tile shows — the count and the value —
         so tile and panel can be checked against each other by eye, which is the
         entire job of a drilldown (ENGINEERING §2). */}
-    {drill==='won'&&<Drill title="Deals closed" sub={`${wonShownCloses} close${wonShownCloses===1?'':'s'} · ${usd(wonShownTotal)}${wonScope==='month'?' this month':' all time'}`} onClose={()=>setDrill(null)}>
+    {/* The panel's month view follows the TILE's month. It used to say "this
+        month" in three places while the tile could be showing August, which is
+        a drilldown contradicting the number it opened from — the one thing a
+        drilldown must never do (ENGINEERING §2). */}
+    {drill==='won'&&<Drill title="Deals closed" sub={`${wonShownCloses} close${wonShownCloses===1?'':'s'} · ${usd(wonShownTotal)}${wonScope==='month'?(closedPast?` in ${monthName(closedMonth)}`:' this month'):' all time'}`} onClose={()=>setDrill(null)}>
       {/* the header total is the sum of the rows below it, always — it used to
           show all-time next to a this-month tile, so the two never agreed */}
       <div className="mtab-time" style={{marginBottom:10}}>
-        <button className={wonScope==='month'?'on':''} onClick={()=>setWonScope('month')}>This month</button>
+        <button className={wonScope==='month'?'on':''} onClick={()=>setWonScope('month')}>{closedPast?monthShort(closedMonth):'This month'}</button>
         <button className={wonScope==='all'?'on':''} onClick={()=>setWonScope('all')}>All time</button>
       </div>
-      {wonLeads.length?wonLeads.map(({l,v,setup,deals})=>(<div className="drow" key={l.id}>
+      {/* `closes` is a COUNT and belongs to the month rows; `setup`/`deals` are
+          DOLLARS and belong to the all-time rows. They used to be one field
+          called `deals`, holding a count in one branch and money in the other
+          with usd() over both, so a lead that closed once in the month read
+          "$2,400 setup + $1 closed deals". Separate names, so the formatter
+          cannot be applied to the wrong one again. */}
+      {wonLeads.length?wonLeads.map(({l,v,setup,deals,closes})=>(<div className="drow" key={l.id}>
         <div className="drow-m"><Name l={l}/><div className="subcell">
           {l.closedAt?`closed ${fmtDate(l.closedAt)}`:'—'}{l.owner?` · ${l.owner}`:''}
+          {num(closes)>1?` · ${closes} closes`:''}
           {setup>0&&deals>0?` · ${usd(setup)} setup + ${usd(deals)} closed deals`:''}
           {v===0?' · nothing closed yet':''}
         </div></div>
         <span className="drow-v">{usd(v)}</span>
-      </div>)):<Empty t={wonScope==='month'?'Nothing closed this month.':'No closed deals yet.'}/>}
+      </div>)):<Empty t={wonScope==='month'?(closedPast?`Nothing closed in ${monthName(closedMonth)}.`:'Nothing closed this month.'):'No closed deals yet.'}/>}
     </Drill>}
 
     {/* AUDIT #26. Quoted rates are listed BELOW the billing ones, never summed
