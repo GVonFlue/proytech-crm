@@ -20,10 +20,13 @@ const ago=n=>new Date(Date.now()-n*864e5).toISOString();
 /* a date N days out, expressed as a birthday with a real birth year */
 const inDays=(n,year)=>{const d=new Date(Date.now()+n*864e5);
   return `${year||d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;};
+/* Named once so the assertion about the rendered age can be derived from it
+   rather than restating an answer that is only right in one calendar year. */
+const SOON_BIRTH_YEAR=1985;
 globalThis.__LEADS__=[
   {id:'b1',name:'Soon Birthday',company:'Soon Co',stage:'new',owner:'Garrett',createdAt:ago(30),
    activities:[],meetings:[],deals:[],dealValue:0,
-   keyDates:[{id:'k1',label:'Birthday',date:inDays(3,1985),annual:true,lead:7}]},
+   keyDates:[{id:'k1',label:'Birthday',date:inDays(3,SOON_BIRTH_YEAR),annual:true,lead:7}]},
   {id:'b2',name:'Far Birthday',company:'Far Co',stage:'new',owner:'Garrett',createdAt:ago(30),
    activities:[],meetings:[],deals:[],dealValue:0,
    keyDates:[{id:'k2',label:'Birthday',date:inDays(60,1990),annual:true,lead:7}]},
@@ -63,7 +66,20 @@ ok('a birthday 3 days out is listed', /Soon Birthday/.test(td)&&/in 3 days/.test
 ok('a birthday 60 days out is NOT', !/Far Birthday/.test(td), td.slice(0,300));
 ok('a custom labelled date shows too', /Home purchase anniversary/.test(td), td.slice(0,300));
 ok('tomorrow reads as tomorrow', /tomorrow/.test(td), td.slice(0,300));
-ok('the age is worked out from the year', /turns 4[01]/.test(td), (td.match(/turns \d+/)||[''])[0]);
+/* The expected age is DERIVED from the same fixture the birthday was built
+   from, not typed. It was /turns 4[01]/ — true only while the year is 2026,
+   and the second clock-rotted assertion in this suite (see
+   tests/clockwarp.mjs). Scoped to the birthday's own row too: "Home purchase
+   anniversary" also renders a "turns N", so a page-wide match could pass or
+   fail on the wrong record. */
+const soonAge = new Date(Date.now()+3*864e5).getFullYear() - SOON_BIRTH_YEAR;
+/* (?!\\d), not \\b. The row renders with no separators — "turns 41in 3 days" —
+   so there is no word boundary after the number, and \\b silently never matched.
+   What is actually meant is "not followed by another digit", so that turns 4
+   cannot match inside turns 41. */
+ok('the age is worked out from the year',
+   new RegExp('Soon Birthday[\\s\\S]{0,120}turns '+soonAge+'(?!\\d)').test(td),
+   'expected turns '+soonAge+' beside Soon Birthday — saw: '+(td.match(/turns \d+/g)||[]).join(', '));
 
 console.log('\nadding one');
 await nav('Leads');

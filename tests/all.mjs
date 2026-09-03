@@ -49,6 +49,10 @@ const HELPERS = new Set([
   'writefingerprint.mjs', // a TOOL, not a test: prints what the app writes so two
                           // commits can be diffed. Always exits 0, so running it
                           // here would only ever add noise.
+  'clockwarp.mjs',        // a TOOL, not a test: runs another suite with the clock
+                          // pinned to a chosen day, to find fixtures that only
+                          // pass in the month they were written. Asserts nothing
+                          // of its own; run directly with two arguments.
 ]);
 
 /* Overridable so the hang path can be exercised quickly, and so a slower CI
