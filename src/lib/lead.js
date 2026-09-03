@@ -1115,3 +1115,141 @@ export function personMatch(l, q) {
       b.split(/\s+/).some(w => w.startsWith(query))) return 2;
   return 1;
 }
+
+/* ---- one month of money ----------------------------------------------------
+   These three lived in App.jsx while owedBy lived here, so the two halves of
+   "what happened this month" had different homes and only one of them could be
+   unit-tested. They are the month predicates every money figure reads. */
+export const paidInMonth=(l,mKey)=>paymentRows(l).reduce((a,p)=>
+  a+((p.date&&String(p.date).slice(0,7)===mKey)?num(p.amount):0),0);
+export const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.closedAt&&String(d.closedAt).slice(0,7)===mKey)?num(d.amount):0),0);
+export const closedDealsCountInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).filter(d=>d.closedAt&&String(d.closedAt).slice(0,7)===mKey).length;
+
+/* REVENUE FOR ONE MONTH — the whole definition, in one function, taking the
+   month as an argument.
+
+   It was inlined in useMetrics against `todayISO().slice(0,7)`, which meant the
+   only month anything could report was the one you happened to be standing in.
+   Adding a month picker by writing a second copy of this arithmetic is exactly
+   the bug MONEY-SPLIT-FINDING.md is about, so there is no second copy: the
+   Dashboard's picker and useMetrics call THIS, and useMetrics simply passes
+   today's month. A month picker cannot disagree with the tile it sits on
+   because it is the same code with a different argument.
+
+   Cash basis (ENGINEERING §4): money that ARRIVED in the month, from the
+   payment dates, plus the bounded legacy fallback for deals that closed before
+   payment rows existed. Owner contributions are cash but are NOT revenue and
+   come back separately rather than hidden — the Money page's net needs them. */
+export const revenueForMonth=(leads,stages,txns,mKey)=>{
+  let clientRevenueMonth=0,collectedMonth=0,legacyMonth=0,awaitingLog=0,awaitingLogValue=0;
+  (leads||[]).forEach(l=>{
+    const pays=paidInMonth(l,mKey);
+    if(pays>0){ collectedMonth+=pays; clientRevenueMonth+=pays; }
+    /* AUDIT #22. preDatesPayments is the second half of this condition. Without
+       it the fallback fired on brand-new closes and reported money that had not
+       arrived — Poppell closed on the 17th with no payment logged and appeared
+       under "Collected this month". */
+    if(!anyPayments(l).length&&preDatesPayments(l)){
+      const closedHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l);
+      const legacy=(closedHere?num(l.dealValue):0)+closedDealsInMonth(l,mKey);
+      if(legacy>0){ legacyMonth+=legacy; clientRevenueMonth+=legacy; }
+    }
+    /* Closed since payment tracking began, deposit ticked, no payment row — it
+       is not collected and it IS owed. Counted so the screen can say so instead
+       of the money simply disappearing from both sides. */
+    else if(!anyPayments(l).length&&sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){
+      awaitingLog++; awaitingLogValue+=num(l.dealValue)+closedDealsInMonth(l,mKey);
+    }
+  });
+  let otherIncomeMonth=0,contribMonth=0;
+  (txns||[]).forEach(t=>{
+    if(!t||String(t.date||'').slice(0,7)!==mKey) return;
+    if(t.type==='income') otherIncomeMonth+=num(t.amount);
+    else if(t.type==='contribution') contribMonth+=num(t.amount);
+  });
+  return {mKey,clientRevenueMonth,otherIncomeMonth,contribMonth,collectedMonth,legacyMonth,
+    revenueMonth:clientRevenueMonth+otherIncomeMonth,awaitingLog,awaitingLogValue};
+};
+
+/* ---- what "still owed" is made of ------------------------------------------
+   WHAT THE NUMBER MEANS, because the two screens showing it described it two
+   different ways and only one of them was true.
+
+   owedBy() reads DEALS, never invoices. So "still owed" is SOLD-AND-UNPAID:
+   work on a record that reached a won stage (or is a client), contracted total
+   minus setup payments. It is NOT invoiced-and-unpaid — an invoice is a piece
+   of paper this function has never looked at, and a sale with no invoice is in
+   the number exactly the same as one with an overdue invoice. It is also NOT
+   quoted work: an open lead at Discovery owes nothing, because it has not
+   bought anything. Retainers are out too (see the note on owedBy).
+
+   The Money page's 90-day tab called this "Invoiced, not yet paid". That was
+   the false one, and this is the function that made it false.
+
+   Because of that, "how overdue" has two possible answers per row and they are
+   NOT interchangeable, so the row says which one it used:
+     invoice — there is an unpaid invoice with a due date. Days past THAT.
+     sale    — no invoice. Days since the work was won. Old, not overdue.
+   A row with neither gets days:null and must render a dash, never a 0 —
+   "nobody knows" and "due today" are not allowed to look identical. */
+export const oldestUnpaidInvoice=(l,invoices)=>(invoices||[])
+  .filter(iv=>iv&&String(iv.clientId||'')===String(l&&l.id)&&iv.status!=='paid'&&iv.dueDate)
+  .sort((a,b)=>String(a.dueDate).localeCompare(String(b.dueDate)))[0]||null;
+/* The LATEST close, not the earliest. owedBy nets contracted against paid
+   across the whole record, so no single deal owns the balance and any date here
+   is an approximation. The latest one understates the age, and understating is
+   the safe direction: a number that reads too old gets believed, one that reads
+   too young gets checked. Same reasoning as the card-fee estimate above. */
+export const owedSince=l=>{
+  if(!l) return '';
+  const dates=((l.closedDeals||[]).map(d=>String(d&&d.closedAt||'').slice(0,10)))
+    .concat([String(l.closedAt||'').slice(0,10),String(l.convertedAt||'').slice(0,10)])
+    .filter(Boolean).sort();
+  return dates.length?dates[dates.length-1]:'';
+};
+export const daysOld=iso=>{
+  const d=String(iso||'').slice(0,10); if(!d) return null;
+  const ms=Date.parse(todayISO()+'T00:00:00Z')-Date.parse(d+'T00:00:00Z');
+  return isNaN(ms)?null:Math.floor(ms/86400000);
+};
+/* One row per debtor, most overdue first. The rows SUM to outstanding by
+   construction — every amount is owedBy() and nothing is filtered except zero —
+   so the panel and the tile cannot give two answers (ENGINEERING §2). */
+export const owedRows=(leads,stages,invoices)=>(leads||[])
+  .map(l=>{
+    const amount=owedBy(l,stages);
+    if(!(amount>0)) return null;
+    const inv=oldestUnpaidInvoice(l,invoices);
+    const since=inv?String(inv.dueDate).slice(0,10):owedSince(l);
+    return {id:l.id,name:l.name||l.company||'—',company:l.company||'',amount,
+      basis:inv?'invoice':(since?'sale':'unknown'),since,
+      invoice:inv?(inv.number||''):'',days:daysOld(since)};
+  })
+  .filter(Boolean)
+  /* Ordered by what you would DO about it, not by a single number — because
+     there is no single number. "42 days past due" and "sold 42 days ago" are
+     measured from different events, so sorting them against each other ranks a
+     bill nobody has sent above a bill somebody is ignoring. Grouped instead:
+
+       0  past due on an invoice   — chase the client, they were told
+       1  sold, never invoiced     — the older these get the worse, and the
+                                     action is to BILL, not to chase
+       2  invoiced, not due yet    — nothing to do today
+       3  no date on record        — fix the record before judging it
+
+     Within a group, oldest first, then largest — the order the list gets
+     worked. */
+  .sort((a,b)=>owedRank(a)-owedRank(b)
+    ||(b.days==null?-1:b.days)-(a.days==null?-1:a.days)
+    ||b.amount-a.amount);
+export const owedRank=r=>!r?3
+  :r.basis==='invoice'?(r.days>0?0:2)
+  :r.basis==='sale'?1:3;
+/* Of a total that is deliberately all-time, how much came from work won in one
+   month. Not the tile's headline — the tile stays all-time on purpose — but the
+   line that ties the picker to the debt without pretending the debt is monthly. */
+export const owedFromMonth=(leads,stages,mKey)=>(leads||[]).reduce((a,l)=>{
+  const amount=owedBy(l,stages);
+  if(!(amount>0)) return a;
+  return a+((owedSince(l).slice(0,7)===mKey)?amount:0);
+},0);

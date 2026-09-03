@@ -64,6 +64,8 @@ import {
   dayLabel, daysToDate, daysUntil, dealBits, dealsOf, depositPaidAt, evNum, fmtDate,
   fmtMeetingTime, fmtStamp, introChain, isDateless, isPoolLead, isUpsellDeal, isoOf, personLabel,
   countsAsBusiness, hasRealDeal,
+  paidInMonth, closedDealsInMonth, closedDealsCountInMonth,
+  revenueForMonth, owedRows, owedFromMonth, owedSince,
   keyDatesOf, labelVocab, labelsOf, manualSponsorships, meetingsOf, needsDate,
   normEntry, num, nurtureDaysOf, onbSkipped, openSaleValue, owedBy, pct, poolList,
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
@@ -522,11 +524,12 @@ const paymentsOf=l=>Array.isArray(l&&l.payments)?l.payments:[];
 /* Revenue reads BOTH arrays. Cash is cash — a retainer payment arriving is
    money in, exactly like a deposit — so splitting the storage must not move a
    single month's revenue. */
-const paidInMonth=(l,mKey)=>paymentRows(l).reduce((a,p)=>
-  a+((p.date&&String(p.date).slice(0,7)===mKey)?num(p.amount):0),0);
-const closedDealsInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).reduce((a,d)=>a+((d.closedAt&&String(d.closedAt).slice(0,7)===mKey)?num(d.amount):0),0);
+/* paidInMonth / closedDealsInMonth / closedDealsCountInMonth moved to
+   lib/lead.js and are imported above. They are the month predicates
+   revenueForMonth() is built from, and half of "what happened this month"
+   living in a 9,000-line component was why only the CURRENT month could ever
+   be reported. */
 const upsellValueOf=l=>dealsOf(l).filter(isUpsellDeal).reduce((a,d)=>a+dealBits(d),0);
-const closedDealsCountInMonth=(l,mKey)=>((l&&l.closedDeals)||[]).filter(d=>d.closedAt&&String(d.closedAt).slice(0,7)===mKey).length;
 const funnelOf=(leads,stages)=>{ const flow=(stages||[]).filter(s=>!s.lost); if(!flow.length) return [];
   const reached=flow.map(()=>0);
   (leads||[]).forEach(l=>{ let i=flow.findIndex(s=>s.key===l.stage);
@@ -845,6 +848,21 @@ const CSS=`
 .kpi .kl{font-size:11.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:#8E89A8;display:flex;align-items:center;gap:7px}
 .kpi .kv{font-family:'Space Grotesk';font-size:26px;font-weight:600;margin-top:9px;color:${INK};line-height:1}
 .kpi .kd{font-size:12.5px;font-weight:600;margin-top:8px;color:#8E89A8}
+/* The month picker sits in the label row, pushed right. It is inside a tile
+   that is itself a button, so it carries its own stopPropagation (see Kpi). */
+.kpi .kpi-vrow{display:flex;align-items:baseline;gap:10px}
+.kpi .kpi-vrow .kv{flex:0 1 auto;min-width:0}
+.kpi .kpi-ctl{flex:none;margin-left:auto;align-self:center}
+.kpi .kpi-month{font:inherit;font-size:10.5px;font-weight:700;letter-spacing:0;text-transform:none;
+  color:#5A5680;background:#F4F4F8;border:1px solid #E8E9F2;border-radius:7px;padding:1px 3px;cursor:pointer;max-width:98px}
+.kpi .kpi-month:focus-visible{outline:2px solid ${COBALT};outline-offset:1px}
+/* "still owed" is a clause in the subtitle that opens its own panel, so it has
+   to look pressable without becoming a second tile. */
+.kpi .kd-link{font:inherit;color:#D97706;background:none;border:none;padding:0;cursor:pointer;
+  text-decoration:underline;text-underline-offset:2px;text-decoration-thickness:1px}
+.kpi .kd-link:hover{color:#B45309}
+.kpi.accent .kpi-month{color:#CFE6FF;background:rgba(127,216,255,.10);border-color:rgba(127,216,255,.22)}
+.kpi.accent .kd-link{color:#FBBF67}
 /* The headline tiles are the JARVIS plate: deep navy, a faint circuit grid, a
    lit cyan top edge and a cyan glow on the number. Everything dense and
    tabular below stays light — a spreadsheet on a dark plate is harder to read,
@@ -4858,7 +4876,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedMoney} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null}/>:
+          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -5001,7 +5019,10 @@ function useMetrics(leads,stages,settings,txns){
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
     /* a won lead only counts once the money is confirmed — see cashConfirmed */
-    let awaitingCash=0,awaitingValue=0,awaitingLog=0,awaitingLogValue=0;
+    let awaitingCash=0,awaitingValue=0;
+    /* filled from revenueForMonth() below — declared here because the closes
+       block between the two reads them. */
+    let awaitingLog=0,awaitingLogValue=0;
     /* A lead that BOTH reached a won stage this month AND has a deal archived
        into closedDeals this month used to fire both branches and count twice —
        which is why the tile said 3 over a list of 2. The drilldown dedupes by
@@ -5031,49 +5052,22 @@ function useMetrics(leads,stages,settings,txns){
     const closedMonth=closedRows.reduce((a,r)=>a+r.closes,0);
     const closedMonthValue=closedRows.reduce((a,r)=>a+r.value,0);
 
-    /* Revenue = money that actually arrived this month, from the payment dates.
-       LEGACY FALLBACK: a lead closed this month with cash confirmed but NO
-       payments logged still counts at its close date — otherwise every deal
-       recorded before payments were tracked would silently vanish from your
-       history. Once you log a payment on a lead, its payments take over. */
-    let clientRevenueMonth=0,collectedMonth=0,legacyMonth=0,outstanding=0;
-    leads.forEach(l=>{
-      const pays=paidInMonth(l,mKey);
-      if(pays>0){ collectedMonth+=pays; clientRevenueMonth+=pays; }
-      /* AUDIT #22. preDatesPayments is the new half of this condition. Without
-         it the fallback fired on brand-new closes and reported money that had
-         not arrived — Poppell closed on the 17th with no payment logged and
-         appeared under "Collected this month". */
-      if(!anyPayments(l).length&&preDatesPayments(l)){
-        const closedHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l);
-        const legacy=(closedHere?num(l.dealValue):0)+closedDealsInMonth(l,mKey);
-        if(legacy>0){ legacyMonth+=legacy; clientRevenueMonth+=legacy; }
-      }
-      /* Closed since payment tracking began, deposit ticked, no payment row —
-         it is not collected and it IS owed. Counted so the screen can say so
-         instead of the money simply disappearing from both sides. */
-      else if(!anyPayments(l).length&&sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey){
-        awaitingLog++; awaitingLogValue+=num(l.dealValue)+closedDealsInMonth(l,mKey);
-      }
-      outstanding+=owedBy(l,stages);
-    });
     /* AUDIT #1. The dashboard read payments-plus-legacy; the Money page summed
-       every 'in' transaction. Same label, two numbers, in both directions —
-       Money was higher by any hand-entered income and lower by every deal that
-       predates payment tracking.
-       ONE number now, from one place, with both sources kept apart so the split
-       stays visible: money that came from client work, and money that did not.
-       OWNER CONTRIBUTIONS ARE NOT REVENUE and are excluded — putting your own
-       money into the business is not the business earning it — but they are
-       returned separately rather than hidden, because they are still cash that
-       arrived and the Money page's net has to account for them. */
-    let otherIncomeMonth=0,contribMonth=0;
-    (txns||[]).forEach(t=>{
-      if(!t||String(t.date||'').slice(0,7)!==mKey) return;
-      if(t.type==='income') otherIncomeMonth+=num(t.amount);
-      else if(t.type==='contribution') contribMonth+=num(t.amount);
-    });
-    const revenueMonth=clientRevenueMonth+otherIncomeMonth;
+       every 'in' transaction. Same label, two numbers, in both directions.
+       ONE number now, from ONE FUNCTION — revenueForMonth() in lib/lead.js —
+       which the Dashboard's month picker also calls with a different month.
+       That is the only reason picking August cannot disagree with the tile:
+       there is no second copy of this arithmetic to drift.
+       awaitingLog/awaitingLogValue come back from it too, because "closed this
+       month, no payment logged" is a fact about a month like any other. */
+    const rv=revenueForMonth(leads,stages,txns,mKey);
+    const {clientRevenueMonth,collectedMonth,legacyMonth,otherIncomeMonth,contribMonth,revenueMonth}=rv;
+    awaitingLog=rv.awaitingLog; awaitingLogValue=rv.awaitingLogValue;
+    /* STILL OWED IS DELIBERATELY NOT MONTH-SCOPED — see owedRows() in
+       lib/lead.js. A debt belongs to whoever has not paid it, not to the month
+       you happen to be looking at, so this stays as-of-today on every month and
+       the screen says so. */
+    const outstanding=leads.reduce((a,l)=>a+owedBy(l,stages),0);
     const firstTouch=median(touchHrs);
     const fuRate=fuCleared>0?fuOnTime/fuCleared:null;
     const funnel=funnelOf(leads,stages);
@@ -5235,7 +5229,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep}){
+function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep,invoices}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings,txns);
   const [drill,setDrill]=useState(null);
@@ -5249,6 +5243,41 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
   const [dragSec,setDragSec]=useState(null);
   const tog=k=>{ setDrill(d=>d===k?null:k); };
   const mKey=todayISO().slice(0,7);
+  /* THE MONTH PICKER, and why it is not remembered.
+     useState's initial value is evaluated on every mount, so this is the
+     current month every time the dashboard loads — by design, and deliberately
+     NOT persisted to settings or localStorage. A month you picked last Tuesday
+     that still says "Revenue Collected" reads exactly like the current one, and
+     a stale figure that looks current is worse than one extra click. Same
+     reasoning as addedRange above. */
+  const [revMonth,setRevMonth]=useState(mKey);
+  const pastMonth=revMonth!==mKey;
+  /* The SAME function useMetrics calls, with a different month. Not a second
+     copy of the arithmetic — see revenueForMonth() in lib/lead.js. When
+     revMonth is the current month these are identical to m.* by construction. */
+  const rv=useMemo(()=>revenueForMonth(leads,stages,txns,revMonth),[leads,stages,txns,revMonth]);
+  /* Twelve months back, plus any earlier month that actually has money in it —
+     an install opened in January must still be able to look at last March. */
+  const monthOpts=useMemo(()=>{
+    const set=new Set(lastNMonths(12));
+    leads.forEach(l=>{ paymentRows(l).forEach(p=>{ if(p.date) set.add(String(p.date).slice(0,7)); });
+      (l.closedDeals||[]).forEach(d=>{ if(d.closedAt) set.add(String(d.closedAt).slice(0,7)); }); });
+    (txns||[]).forEach(t=>{ if(t&&t.date&&(t.type==='income'||t.type==='contribution')) set.add(String(t.date).slice(0,7)); });
+    set.add(mKey);
+    return [...set].filter(k=>k<=mKey).sort().reverse();
+  },[leads,txns,mKey]);
+  /* The owed breakdown. Rows are owedBy() per lead and nothing is filtered but
+     zero, so they sum to m.outstanding — the panel cannot contradict the tile
+     it opens from (ENGINEERING §2). */
+  const owedList=useMemo(()=>owedRows(leads,stages,invoices),[leads,stages,invoices]);
+  const owedThisMonth=useMemo(()=>owedFromMonth(leads,stages,revMonth),[leads,stages,revMonth]);
+  const monthName=k=>{ const [y,mo]=String(k).split('-');
+    return new Date(+y,+mo-1,1).toLocaleString('en-US',{month:'long',year:'numeric'}); };
+  const monthShort=k=>{ const [y,mo]=String(k).split('-');
+    return new Date(+y,+mo-1,1).toLocaleString('en-US',{month:'short',year:'numeric'}); };
+  /* Inlined at the call site rather than declared as a component here: a
+     component declared inside another component is a new type on every render,
+     so React unmounts and remounts it — see tests/remountguard.mjs. */
 
   if(rep){
     const mine=myCommissions(leads,myUid);
@@ -5645,7 +5674,27 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     <div className="kgroup">Pipeline &amp; revenue</div>
     <div className="kgrid">
       <Kpi variant="accent" label="Open Pipeline" value={usd(m.pipelineValue)} icon={<KanbanSquare size={14}/>} d={`${m.openCount} lead${m.openCount===1?'':'s'}${m.upsellCount>0?` · ${m.upsellCount} client upsell${m.upsellCount===1?'':'s'}`:''}${G.revenue>0?` · ${(m.weighted/G.revenue).toFixed(1)}x goal coverage`:''}`} onClick={()=>tog('pipeline')} active={drill==='pipeline'}/>
-      <Kpi label="Revenue Collected" value={usd(G.revenue>0?m.revenueMonth:m.weighted)} icon={<Target size={14}/>} d={(G.revenue>0?revenueSplit(m):'weighted forecast')+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')+(m.awaitingLog>0?` · ${m.awaitingLog} closed this month with no payment logged`:'')} onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={m.revenueMonth}/>
+      {/* The month picker feeds `rv`, not `m` — every figure on this tile is
+          the picked month's. STILL OWED IS THE EXCEPTION and says so out loud:
+          it is the balance as of TODAY, across every month, because that is the
+          money you can actually go and collect. The other two candidates both
+          lose: "owed as of the end of that month" is not computable — an open
+          deal carries no date it was created, so there is no way to know what
+          was outstanding on 31 August — and "owed only on work won that month"
+          would hide the oldest debts, which are the ones worth chasing.
+          When a past month is picked, the share of that balance traceable to
+          that month is added as its own clause rather than replacing the
+          total, so the picker links to the debt without redefining it. */}
+      <Kpi label="Revenue Collected" value={usd(G.revenue>0?rv.revenueMonth:m.weighted)} icon={<Target size={14}/>}
+        control={<select className="kpi-month" value={revMonth} onChange={e=>setRevMonth(e.target.value)} aria-label="Which month">
+          {monthOpts.map(k=><option key={k} value={k}>{k===mKey?'This month':monthShort(k)}</option>)}</select>}
+        pace={pastMonth?1:undefined}
+        d={<>{G.revenue>0?revenueSplit(rv):'weighted forecast'}
+          {pastMonth&&<> · <b>{monthName(revMonth)}</b></>}
+          {m.outstanding>0&&<> · <button className="kd-link" onClick={e=>{e.stopPropagation();tog('owed');}}>{usd(m.outstanding)} still owed today, all months</button></>}
+          {m.outstanding>0&&pastMonth&&<> · {usd(owedThisMonth)} of it on work won in {monthName(revMonth)}</>}
+          {rv.awaitingLog>0&&<> · {rv.awaitingLog} {pastMonth?`closed in ${monthName(revMonth)}`:'closed this month'} with no payment logged</>}</>}
+        onClick={()=>tog('rev')} active={drill==='rev'} goal={G.revenue} current={rv.revenueMonth}/>
       <Kpi variant="green" label="Deals Closed" value={G.closed>0?m.closedMonth:m.wonCount} icon={<CheckCircle2 size={14}/>} d={G.closed>0?`this month · ${usd(m.closedMonthValue)} closed`:`${usd(m.wonValue)} setup`} onClick={()=>tog('won')} active={drill==='won'} goal={G.closed} current={m.closedMonth}/>
       <Kpi variant="gold" label="MRR" value={usd(m.mrr)} icon={<Repeat size={14}/>} d={`${m.retainers} billing · ${usdK(m.mrr*12)}/yr`+(m.quotedCount>0?` · quoted ${usd(m.quotedMrr)} across ${m.quotedCount} client${m.quotedCount===1?'':'s'}, not started`:'')} onClick={()=>tog('mrr')} active={drill==='mrr'} goal={G.mrr} current={m.mrr}/>
     </div>
@@ -5678,17 +5727,22 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
     </Drill>); })()}
 
     {drill==='rev'&&(()=>{ const rows=leads.flatMap(l=>paymentRows(l)
-        .filter(p=>p.date&&String(p.date).slice(0,7)===mKey)
+        .filter(p=>p.date&&String(p.date).slice(0,7)===revMonth)
         .map(p=>({l,p}))).sort((a,b)=>(b.p.date||'').localeCompare(a.p.date||''));
       /* AUDIT #22. The panel builds these rows ITSELF, so bounding the metric
          without bounding this listed Poppell under a total that excluded it —
          the drilldown contradicting its own header. Same predicate as
          useMetrics, which is the only way these two stay equal. */
       const legacyRows=leads.filter(l=>!anyPayments(l).length&&preDatesPayments(l))
-        .map(l=>({l,amt:((sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey&&cashConfirmed(l))?num(l.dealValue):0)+closedDealsInMonth(l,mKey)}))
+        .map(l=>({l,amt:((sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===revMonth&&cashConfirmed(l))?num(l.dealValue):0)+closedDealsInMonth(l,revMonth)}))
         .filter(r=>r.amt>0);
-      const otherRows=(txns||[]).filter(t=>t&&t.type==='income'&&String(t.date||'').slice(0,7)===mKey);
-      return (<Drill title="Collected this month" sub={usd(m.revenueMonth)+' · '+revenueSplit(m)+(m.outstanding>0?` · ${usd(m.outstanding)} still owed`:'')} onClose={()=>setDrill(null)}>
+      const otherRows=(txns||[]).filter(t=>t&&t.type==='income'&&String(t.date||'').slice(0,7)===revMonth);
+      /* The header is the picked month's total and the rows are the picked
+         month's rows. Still owed is NOT in this header any more: it is an
+         all-time figure and this panel's rows sum to one month, so putting it
+         here made a total that its own list could never add up to. It has its
+         own panel, where the rows do sum to it. */
+      return (<Drill title={pastMonth?`Collected in ${monthName(revMonth)}`:'Collected this month'} sub={usd(rv.revenueMonth)+' · '+revenueSplit(rv)} onClose={()=>setDrill(null)}>
         {rows.map(({l,p})=>(<div className="drow" key={l.id+p.id}>
           <div className="drow-m"><Name l={l}/><div className="subcell">{fmtDate(p.date)}{p.note?` · ${p.note}`:''}
             {owedBy(l,stages)>0?<span className="mtg-flag"> · {usd(owedBy(l,stages))} still owed</span>:null}</div></div>
@@ -5708,7 +5762,43 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
             <div className="subcell">{fmtDate(t.date)} · entered by hand{t.note?` · ${t.note}`:''}</div></div>
           <span className="drow-v">{usdc(t.amount)}</span>
         </div>))}
-        {!rows.length&&!legacyRows.length&&!otherRows.length&&<Empty t="Nothing collected this month yet."/>}
+        {!rows.length&&!legacyRows.length&&!otherRows.length&&<Empty t={pastMonth?`Nothing collected in ${monthName(revMonth)}.`:'Nothing collected this month yet.'}/>}
+      </Drill>); })()}
+
+    {/* WHAT THE $7,104 IS MADE OF. The tile used to state a total and stop,
+        which is a number you cannot act on: it names no one, so there is
+        nobody to call. Every row is owedBy() and only zeroes are dropped, so
+        the rows sum to the header exactly.
+
+        The AGE COLUMN IS TWO DIFFERENT FACTS and refuses to blur them. An
+        unpaid invoice has a due date, so "42 days past due" is a real claim.
+        A sale with no invoice has no due date at all — it is "sold 42 days
+        ago", which is old but not late, and calling it overdue would invent a
+        deadline nobody agreed to. A record with neither shows a dash rather
+        than a zero: ENGINEERING §2 — a missing value that renders as a
+        plausible one is the worst kind. */}
+    {drill==='owed'&&(()=>{
+      const invoiced=owedList.filter(r=>r.basis==='invoice');
+      const late=invoiced.filter(r=>r.days>0);
+      return (<Drill title="Still owed" sub={`${usd(m.outstanding)} · ${owedList.length} client${owedList.length===1?'':'s'} · as of today, every month`} onClose={()=>setDrill(null)}>
+        <div className="mn-note">Sold and not collected — work on a won deal or a client,
+          contracted minus paid. It is <b>not</b> invoiced-and-unpaid: {invoiced.length} of these
+          {invoiced.length===1?' has':' have'} an invoice raised{late.length>0?`, ${late.length} past due`:''}.
+          Open pipeline is excluded — a lead that has not bought anything owes nothing.
+          Retainers are excluded too; arrears live on the client record.</div>
+        {owedList.map(r=>(<div className="drow" key={r.id}>
+          <div className="drow-m"><Name l={leads.find(l=>l.id===r.id)||{id:r.id,name:r.name}}/>
+            <div className="subcell">{
+              r.days==null?<span>no close or due date on record</span>
+              :r.basis==='invoice'
+                ?(r.days>0
+                    ? <span className="mtg-flag">{r.days} day{r.days===1?'':'s'} past due · invoice {r.invoice||'—'}</span>
+                    : <span>due {fmtDate(r.since)} · invoice {r.invoice||'—'}</span>)
+                :<span>sold {r.days} day{r.days===1?'':'s'} ago · not invoiced</span>
+            }</div></div>
+          <span className="drow-v">{usdc(r.amount)}</span>
+        </div>))}
+        {!owedList.length&&<Empty t="Nothing outstanding."/>}
       </Drill>); })()}
 
     {/* The header states BOTH numbers the tile shows — the count and the value —
@@ -8182,7 +8272,11 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,payLeads,openLead,settings,sa
   const dueTotal=due.reduce((a,x)=>a+x.amount,0);
   /* retainers are contractual, so three months of them is a fact, not a guess */
   const mrr=(leads||[]).filter(billsMrr).reduce((a,l)=>a+num(l.retainer),0);
-  const owedNow=(leads||[]).reduce((a,l)=>a+owedBy(l,stages),0);
+  /* m.outstanding, not a second reduce over the same list with the same
+     function. These agreed by luck rather than by construction, and one edit to
+     either would have made the Money page and the Dashboard disagree about the
+     same dollar again (ENGINEERING §2). */
+  const owedNow=m.outstanding;
   /* REP PAY. The biggest expense this business is taking on, and it was
      invisible here — accrued pay is committed money in exactly the way a signed
      retainer is committed income, so it belongs on this page BEFORE it is paid,
@@ -8249,7 +8343,14 @@ function MoneyPage({txns,upsertTxn,deleteTxn,leads,payLeads,openLead,settings,sa
         <div>
           <div className="td-h"><ArrowDownLeft size={13}/>Expected in · {usd(mrr*3)}</div>
           <div className="mn-row"><span>Retainers, 3 months</span><b className="in">{usd(mrr*3)}</b></div>
-          {owedNow>0&&<div className="mn-row"><span>Invoiced, not yet paid</span><b className="in">{usd(owedNow)}</b></div>}
+          {/* WAS "Invoiced, not yet paid", which was not true of this number.
+              owedBy() reads DEALS — contracted minus paid on a won record — and
+              has never looked at the invoices table, so a sale nobody ever
+              invoiced is in here exactly like one with a due date last month.
+              The tile above says "sold, not collected"; the same number cannot
+              be described two ways on one screen. The Dashboard's breakdown
+              panel is where you see which of it has actually been billed. */}
+          {owedNow>0&&<div className="mn-row"><span>Sold, not yet collected</span><b className="in">{usd(owedNow)}</b></div>}
           {repOwed>0&&<div className="mn-row"><span>Rep pay approved, not yet sent</span><b className="out">{usd(repOwed)}</b></div>}
           {repPending>0&&<div className="mn-row"><span>Rep pay awaiting your approval</span><b className="out">{usd(repPending)}</b></div>}
         </div>
@@ -9321,12 +9422,20 @@ function Rate({part,whole,warnBelow,goodAbove,min=RATE_MIN_N,empty='\u2014',clas
   return <span className={cls(tone)} title={title||rateSample(p,w)}>{Math.round(r*100)}%</span>;
 }
 
-function Kpi({label,value,d,variant,icon,onClick,active,goal,current}){
+/* `control` is a node dropped in the label row — a month picker, so far. It
+   stops its own clicks: the tile itself is a button that toggles a drilldown,
+   and changing the month must not also open a panel.
+   `pace` overrides "how much of the month has gone". A FINISHED month is 100%
+   through, so judging August against today's 3rd-of-the-month pace would call
+   a completed month "on pace" for a goal it never hit. */
+function Kpi({label,value,d,variant,icon,onClick,active,goal,current,control,pace}){
   return (<div className={'kpi '+(variant||'')+(onClick?' clickable':'')+(active?' active':'')} onClick={onClick} role={onClick?'button':undefined}>
     <div className="kl">{icon}{label}{onClick&&<ChevronDown size={13} className={'kpi-ch'+(active?' on':'')}/>}</div>
-    <div className="kv">{value}</div>{d&&<div className="kd">{d}</div>}
+    <div className="kpi-vrow"><div className="kv">{value}</div>
+      {control&&<span className="kpi-ctl" onClick={e=>e.stopPropagation()}>{control}</span>}</div>
+    {d&&<div className="kd">{d}</div>}
     {goal>0&&current!=null&&(()=>{ const pct=Math.min(100,Math.round(current/goal*100));
-      const hit=current>=goal; const behind=!hit&&current<goal*monthPace();
+      const hit=current>=goal; const behind=!hit&&current<goal*(pace==null?monthPace():pace);
       return (<div className="kgoal">
         <div className="kgbar"><div style={{width:Math.max(2,pct)+'%',background:hit?GREEN:behind?'#E0662B':COBALT}}/></div>
         <div className="kgt"><span>{pct}% of goal</span><b className={hit?'hit':behind?'behind':''}>{hit?'hit':behind?'behind pace':'on pace'}</b></div>

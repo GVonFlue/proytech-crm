@@ -197,7 +197,12 @@ export const db = {
     const a=globalThis.__EVENTS__||[]; const i=a.findIndex(x=>x.id===e.id); if(i>=0) a[i]=e; else a.unshift(e); },
   deleteEvent: async (id) => { globalThis.__EVENTS__=(globalThis.__EVENTS__||[]).filter(x=>x.id!==id); },
   getSettings: async () => (globalThis.__SETTINGS__ || null), saveSettings: async (st) => { globalThis.__SETTINGS_WRITES__ = globalThis.__SETTINGS_WRITES__||[]; globalThis.__SETTINGS_WRITES__.push(st); },
-  getInvoices: async () => [], saveInvoices: async () => {},
+  /* Was a hardcoded [], so no suite could ever put an invoice in front of the
+     app. The owed breakdown needs one: an invoice is the ONLY due date this
+     product has, and "how overdue" cannot be asserted without it. Mirrors every
+     other reader here — a fixture global, deep-copied. */
+  getInvoices: async () => JSON.parse(JSON.stringify(globalThis.__INVOICES__ || [])),
+  saveInvoices: async (l) => { (globalThis.__INVOICE_WRITES__ = globalThis.__INVOICE_WRITES__ || []).push(l); },
   getTxns: async () => Array.isArray(globalThis.__TXNS__) ? globalThis.__TXNS__ : [],
   saveTxns: async (l) => { globalThis.__TXNS__ = l; },
   getTasks: async () => JSON.parse(JSON.stringify(globalThis.__TASKS__ || [])), saveTasks: async () => {},

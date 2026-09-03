@@ -212,6 +212,24 @@ $10,000 deal at 30% counts as $3,000.
 *earned*. Your CRM is cash basis: revenue lands in the month of the payment,
 not the month you closed.
 
+**Still owed / outstanding** — `owedBy()`: on a record that is a client or
+sits at a **won** stage, everything sold minus everything paid against the work.
+Three things it deliberately is **not**:
+
+- **not invoiced-and-unpaid.** It reads deals, never the invoices table. A sale
+  nobody has billed is in this number exactly like one whose invoice went past
+  due last month.
+- **not quoted work.** An open lead with a live proposal owes nothing — it has
+  not bought anything. This is why "still owed" is a fraction of open pipeline
+  rather than a multiple of it.
+- **not retainer arrears.** A retainer is recurring, not a balance. Arrears live
+  on the client record.
+
+The Dashboard's breakdown panel splits it by client and shows both possible
+ages side by side: *past due* (an unpaid invoice has a due date, so lateness is
+a fact) and *sold N days ago* (nothing was ever billed, so it is old rather than
+late). Those two are never averaged or sorted against each other.
+
 **Attribution** — deciding which month or which source a number belongs to.
 
 **Conversion rate** — how many of one thing became the next thing.

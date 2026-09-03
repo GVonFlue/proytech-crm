@@ -187,7 +187,10 @@ const JUSTUS = {
      somebody says so the whole thing pays down the automations deal. */
   payments:[
     { id:'pj1', amount:1498.50, date:'2026-07-21', note:'square deposit' },
-    { id:'pj2', amount:1249.50, date:'2026-08-07', note:'balance' },
+    /* D(), not a literal: this payment is "the balance, paid this month", and
+       a hardcoded month made that claim false the moment the month rolled over.
+       See the note above the cast. */
+    { id:'pj2', amount:1249.50, date:D('07'), note:'balance' },
   ],
   retainerPayments:[],
   retainerActive:true, retainer:249, retainerStart:'',
@@ -243,7 +246,9 @@ const norm = () => txt().replace(/ /g, ' ');
 
 console.log('\n#1 the dashboard and the Money page agree on what was collected');
 {
-  /* $2,000 in client payments + $500 hand-entered income = $2,500.
+  /* Client payments this month: Alvarez $2,000 + Fresh Signing $1,500 +
+     Billing Client's $150 retainer + Justus's $1,249.50 balance = $4,899.50,
+     which usd() renders $4,900. Plus $500 hand-entered income = $5,400.
      The $9,000 owner contribution is cash, but it is NOT revenue. */
   const dash = norm();
   ok('the dashboard says $5,400 collected', /\$5,400/.test(dash), dash.match(/Revenue Collected.{0,120}/)?.[0]);
