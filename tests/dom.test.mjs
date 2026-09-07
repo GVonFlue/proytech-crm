@@ -43,9 +43,15 @@
 import { testAsync, eq, ok, report } from './assert.mjs';
 import { mount } from './harness.mjs';
 
-/* modulesV 9 skips the one-time module backfills, and stages are spelled out
+/* modulesV 10 skips the one-time module backfills, and stages are spelled out
    so migrateStages has nothing to migrate — otherwise a test's writes include
-   the app's own housekeeping and "loading writes nothing" can never be true. */
+   the app's own housekeeping and "loading writes nothing" can never be true.
+
+   THIS NUMBER HAS TO BE BUMPED EVERY TIME A MODULE BACKFILL IS ADDED in
+   App.jsx, and the failure when it is forgotten is a good one: "merely loading
+   writes nothing" goes red and names the write. Left at 9, this fixture is an
+   install that predates Mass Outreach, so the app correctly writes the
+   backfill and the test correctly reports it. */
 const STAGES = [
   { key: 'new', label: 'New Lead', color: '#6B73C9', prob: 0.1, open: true, won: false, lost: false },
   { key: 'discovery', label: 'Discovery', color: '#2B4DE0', prob: 0.3, open: true, won: false, lost: false },
@@ -60,7 +66,7 @@ const STAGES = [
   { key: 'lost', label: 'Lost', color: '#B0606A', prob: 0, open: false, won: false, lost: true },
 ];
 const OWNER_SETTINGS = extra => ({
-  modules: ['dash', 'leads', 'settings'], modulesV: 9, stages: STAGES,
+  modules: ['dash', 'leads', 'settings', 'outreach'], modulesV: 10, stages: STAGES,
   retainerStartCleared: '2026-01-01T00:00:00.000Z', ...extra,
 });
 
