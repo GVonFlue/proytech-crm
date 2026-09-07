@@ -506,6 +506,25 @@ export const db = {
     const { error } = await supabase.from('app_settings').upsert({ id: 'main', data: obj });
     if (error) throw error;
   },
+  /* The Build Console's saved installs.
+
+     Another keyed row in app_settings, exactly like invoices and txns, so this
+     needs no migration and no new policy: whatever guards app_settings already
+     guards this. Owner-only in practice, because the console tab is owner-only.
+
+     NOTHING SECRET IS EVER WRITTEN HERE. Supabase keys, Anthropic keys and
+     intake tokens are listed by name in the console and never captured, so a
+     leak of this row leaks a client's brand colours and nothing else. If a
+     field is ever added that changes that, it belongs in Vercel, not here. */
+  async getInstalls() {
+    const { data, error } = await supabase.from('app_settings').select('data').eq('id', 'installs').maybeSingle();
+    if (error) throw error;
+    return (data?.data?.list) || [];
+  },
+  async saveInstalls(list) {
+    const { error } = await supabase.from('app_settings').upsert({ id: 'installs', data: { list } });
+    if (error) throw error;
+  },
   async getInvoices() {
     const { data, error } = await supabase.from('app_settings').select('data').eq('id', 'invoices').maybeSingle();
     if (error) throw error;
