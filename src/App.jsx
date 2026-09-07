@@ -14,10 +14,11 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket, Bot, Mic,
-  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2, Megaphone,
+  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2, Megaphone, Server,
 } from 'lucide-react';
 import JSZip from 'jszip';
 import MeetingLog from './MeetingLog';
+import BuildConsole from './BuildConsole';
 import PersonPicker from './PersonPicker';
 import Jarvis from './Jarvis';
 import { meetingLogsOf } from './lib/meetinglog';
@@ -215,7 +216,7 @@ function ScopeSeg({view,setView,counts,canAll}){
    board degraded as the business succeeded. Switched off rather than deleted:
    every lead, stage and value is untouched, and putting it back is one entry in
    this array plus a modulesV bump. */
-const ALL_MODULES=[['jarvis',AI_NAME],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
+const ALL_MODULES=[['jarvis',AI_NAME],['build','Build Console'],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -298,6 +299,13 @@ const canOpen=(settings,user,k,gated)=>{
      Owner-only: content_brand_context holds pricing and offer material, which
      ROLES.md keeps off a rep's screen. */
   if(k==='content') return CONTENT_STUDIO_ON&&!isRep(user);
+  /* Build Console is owner-only, for the same reason Content Studio is: it
+     holds other clients' configuration, and ROLES.md keeps anything that is
+     not this rep's own work off their screen. Gated HERE and not inline in
+     NAV, because `amOwner` is a const inside the loader — ENGINEERING.md §1,
+     "locals that look global". Using it in NAV builds clean and throws
+     `amOwner is not defined` at render, which is precisely how it was caught. */
+  if(k==='build') return modOn(settings,'build')&&!isRep(user);
   if(!modOn(settings,k)) return false;
   if(!isRep(user)) return true;
   if(k==='dash') return true;
@@ -3774,6 +3782,7 @@ export default function App(){
   const [board,setBoard]=useState(null);       // leaderboard rows from the DB function
   const [celebrate,setCelebrate]=useState(null); // {amount,name} — the one restrained moment
   const [invId,setInvId]=useState(null);
+  const [installs,setInstalls]=useState([]);
   const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES,pools:[],modulesV:0,notifyEmails:''});
   const [page,setPage]=useState('dash');
   const [sbOpen,setSbOpen]=useState(false);
@@ -3996,10 +4005,19 @@ export default function App(){
         st={...st,modules:st.modules.filter(k=>k!=='pipeline'),modulesV:8};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
+      /* Build Console. ENGINEERING.md §1: any install that has ever opened the
+         modules screen has a saved array predating this tab, so without the
+         bump it ships invisible and nothing looks broken. Owner-only in the NAV
+         below, so a rep never sees it even once it is in the list. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<9){
+        st={...st,modules:st.modules.includes('build')?st.modules:[...st.modules,'build'],modulesV:9};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
       if(amOwner&&mig.changed.length){ s=mig.leads; try{ await db.upsertMany(mig.changed); }catch(err){ console.error('stage migration save failed',err); } }
+      try{ setInstalls(await db.getInstalls()); }catch(err){ console.error('installs load failed',err); setInstalls([]); }
       setLeads(s); setInvoices(Array.isArray(iv)?iv:[]); setTxns(Array.isArray(tx)?tx:[]); setTasks(Array.isArray(tk)?tk:[]);
       /* Spread the saved object FIRST. This loader names every field
          explicitly, so anything added later — recurring bills, and whatever
@@ -4737,7 +4755,16 @@ export default function App(){
     <button className="btn btn-g" style={{width:'100%',justifyContent:'center',marginTop:8}} onClick={()=>auth.logout()}><LogOut size={15}/>Sign out</button>
   </div></div></>);
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],...(CONTENT_STUDIO_ON?[['content','Content Studio',<Megaphone size={18}/>]]:[]),['settings','Settings',<Settings size={18}/>]];
+  /* Build Console installs. Optimistic like the other savers on this screen:
+     set state first so the form does not lag a keystroke behind, then persist.
+     A failed write logs and leaves the screen ahead of the database, which is
+     the same trade every other save here makes. */
+  const saveInstalls=async list=>{
+    setInstalls(list);
+    try{ await db.saveInstalls(list); }catch(err){ console.error('installs save failed',err); }
+  };
+
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['build','Build Console',<Server size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],...(CONTENT_STUDIO_ON?[['content','Content Studio',<Megaphone size={18}/>]]:[]),['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -4890,6 +4917,7 @@ export default function App(){
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings} rep={rep} myUser={repUser||myUser} myUid={myUid}/>:
           view==='playbook'?<Playbook notes={kbNotes} pub={kbPub} mlogs={mlogs} rep={rep} me={me} gate={kbGate} fresh={kbNew} markRead={markKbRead}
             saveNote={saveKbNote} deleteNote={delKbNote} previewNote={db.kbPreview} publishNote={kbPublishNote} unpublishNote={kbUnpublishNote}/>:
+          view==='build'?<BuildConsole installs={installs} saveInstalls={saveInstalls}/>:
           view==='mlog'?<MeetingLog logs={mlogs} tasks={tasks} leads={scoped} saveLog={saveMlog} deleteLog={delMlog} saveTasks={saveTasks} publishToLead={publishLogToLead} me={me}/>:
           view==='sponsors'?<SponsorsPage leads={scoped} events={events} open={openLead} goEvents={()=>setPage('events')}/>:
           view==='events'?<EventsPage events={events} saveEvent={saveEvent} removeEvent={removeEvent} leads={scoped} quickLead={quickLead} open={openLead} me={me}/>:
