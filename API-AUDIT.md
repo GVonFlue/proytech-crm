@@ -21,7 +21,16 @@ exactly the problem worth naming: that test proves a route *has* a check, and
 this document is where the repo says *what the check is and why*. A guarded
 route missing from here is not a hole, but a table that silently stops covering
 `api/` is how the next unguarded one goes unnoticed. Read, not grepped, for the
-same reason as the 20 Aug pass. **21 route files.**
+same reason as the 20 Aug pass. **25 route files, 22 of them described below.**
+
+> **The count was wrong before this pass and is corrected here.** The table said
+> 21 while `api/` held 24 non-helper files. The three missing were
+> `calendar-availability.js`, `calendar-debug.js` and `calendar-probe.js` —
+> all three **do** call `guard()`, so this was a documentation gap and not a
+> hole, but it is precisely the drift the paragraph above warns about: a table
+> that stops covering `api/` is how the next unguarded route goes unnoticed.
+> Reading each of the three and writing its row is **still open** — it was left
+> out of the Mass Outreach change rather than done badly in passing.
 
 ---
 
@@ -42,6 +51,7 @@ same reason as the 20 Aug pass. **21 route files.**
 | `pocket-backfill.js` | ✅ `guard({requireAuth})` + `crm_whoami()` | owner-only, verified server-side. **The model the rest should copy.** |
 | `content-slate.js` | ✅ `guard({requireOwner})` **or** `CRON_SECRET` | two doors, both closed to strangers — see below. + cents ceiling |
 | `content-regenerate.js` | ✅ `guard({requireOwner})` | + cents ceiling |
+| `outreach-draft.js` | ✅ `guard({requireOwner})` | + dollar ceiling, shared with `jarvis.js` — see below |
 | `content-usage.js` | ✅ `guard({requireOwner})` | read-only; spends nothing |
 | `pocket-hook.js` | ✅ HMAC signature | no session by design — it is a webhook. Correct. |
 | `google-status.js` | ✅ **fixed in this PR** | was open |
@@ -53,6 +63,42 @@ same reason as the 20 Aug pass. **21 route files.**
 
 `_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js` are helpers
 with no route.
+
+### `outreach-draft.js` — why owner, and why it shares JARVIS's budget
+
+**`requireOwner`, not `requireAuth`**, which makes it stricter than every other
+AI route here except the Content Studio pair. Three reasons, and the third is
+the one that would have gone wrong quietly:
+
+1. It drafts messages **in the business's own voice**, addressed to named people.
+   A rep sending a hundred texts that read as coming from the owner is not a
+   thing the owner should discover afterwards.
+2. It reads records **across the whole book**. A rep's payload would have to be
+   narrowed to their own leads, and a narrowing that exists only in the browser
+   is not a control — `visibleLeads` in `lib/jarvis.js` is a UI promise backed
+   by RLS, and this route has no equivalent server-side narrowing written.
+3. **The tab and the route have to agree.** `canOpen` in `src/App.jsx` gates
+   `outreach` to owners; if that gate were ever relaxed without changing this,
+   a rep would get a screen whose Generate button fails every time, which reads
+   as a broken build rather than as a permission.
+
+**It logs spend to `jarvis:spend`, deliberately** — the same bucket and the same
+`JARVIS_BUDGET` ceiling as `api/jarvis.js`. A separate budget would mean the
+figure on the JARVIS meter stopped being the whole AI bill, and two ceilings
+that each look like "the" limit is how an install ends up spending twice what
+its owner set. One number, one meter.
+
+**No write path and no send path.** It returns text. Every draft is reviewed on
+screen, and the message is sent by a human inside Messages through an `sms:`
+link — there is no server-side sending anywhere in this codebase, and the
+review screen's comments say so explicitly so it does not get "improved" in.
+
+**Prompt injection matters more here than in the chat box.** Lead notes and
+imported spreadsheet rows reach this prompt, and unlike `jarvis.js` — where the
+worst case is a suggested note the user declines — the output of this one is
+something the owner then *sends to a real person*. The defence is
+`validateDraft` in `src/lib/outreach.js`, which refuses any draft carrying a
+link, an email address or a phone number, plus the absence of a write path.
 
 ---
 

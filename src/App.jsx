@@ -21,6 +21,7 @@ import MeetingLog from './MeetingLog';
 import BuildConsole from './BuildConsole';
 import PersonPicker from './PersonPicker';
 import Jarvis from './Jarvis';
+import MassOutreach from './MassOutreach';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import { playbookGate, unreadSince } from './lib/kb';
@@ -216,7 +217,7 @@ function ScopeSeg({view,setView,counts,canAll}){
    board degraded as the business succeeded. Switched off rather than deleted:
    every lead, stage and value is untouched, and putting it back is one entry in
    this array plus a modulesV bump. */
-const ALL_MODULES=[['jarvis',AI_NAME],['build','Build Console'],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money']];
+const ALL_MODULES=[['jarvis',AI_NAME],['build','Build Console'],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money'],['outreach','Mass Outreach']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -250,8 +251,12 @@ const REP_DEFAULT_TABS=['dash','board','leads','followup','tasks','activity','me
    An owner CAN still switch them on deliberately (see Team settings). */
 const MONEY_TABS=['invoices','books','money','huddle','mlog'];
 /* modules a rep may be granted at all. 'settings' and 'clients' stay with owners:
-   Settings configures the whole install, Clients is the money-side client book. */
-const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients').concat(['dash']);
+   Settings configures the whole install, Clients is the money-side client book.
+   'outreach' joins them: it speaks to people in the business's own voice, over
+   records a rep cannot see, and api/outreach-draft.js proves ownership through
+   Postgres before it will draft anything. A tab a rep could open but whose
+   route would refuse them is worse than no tab — it is a broken screen. */
+const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients'&&k!=='outreach').concat(['dash']);
 const tabsOf=u=>{ if(!u) return REP_DEFAULT_TABS; const t=Array.isArray(u.tabs)?u.tabs:[]; return t.length?t:REP_DEFAULT_TABS; };
 /* Sidebar order is a PERSONAL preference, not an account one — two people on the
    same install work differently and neither should be able to rearrange the
@@ -264,6 +269,7 @@ const navOrderOf=(user,navKeys)=>{
   const saved=Array.isArray(user&&user.nav_order)?user.nav_order.filter(k=>navKeys.includes(k)):[];
   return [...saved,...navKeys.filter(k=>!saved.includes(k))];
 };
+const EMPTY_SEL=new Set();
 const isRep=u=>!!u&&u.role==='rep';
 /* what THIS person can open: the install's global modules, narrowed by their
    own tab list. A rep can never see a tab the install has globally turned off. */
@@ -306,6 +312,12 @@ const canOpen=(settings,user,k,gated)=>{
      "locals that look global". Using it in NAV builds clean and throws
      `amOwner is not defined` at render, which is precisely how it was caught. */
   if(k==='build') return modOn(settings,'build')&&!isRep(user);
+  /* Mass Outreach is owner-only for the same reason, and gated HERE rather than
+     inline in NAV for the same `amOwner` reason the Build Console comment gives.
+     api/outreach-draft.js runs requireOwner, so a rep given this tab by hand in
+     Settings would get a screen whose Generate button always fails — the gate
+     and the route have to agree, and the route is the one that is real. */
+  if(k==='outreach') return modOn(settings,'outreach')&&!isRep(user);
   if(!modOn(settings,k)) return false;
   if(!isRep(user)) return true;
   if(k==='dash') return true;
@@ -4013,6 +4025,16 @@ export default function App(){
         st={...st,modules:st.modules.includes('build')?st.modules:[...st.modules,'build'],modulesV:9};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
+      /* Mass Outreach. ENGINEERING.md §1 again, and this is the fifth time: any
+         install that has ever opened the modules screen has a saved
+         settings.modules array predating this tab, so without the bump it ships
+         invisible and nothing looks broken — you deploy, see no tab, and assume
+         the build failed. Owner-only in canOpen above, so a rep never sees it
+         even once it is in the list. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<10){
+        st={...st,modules:st.modules.includes('outreach')?st.modules:[...st.modules,'outreach'],modulesV:10};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
@@ -4764,7 +4786,7 @@ export default function App(){
     try{ await db.saveInstalls(list); }catch(err){ console.error('installs save failed',err); }
   };
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['build','Build Console',<Server size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],...(CONTENT_STUDIO_ON?[['content','Content Studio',<Megaphone size={18}/>]]:[]),['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['build','Build Console',<Server size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['outreach','Mass Outreach',<MessageSquare size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],...(CONTENT_STUDIO_ON?[['content','Content Studio',<Megaphone size={18}/>]]:[]),['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -4830,7 +4852,7 @@ export default function App(){
     const others=tasks.filter(t=>t.owner!==me);
     saveTasks([...(next||[]).filter(t=>t.owner===me),...others]);
   };
-  const titles={dash:['Dashboard','The whole board at a glance'],jarvis:[AI_NAME,'Ask the CRM anything'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],mlog:['Meeting Log','Paste a transcript · Claude pulls out what matters'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const titles={dash:['Dashboard','The whole board at a glance'],jarvis:[AI_NAME,'Ask the CRM anything'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],outreach:['Mass Outreach','Pick people, write one line, send a personal text to each'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],mlog:['Meeting Log','Paste a transcript · Claude pulls out what matters'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
   if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; titles.jarvis=[AI_NAME,'Ask about your leads · flag anything to the owner']; }
   /* the leaderboard the DB gave us; pre-migration an owner can still see one
      computed locally (an owner can read every lead, a rep never could). */
@@ -4910,6 +4932,9 @@ export default function App(){
           view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
           view==='pipeline'?<Pipeline leads={scopedMoney} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedMoney.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
           view==='leads'?<Leads leads={scopedBiz} settings={settings} stages={stages} open={openLead} saveSettings={saveSettings} importLeads={importLeads} me={me} updateLead={updateLead} rep={rep} myPools={myPools} importOpen={importOpen} setImportOpen={setImportOpen} delBatch={delBatch} users={users} reassignMany={reassignMany}/>:
+          view==='outreach'?<MassOutreach leads={scoped} settings={settings} stages={stages} open={openLead}
+            saveSettings={saveSettings} me={me} updateLead={updateLead} rep={rep} myPools={myPools}
+            users={users} addActivity={addActivity} LeadTable={Leads}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
@@ -6844,14 +6869,19 @@ function Pipeline({leads,stages,open,updateLead,settings,clients,setClientPhase,
 }
 
 /* ===================== LEADS ===================== */
-function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen,delBatch,users,reassignMany}){
+function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLead,rep,myPools,importOpen,setImportOpen,delBatch,users,reassignMany,selection,onSelection,initialView}){
   /* importOpen is owned by App so the sidebar's "Import a list" can open it.
      A local useState here would shadow the prop: the sidebar sets one piece of
      state and the page renders off another, so the modal never appears. */
   /* a rep always has the whole-company view switched off — the database
      wouldn't return anyone else's leads anyway. */
   const canAll=!rep&&teamAccess(settings,me)==='all';
-  const [view,setView]=useState('mine');
+  /* Mass Outreach opens this table on the whole book, because picking who to
+     text is a question about everyone rather than about your own column. The
+     effect below still snaps it back to 'mine' when the install does not grant
+     the company-wide view, so an initialView can never show a list the person
+     is not allowed to see. */
+  const [view,setView]=useState(initialView||'mine');
   const [recent,setRecent]=useState(null);   // null | '1' | '7' | batch id
   const [label,setLabel]=useState('all');
   /* OWNER FILTER. 'all' | a crm_users id | 'none' (nobody owns it).
@@ -6886,8 +6916,28 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
   useEffect(()=>{ if(!canAll&&ownerF!=='all') setOwnerF('all'); },[canAll,ownerF]);
   /* BATCH SELECTION. Owner-only: moving ownership is an owner action every
      other place it exists (reassignLeads is gated on isOwner). */
-  const canBatch=!rep&&typeof reassignMany==='function';
-  const [sel,setSel]=useState(()=>new Set());
+  /* SELECTION — LOCAL, OR DRIVEN FROM OUTSIDE.
+
+     Mass Outreach needs the ticked set, and it needs THIS table rather than a
+     copy of it: a second lead list with its own search and its own checkbox
+     behaviour is two screens that disagree the first time one of them is
+     improved (ENGINEERING.md §2). So the state lifts when a sink is passed and
+     stays local otherwise, and every existing caller is untouched.
+
+     canBatch drives the checkbox COLUMN; canReassign drives the reassign bar.
+     They used to be one flag, and leaving them as one would put a "move these
+     to another rep" control on the outreach screen. */
+  const canReassign=!rep&&typeof reassignMany==='function';
+  const controlled=typeof onSelection==='function';
+  const canBatch=canReassign||controlled;
+  const [selLocal,setSelLocal]=useState(()=>new Set());
+  const sel=controlled?(selection||EMPTY_SEL):selLocal;
+  /* Accepts an updater function exactly like useState does, because
+     toggleAllShown and toggleOne both pass one. Reading `sel` from the closure
+     instead would drop a tick whenever two arrived in the same React batch. */
+  const setSel=controlled
+    ?(next=>onSelection(typeof next==='function'?next(sel):next))
+    :setSelLocal;
   const [target,setTarget]=useState('');
   const [confirming,setConfirming]=useState(false);
   const [busy,setBusy]=useState(false);
@@ -7124,7 +7174,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       </div>)}
     {ownerF==='none'&&(
       <div className="pool-note"><Users size={14}/>Leads with no owner id. Nobody but an owner can see these — a rep is shown leads by owner id, never by the name written on them.</div>)}
-    {canBatch&&sel.size>0&&(
+    {canReassign&&sel.size>0&&(
       <div className="bulkbar">
         <span className="bb-n"><b>{sel.size}</b> selected</span>
         <select className="selctl" value={target} onChange={e=>{setTarget(e.target.value);setResult(null);}}>

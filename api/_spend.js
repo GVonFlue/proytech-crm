@@ -16,7 +16,16 @@ const KEY  = SUPA_KEY;
 
 /* Per-million-token rates, USD. Override with JARVIS_RATE_IN / JARVIS_RATE_OUT
    if the rate card moves — the code should not need a deploy to stay honest. */
+/* BOTH SPELLINGS OF EVERY MODEL THAT IS ACTUALLY SET ANYWHERE. The fallback
+   below is Sonnet-priced, so a model id that is not a key here does not fail —
+   it silently bills at up to three times what it cost, and the monthly ledger
+   the budget ceiling reads is quietly wrong in the direction that cuts the
+   owner off early. `claude-haiku-4-5` is the current canonical id and
+   `claude-haiku-4-5-20251001` is what JARVIS_MODEL defaults to today; setting
+   the shorter one in an env var is an ordinary thing to do and used to cost 3x
+   on the ledger without a word. */
 export const RATES = {
+  'claude-haiku-4-5':          { in: 1, out: 5 },
   'claude-haiku-4-5-20251001': { in: 1, out: 5 },
   'claude-sonnet-4-6':         { in: 3, out: 15 },
   'claude-sonnet-5':           { in: 2, out: 10 },
