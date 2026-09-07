@@ -201,6 +201,11 @@ export const db = {
      app. The owed breakdown needs one: an invoice is the ONLY due date this
      product has, and "how overdue" cannot be asserted without it. Mirrors every
      other reader here — a fixture global, deep-copied. */
+  /* Build Console installs. Mirrors the invoices pair: reads a seeded global,
+     records every write so a suite can assert on what reached the database
+     rather than on what appeared on screen. */
+  getInstalls: async () => JSON.parse(JSON.stringify(globalThis.__INSTALLS__ || [])),
+  saveInstalls: async (l) => { (globalThis.__INSTALL_WRITES__ = globalThis.__INSTALL_WRITES__ || []).push(l); },
   getInvoices: async () => JSON.parse(JSON.stringify(globalThis.__INVOICES__ || [])),
   saveInvoices: async (l) => { (globalThis.__INVOICE_WRITES__ = globalThis.__INVOICE_WRITES__ || []).push(l); },
   getTxns: async () => Array.isArray(globalThis.__TXNS__) ? globalThis.__TXNS__ : [],
