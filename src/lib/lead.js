@@ -1253,3 +1253,57 @@ export const owedFromMonth=(leads,stages,mKey)=>(leads||[]).reduce((a,l)=>{
   if(!(amount>0)) return a;
   return a+((owedSince(l).slice(0,7)===mKey)?amount:0);
 },0);
+
+/* CLOSES FOR ONE MONTH — the same shape as revenueForMonth() above, and for the
+   same reason: the Deals Closed tile's month picker calls THIS with the month
+   you picked, and useMetrics calls it with today. There is no second copy of
+   the arithmetic for a picker to drift away from.
+
+   AUDIT #8 lives in here and must keep living in here. `rows` is ONE array and
+   everything reads it — the count is its closes, the value is its value, and
+   the drilldown renders its rows — because when the tile, its subtitle and its
+   panel each answered the question separately they gave three answers:
+
+     · a lead that BOTH reached a won stage this month AND had a deal archived
+       into closedDeals this month fired both branches and counted twice, so
+       the tile said 3 over a list of 2;
+     · the panel dropped any row worth $0, so a free close did it again for a
+       different reason. A close worth nothing is still a close.
+
+   One lead closing is one close, however its money is recorded. A SECOND closed
+   deal on the same lead does add again, because that genuinely is another
+   close. */
+export const closesForMonth=(leads,stages,mKey)=>{
+  const rows=[]; let awaitingCash=0,awaitingValue=0;
+  (leads||[]).forEach(l=>{
+    const cmCount=closedDealsCountInMonth(l,mKey);
+    const wonHere=sOf(l.stage,stages).won&&l.closedAt&&String(l.closedAt).slice(0,7)===mKey;
+    const confirmed=cashConfirmed(l);
+    /* Won in the month but the cash is not confirmed: it counts for win rate
+       and not for revenue, and it is surfaced rather than silently dropped. */
+    if(wonHere&&!confirmed){ awaitingCash++; awaitingValue+=num(l.dealValue); }
+    if(cmCount>0) rows.push({id:l.id,closes:cmCount,value:closedDealsInMonth(l,mKey)});
+    else if(wonHere&&confirmed) rows.push({id:l.id,closes:1,value:num(l.dealValue)});
+  });
+  return {mKey,closedRows:rows,
+    closedMonth:rows.reduce((a,r)=>a+r.closes,0),
+    closedMonthValue:rows.reduce((a,r)=>a+r.value,0),
+    awaitingCash,awaitingValue};
+};
+/* Every month a record has money or a close in, newest first and never in the
+   future. Both pickers read this, so the two tiles offer the same list — a tile
+   whose dropdown was missing a month the other one had would be the same "two
+   screens, two answers" bug wearing a different hat. */
+export const moneyMonths=(leads,txns,thisMonth,backfill)=>{
+  const set=new Set(Array.isArray(backfill)?backfill:[]);
+  (leads||[]).forEach(l=>{
+    paymentRows(l).forEach(p=>{ if(p.date) set.add(String(p.date).slice(0,7)); });
+    (l.closedDeals||[]).forEach(d=>{ if(d.closedAt) set.add(String(d.closedAt).slice(0,7)); });
+    /* close dates too, or a month whose only event was a signature — a won lead
+       with no payment yet — is missing from the Deals Closed picker. */
+    if(l.closedAt) set.add(String(l.closedAt).slice(0,7));
+  });
+  (txns||[]).forEach(t=>{ if(t&&t.date&&(t.type==='income'||t.type==='contribution')) set.add(String(t.date).slice(0,7)); });
+  set.add(thisMonth);
+  return [...set].filter(k=>k&&k<=thisMonth).sort().reverse();
+};
