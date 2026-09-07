@@ -38,7 +38,7 @@
 // Deleting is signed-in for the same reason: a rep who books a meeting has to
 // be able to cancel it. Deleting an arbitrary pre-existing event still needs
 // its id, which this endpoint only ever returns for events it created.
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 import { getAccessToken } from './_google.js';
 
 const CAL = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
@@ -71,7 +71,7 @@ export default async function handler(req, res) {
   // types freely, so there is room for it and not much more.
   const gate = await guard(req, res, {
     name: 'calendar-event', perIp: 30, windowMin: 10, perDay: 400,
-    maxChars: 20000, requireAuth: true,
+    maxChars: 20000, requireAuth: true, module: 'meetings',
   });
   if (!gate.ok) return;
   sweep();

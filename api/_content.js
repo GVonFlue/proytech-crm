@@ -6,13 +6,13 @@
 // paid call is testable without a network, and everything below is the plumbing
 // that carries it.
 //
-// Deliberately a separate file from _guard.js and _spend.js, for the reason
-// _spend.js states about itself: _guard.js is load-bearing for six working
+// Deliberately a separate file from @getproytech/core/guard and @getproytech/core/spend, for the reason
+// @getproytech/core/spend states about itself: @getproytech/core/guard is load-bearing for six working
 // endpoints and there is no reason to risk them to add a seventh feature.
 //
-// THE SPEND CAP HERE IS NOT THE ONE IN _spend.js.
+// THE SPEND CAP HERE IS NOT THE ONE IN @getproytech/core/spend.
 //
-//   _spend.js counts DOLLARS in api_hits and caps JARVIS. This counts CENTS in
+//   @getproytech/core/spend counts DOLLARS in api_hits and caps JARVIS. This counts CENTS in
 //   content_usage and caps Content Studio, because WEEKEND1 puts the ceiling in
 //   `config.monthly_cap_cents` — an owner-editable row, not an env var — and
 //   puts the ledger in content_usage, which already has the columns for it.
@@ -21,15 +21,13 @@
 //   other. The RATE CARD is shared (RATES, below) so the two cannot disagree
 //   about what a token costs.
 
-import { SUPA_KEY, SUPA_URL } from './_env.js';
+import { supaKey, supaUrl } from '@getproytech/core/env';
 import { timingSafeEqual } from 'node:crypto';
-import { costOf } from './_spend.js';
+import { costOf } from '@getproytech/core/spend';
 import {
   readConfig, buildSystemPrompt, centsFrom, unitsFrom, currentMonday,
 } from '../src/lib/content.js';
 
-const SUPA = SUPA_URL;
-const KEY  = SUPA_KEY;
 
 /* The content key is its own env var, NOT ANTHROPIC_API_KEY. WEEKEND1 §3: it
    lives in Vercel and is read only inside api/. It is never named in a VITE_
@@ -40,13 +38,13 @@ export const CONTENT_KEY = () => process.env.ANTHROPIC_API_KEY_CONTENT || '';
 /* ------------------------------------------------------------- supabase rest */
 
 async function sb(path, opts = {}) {
-  if (!SUPA || !KEY) return { ok: false, rows: null, error: 'Supabase is not configured on this deployment.' };
+  if (!supaUrl() || !supaKey()) return { ok: false, rows: null, error: 'Supabase is not configured on this deployment.' };
   try {
-    const r = await fetch(`${SUPA}/rest/v1/${path}`, {
+    const r = await fetch(`${supaUrl()}/rest/v1/${path}`, {
       ...opts,
       headers: {
-        apikey: KEY,
-        authorization: `Bearer ${KEY}`,
+        apikey: supaKey(),
+        authorization: `Bearer ${supaKey()}`,
         'content-type': 'application/json',
         ...(opts.headers || {}),
       },
@@ -134,7 +132,7 @@ export async function markResearchUsed(ids) {
 /** Cents spent this calendar month, from content_usage.
  *
  *  Returns null when the ledger is UNREACHABLE, and the caller must decide.
- *  Same posture as _spend.js: failing open on a spend cap is a decision worth
+ *  Same posture as @getproytech/core/spend: failing open on a spend cap is a decision worth
  *  making explicitly, not a shrug. This feature fails CLOSED — see the routes. */
 export async function spentCentsThisMonth() {
   const d = new Date();
@@ -251,7 +249,7 @@ export function isCronCaller(req) {
  *  learning nothing about whether this deployment has a cron at all.
  *
  *  Returning early skips the rate limiter. That is deliberate and matches
- *  _guard.js's own ordering comment: a caller who is not allowed in should not
+ *  @getproytech/core/guard's own ordering comment: a caller who is not allowed in should not
  *  be able to spend the day's budget getting turned away. Nothing below this
  *  point costs money — no Anthropic call, no write. */
 export function cronDenial(req) {
@@ -300,7 +298,7 @@ export async function brandContext(extra) {
 
 /** The hard spend cap. Returns { ok } or { ok:false, status, body }.
  *
- *  Fails CLOSED on an unreachable ledger. _guard.js fails open because a rate
+ *  Fails CLOSED on an unreachable ledger. @getproytech/core/guard fails open because a rate
  *  limiter that takes the product down when its datastore blips is worse than
  *  the abuse it prevents. This is the opposite trade: nothing about a weekly
  *  content slate is urgent, and a cap that cannot see the ledger is not a cap. */

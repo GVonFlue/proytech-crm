@@ -25,7 +25,7 @@
 // are simply absent — a standing Tuesday meeting would be invisible and we
 // would book straight over it. It is one query parameter and it is the
 // difference between this feature working and this feature being a hazard.
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 import { calendarIds, calendarTz, getAccessToken } from './_google.js';
 import { busyFrom, dayWindow } from '../src/lib/availability.js';
 
@@ -81,7 +81,7 @@ export async function readCalendar(id, token, timeMin, timeMax, fetchFn = fetch)
 export default async function handler(req, res) {
   const gate = await guard(req, res, {
     name: 'calendar-availability', perIp: 240, windowMin: 10, perDay: 4000,
-    maxChars: 500, requireAuth: true,
+    maxChars: 500, requireAuth: true, module: 'meetings',
   });
   if (!gate.ok) return;
   sweep();

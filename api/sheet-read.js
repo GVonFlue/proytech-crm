@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 // Reads a Google Sheet tab through the account already connected for Calendar.
 // Read-only, and only sheets that account can open — no extra credentials, no
 // published-to-web URL, so a guest list full of emails and phone numbers never

@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 // Monday Huddle — reads a pre-computed digest of the last 7 days and writes
 // the interpretation: what happened, what it means, what to do about it.
 //
@@ -16,7 +16,7 @@ export default async function handler(req, res) {
   // The digest is assembled by the app, not typed by a human, so its size is
   // bounded by the install. 60k leaves room for a big one and still stops a
   // hand-rolled body from turning into a $2 call.
-  const gate = await guard(req, res, { name: 'huddle', perIp: 6, perDay: 300, maxChars: 60000, requireAuth: true });
+  const gate = await guard(req, res, { name: 'huddle', perIp: 6, perDay: 300, maxChars: 60000, requireAuth: true, module: 'huddle' });
   if (!gate.ok) return;
   sweep();
 

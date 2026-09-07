@@ -1,4 +1,4 @@
-import { SUPA_KEY, SUPA_URL } from './_env.js';
+import { supaKey, supaUrl } from '@getproytech/core/env';
 import { createHash } from 'node:crypto';
 
 // api/_pocket.js — how a Pocket recording is SHAPED and STORED.
@@ -25,19 +25,17 @@ export const RAW_MAX = 5_000_000;
    Losing the end of a transcript loudly beats losing the recording quietly. */
 export const TRANSCRIPT_MAX = 2_000_000;
 
-const SUPA = SUPA_URL;
-const KEY  = SUPA_KEY;
 
 /* ------------------------------------------------------------- supabase */
 
 export async function sb(path, opts = {}) {
-  if (!SUPA || !KEY) return { ok: false, rows: null };
+  if (!supaUrl() || !supaKey()) return { ok: false, rows: null };
   try {
-    const r = await fetch(`${SUPA}/rest/v1/${path}`, {
+    const r = await fetch(`${supaUrl()}/rest/v1/${path}`, {
       ...opts,
       headers: {
-        apikey: KEY,
-        authorization: `Bearer ${KEY}`,
+        apikey: supaKey(),
+        authorization: `Bearer ${supaKey()}`,
         'content-type': 'application/json',
         ...(opts.headers || {}),
       },

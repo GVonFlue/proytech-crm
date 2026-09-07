@@ -12,7 +12,7 @@
 // endpoint here. guard() is POST-only by design, and a second bespoke auth path
 // for one status read is exactly the kind of parallel system ENGINEERING §5
 // warns about — one implementation of "is this a real session", not two.
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 import { loadGoogle } from './_google.js';
 
 export default async function handler(req, res) {

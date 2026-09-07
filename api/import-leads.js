@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 // Vercel serverless function — figures out how a messy CSV's columns map to CRM lead fields.
 // It maps columns ONCE from the header + a few sample rows; the browser then applies that map to
 // every row (so a 500-row import is still a single cheap AI call). Requires ANTHROPIC_API_KEY.
@@ -8,7 +8,7 @@ export default async function handler(req, res) {
   // endpoints cost money, so an open one is a direct line to the card.
   // Header row plus a handful of sample rows, never the whole file — the
   // import maps columns here and does the rows in the browser.
-  const gate = await guard(req, res, { name: 'import-leads', perIp: 20, perDay: 600, maxChars: 60000, requireAuth: true });
+  const gate = await guard(req, res, { name: 'import-leads', perIp: 20, perDay: 600, maxChars: 60000, requireAuth: true, module: 'leads' });
   if (!gate.ok) return;
   sweep();
 

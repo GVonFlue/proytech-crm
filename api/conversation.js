@@ -1,4 +1,4 @@
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 // Conversation capture — turn a pasted thread into structured notes.
 //
 // Sonnet, not Haiku. This is judgement, not extraction: who said what, what was

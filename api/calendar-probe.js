@@ -19,7 +19,7 @@
 // OWNER ONLY, and it writes to the owner's own calendar with no attendees and
 // sendUpdates=none, so nothing is mailed to anyone. Idempotent: it cleans up
 // what it made, and says so if it could not.
-import { guard, sweep } from './_guard.js';
+import { guard, sweep } from '@getproytech/core/guard';
 import { getAccessToken } from './_google.js';
 import { BANANA } from '../src/lib/availability.js';
 
@@ -38,7 +38,7 @@ const TITLE = 'ProyTech availability probe — safe to delete';
 export default async function handler(req, res) {
   const gate = await guard(req, res, {
     name: 'calendar-probe', perIp: 10, windowMin: 60, perDay: 40,
-    maxChars: 500, requireOwner: true,
+    maxChars: 500, requireAdmin: true,
   });
   if (!gate.ok) return;
   sweep();
