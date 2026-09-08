@@ -230,6 +230,26 @@ ages side by side: *past due* (an unpaid invoice has a due date, so lateness is
 a fact) and *sold N days ago* (nothing was ever billed, so it is old rather than
 late). Those two are never averaged or sorted against each other.
 
+**Invoicing the balance** — the button beside the figure on a record raises an
+invoice for exactly that number, via `balanceItems()`. It bills the **balance**,
+not the contract: the deal lines go on at their sold value and a single *"Less
+payments received"* line brings the total down to `owedBy()`. That distinction
+is the whole feature — `itemsFromLead()`, which the Invoices screen uses when
+you pick a client, bills the contract, so on a client who has paid a deposit it
+re-bills the deposit.
+
+**Billing it does not double-count it, and here is why.** An invoice is never a
+second debt record — `owedBy()` has still never read the invoices table. The
+only way an invoice touches the balance is `applyInvoicePayment()`, which on
+*Mark paid* writes one row into `lead.payments` tagged with the invoice id. So
+$2,899 sold, $1,500 paid, invoice the $1,399, mark it paid → `setupPaid` reaches
+$2,899 and **owed goes to zero**. Unmarking removes only that row, and the
+balance comes straight back.
+
+A balance invoice never carries a retainer line, deliberately: the whole invoice
+total lands in `lead.payments`, which is the *setup* array, so a retainer line
+would be recurring money paying down a build — AUDIT #23.
+
 **Attribution** — deciding which month or which source a number belongs to.
 
 **Conversion rate** — how many of one thing became the next thing.
