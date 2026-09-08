@@ -61,7 +61,7 @@ import {
   DEFAULT_DELIVERY_TRACKS, DEFAULT_OPTIONS, GOLD, GREEN, INDIGO, INK, MEETING_TYPES,
   bookingBrief,
   ONBOARDING, ONB_ITEMS, OWNERS, POOL_OWNER, PRIORITIES, REACHED_TYPES, RED, REL_TIERS,
-  actLabel, activeTracks, allMeetings, anyPayments, blankFirst, bookedCount, calendarOwner,
+  actLabel, activeTracks, allMeetings, anyPayments, balanceItems, blankFirst, bookedCount, calendarOwner,
   cashConfirmed, clientOverall, closedDealsTotal, cmsnAmount, cmsnOf, dateVocab, datelessOf,
   dayLabel, daysToDate, daysUntil, dealBits, dealsOf, depositPaidAt, evNum, fmtDate,
   fmtMeetingTime, fmtStamp, introChain, isDateless, isPoolLead, isUpsellDeal, isoOf, personLabel,
@@ -1478,6 +1478,11 @@ const CSS=`
 .modal.lead .rel-gave b,.modal.lead .rc-node{color:var(--ink-hi)}
 .modal.lead .track-h b,.modal.lead .deal-card-v,.modal.lead .deal-total b,
 .modal.lead .pay-head b,.modal.lead .dh-head b{color:var(--ink-hi)}
+.modal.lead .pay-inv{background:transparent;border-color:var(--line-hi);color:var(--ink-mid)}
+.modal.lead .pay-inv:hover{background:rgba(56,189,248,.14);color:var(--ink-hi)}
+.modal.lead .pay-dupe{background:rgba(224,162,43,.10);border-color:rgba(224,162,43,.34)}
+.modal.lead .pay-dupe .pd-h{color:#F2C55C}
+.modal.lead .pay-dupe .pd-list,.modal.lead .pay-dupe .pd-p{color:var(--ink-mid)}
 .modal.lead .phase,.modal.lead .mdate,.modal.lead .msdue-l,
 .modal.lead .pay-mon,.modal.lead .sp-tag{color:var(--dim)}
 /* the money panel was authored against a white card top to bottom */
@@ -1864,6 +1869,21 @@ const CSS=`
 .pay-head{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0;margin-bottom:10px}
 .pay-head b.due{color:#D97706;font-size:13px}
 .pay-head b.clear{color:#1a7d46;font-size:13px}
+/* The b takes the slack so the amount and the button end up adjacent on the
+   right — "next to the amount owed" is the whole point of where this sits. */
+.pay-head b{margin-left:auto}
+.pay-inv{display:inline-flex;align-items:center;gap:5px;margin-left:8px;padding:5px 9px;
+  border:1px solid ${COBALT};border-radius:8px;background:#fff;color:${COBALT};
+  font-family:inherit;font-size:11.5px;font-weight:700;letter-spacing:.01em;
+  text-transform:none;cursor:pointer;transition:.15s;white-space:nowrap}
+.pay-inv:hover{background:${COBALT};color:#fff}
+/* The duplicate-bill prompt. Amber rather than red: raising a second invoice is
+   a legitimate thing to do deliberately and a bad thing to do by accident. */
+.pay-dupe{border:1px solid #E7D9A8;background:#FDFAEF;border-radius:11px;padding:11px 12px;margin-bottom:10px}
+.pay-dupe .pd-h{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:700;color:#6a5a2a;margin-bottom:8px;text-transform:none;letter-spacing:0}
+.pay-dupe .pd-list{margin:0 0 8px;padding-left:17px;font-size:12px;color:#6a5a2a;line-height:1.75}
+.pay-dupe .pd-p{margin:0 0 10px;font-size:12px;color:#7a6a3a;line-height:1.55}
+.pay-dupe .pd-acts{display:flex;gap:8px;justify-content:flex-end}
 .pay-mon{margin-left:7px;font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:${COBALT};background:color-mix(in srgb,${COBALT} 10%,#fff);border-radius:5px;padding:1px 5px}
 .pay-bars{margin-bottom:12px}
 .pay-bar{height:9px;background:#EEF0F8;border-radius:5px;overflow:hidden}
@@ -4332,6 +4352,39 @@ export default function App(){
   const deleteTask=id=>{ saveTasks(tasks.filter(x=>x.id!==id)); };
   const upsertInvoice=inv=>{ const exists=invoices.some(x=>x.id===inv.id); saveInvoices(exists?invoices.map(x=>x.id===inv.id?inv:x):[inv,...invoices]); };
   const deleteInvoice=id=>{ saveInvoices(invoices.filter(x=>x.id!==id)); setInvId(null); };
+  /* BILL WHAT IS STILL OWED, from the record, in one click.
+
+     Deliberately NOT newInvoice(lead): that one bills itemsFromLead(), which is
+     the CONTRACT — every deal line at full value, payments ignored. Right for a
+     fresh sale, and on a client who has paid a deposit it re-bills the deposit.
+     balanceItems() pins the total to owedBy() instead, so the invoice and the
+     "remaining" figure on the panel are the same number by construction.
+
+     Everything else is shared with newInvoice on purpose — the same numbering
+     sequence, the same terms, the same billTo shape — because two ways of
+     creating an invoice that number themselves differently is a duplicate
+     invoice number waiting to happen. */
+  const invoiceBalance=lead=>{
+    if(!lead) return null;
+    const items=balanceItems(lead,stages);
+    /* Refuse rather than open a blank invoice. Nothing owed means there is
+       nothing to bill, and an empty invoice on screen looks like the button
+       worked. */
+    if(!items||!items.length) return null;
+    const ivset=settings.invoicing||DEFAULT_INVOICING;
+    const number=(ivset.prefix||'INV-')+String(ivset.seq||1).padStart(4,'0');
+    saveSettings({...settings,invoicing:{...ivset,seq:(ivset.seq||1)+1}});
+    const issue=todayISO();
+    const inv={ id:uid(), number, clientId:lead.id,
+      billTo:{name:lead.name||'',company:lead.company||'',email:lead.email||'',address:''},
+      issueDate:issue, dueDate:addDays(issue,ivset.terms||14),
+      items:items.map(it=>({...it,id:uid()})),
+      taxRate:num(ivset.taxRate), notes:ivset.notes||'', paymentLink:ivset.paymentLink||'',
+      status:'draft', paidDate:'', createdAt:new Date().toISOString() };
+    upsertInvoice(inv);
+    setInvId(inv.id);
+    return inv;
+  };
   const newInvoice=(lead)=>{ const ivset=settings.invoicing||DEFAULT_INVOICING; const number=(ivset.prefix||'INV-')+String(ivset.seq||1).padStart(4,'0'); saveSettings({...settings,invoicing:{...ivset,seq:(ivset.seq||1)+1}}); const issue=todayISO(); const inv={ id:uid(), number, clientId:lead?lead.id:'', billTo:lead?{name:lead.name||'',company:lead.company||'',email:lead.email||'',address:''}:{name:'',company:'',email:'',address:''}, issueDate:issue, dueDate:addDays(issue,ivset.terms||14), items:lead?itemsFromLead(lead):[{id:uid(),label:'',qty:1,amount:0}], taxRate:num(ivset.taxRate), notes:ivset.notes||'', paymentLink:ivset.paymentLink||'', status:'draft', paidDate:'', createdAt:new Date().toISOString() }; upsertInvoice(inv); setInvId(inv.id); };
   const addOption=(listKey,val)=>{const v=(val||'').trim();if(!v)return;const cur=settings.options[listKey]||[];if(cur.includes(v))return;saveSettings({...settings,options:{...settings.options,[listKey]:[...cur,v]}});};
 
@@ -4991,7 +5044,7 @@ export default function App(){
       lastSeen={(lastSeen||[]).find(x=>x.id===repOpen.id)} notes={repNotes}
       onAddNote={addRepNote} onDeleteNote={delRepNote} onResetPlaybook={resetKbProgress}
       onClose={()=>{setRepOpen(null);setRepNotes(null);}}/>}
-    {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} onBooked={notifyBooked} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} readAvailability={readAvailability} tagMeeting={tagMeeting} inbound={inbound}/>}
+    {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} invoices={invoices} invoiceBalance={invoiceBalance} openInvoice={id=>setInvId(id)} onBooked={notifyBooked} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} readAvailability={readAvailability} tagMeeting={tagMeeting} inbound={inbound}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
 }

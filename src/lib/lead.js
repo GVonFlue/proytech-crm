@@ -498,6 +498,7 @@ export const contractedTotal=l=>{
   const open=dealsOf(l).reduce((a,d)=>a+dealBits(d),0);
   return closed+open;
 };
+
 /* ---- card fees ------------------------------------------------------------
    The CRM records payments GROSS — the invoice amount, not what landed in the
    bank after the processor's cut. So a Square fee is real money leaving that
@@ -580,6 +581,65 @@ export const owedBy=(l,stages)=>{
   /* setupPaid, not every payment. This is the line Justus's $249 was going
      through: a month of retainer paying down a $1,011.75 automations deal. */
   return Math.max(0,contractedTotal(l)-setupPaid(l));
+};
+
+/* ---- billing the BALANCE, not the contract --------------------------------
+
+   itemsFromLead() in App.jsx bills what was SOLD: every deal line at its
+   contracted value, payments ignored. That is right for a fresh sale and wrong
+   for the button on the record, which exists to bill what is still OWED. On a
+   client who has paid a deposit the two differ by exactly that deposit, and
+   sending the first when you meant the second bills them twice for it.
+
+   SO THE TOTAL IS PINNED TO owedBy() BY CONSTRUCTION, not by arithmetic that
+   happens to agree. The deal lines are itemised (that is what the client wants
+   to see — what they are paying for), and a single credit line is then set to
+   whatever makes the total exactly owedBy(). When payments exist that credit
+   IS -setupPaid; when floats have drifted a cent it absorbs the cent. There is
+   no path where the invoice total and the record's "remaining" figure disagree,
+   which is the entire promise of the button.
+
+   NO RETAINER LINE, DELIBERATELY. itemsFromLead adds one when retainerActive.
+   Here it would be actively harmful: applyInvoicePayment writes the whole
+   invoice total into lead.payments — the SETUP array — so a retainer line on a
+   balance invoice means a month of recurring money paying down a build. That
+   is AUDIT #23, the Justus $249 bug that src/PaymentReview.jsx exists to clean
+   up after, and this is the one place it would be reintroduced by default.
+   The retainer is shown beside the balance on the panel, never inside it. */
+const r2=n=>Math.round(num(n)*100)/100;
+export const balanceItems=(l,stages)=>{
+  const owed=owedBy(l,stages);
+  if(!(owed>0)) return null;
+  const items=[];
+  const push=(label,amount)=>{ if(num(amount)) items.push({label:String(label||'Line item'),qty:1,amount:r2(amount)}); };
+
+  /* Archived closed deals first — they are the older work and read that way on
+     the page. Each carries a single amount, so each is one line. */
+  ((l&&l.closedDeals)||[]).forEach(d=>push((d&&d.label)||'Completed work',d&&d.amount));
+
+  /* Open deals, itemised the way itemsFromLead does it, so a client who has had
+     both kinds of invoice sees the same wording on both. */
+  const open=dealsOf(l);
+  open.forEach(d=>{
+    const pre=open.length>1&&d.label?`${d.label} — `:'';
+    push(pre+'Setup',d.setup);
+    push(pre+'Website',d.website);
+    push(pre+'AI / Integration',d.integration);
+    ((d.extras)||[]).forEach(e=>push(pre+((e&&e.label)||'Line item'),e&&e.amount));
+  });
+
+  /* THE LINE THAT MAKES THE TOTAL TRUE. Computed from the gap rather than from
+     setupPaid, so rounding cannot leave the invoice a cent away from the figure
+     the owner clicked. */
+  const gross=items.reduce((a,it)=>a+num(it.amount),0);
+  const credit=r2(owed-gross);
+  if(credit<0) items.push({label:'Less payments received',qty:1,amount:credit});
+  /* gross < owed should be unreachable (owed is contracted minus a
+     non-negative), but a record with a bare dealValue and no deal rows has no
+     lines at all — bill the balance as one line rather than sending a blank. */
+  else if(credit>0) items.push({label:items.length?'Balance adjustment':'Balance due',qty:1,amount:credit});
+
+  return items.length?items:null;
 };
 /* open deals on a lead, migrating legacy single-deal / bare-dealValue shapes.
    Mirrors the modal's openDeals so the card and the modal always agree. */
@@ -1192,8 +1252,21 @@ export const revenueForMonth=(leads,stages,txns,mKey)=>{
      sale    — no invoice. Days since the work was won. Old, not overdue.
    A row with neither gets days:null and must render a dash, never a 0 —
    "nobody knows" and "due today" are not allowed to look identical. */
-export const oldestUnpaidInvoice=(l,invoices)=>(invoices||[])
-  .filter(iv=>iv&&String(iv.clientId||'')===String(l&&l.id)&&iv.status!=='paid'&&iv.dueDate)
+/* Every unpaid invoice already raised against this record, newest first.
+   ONE PREDICATE for "is there already a bill out for this person", so the Money
+   page's basis column and the record's own duplicate guard cannot answer it
+   differently. Invoices carry a clientId and NOT a dealId, so this is
+   necessarily per-RECORD rather than per-deal — which is the right grain
+   anyway: owedBy nets the whole record, so no single deal owns the balance. */
+export const openInvoicesFor=(l,invoices)=>(invoices||[])
+  .filter(iv=>iv&&String(iv.clientId||'')===String(l&&l.id)&&iv.status!=='paid')
+  .sort((a,b)=>String(b.issueDate||'').localeCompare(String(a.issueDate||'')));
+/* The one with the earliest DUE date, for "how overdue". Undated invoices are
+   excluded here and not above: an invoice with no due date is still a bill
+   somebody has been sent (so it counts as a duplicate) but it cannot be
+   overdue (so it cannot date the debt). */
+export const oldestUnpaidInvoice=(l,invoices)=>openInvoicesFor(l,invoices)
+  .filter(iv=>iv.dueDate)
   .sort((a,b)=>String(a.dueDate).localeCompare(String(b.dueDate)))[0]||null;
 /* The LATEST close, not the earliest. owedBy nets contracted against paid
    across the whole record, so no single deal owns the balance and any date here

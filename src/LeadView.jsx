@@ -34,7 +34,7 @@ import {
   cmsnOf, dateVocab, datelessOf, dayLabel, daysToDate, daysUntil, dealsOf, depositPaidAt,
   evNum, fmtDate, fmtMeetingTime, fmtStamp, introChain, isPoolLead, isUpsellDeal, isoOf,
   keyDatesOf, labelVocab, labelsOf, manualSponsorships, needsDate, normEntry,
-  num, nurtureDaysOf, onbSkipped, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
+  num, nurtureDaysOf, onbSkipped, openInvoicesFor, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
   stdPhases, stripTagText, tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc,
   gmailCompose, isSystemNote, yearsAt,
   referralsOut, mkReferral, introducedLeads, referralTarget,
@@ -52,6 +52,7 @@ import {
   BadgeCheck,
   Ban,
   Bell,
+  Receipt,
   CalendarCheck,
   CalendarClock,
   Check,
@@ -680,12 +681,17 @@ function WhenPicker({value,onChange,businessType,label,avail,day:gDay,onDay}){
   </div>);
 }
 
-export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,onBooked,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,readAvailability,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents}){
+export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,myUid,allLeads,navList,onNav,convertToClient,revertClient,fixCloseTracking,toggleMilestone,setMilestoneDue,onClose,updateLead,addActivity,delActivity,delLead,createNew,onBooked,gcalConnected,gcalEmail,createCalendarEvent,deleteCalendarEvent,readAvailability,tagMeeting,rep,isOwner,setCommission,users,teamRoster,events,mlogs,goEvents,invoices,invoiceBalance,openInvoice}){
   const _list=navList||[]; const _idx=isNew?-1:_list.indexOf(lead?.id);
   const prevId=_idx>0?_list[_idx-1]:null; const nextId=(_idx>=0&&_idx<_list.length-1)?_list[_idx+1]:null;
   const opt=settings.options; const customFields=settings.customFields||[];
   const blank={id:uid(),name:'',company:'',businessType:'—',phone:'',email:'',website:'',stage:stages[0].key,priority:'medium',source:'',nextAction:'Follow Up Call',nextSteps:'',followUp:'',expectedClose:'',serviceInterest:[],owner:me||BRAND.team[0]||'',dealValue:0,retainer:0,retainerActive:false,retainerStart:'',closedAt:'',isRelationship:!!newRel,introducedBy:'',relNote:'',relTier:'',meetings:[],custom:{},createdAt:new Date().toISOString(),activities:[]};
   const [draft,setDraft]=useState(isNew?blank:lead);
+  /* THE DUPLICATE-BILL PROMPT, declared here and not beside the button that
+     uses it. The payments panel lives inside an IIFE inside a conditional
+     branch, so a useState down there is a CONDITIONAL HOOK — the crash this
+     file has shipped three times and warns about at the top of every section. */
+  const [invAsk,setInvAsk]=useState(false);
   /* 'Call', not 'Note'. The button that opens this says "Log a call, note or
      text" and then handed you a note, so logging the most common thing a rep
      does all day cost an extra click every single time.
@@ -2233,8 +2239,52 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                     const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who:me};
                     set({payments:[...pays,pay],activities:[act,...(draft.activities||[])]});
                   };
+                  /* ---- bill the balance, from here, in one click ----------
+                     The number on this line IS the invoice total: invoiceBalance
+                     builds its items through balanceItems(), which pins the sum
+                     to owedBy(). So the button cannot bill an amount that
+                     differs from the figure the owner just read.
+
+                     Guarded on `remaining>0` rather than on `owed>0` — there is
+                     nothing to bill on a record that is paid in full, and a
+                     button that opens a $0 invoice looks like it worked. */
+                  const outstanding=openInvoicesFor(draft,invoices);
+                  const raise=()=>{ setInvAsk(false); if(invoiceBalance) invoiceBalance(draft); };
                   return (<div className="pay-panel">
-                    <div className="pay-head"><span>Payments</span>{owed>0&&<b className={remaining>0?'due':'clear'}>{remaining>0?`${usdc(remaining)} remaining`:'paid in full'}</b>}</div>
+                    <div className="pay-head"><span>Payments</span>{owed>0&&<b className={remaining>0?'due':'clear'}>{remaining>0?`${usdc(remaining)} remaining`:'paid in full'}</b>}
+                      {remaining>0&&invoiceBalance&&!invAsk&&(
+                        <button className="pay-inv" onClick={()=>{ if(outstanding.length) setInvAsk(true); else raise(); }}
+                          title={`Create an invoice for ${usdc(remaining)}`}>
+                          <Receipt size={13}/>Invoice {usdc(remaining)}
+                        </button>)}
+                    </div>
+                    {/* THE DUPLICATE GUARD. A styled strip rather than
+                        window.confirm, for the reason the batch-reassign confirm
+                        gives: the whole point is to NAME what is already out
+                        there, and a browser dialog is one line of unstyled text.
+
+                        Invoices carry a clientId and no dealId, so this is
+                        per-record — which is the right grain, because owedBy
+                        nets the whole record and no single deal owns the
+                        balance. */}
+                    {invAsk&&(
+                      <div className="pay-dupe">
+                        <div className="pd-h"><AlertTriangle size={14}/>
+                          {outstanding.length===1?'There is already an unpaid invoice on this record.':`There are already ${outstanding.length} unpaid invoices on this record.`}
+                        </div>
+                        <ul className="pd-list">{outstanding.slice(0,4).map(iv=>(
+                          <li key={iv.id}>
+                            <button className="linkbtn inl" onClick={()=>{ setInvAsk(false); if(openInvoice) openInvoice(iv.id); }}>{iv.number||'(no number)'}</button>
+                            {' — '}{usdc((iv.items||[]).reduce((a,it)=>a+num(it.qty)*num(it.amount),0)*(1+num(iv.taxRate)/100))}
+                            {iv.dueDate?` · due ${fmtDate(iv.dueDate)}`:' · no due date'}
+                            {' · '}{iv.status||'draft'}
+                          </li>))}</ul>
+                        <p className="pd-p">Raising another bills {usdc(remaining)} <b>on top of</b> what is already out. If the invoice above covers this balance, send that one instead.</p>
+                        <div className="pd-acts">
+                          <button className="btn btn-g btn-sm" onClick={()=>setInvAsk(false)}>Cancel</button>
+                          <button className="btn btn-p btn-sm" onClick={raise}>Invoice {usdc(remaining)} anyway</button>
+                        </div>
+                      </div>)}
                     {/* The retainer is shown BESIDE the balance, never inside it —
                         it recurs, so it can never be paid off, and a debt figure
                         that cannot reach zero stops meaning anything. */}
