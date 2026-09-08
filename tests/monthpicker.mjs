@@ -47,7 +47,15 @@ const THIS=`${now.getFullYear()}-${pad(now.getMonth()+1)}`;
 const prev=new Date(now.getFullYear(),now.getMonth()-1,15);
 const PREV=`${prev.getFullYear()}-${pad(prev.getMonth()+1)}`;
 const PREV_NAME=new Date(prev.getFullYear(),prev.getMonth(),1).toLocaleString('en-US',{month:'long',year:'numeric'});
-const dAgo=n=>new Date(Date.now()-n*864e5).toISOString().slice(0,10);
+/* LOCAL, like the app. isoOf() in src/lib/lead.js builds a day from
+   getFullYear/getMonth/getDate, so todayISO() and every day-count that reads it
+   are in the RUNNER'S timezone. Building a fixture day with toISOString() makes
+   it UTC, and the two disagree for the hours either side of midnight UTC —
+   every evening in the Americas. That shifted every day-count by one and the
+   red looked like broken money code. Same disease as #75, one axis over:
+   there, a date built one way compared against a date built another. */
+const dAgo=n=>{const d=new Date(Date.now()-n*864e5);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;};
 const ago=n=>new Date(Date.now()-n*864e5).toISOString();
 
 /* KIDD — $3,000 of work won last month. $1,000 paid last month, $500 this

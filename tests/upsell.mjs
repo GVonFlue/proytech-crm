@@ -115,7 +115,14 @@ ok('history survived', w && (w.activities||[]).some(a=>a.text==='Existing note')
 ok('dealValue back to zero', w && num0(w.dealValue)===0, 'dealValue='+(w&&w.dealValue));
 function num0(v){const n=Number(v);return isNaN(n)?0:n;}
 
-const isoNow=new Date().toISOString().slice(0,10);
+/* LOCAL, like the app. isoOf() in src/lib/lead.js builds a day from
+   getFullYear/getMonth/getDate, so todayISO() and every day-count that reads it
+   are in the RUNNER'S timezone. Building a fixture day with toISOString() makes
+   it UTC, and the two disagree for the hours either side of midnight UTC —
+   every evening in the Americas. That shifted every day-count by one and the
+   red looked like broken money code. Same disease as #75, one axis over:
+   there, a date built one way compared against a date built another. */
+const isoNow=(d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`)(new Date());
 console.log('\nnow it IS revenue');
 await nav('Dashboard');
 /* Assert on the DATA, not a dashboard tile. Revenue Collected is cash-gated

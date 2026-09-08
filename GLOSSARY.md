@@ -250,6 +250,13 @@ A balance invoice never carries a retainer line, deliberately: the whole invoice
 total lands in `lead.payments`, which is the *setup* array, so a retainer line
 would be recurring money paying down a build — AUDIT #23.
 
+**At a non-zero tax rate this stops netting exactly.** `applyInvoicePayment`
+credits `invTotal`, which includes tax, against a `contractedTotal` that does
+not. The balance still lands on zero (it clamps), but `setupPaid` overstates the
+work paid for, and collected tax counts as revenue. `taxRate` defaults to `0` and
+this install has never changed it, so nothing is wrong today — `TAX-DECISION.md`
+carries the three options and says which to take **before** anyone turns tax on.
+
 **Attribution** — deciding which month or which source a number belongs to.
 
 **Conversion rate** — how many of one thing became the next thing.

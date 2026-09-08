@@ -6,6 +6,10 @@
 
        node tests/clockwarp.mjs 2027-03-08 tests/moneyaudit.mjs
        node tests/clockwarp.mjs 2026-12-31 tests/dates.mjs
+       node tests/clockwarp.mjs 2026-09-08T02:00 tests/revmonth.mjs
+
+   The time is optional and defaults to noon UTC. Give one to pin a TIMEZONE
+   boundary rather than a calendar one — see the note on AT below.
 
    Exit code is the test's own: 0 clean, non-zero if anything failed.
 
@@ -40,11 +44,44 @@
    Read the failure before assuming it is rot.                                */
 
 const at = process.argv[2], target = process.argv[3];
-if (!at || !target || !/^\d{4}-\d{2}-\d{2}$/.test(at)) {
-  console.error('usage: node tests/clockwarp.mjs YYYY-MM-DD <test-file>');
+if (!at || !target || !/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(at)) {
+  console.error('usage: node tests/clockwarp.mjs YYYY-MM-DD[Thh:mm] <test-file>');
   process.exit(2);
 }
-const AT = Date.parse(at + 'T12:00:00.000Z');
+/* NOON UTC BY DEFAULT, AND A TIME IF YOU ASK FOR ONE.
+
+   Noon is the safe hour: local and UTC agree on the DATE there in every
+   populated timezone, so a run at noon isolates calendar drift with nothing
+   else moving. That is what this tool was built for.
+
+   It is also why it could not see the bug found on 2026-09-07 — fixtures
+   building a UTC day while the app builds a local one, which only diverge in
+   the hours either side of midnight UTC. Both suites were green here and red
+   under `npm test`, which is the most misleading pair of results a tool can
+   produce.
+
+   TO PIN THAT BOUNDARY, GIVE AN INSTANT WHERE THE UTC DATE AND THE RUNNER'S
+   LOCAL DATE DISAGREE — which is a fact about the runner's offset, not a fixed
+   hour. On a UTC-5 machine that is any UTC time from 00:00 to 05:00:
+
+       node tests/clockwarp.mjs 2026-09-08T02:00 tests/revmonth.mjs   # local 7 Sep
+
+   23:30 UTC does NOT do it on a negative offset: local is still the same day,
+   the two agree, and the run comes back green with the bug present. That wrong
+   example was in this file for one commit — check the pair before trusting it:
+
+       node -e "const d=new Date(Date.parse('2026-09-08T02:00:00Z'));
+         console.log(d.getDate(), d.toISOString().slice(8,10))"   # differ => good
+
+   The companion lever is TZ, which moves the OTHER side of the same gap and
+   needs no flag at all:
+
+       TZ=Pacific/Midway node tests/revmonth.mjs      # UTC-11
+       TZ=Pacific/Kiritimati node tests/revmonth.mjs  # UTC+14
+
+   tests/fixtureclock.mjs is the guard that makes neither necessary in CI: it
+   reads the source instead of the clock, so it fails at any hour. */
+const AT = Date.parse(at.includes('T') ? at + ':00.000Z' : at + 'T12:00:00.000Z');
 if (isNaN(AT)) { console.error('clockwarp: not a date: ' + at); process.exit(2); }
 
 const RealDate = Date;

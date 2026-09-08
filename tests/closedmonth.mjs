@@ -39,7 +39,15 @@ const PREV_SHORT=new Date(prevD.getFullYear(),prevD.getMonth(),1).toLocaleString
 const ago=n=>new Date(Date.now()-n*864e5).toISOString();
 /* 120 days clears the deepest "last month" reaches back (day-of-month plus the
    length of last month, at most 62), so this is always older than PREV. */
-const LONG_AGO=120, dAgo=n=>new Date(Date.now()-n*864e5).toISOString().slice(0,10);
+/* LOCAL, like the app. isoOf() in src/lib/lead.js builds a day from
+   getFullYear/getMonth/getDate, so todayISO() and every day-count that reads it
+   are in the RUNNER'S timezone. Building a fixture day with toISOString() makes
+   it UTC, and the two disagree for the hours either side of midnight UTC —
+   every evening in the Americas. That shifted every day-count by one and the
+   red looked like broken money code. Same disease as #75, one axis over:
+   there, a date built one way compared against a date built another. */
+const LONG_AGO=120, dAgo=n=>{const d=new Date(Date.now()-n*864e5);
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;};
 
 const STAGES=[{key:'new',label:'New Lead',open:true},{key:'signed',label:'Signed',won:true},{key:'lost',label:'Lost',lost:true}];
 
