@@ -711,8 +711,76 @@ export const DEFAULT_DELIVERY_TRACKS=[
     milestones:['Discovery call complete','Website dev pending','Website V1 sent','Revisions','Final proof sent','Website approved by client'] },
   { key:'ai', label:'AI / Integrations', services:['AI Integration','AI Receptionist','Missed-Call Text-Back','Booking / Scheduling','CRM Setup','Both','Full Front Office'],
     milestones:['Discovery & scoping','Integrations started','Build & configuration','Testing','Integrations delivered'] },
+  /* fallback:false keeps this track out of activeTracks' "nothing matched, show
+     every track" branch. Without it, adding the track would have given every
+     existing client with no matching service a third checklist, and flipped
+     clientOverall's "all delivery steps complete" back to incomplete on
+     clients who were finished. It still applies to a client who bought a
+     Business Suite, and to any project that uses it. */
+  { key:'suite', label:'Business Suite', services:['Business Suite'], fallback:false,
+    milestones:['Kickoff and intake received','Install set up','Branding and logins configured','Contacts and data imported','AI and integrations connected','Pre-delivery check','Walkthrough and training delivered','Client signed off'] },
 ];
-export const activeTracks=(lead,tracks)=>{ const svc=lead.serviceInterest||[]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]); };
+/* Bumped when a default track is added. A saved settings.deliveryTracks
+   overrides the defaults entirely, so an install that ever saved the editor
+   would never see the new track. withDefaultTracks adds tracks introduced since
+   the saved version ONCE; after that, deleting one in Settings sticks. */
+export const DELIVERY_TRACKS_V=1;
+const TRACKS_ADDED_AT={suite:1};
+export const withDefaultTracks=(saved,v)=>{
+  if(!Array.isArray(saved)||!saved.length) return DEFAULT_DELIVERY_TRACKS;
+  const have=Number(v)||0;
+  const add=DEFAULT_DELIVERY_TRACKS.filter(t=>(TRACKS_ADDED_AT[t.key]||0)>have&&!saved.some(x=>x&&x.key===t.key));
+  return add.length?[...saved,...add]:saved;
+};
+export const activeTracks=(lead,tracks)=>{ const svc=lead.serviceInterest||[]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]).filter(tr=>tr.fallback!==false); };
+
+/* ===================== projects: a client's next purchase =====================
+   A client used to be ONE card on the Clients board with ONE phase and ONE
+   checklist. Selling that client something else meant either dragging the card
+   back to Intake, which lost where the first build stood, or archiving the old
+   checklist onto the deal and starting over. Neither tracks two builds at once.
+
+   A project is a purchase being delivered. The client's own clientPhase and
+   onboarding checklist are left exactly as they were and still ARE the client's
+   first build: nothing is migrated, and a client with no projects renders as it
+   always did. Every purchase after that becomes an entry in lead.projects with
+   its own phase and its own checklist, drawn from a delivery track.
+
+   At Risk and Churned stay on the CLIENT. They describe the relationship, not a
+   build, so a project only ever sits in a flow phase; a churned client's
+   projects leave the board with them.
+
+   Stored inside the lead record like every other client field, so there is no
+   schema change and the lead's existing row policies cover it. */
+export const projectsOf=l=>(Array.isArray(l&&l.projects)?l.projects:[]).filter(p=>p&&p.id);
+export const projectForDeal=(l,dealId)=>projectsOf(l).find(p=>p.dealId===dealId)||null;
+/* The track whose name the deal's name contains, then one whose services it
+   names. No match returns null rather than a guess: the project asks which
+   checklist to use instead of silently borrowing the Website one. */
+export const trackForLabel=(label,tracks)=>{
+  const s=String(label||'').toLowerCase().trim(); const list=Array.isArray(tracks)?tracks:[];
+  if(!s) return null;
+  return list.find(t=>t&&t.label&&s.includes(String(t.label).toLowerCase()))
+    ||list.find(t=>t&&(t.services||[]).some(x=>String(x).length>=4&&s.includes(String(x).toLowerCase())))
+    ||null;
+};
+export const newProject=(closed,tracks,firstPhase)=>{
+  const tr=trackForLabel(closed&&closed.label,tracks);
+  return { id:'pj_'+((closed&&closed.id)||uid()), dealId:(closed&&closed.id)||'', label:(closed&&closed.label)||'Project',
+    trackKey:tr?tr.key:'', phase:firstPhase||'intake', milestones:{}, startedAt:todayISO() };
+};
+export const projectProgress=(p,tracks)=>{
+  const tr=(Array.isArray(tracks)?tracks:[]).find(t=>t&&p&&t.key===p.trackKey)||null;
+  const ms=tr?(tr.milestones||[]):[];
+  const done=ms.filter(m=>normEntry(((p&&p.milestones)||{})[m]).done).length;
+  return { track:tr, milestones:ms, total:ms.length, done };
+};
+/* Which of a client's projects belong on the board. A churned client's go with
+   them unless churned clients are being shown. */
+export const boardProjects=(clients,showChurned)=>(clients||[])
+  .filter(l=>l&&l.isClient&&(showChurned||(l.clientPhase||'intake')!=='churned'))
+  .flatMap(l=>projectsOf(l).map(p=>({lead:l,project:p})));
+
 /* ---- the referral ledger --------------------------------------------------
 
    Two directions, deliberately asymmetric.

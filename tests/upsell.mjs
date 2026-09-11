@@ -92,23 +92,28 @@ let asked='';
 dom.window.confirm=msg=>{asked=String(msg);return true;};
 await click(closeBtn);
 await act(async()=>{await new Promise(r=>setTimeout(r,60));});
-ok('it ASKS before touching the checklist', /Start a new build/.test(asked), asked.slice(0,80));
-ok('and says what happens to the old one', /2 items done/.test(asked)&&/archived/.test(asked), asked.slice(0,200));
+ok('it ASKS before adding a project', /own project/.test(asked), asked.slice(0,80));
+ok('and says the current build is left alone', /stays exactly where it is/.test(asked), asked.slice(0,220));
 
+/* A SECOND PURCHASE IS A PROJECT, NOT A RESET. This suite used to pin the old
+   behaviour: the client's one checklist archived onto the deal and the client
+   sent back to Intake. That erased where the first build stood, which is the
+   problem projects exist to fix, so the assertions below pin the opposite. */
 const w=globalThis.__WRITES__.at(-1);
 ok('deal archived at $2,499', w && (w.closedDeals||[]).some(d=>d.amount===2499&&d.label==='AZ Advisory Site'),
    JSON.stringify((w&&w.closedDeals||[]).map(d=>d.label+':'+d.amount)));
 const arch=(w&&w.closedDeals||[]).find(d=>d.label==='AZ Advisory Site');
-ok('the OLD checklist is archived on that deal, ticks intact',
-   arch && arch.onboarding && arch.onboarding.kickoff && arch.onboarding.kickoff.done==='2026-07-25',
-   JSON.stringify(arch&&arch.onboarding));
-ok('the live checklist is fresh (nothing done)',
-   w && w.onboarding && Object.values(w.onboarding).every(x=>!x.done),
-   JSON.stringify(Object.entries(w&&w.onboarding||{}).filter(([,v])=>v&&v.done)));
-ok('the live checklist is not empty', w && Object.keys(w.onboarding||{}).length>2, 'keys='+Object.keys(w&&w.onboarding||{}).length);
-ok('phase reset to the first one', w && w.clientPhase==='intake', 'phase='+(w&&w.clientPhase));
-ok('the previous phase was archived too', arch && arch.clientPhase==='build', 'archived phase='+(arch&&arch.clientPhase));
-ok('both notes logged', w && (w.activities||[]).some(a=>/New build started/.test(a.text||''))
+ok('the client checklist is untouched, ticks intact',
+   w && w.onboarding && w.onboarding.kickoff && w.onboarding.kickoff.done==='2026-07-25' && w.onboarding.brand && w.onboarding.brand.done==='2026-07-25',
+   JSON.stringify(w&&w.onboarding));
+ok('the client stays in its phase', w && w.clientPhase==='build', 'phase='+(w&&w.clientPhase));
+ok('nothing is archived onto the deal any more', arch && !arch.onboarding && !arch.clientPhase, JSON.stringify(arch));
+const pj=(w&&w.projects||[]).find(x=>x.dealId===(arch&&arch.id));
+ok('a project is created for that deal', !!pj, JSON.stringify(w&&w.projects));
+ok('named after the deal', pj && pj.label==='AZ Advisory Site', pj&&pj.label);
+ok('starting at the first flow phase', pj && pj.phase==='intake', pj&&pj.phase);
+ok('with a fresh checklist', pj && Object.keys(pj.milestones||{}).length===0, JSON.stringify(pj&&pj.milestones));
+ok('both notes logged', w && (w.activities||[]).some(a=>/New build started: AZ Advisory Site\. Tracked as its own project/.test(a.text||''))
    && (w.activities||[]).some(a=>/Deal closed: AZ Advisory Site.*client upsell/.test(a.text||'')),
    JSON.stringify((w&&w.activities||[]).map(a=>a.text).slice(0,3)));
 ok('history survived', w && (w.activities||[]).some(a=>a.text==='Existing note'));

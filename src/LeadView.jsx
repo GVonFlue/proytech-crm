@@ -37,6 +37,7 @@ import {
   num, nurtureDaysOf, onbSkipped, openInvoicesFor, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
   stdPhases, stripTagText, tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc,
   gmailCompose, isSystemNote, yearsAt,
+  projectsOf, projectForDeal, newProject,
   referralsOut, mkReferral, introducedLeads, referralTarget,
   lastTouch,
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
@@ -915,26 +916,23 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   const closeDeal=d=>{ const amount=dealSum(d); if(amount<=0){ window.alert('Add a dollar amount before closing this deal.'); return; }
     const closed={id:uid(),label:d.label||'Deal',amount,deal:{...d},closedAt:todayISO(),by:me};
     const nextOpen=openDeals.filter(x=>x.id!==d.id);
-    /* Winning work from somebody who is already a client means a NEW build. The
-       checklist is one object on the lead, so the finished build's record is
-       archived onto the deal that paid for it before a fresh one is seeded —
-       the ticks and dates from the last project are kept, not overwritten. It
-       is asked, never assumed: not every deal is a build. */
-    let rebuild={};
+    /* Winning work from somebody who is already a client means a NEW build. It
+       used to replace the client's one checklist: the old one was archived onto
+       this deal and the client went back to Intake, so a second purchase erased
+       where the first build stood and two builds could never run at once.
+
+       Now it becomes a PROJECT beside the first build (lib/lead.js, "projects"):
+       its own card on the Clients board, its own phase and its own checklist.
+       The client's clientPhase and onboarding are not touched. Still asked,
+       never assumed: not every deal is a build. */
+    let project=null;
     if(draft.isClient){
-      const prev=draft.onboarding||{};
-      const doneCount=Object.values(prev).filter(x=>x&&x.done).length;
       const start=window.confirm(
-        `Start a new build for ${draft.company||draft.name||'this client'}?\n\n`+
-        (doneCount?`Their current checklist (${doneCount} item${doneCount===1?'':'s'} done) will be archived on this deal, and a fresh one starts at Intake.`
-                  :'A fresh checklist starts at Intake.')+
-        `\n\nCancel closes the deal without touching the checklist.`);
-      if(start){
-        closed.onboarding=prev; closed.clientPhase=draft.clientPhase||'';
-        /* client phases are objects with .key — CLIENT_PHASES is the array-shaped
-           legacy constant and indexing this one the same way wrote undefined */
-        rebuild={onboarding:seedOnboarding(),clientPhase:(stdPhases(settings)[0]||{}).key||'intake'};
-      }
+        `Track ${closed.label} as its own project on the Clients board?\n\n`+
+        `It gets its own phase and checklist, starting at the first phase. `+
+        `${draft.company||draft.name||'This client'}'s current build stays exactly where it is.`+
+        `\n\nCancel closes the deal without adding a project.`);
+      if(start) project=newProject(closed,settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS,(stdPhases(settings).find(p=>p.flow)||stdPhases(settings)[0]||{}).key||'intake');
     }
     /* stamped here because updateLead's generic dealValue audit is skipped for a
        deal close — the trail still needs a name and a time against it */
@@ -944,9 +942,9 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           dealValue:nextOpen.reduce((a,x)=>a+dealSum(x),0),
           dealValueBy:me, dealValueAt:new Date().toISOString(),
           closedDeals:[...(draft.closedDeals||[]),closed],
-          ...rebuild,
-          activities:[...(rebuild.onboarding?[{id:uid(),ts:new Date().toISOString(),type:'Note',
-            text:`New build started: ${closed.label}. Previous checklist archived.`,who:me}]:[]),
+          ...(project?{projects:[...projectsOf(draft),project]}:{}),
+          activities:[...(project?[{id:uid(),ts:new Date().toISOString(),type:'Note',
+            text:`New build started: ${closed.label}. Tracked as its own project.`,who:me}]:[]),
             note,...(draft.activities||[])] }); };
   const Sel=({label,k,opts})=>(<div className="field"><label>{label}</label><select value={draft[k]} onChange={e=>set({[k]:e.target.value})}>{opts.map(o=>typeof o==='string'?<option key={o} value={o}>{o||'—'}</option>:<option key={o.v} value={o.v}>{o.l}</option>)}</select></div>);
   /* collapsible section. called as a function (not <Sec/>) so inputs inside
@@ -2146,6 +2144,11 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                     {hist.map(d=>(<div className="dh-row" key={d.id}>
                       <div className="dh-m"><b>{d.label||'Deal'}</b><span>closed {fmtDate(d.closedAt)}{d.by?` · ${d.by}`:''}</span></div>
                       <span className="dh-v">{usd(d.amount)}</span>
+                      {draft.isClient&&(projectForDeal(draft,d.id)
+                        ?<span className="dh-proj" title="This purchase has its own card on the Clients board">On the board</span>
+                        :<button className="dh-proj-btn" title="Give this purchase its own card, phase and checklist on the Clients board" onClick={()=>{
+                          const pj=newProject(d,settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS,(stdPhases(settings).find(p=>p.flow)||stdPhases(settings)[0]||{}).key||'intake');
+                          set({projects:[...projectsOf(draft),pj],activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:`New build started: ${d.label||'Deal'}. Tracked as its own project.`,who:me},...(draft.activities||[])]}); }}>Track as a project</button>)}
                       <button className="ex-del" title="Remove from history" onClick={()=>{ if(window.confirm('Remove this closed deal from history? It will no longer count toward total revenue.')){ set({closedDeals:hist.filter(x=>x.id!==d.id)}); } }}><X size={13}/></button>
                     </div>))}
                     <div className="dh-note">Lifetime with this client: <b>{usd(histTotal+openDealsTotal)}</b></div>

@@ -59,6 +59,7 @@ import ContentStudio from './ContentStudio';
 import {
   ACT_TYPES, CLIENT_PHASES, CMSN_STATE, COBALT, DATE_LEAD_DEFAULT, DEFAULT_CLIENT_PHASES,
   DEFAULT_DELIVERY_TRACKS, DEFAULT_OPTIONS, GOLD, GREEN, INDIGO, INK, MEETING_TYPES,
+  DELIVERY_TRACKS_V, withDefaultTracks, projectsOf, projectProgress, boardProjects,
   bookingBrief,
   ONBOARDING, ONB_ITEMS, OWNERS, POOL_OWNER, PRIORITIES, REACHED_TYPES, RED, REL_TIERS,
   actLabel, activeTracks, allMeetings, anyPayments, balanceItems, blankFirst, bookedCount, calendarOwner,
@@ -986,6 +987,13 @@ const CSS=`
 .kcard.dragging{opacity:.55;transform:rotate(2deg) scale(.98);box-shadow:0 18px 36px -14px rgba(24,21,48,.6)}
 .kcard.od{border-left:3px solid ${RED}}
 .kcard-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+/* a project card: same card, marked as a purchase rather than a person */
+.kcard.kproj{border-left:3px solid ${COBALT}}
+.kproj-l{display:inline-flex;align-items:center;gap:5px;margin-top:6px;font-size:11.5px;font-weight:700;color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);border:1px solid color-mix(in srgb,${COBALT} 18%,#fff);border-radius:8px;padding:2px 8px;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kproj-p{font-size:11.5px;font-weight:600;color:#6a6788}
+.kproj-p.none{color:#A6A2BC;font-style:italic}
+.kproj-risk{font-size:10.5px;font-weight:700;color:#B4541E;background:rgba(224,102,43,.12);border-radius:20px;padding:1px 7px;margin-left:6px}
+.proj-detail .proj-remove{margin-left:auto}
 .kown{flex:none;width:22px;height:22px;border-radius:50%;background:${INDIGO};color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Space Grotesk'}
 .kvals{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
 .kdv{font-size:12.5px;font-weight:700;color:${INK}}
@@ -1662,6 +1670,8 @@ const CSS=`
 .modal.lead .deal-add-btn:hover{border-color:var(--arc);color:var(--ink-hi);background:rgba(56,189,248,.06)}
 .modal.lead .pay-bar{background:rgba(5,7,26,.6)}
 .modal.lead .ex-del{background:rgba(5,7,26,.34);color:var(--dim)}
+.modal.lead .dh-proj{background:rgba(52,211,153,.14);color:#6EE7B7}
+.modal.lead .dh-proj-btn{background:rgba(56,189,248,.14);border-color:rgba(56,189,248,.34);color:#BAE6FD}
 .modal.lead .ex-del:hover{background:rgba(193,53,43,.16);color:#FFC9C2}
 
 /* ---- THE MEETING CARD -----------------------------------------------------
@@ -1861,6 +1871,9 @@ const CSS=`
 .dh-m b{font-size:13px;color:${INK};font-weight:700}
 .dh-m span{font-size:11px;color:#9b98ad}
 .dh-v{font-size:14px;font-weight:800;color:#1a7d46;font-family:'Space Grotesk',sans-serif}
+.dh-proj{font-size:11px;font-weight:700;color:#1a7d46;background:rgba(31,157,85,.1);border-radius:20px;padding:3px 9px;white-space:nowrap;flex:none}
+.dh-proj-btn{font-size:11.5px;font-weight:700;color:${COBALT};background:color-mix(in srgb,${COBALT} 8%,#fff);border:1px solid color-mix(in srgb,${COBALT} 22%,#fff);border-radius:8px;padding:6px 10px;cursor:pointer;white-space:nowrap;flex:none}
+.dh-proj-btn:hover{border-color:${COBALT}}
 .dh-note{margin-top:9px;padding-top:9px;border-top:1px solid color-mix(in srgb,${GREEN} 14%,#fff);font-size:12px;color:#56527a}
 .dh-note b{color:${INK};font-weight:800}
 .deal-card{border:1px solid #E7E8F1;border-radius:13px;padding:14px;margin-bottom:12px;background:#FBFBFE}
@@ -4109,7 +4122,7 @@ export default function App(){
          explicitly, so anything added later — recurring bills, and whatever
          comes next — was silently dropped on load: saved fine, gone on
          refresh. The named fields below still win where they apply defaults. */
-      setSettings({...st,logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,repPayments:!!st.repPayments,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:st.deliveryTracks?.length?st.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
+      setSettings({...st,logo:st.logo||'',logoSize:st.logoSize||34,options:{...DEFAULT_OPTIONS,...(st.options||{})},stages:st.stages?.length?st.stages:DEFAULT_STAGES,customFields:st.customFields||[],team:st.team||DEFAULT_TEAM,clientPhases:st.clientPhases?.length?st.clientPhases:DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(st.goals||{})},huddle:st.huddle||null,repPayments:!!st.repPayments,modules:Array.isArray(st.modules)?st.modules:undefined,modulesV:num(st.modulesV),pools:Array.isArray(st.pools)?st.pools:[],notifyEmails:st.notifyEmails||'',leadColumns:st.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:withDefaultTracks(st.deliveryTracks,st.deliveryTracksV),deliveryTracksV:DELIVERY_TRACKS_V,invoicing:{...DEFAULT_INVOICING,...(st.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((st.invoicing||{}).biz||{})}}});
       setLoaded(true);
     }catch(e){ console.error(e); window.alert('Could not load data: '+(e.message||e)); }
   })(); },[session]);
@@ -4824,6 +4837,22 @@ export default function App(){
   const setClientPhase=(id,phase)=>{ const l=leads.find(x=>x.id===id); if(!l)return; let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x;
     updated={...x,isClient:true,clientPhase:phase,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Phase → '+phaseInfo(phase,settings,l).label,who:me},...x.activities]}; return updated; }));
     if(updated){ putLead(updated); if(phase==='active') seedActiveTasks(id,l.owner); } };
+  /* PROJECTS. A client's next purchase, tracked beside the first build rather
+     than on top of it (lib/lead.js, "projects"). One writer for every project
+     change so the note and the record land in the same write. */
+  const setProject=(id,projectId,patch,note)=>{ let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x;
+    const projects=projectsOf(x).map(pj=>pj.id===projectId?{...pj,...patch}:pj);
+    updated={...x,projects,...(note?{activities:[note,...(x.activities||[])]}:{})}; return updated; }));
+    if(updated) putLead(updated); };
+  const setProjectPhase=(id,projectId,phase)=>{ const l=leads.find(x=>x.id===id); const pj=l&&projectsOf(l).find(x=>x.id===projectId); if(!pj||pj.phase===phase)return;
+    /* the note is built HERE, as a literal, so tests/systemnotes.mjs can read
+       its text and prove it is classified as a machine note */
+    setProject(id,projectId,{phase},{id:uid(),ts:new Date().toISOString(),type:'Note',text:`Phase → ${phaseInfo(phase,settings).label} (${pj.label||'project'})`,who:me}); };
+  const toggleProjectMilestone=(id,projectId,milestone)=>{ const l=leads.find(x=>x.id===id); const pj=l&&projectsOf(l).find(x=>x.id===projectId); if(!pj)return;
+    const ms={...(pj.milestones||{})}; const cur=normEntry(ms[milestone]);
+    if(cur.done){ if(cur.due) ms[milestone]={...cur,done:null}; else delete ms[milestone]; } else ms[milestone]={...cur,done:todayISO()};
+    setProject(id,projectId,{milestones:ms}); };
+  const removeProject=(id,projectId)=>{ let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x; updated={...x,projects:projectsOf(x).filter(pj=>pj.id!==projectId)}; return updated; })); if(updated) putLead(updated); };
   const addCustomPhase=(id,info)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cp={key:'cp_'+uid(),label:(info.label||'Custom').trim(),color:info.color||'#7A5CC8',after:info.after||'build'}; updated={...l,customPhases:[...(l.customPhases||[]),cp]}; return updated; })); if(updated) putLead(updated); };
   const removeCustomPhase=(id,key)=>{ let updated=null; setLeads(leads.map(l=>{ if(l.id!==id)return l; const cps=(l.customPhases||[]).filter(c=>c.key!==key); updated={...l,customPhases:cps,clientPhase:l.clientPhase===key?'build':l.clientPhase}; return updated; })); if(updated) putLead(updated); };
   const toggleMilestone=(id,trackKey,milestone)=>{ const l=leads.find(x=>x.id===id); if(!l)return; const d={...(l.delivery||{})}; const tr={...(d[trackKey]||{})}; const cur=normEntry(tr[milestone]); const next={done:cur.done?null:todayISO(),due:cur.due||null}; if(!next.done&&!next.due) delete tr[milestone]; else tr[milestone]=next; d[trackKey]=tr; const patch={delivery:d}; const o=clientOverall({...l,delivery:d},settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS); const won=(stages||[]).find(s=>s.won); if(o.delivered&&won&&l.stage!==won.key) patch.stage=won.key; updateLead(id,patch); };
@@ -5033,7 +5062,7 @@ export default function App(){
             saveSettings={saveSettings} me={me} updateLead={updateLead} rep={rep} myPools={myPools}
             users={users} addActivity={addActivity} LeadTable={Leads}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
-          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase}/>:
+          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings} rep={rep} myUser={repUser||myUser} myUid={myUid}/>:
@@ -7837,10 +7866,33 @@ function ClientRoadmap({clients,tracks,open}){
 }
 
 /* shared client kanban — used in the Clients tab and the Pipeline toggle */
-function ClientBoard({clients,settings,onCard,setClientPhase,stages}){
+/* A project only moves through the standard FLOW phases. At Risk and Churned
+   describe the client, and a client's custom phases belong to that client's
+   first build, so neither is a column a project can sit in. A project whose
+   phase was removed in Settings lands in the first flow phase rather than in no
+   column at all. */
+const projFlowOf=settings=>stdPhases(settings).filter(p=>p.flow).map(p=>p.key);
+const projPhaseOf=(pj,settings)=>{ const f=projFlowOf(settings); return f.includes(pj&&pj.phase)?pj.phase:(f[0]||'intake'); };
+function ClientBoard({clients,settings,onCard,setClientPhase,stages,projects,setProjectPhase,tracks}){
   const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);
   const cols=boardCols(clients,settings);
-  const drop=col=>{ if(!dragId){setOver(null);return;} if(!(col.custom&&col.ownerId&&col.ownerId!==dragId)) setClientPhase(dragId,col.key); setDragId(null);setOver(null); };
+  const flow=projFlowOf(settings);
+  const drop=col=>{ if(!dragId){setOver(null);return;}
+    if(String(dragId).startsWith('pj:')){ const [,lid,pid]=String(dragId).split(':'); if(flow.includes(col.key)&&setProjectPhase) setProjectPhase(lid,pid,col.key); }
+    else if(!(col.custom&&col.ownerId&&col.ownerId!==dragId)) setClientPhase(dragId,col.key);
+    setDragId(null);setOver(null); };
+  const ProjectCard=({l,pj})=>{ const key='pj:'+l.id+':'+pj.id; const ph=projPhaseOf(pj,settings); const i=flow.indexOf(ph); const pr=projectProgress(pj,tracks);
+    return (<div className={'kcard kproj'+(dragId===key?' dragging':'')} draggable onDragStart={()=>setDragId(key)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>onCard(key)}>
+      <div className="kcard-top"><div className="kn"><span className="dot" style={{background:phaseInfo(ph,settings).color}}/>{l.name||l.company}</div>{l.owner&&<span className="kown">{l.owner[0].toUpperCase()}</span>}</div>
+      <div className="kproj-l"><Layers size={12}/>{pj.label||'Project'}</div>
+      <div className="kmeta">{pr.total?<span className="kproj-p">{pr.done}/{pr.total} steps</span>:<span className="kproj-p none">Pick a checklist</span>}{(l.clientPhase||'')==='atrisk'&&<span className="kproj-risk">Client at risk</span>}</div>
+      <div className="kmove" onClick={e=>e.stopPropagation()}>
+        <button className="kmv" disabled={i<=0} onClick={()=>setProjectPhase(l.id,pj.id,flow[i-1])} title="Back a phase"><ChevronLeft size={16}/></button>
+        <span className="kmv-s">{phaseInfo(ph,settings).label}</span>
+        <button className="kmv" disabled={i>=flow.length-1} onClick={()=>setProjectPhase(l.id,pj.id,flow[i+1])} title="Advance a phase"><ChevronRight size={16}/></button>
+      </div>
+    </div>);
+  };
   const step=(l,dir)=>{ const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake'); const j=i+dir; if(i<0){ if(dir>0)setClientPhase(l.id,order[0]); return;} if(j<0||j>=order.length)return; setClientPhase(l.id,order[j]); };
   const Card=({l})=>{ const st=onboardingStat(l); const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake');
     return (<div className={'kcard'+(st.overdue>0?' od':'')+(dragId===l.id?' dragging':'')} draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>onCard&&onCard(l.id)}>
@@ -7863,20 +7915,21 @@ function ClientBoard({clients,settings,onCard,setClientPhase,stages}){
       </div>
     </div>);
   };
-  return (<div className="kanban">{cols.map(col=>{ const items=clients.filter(l=>(l.clientPhase||'intake')===col.key); const mrr=items.reduce((a,l)=>a+(l.retainerActive?num(l.retainer):0),0); const od=items.reduce((a,l)=>a+onboardingStat(l).overdue,0);
+  return (<div className="kanban">{cols.map(col=>{ const items=clients.filter(l=>(l.clientPhase||'intake')===col.key); const projs=(projects||[]).filter(x=>projPhaseOf(x.project,settings)===col.key); const mrr=items.reduce((a,l)=>a+(l.retainerActive?num(l.retainer):0),0); const od=items.reduce((a,l)=>a+onboardingStat(l).overdue,0);
     return (<div key={col.key} className={'kcol '+(over===col.key?'drag':'')} onDragOver={e=>{e.preventDefault();setOver(col.key);}} onDragLeave={()=>setOver(c=>c===col.key?null:c)} onDrop={()=>drop(col)}>
       <div className="kbar" style={{background:col.color}}/>
-      <div className="kcol-h"><span className="kt">{col.label}{col.custom&&<span className="cp-tag">custom</span>}</span><span className="kc">{items.length}</span></div>
+      <div className="kcol-h"><span className="kt">{col.label}{col.custom&&<span className="cp-tag">custom</span>}</span><span className="kc">{items.length+projs.length}</span></div>
       <div className="kcol-v">{mrr>0?usd(mrr)+'/mo':'—'}{od>0&&<span className="kwtd" style={{color:RED}}> · {od} overdue</span>}</div>
       <div className="kcol-body">
         {items.map(l=><Card key={l.id} l={l}/>)}
+        {projs.map(x=><ProjectCard key={'pj:'+x.lead.id+':'+x.project.id} l={x.lead} pj={x.project}/>)}
         {dragId&&over===col.key&&<div className="kdrop">Release to move here</div>}
-        {!items.length&&!(dragId&&over===col.key)&&<div className="kdrop">{col.custom?'custom phase':'No clients'}</div>}
+        {!items.length&&!projs.length&&!(dragId&&over===col.key)&&<div className="kdrop">{col.custom?'custom phase':'No clients'}</div>}
       </div>
     </div>);})}</div>);
 }
 
-function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase}){
+function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject}){
   /* off by default: hidden items should stay out of the way, but you need a way
      back to them or switching one off would be one-directional */
   const [showSkipped,setShowSkipped]=useState(false);
@@ -7900,6 +7953,8 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,a
     setClientPhase(l.id,nextKey); };
   const PhaseBadge=({k,client})=>{const m=phaseInfo(k,settings,client);return <span className="phase-badge" style={{background:m.color+'1A',color:m.color}}><span className="dot" style={{background:m.color}}/>{m.label}</span>;};
   const sel=visible.find(l=>l.id===expand);
+  const onBoard=boardProjects(visible,showChurned);
+  const selProj=String(expand||'').startsWith('pj:')?onBoard.find(x=>'pj:'+x.lead.id+':'+x.project.id===expand)||null:null;
   return (<>
     <div className="kgrid">
       <Kpi variant="accent" label="Active Clients" value={visible.length} icon={<Award size={14}/>} d={`${byPhase('intake')} intake · ${byPhase('build')} build · ${byPhase('launch')} launch`}/>
@@ -7913,7 +7968,34 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,a
       <label className="chip-toggle" style={{marginLeft:'auto'}}><input type="checkbox" checked={showChurned} onChange={e=>setShowChurned(e.target.checked)}/>Show churned</label>
     </div>
     {!visible.length?<div className="empty">No clients yet. Move a lead to <b>Signed</b> (or hit Convert to Client) to start onboarding.</div>
-    :<><ClientBoard clients={visible} settings={settings} stages={stages} setClientPhase={setClientPhase} onCard={id=>setExpand(id===expand?null:id)}/>
+    :<><ClientBoard clients={visible} settings={settings} stages={stages} setClientPhase={setClientPhase} onCard={id=>setExpand(id===expand?null:id)} projects={onBoard} setProjectPhase={setProjectPhase} tracks={tracks}/>
+      {selProj&&(()=>{ const l=selProj.lead, pj=selProj.project; const flow=projFlowOf(settings); const ph=projPhaseOf(pj,settings); const i=flow.indexOf(ph); const pr=projectProgress(pj,tracks);
+        return (<div className="cli-detail proj-detail">
+          <div className="cli-detail-h">
+            <div><div className="cli-name" onClick={()=>open(l.id)}>{l.company||l.name} · {pj.label||'Project'}</div>
+              <div className="subcell">{pr.total?`${pr.done}/${pr.total} delivery steps complete`:'No checklist picked yet'}{pj.startedAt?` · started ${fmtDate(pj.startedAt)}`:''}</div></div>
+            <button className="m-x" onClick={()=>setExpand(null)}><X size={17}/></button>
+          </div>
+          <div className="cli-actions">
+            {i<flow.length-1&&<button className="btn btn-p btn-sm" onClick={()=>setProjectPhase(l.id,pj.id,flow[i+1])}><ArrowUpRight size={14}/>Advance to {phaseInfo(flow[i+1],settings).label}</button>}
+            <select className="phase-sel" value={ph} onChange={e=>setProjectPhase(l.id,pj.id,e.target.value)}>
+              {flow.map(k=><option key={k} value={k}>{phaseInfo(k,settings).label}</option>)}
+            </select>
+            <select className="phase-sel" value={pj.trackKey||''} onChange={e=>setProject(l.id,pj.id,{trackKey:e.target.value})} title="Which checklist this project follows">
+              <option value="">Pick a checklist</option>
+              {tracks.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+            <button className="btn btn-s btn-sm" onClick={()=>open(l.id)}>Open client</button>
+            <button className="btn btn-d btn-sm proj-remove" onClick={()=>{ if(window.confirm(`Stop tracking ${pj.label||'this project'} on the board? The deal and its money stay on the client.`)){ removeProject(l.id,pj.id); setExpand(null); } }}>Remove project</button>
+          </div>
+          {pr.total?<div className="onb-group">{pr.milestones.map(m=>{ const e=normEntry((pj.milestones||{})[m]); return (
+            <div className={'onb-item'+(e.done?' done':'')} key={m}>
+              <span className="onb-check" onClick={()=>toggleProjectMilestone(l.id,pj.id,m)}>{e.done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color="#C9C5D9"/>}</span>
+              <span className="onb-label" onClick={()=>toggleProjectMilestone(l.id,pj.id,m)}>{m}</span>
+              {e.done&&<span className="subcell">{fmtDate(e.done)}</span>}
+            </div>); })}</div>
+          :<div className="empty">Pick which checklist this project follows. Checklists are edited in Settings under Delivery Tracks.</div>}
+        </div>); })()}
       {sel?(()=>{ const l=sel; const phase=l.clientPhase||'intake'; const order=flowOrder(settings,l); const i=order.indexOf(phase); const canAdvance=i>=0&&i<order.length-1;
         return (<div className="cli-detail">
           <div className="cli-detail-h">
