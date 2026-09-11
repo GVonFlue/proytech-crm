@@ -306,6 +306,15 @@ export const isSystemNote=a=>!!a&&a.type==='Note'&&!a.derived&&SYS_NOTE.test(Str
    owners log changes. See DISPOSITIONS above. */
 export const isRealTouch=a=>!!a&&!a.imported&&dispIsContact(a)&&(REACHED_TYPES.has(a.type)||(a.type==='Note'&&!isSystemNote(a)));
 
+/* WRITTEN BY THE APP, not by a person: a note the app stamped about itself, or
+   anything a spreadsheet brought in. The Activity screen asks this, and it is a
+   DIFFERENT question from isRealTouch. A no-answer dial is not contact, but it
+   is a person doing the work, so it still counts as activity. An import or a
+   "Stage moved:" note is neither, and counting it lets one import make a day
+   look like two hundred calls. Built from the same two marks isRealTouch reads,
+   so the two can never disagree about what the app wrote. */
+export const isAppWritten=a=>!!a&&(!!a.imported||isSystemNote(a));
+
 /* The last time a person and this record were actually in contact.
 
    NOT lastContact(), which takes the newest activity of ANY type and falls back

@@ -73,7 +73,7 @@ import {
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
   tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt,
   gmailIndex, setGmailIndex,
-  introducedLeads, lastTouch, daysSinceTouch, referralsOut, isRealTouch,
+  introducedLeads, lastTouch, daysSinceTouch, referralsOut, isRealTouch, isAppWritten,
 } from './lib/lead';
 
 const PIE=[COBALT,INDIGO,GOLD,'#5C76EE','#8E86C9',GREEN,'#D98A3D','#7AA0F0'];
@@ -425,8 +425,13 @@ function weekSlice(leads,tasks,stages,r){
     if(l.isClient&&inRange(l.convertedAt,r)){ onboarded++; newClientNames.push(nm); }
     const dep=normEntry((l.onboarding||{}).deposit_paid).done; if(inRange(dep,r)) deposits++;
     (l.activities||[]).forEach(a=>{ if(!inRange(a.ts,r))return;
-      const sys=a.text==='Lead created.'||(typeof a.text==='string'&&a.text.startsWith('Stage moved:'));
-      if(!sys&&bookingLive(l,a)) acts[a.type]=(acts[a.type]||0)+1;   // system notes and cancelled bookings aren't work done
+      /* isAppWritten, not a list of two prefixes. This line used to name only
+         "Lead created." and "Stage moved:", so an imported note, "Follow-up
+         cleared." or "Reassigned from" counted as a person's note here while
+         the Activity screen left them out: the same week, two Note counts.
+         ENGINEERING.md §2. */
+      const sys=isAppWritten(a);
+      if(!sys&&bookingLive(l,a)) acts[a.type]=(acts[a.type]||0)+1;   // app-written notes and cancelled bookings aren't work done
       if(a.type==='Booked'&&bookingLive(l,a)){ booked++; const t=a.mtype||'untyped'; bookedByType[t]=(bookedByType[t]||0)+1; }
       if(a.fuOnTime!==undefined){ fuCleared++; if(a.fuOnTime) fuOnTime++; }
       if(typeof a.text==='string'&&a.text.startsWith('Stage moved:')) moves.push(nm+': '+a.text.replace('Stage moved: ',''));
@@ -3221,6 +3226,24 @@ tbody tr.picked:hover{background:#E9EDFD}
 .act-time{margin-left:auto;font-size:11.5px;color:#9b98ad;white-space:nowrap}
 .act-daysep{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#9b98ad;margin:14px 0 4px;padding-top:8px;border-top:1px dashed #E4E5EE}
 .act-daysep:first-child{border-top:none;margin-top:0;padding-top:0}
+/* Activity: the compact layout. .kpis had no rule at all, so every tile took a
+   full row; this is the grid both screens that use it (Activity, The Books)
+   were written against. */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:16px}
+.kpis.act-kpis{grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:10px}
+.act-kpis .kpi{padding:13px;border-radius:16px;min-width:0}
+.act-kpis .kpi .kl{font-size:10.5px;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.act-kpis .kpi.accent .kl{letter-spacing:.08em}
+.act-kpis .kpi .kv{font-size:22px}
+.act-kpis .kpi .kd{font-size:11.5px}
+.act-h{display:flex;align-items:center;gap:8px;font-family:'Space Grotesk';font-size:15px;font-weight:600;color:${INK};margin:0 0 3px}
+.act-sub{font-size:12.5px;color:#8E89A8;margin-bottom:12px}
+.act-loghead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.act-logn{font-family:'Inter';font-size:11px;font-weight:700;color:#8E89A8;background:#F0F1F7;border-radius:20px;padding:2px 9px}
+.act-machine{font-size:10.5px;font-weight:700;color:#8E89A8;background:#F4F5FA;border:1px dashed #D9D8E6;border-radius:20px;padding:1px 8px}
+.act-row.machine .act-lead,.act-row.machine .act-txt{color:#8E89A8}
+.act-tblscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+@media(max-width:640px){.act-loghead .seg{width:100%}.act-loghead .seg button{flex:1}}
 .swapbtn{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:600;color:#56527a;background:#fff;border:1px solid #DEDFEA;border-radius:8px;padding:6px 11px;cursor:pointer}
 .swapbtn:hover{border-color:${COBALT};color:${COBALT}}
 .inv-items-edit{display:flex;flex-direction:column;gap:7px}
@@ -8751,6 +8774,10 @@ function Activity({leads,tasks,me,open,rep}){
   const [anchor,setAnchor]=useState(todayISO());
   const [who,setWho]=useState('All');
   const [typeF,setTypeF]=useState('All');
+  /* What got done / Everything. The switch changes only what the LOG shows;
+     the numbers never count an entry the app wrote or a spreadsheet brought in,
+     whichever way it is set. isAppWritten is the one definition (lib/lead). */
+  const [preset,setPreset]=useState('done');
   const range=useMemo(()=>{
     const d=new Date(anchor+'T00:00:00'); let start,end,label;
     if(mode==='day'){ start=new Date(d); end=new Date(d); label=d.toLocaleDateString(undefined,{weekday:'long',month:'short',day:'numeric'}); }
@@ -8760,7 +8787,7 @@ function Activity({leads,tasks,me,open,rep}){
   },[mode,anchor]);
   const all=useMemo(()=>{
     const acts=leads.flatMap(l=>(l.activities||[]).map(a=>({...a,leadId:l.id,leadName:l.name,company:l.company,
-      cancelled:a.type==='Booked'?!bookingLive(l,a):!!a.cancelled})));
+      cancelled:a.type==='Booked'?!bookingLive(l,a):!!a.cancelled,machine:isAppWritten(a)})));
     /* completed tasks count as work done — fold them into the same feed */
     const done=(tasks||[]).filter(t=>t.done).map(t=>{
       /* Tasks completed before we started stamping doneAt have no completion time.
@@ -8785,13 +8812,13 @@ function Activity({leads,tasks,me,open,rep}){
   const scope=useMemo(()=>inRange.filter(a=>who==='All'||a.who===who),[inRange,who]);
   /* the LOG shows cancelled bookings (struck through — they happened, and hiding
      them would quietly rewrite the day). The NUMBERS don't count them. */
-  const live=useMemo(()=>scope.filter(a=>!a.cancelled),[scope]);
-  const shown=scope.filter(a=>typeF==='All'||a.type===typeF).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  const live=useMemo(()=>scope.filter(a=>!a.cancelled&&!a.machine),[scope]);
+  const shown=scope.filter(a=>(typeF==='All'||a.type===typeF)&&(preset==='all'||!a.machine)).sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
   const matrix=useMemo(()=>{const m={};const zero=()=>ACT_ORDER.reduce((o,k)=>(o[k]=0,o),{total:0});live.forEach(a=>{const p=a.who||'—';m[p]=m[p]||zero();if(m[p][a.type]!=null)m[p][a.type]++;m[p].total++;});return m;},[live]);
   const chartData=Object.entries(matrix).map(([person,c])=>({person,...c})).sort((a,b)=>b.total-a.total);
   const totals=ACT_ORDER.reduce((o,t)=>{o[t]=live.filter(a=>a.type===t).length;return o;},{});
   const grand=live.length;
-  const cancelledCount=scope.length-live.length;
+  const cancelledCount=scope.filter(a=>a.cancelled&&!a.machine).length;
   const shift=dir=>{const d=new Date(anchor+'T00:00:00');if(mode==='day')d.setDate(d.getDate()+dir);else if(mode==='week')d.setDate(d.getDate()+7*dir);else d.setMonth(d.getMonth()+dir);setAnchor(d.toISOString().slice(0,10));};
   const fmtTime=ts=>{try{return new Date(ts).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});}catch{return '';}};
   const dayHead=ts=>new Date(ts).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'});
@@ -8813,12 +8840,13 @@ function Activity({leads,tasks,me,open,rep}){
         {ACT_ORDER.map(t=><button key={t} className={'bk-chip'+(typeF===t?' on':'')} onClick={()=>setTypeF(t)}>{t}</button>)}
       </div>
     </div>
-    <div className="kpis">
+    <div className="kpis act-kpis">
       <Kpi variant="accent" label="Total logged" value={grand} icon={<List size={14}/>} d={(who==='All'?'Everyone':who)+' · '+range.label+(cancelledCount>0?` · ${cancelledCount} cancelled, not counted`:'')}/>
       {ACT_ORDER.map(t=><Kpi key={t} variant={t==='Booked'?'accent':undefined} label={actPlural(t)} value={totals[t]} icon={kIcon(t)}/>)}
     </div>
     {chartData.length>0&&<div className="card" style={{marginBottom:16}}>
-      <div className="ch-title">Activity by person</div>
+      <h3 className="act-h">Activity by person</h3>
+      <div className="act-sub">Imports and notes the app wrote itself are never counted.</div>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={chartData} margin={{top:8,right:8,left:-14,bottom:0}}>
           <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F5" vertical={false}/>
@@ -8831,23 +8859,31 @@ function Activity({leads,tasks,me,open,rep}){
       </ResponsiveContainer>
     </div>}
     {chartData.length>0&&<div className="card" style={{marginBottom:16}}>
-      <table className="tbl"><thead><tr><th>Person</th>{ACT_ORDER.map(t=><th key={t} style={{textAlign:'right'}}>{t}</th>)}<th style={{textAlign:'right'}}>Total</th></tr></thead>
-      <tbody>{chartData.map(r=>(<tr key={r.person}><td className="namecell">{r.person}</td>{ACT_ORDER.map(t=><td key={t} style={{textAlign:'right'}} className="subcell">{r[t]||0}</td>)}<td style={{textAlign:'right',fontWeight:800,color:INK}}>{r.total}</td></tr>))}</tbody></table>
+      <div className="act-tblscroll"><table className="tbl"><thead><tr><th>Person</th>{ACT_ORDER.map(t=><th key={t} style={{textAlign:'right'}}>{t}</th>)}<th style={{textAlign:'right'}}>Total</th></tr></thead>
+      <tbody>{chartData.map(r=>(<tr key={r.person}><td className="namecell">{r.person}</td>{ACT_ORDER.map(t=><td key={t} style={{textAlign:'right'}} className="subcell">{r[t]||0}</td>)}<td style={{textAlign:'right',fontWeight:800,color:INK}}>{r.total}</td></tr>))}</tbody></table></div>
     </div>}
     <div className="card">
-      <div className="ch-title">Log · {shown.length} {shown.length===1?'entry':'entries'}</div>
+      <div className="act-loghead">
+        <div>
+          <h3 className="act-h">Log <span className="act-logn">{shown.length} {shown.length===1?'entry':'entries'}</span></h3>
+          <div className="act-sub">{preset==='done'
+            ?'What people did: calls, texts, meetings, bookings, notes and finished tasks.'
+            :'Everything on the record, including imports and notes the app wrote itself.'}</div>
+        </div>
+        <div className="seg">{[['done','What got done'],['all','Everything']].map(([k,l])=><button key={k} className={preset===k?'on':''} onClick={()=>setPreset(k)}>{l}</button>)}</div>
+      </div>
       {shown.length?<div className="act-feedlist">{shown.map(a=>{const Ic=ACT_ICON[a.type]||StickyNote;const dk=(a.ts||'').slice(0,10);const head=mode!=='day'&&dk!==lastDay;lastDay=dk;return(
         <React.Fragment key={a.id}>
           {head&&<div className="act-daysep">{dayHead(a.ts)}</div>}
-          <div className={'act-row'+(a.cancelled?' cancelled':'')} onClick={()=>open&&open(a.leadId)}>
-            <div className="act-ic" style={{background:a.cancelled?'#B9B6C6':(ACT_COLORS[a.type]||'#8b88a0')}}><Ic size={15}/></div>
+          <div className={'act-row'+(a.cancelled?' cancelled':'')+(a.machine?' machine':'')} onClick={()=>open&&open(a.leadId)}>
+            <div className="act-ic" style={{background:(a.cancelled||a.machine)?'#B9B6C6':(ACT_COLORS[a.type]||'#8b88a0')}}><Ic size={15}/></div>
             <div className="act-body">
-              <div className="act-top"><span className="act-lead">{a.leadName||'—'}</span><span className="act-who">{a.who||'—'}</span><span className="act-time" title={a.approx?'Completed before we tracked exact times — showing its due date':undefined}>{a.approx?'~':''}{fmtTime(a.ts)}</span></div>
+              <div className="act-top"><span className="act-lead">{a.leadName||'—'}</span><span className="act-who">{a.who||'—'}</span>{a.machine&&<span className="act-machine">{a.imported?'Imported':'Written by the app'}</span>}<span className="act-time" title={a.approx?'Completed before we tracked exact times — showing its due date':undefined}>{a.approx?'~':''}{fmtTime(a.ts)}</span></div>
               <div className="act-txt">{a.text}{a.cancelled&&<span className="fcancel">cancelled</span>}</div>
             </div>
           </div>
         </React.Fragment>);})}</div>
-      :<div className="empty">No activity logged for {mode==='day'?'this day':'this '+mode}{who!=='All'?' by '+who:''}{typeF!=='All'?' · '+typeF:''}. Log calls, texts &amp; meetings from any lead and they'll show up here.</div>}
+      :<div className="empty">{preset==='done'&&scope.some(a=>a.machine)?'Only imports and notes the app wrote. Switch to Everything to see them. ':''}No activity logged for {mode==='day'?'this day':'this '+mode}{who!=='All'?' by '+who:''}{typeF!=='All'?' · '+typeF:''}. Log calls, texts &amp; meetings from any lead and they'll show up here.</div>}
     </div>
   </>);
 }
