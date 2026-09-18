@@ -26,7 +26,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   GripVertical, CalendarClock, TrendingUp, Activity, LayoutGrid,
-  Filter, Target, Flame, AlertTriangle, ArrowRight, Clock, Sliders,
+  Filter, Target, Flame, AlertTriangle, ArrowRight, Clock, Sliders, Upload,
   CheckCircle2, CircleSlash,
 } from 'lucide-react';
 
@@ -42,6 +42,7 @@ import { Card, Kpi, Btn, Empty, SecTitle, Pill, LegalNote, Drill } from '../comp
 import { FLAT_PLAN, closedOn, expectedPrice, onClosedDate, txGross } from '../lib/txn';
 import { alpha } from '../lib/color';
 import { BRAND } from '../lib/brand';
+import ImportContacts from '../components/ImportContacts';
 
 /* ============================================================ small helpers */
 
@@ -1237,6 +1238,7 @@ export default function Dashboard({ ctx }) {
   const [draftOrder, setDraftOrder] = useState(null);
   const [draftHidden, setDraftHidden] = useState(null);
   const [dragKey, setDragKey] = useState(null);
+  const [importing, setImporting] = useState(false);
 
   const settings = ctx.settings || {};
   const allowed = useMemo(() => allowedSections(ctx.isLeader), [ctx.isLeader]);
@@ -1342,14 +1344,22 @@ export default function Dashboard({ ctx }) {
               : <span>No deadline is overdue. {m.activity.followDue} follow-up{m.activity.followDue === 1 ? '' : 's'} due.</span>}
         </div>
 
-        {ctx.isLeader && !arranging && (
+        {/* This group used to be gated on isLeader as a whole, because Rearrange
+            was the only thing in it. Import is granted per person, so the gate
+            moves onto each button and the row appears for whoever has either. */}
+        {!arranging && (ctx.isLeader || ctx.can('importData')) && (
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
-            {hiddenCount > 0 && (
+            {ctx.isLeader && hiddenCount > 0 && (
               <span style={{ fontSize: 11.5, color: '#9b98ad' }}>
                 {hiddenCount} section{hiddenCount === 1 ? '' : 's'} hidden
               </span>
             )}
-            <Btn kind="s" sm icon={<Sliders size={13} />} onClick={startArrange}>Rearrange</Btn>
+            {ctx.can('importData') && (
+              <Btn kind="s" sm icon={<Upload size={13} />} onClick={() => setImporting(true)}>Import leads</Btn>
+            )}
+            {ctx.isLeader && (
+              <Btn kind="s" sm icon={<Sliders size={13} />} onClick={startArrange}>Rearrange</Btn>
+            )}
           </div>
         )}
 
@@ -1419,6 +1429,8 @@ export default function Dashboard({ ctx }) {
           )}
         </div>
       )}
+
+      {importing && <ImportContacts ctx={ctx} onClose={() => setImporting(false)} />}
     </div>
   );
 }
