@@ -109,7 +109,9 @@ ok('the junk dates are STILL excluded at the widest range', nums()[0]===5&&nums(
    JSON.stringify(nums()));
 
 console.log('\nthe list underneath');
-ok('newest first', rows()[0]==='Today One'||rows()[0]==='Today Two'||rows()[0]==='Rel Today', rows().join(' | '));
+/* Rows render personLabel(l), so "Today One" arrives as "Today One \u2014 A Co".
+   The claim is about ORDER, not about the label, so match the leading name. */
+ok('newest first', /^(Today One|Today Two|Rel Today)\b/.test(rows()[0]||''), rows().join(' | '));
 ok('it caps at 6 rows', rows().length<=6, String(rows().length));
 ok('and says how many it left out', /\+ \d+ more/.test((panel()||{}).textContent||''));
 

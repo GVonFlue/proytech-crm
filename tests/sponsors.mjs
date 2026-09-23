@@ -70,7 +70,12 @@ const kpi=lab=>{const k=[...document.querySelectorAll('.kpi')].find(e=>
   ((e.querySelector('.kl')||{}).textContent||'').trim().toLowerCase()===lab.toLowerCase());
   return k?{v:((k.querySelector('.kv')||{}).textContent||'').trim(),d:((k.querySelector('.kd')||{}).textContent||'').trim()}:null;};
 const seg=l=>[...document.querySelectorAll('.seg-b')].find(b=>(b.textContent||'').trim().startsWith(l));
+/* Rows render personLabel(l) — "Person \u2014 Business" — so the helper keeps the
+   whole label for the failure message and a has() matches on the part a human
+   would name. Asserting the exact string would pin the test to one label
+   format and break the next time the display changes. */
 const names=()=>[...document.querySelectorAll('.sp-lrow .mrow-name')].map(e=>(e.textContent||'').trim());
+const has=(list,who)=>list.some(n=>n.includes(who));
 
 console.log('\nthe tab exists and totals are derived from events');
 await nav('Sponsors');
@@ -95,14 +100,14 @@ ok('sorted by total given, biggest first',
 console.log('\nlapsed is the outreach list');
 await click(seg('Not on the next one')); await settle();
 const lap=names();
-ok('Dustin is lapsed', lap.includes('Dustin Kihle'), lap.join(' | '));
-ok('Robin is NOT — he is on the October event', !lap.includes('Robin'), lap.join(' | '));
+ok('Dustin is lapsed', has(lap,'Dustin Kihle'), lap.join(' | '));
+ok('Robin is NOT — he is on the October event', !has(lap,'Robin'), lap.join(' | '));
 
 console.log('\nnever asked');
 await click(seg('Never asked')); await settle();
 const nv=names();
-ok('a warm client who never sponsored is listed', nv.includes('Ashley Thill'), nv.join(' | '));
-ok('existing sponsors are excluded', !nv.includes('Robin')&&!nv.includes('Dustin Kihle'), nv.join(' | '));
+ok('a warm client who never sponsored is listed', has(nv,'Ashley Thill'), nv.join(' | '));
+ok('existing sponsors are excluded', !nv.includes('Robin')&&!has(nv,'Dustin Kihle'), nv.join(' | '));
 
 console.log('\nhistory inside the lead');
 await nav('Leads');
