@@ -2883,6 +2883,22 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .an-card{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:14px 16px}
 .an-card.warn{border-color:#FFD59E;background:color-mix(in srgb,#FFA500 6%,#fff)}
 .pay-mrr{font-size:11.5px;color:#8b88a0;margin:-2px 0 8px}
+/* ---- Starting a retainer ---------------------------------------------------
+   The state is the point, so the block is coloured by it: quoted reads as a
+   note, active reads as money, ended reads as closed. A date input inside the
+   dark lead panel keeps the panel's own field styling; only the note strip is
+   tinted. */
+.mrr-set{margin-top:12px;border-radius:12px}
+.mrr-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mrr-note{margin-top:9px;padding:9px 11px;border-radius:10px;font-size:12.5px;line-height:1.5}
+.mrr-note b{font-weight:700}
+.mrr-note.quoted{background:rgba(139,136,160,.12);color:#5A5680}
+.mrr-note.live{background:rgba(31,157,85,.12);color:#1a7d46}
+.mrr-note.ended{background:rgba(139,136,160,.12);color:#6B6C86}
+.mrr-behind{color:${RED};font-weight:600}
+.modal.lead .mrr-note.quoted{background:rgba(255,255,255,.07);color:#C6C8DE}
+.modal.lead .mrr-note.live{background:rgba(31,157,85,.16);color:#7BE3AC}
+.modal.lead .mrr-note.ended{background:rgba(255,255,255,.07);color:#A8AAC6}
 /* rep pay */
 .rp-rep{border:1px solid #EDEEF5;border-radius:12px;padding:12px 14px;margin-bottom:12px}
 .rp-head{display:flex;align-items:center;gap:10px;cursor:pointer}

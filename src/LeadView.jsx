@@ -95,6 +95,7 @@ import {
   X,
 } from 'lucide-react';
 import { apptEarnings, payModels } from './lib/reppay';
+import { retainerState, monthsDue, monthsPaid } from './lib/retainer';
 import { DateFix, PriBadge, StageBadge } from './LeadBits';
 import PersonPicker from './PersonPicker';
 
@@ -2180,6 +2181,48 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 {openDeals.length>0&&<div className="deal-total"><span>{openDeals.length>1?'All open deals':'One-time total'}</span><b>{usd(openDealsTotal)}</b></div>}
                 <div className="field" style={{marginTop:12}}><label>Monthly Retainer $</label><input type="number" value={draft.retainer??''} onChange={e=>set({retainer:e.target.value})}/></div>
                 <div className="toggle" onClick={()=>set({retainerActive:!draft.retainerActive})}><span className={'sw '+(draft.retainerActive?'on':'')}><b/></span>{draft.retainerActive?'On monthly retainer':'Not on retainer'}</div>
+
+                {/* ---- When the billing actually starts -------------------
+                   retainer.js is explicit that a PRICE IS NOT A COMMITMENT:
+                   a rate with no start date is quoted, and quoted money is
+                   deliberately kept out of MRR. Until this control existed
+                   there was no way to state the start, so no retainer could
+                   ever become MRR by any action on any screen — the rate sat
+                   on the record and the dashboard read $0 forever.
+
+                   It is a date the owner picks, never inferred from a payment.
+                   The first month is often billed inside the sale, before any
+                   work is delivered; stamping that as the start would put a
+                   client into MRR and immediately call them a month behind. */}
+                {draft.retainerActive&&num(draft.retainer)>0&&(()=>{
+                  const st=retainerState(draft);
+                  const due=monthsDue(draft,new Date().toISOString().slice(0,7)).length;
+                  const paid=monthsPaid(draft).size;
+                  const behind=Math.max(0,due-paid);
+                  return (<div className={'mrr-set '+st}>
+                    <div className="mrr-row">
+                      <div className="field"><label>Billing starts</label>
+                        <input type="date" value={draft.retainerStart||''}
+                          onChange={e=>set({retainerStart:e.target.value})}/></div>
+                      <div className="field"><label>Billing ended</label>
+                        <input type="date" value={draft.retainerEnd||''}
+                          onChange={e=>set({retainerEnd:e.target.value})}/></div>
+                    </div>
+                    {st==='quoted'&&<div className="mrr-note quoted">
+                      <b>Quoted, not billing.</b> {usd(num(draft.retainer))}/mo is on the record and is
+                      deliberately kept out of MRR until you put a start date on it.
+                    </div>}
+                    {st==='active'&&<div className="mrr-note live">
+                      <b>{usd(num(draft.retainer))}/mo, counting toward MRR.</b>{' '}
+                      {due} month{due===1?'':'s'} billed · {paid} paid
+                      {behind>0?<span className="mrr-behind"> · {behind} behind ({usd(behind*num(draft.retainer))})</span>:' · up to date'}
+                    </div>}
+                    {st==='ended'&&<div className="mrr-note ended">
+                      <b>Ended {fmtDate(draft.retainerEnd)}.</b> Out of MRR from that date. Months billed
+                      before it stay owed{behind>0?` — ${behind} still unpaid`:''}.
+                    </div>}
+                  </div>);
+                })()}
 
                 {/* ---- Payments: what's been collected against what's owed ---- */}
                 {(()=>{
