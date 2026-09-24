@@ -22,6 +22,7 @@ import BuildConsole from './BuildConsole';
 import PersonPicker from './PersonPicker';
 import Jarvis from './Jarvis';
 import MassOutreach from './MassOutreach';
+import ClientView from './ClientView';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import { playbookGate, unreadSince } from './lib/kb';
@@ -2896,6 +2897,65 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .mrr-note.live{background:rgba(31,157,85,.12);color:#1a7d46}
 .mrr-note.ended{background:rgba(139,136,160,.12);color:#6B6C86}
 .mrr-behind{color:${RED};font-weight:600}
+/* ---- THE CLIENT DASHBOARD ---------------------------------------------------
+   Full screen like a lead, deliberately NOT as dark. The lead view is a dark
+   surface because it is the app telling a rep what to do next; a client screen
+   is one you read and type into, so the navy is spent on the header band and
+   the numbers only. */
+.modal.lead.client{background:#F7F7FB;color:${INK}}
+.cv-head{background:${INK};color:#fff;padding:20px 26px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex:none}
+.cv-name{font-family:'Space Grotesk';font-size:24px;font-weight:700;letter-spacing:-.02em}
+.cv-sub{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:#A8AAC6;margin-top:6px}
+.cv-phase{color:#fff;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px}
+.cv-head-a{display:flex;gap:8px;align-items:center;flex:none}
+.cv-head-a .m-x{color:#fff}
+.cv-head-a .phase-sel{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.2)}
+.cv-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:20px 26px 40px}
+.cv-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:14px}
+.cv-stat{background:#fff;border:1px solid #EAEBF2;border-radius:13px;padding:13px 15px}
+.cv-stat-l{font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:#8b88a0}
+.cv-stat-v{font-family:'Space Grotesk';font-size:23px;font-weight:700;margin-top:3px}
+.cv-stat-s{font-size:11.5px;color:#8b88a0;margin-top:2px}
+.cv-stat.good .cv-stat-v{color:#1a7d46}
+.cv-stat.warn .cv-stat-v{color:${RED}}
+.cv-act{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.cv-act-n{font-size:12px;color:${RED}}
+.cv-card{background:#fff;border:1px solid #EAEBF2;border-radius:14px;padding:16px 18px;margin-bottom:14px}
+.cv-card-h{display:flex;align-items:center;gap:7px;font-weight:600;font-size:14px;margin-bottom:12px}
+.cv-mrr{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.cv-tabs{margin-bottom:14px}
+.cv-hint{background:rgba(216,160,42,.1);color:#8a6512;border-radius:10px;padding:10px 12px;font-size:12.5px;line-height:1.5;margin-bottom:12px}
+.cv-track,.cv-proj{padding:12px 0;border-top:1px solid #F0F1F7}
+.cv-track:first-child,.cv-proj:first-child{border-top:0;padding-top:0}
+.cv-track-h,.cv-proj-h{display:flex;gap:10px;align-items:center;font-size:13.5px;margin-bottom:8px;flex-wrap:wrap}
+.cv-track-h span,.cv-proj-p{font-size:12px;color:#8b88a0}
+.cv-late{color:${RED};display:flex;align-items:center;gap:4px;font-weight:600}
+.cv-next{color:#5A5680;display:flex;align-items:center;gap:4px}
+.cv-ms{margin-top:10px;display:grid;gap:4px}
+.cv-m{display:grid;grid-template-columns:20px 1fr auto;gap:8px;align-items:center;font-size:13px;padding:5px 7px;border-radius:8px}
+.cv-m-i{color:#c4c2d4;display:flex}
+.cv-m.done{color:#8b88a0}.cv-m.done .cv-m-i{color:#1a7d46}.cv-m.done .cv-m-t{text-decoration:line-through}
+.cv-m.late{background:rgba(209,67,67,.07)}.cv-m.late .cv-m-i,.cv-m.late .cv-m-d{color:${RED}}
+.cv-m-d{font-size:11.5px;color:#8b88a0}
+.cv-m-i{background:none;border:0;padding:0;cursor:pointer;display:flex}
+.cv-m-i:hover{color:${COBALT}}
+.cv-m-due{position:relative;font-size:11.5px;color:#8b88a0;cursor:pointer}
+.cv-m-due.late{color:${RED};font-weight:600}
+.cv-m-due input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer}
+.cv-mtg{padding:12px 0;border-top:1px solid #F0F1F7}
+.cv-mtg:first-child{border-top:0;padding-top:0}
+.cv-mtg-h{display:flex;justify-content:space-between;gap:10px;font-size:13.5px}
+.cv-mtg-d{font-size:12px;color:#8b88a0}
+.cv-out{margin-top:9px}
+.cv-out-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:7px}
+.cv-out-b{font-size:11.5px;padding:4px 10px;border-radius:20px;border:1px solid #E2E3EE;background:#fff;color:#5A5680;cursor:pointer}
+.cv-out-b:hover{border-color:${COBALT}}
+.cv-out-b.on{background:${COBALT};border-color:${COBALT};color:#fff;font-weight:600}
+.cv-out-n{width:100%;padding:8px 10px;border:1px solid #E2E3EE;border-radius:9px;font-size:13px;background:#fff;color:${INK}}
+.cv-a{display:grid;grid-template-columns:86px 1fr auto;gap:10px;font-size:13px;padding:7px 0;border-top:1px solid #F0F1F7;align-items:baseline}
+.cv-a:first-child{border-top:0}
+.cv-a-t{font-size:11px;font-weight:700;color:${COBALT};text-transform:uppercase;letter-spacing:.06em}
+.cv-a-d{font-size:11.5px;color:#8b88a0}
 .modal.lead .mrr-note.quoted{background:rgba(255,255,255,.07);color:#C6C8DE}
 .modal.lead .mrr-note.live{background:rgba(31,157,85,.16);color:#7BE3AC}
 .modal.lead .mrr-note.ended{background:rgba(255,255,255,.07);color:#A8AAC6}
@@ -5078,7 +5138,7 @@ export default function App(){
             saveSettings={saveSettings} me={me} updateLead={updateLead} rep={rep} myPools={myPools}
             users={users} addActivity={addActivity} LeadTable={Leads}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
-          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject}/>:
+          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings} rep={rep} myUser={repUser||myUser} myUid={myUid}/>:
@@ -7945,7 +8005,7 @@ function ClientBoard({clients,settings,onCard,setClientPhase,stages,projects,set
     </div>);})}</div>);
 }
 
-function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject}){
+function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue}){
   /* off by default: hidden items should stay out of the way, but you need a way
      back to them or switching one off would be one-directional */
   const [showSkipped,setShowSkipped]=useState(false);
@@ -7968,6 +8028,11 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,a
     if(left>0 && !window.confirm(`${left} item${left>1?'s':''} still unchecked in ${phaseInfo(cur,settings,l).label} — advance to ${phaseInfo(nextKey,settings,l).label} anyway?`)) return;
     setClientPhase(l.id,nextKey); };
   const PhaseBadge=({k,client})=>{const m=phaseInfo(k,settings,client);return <span className="phase-badge" style={{background:m.color+'1A',color:m.color}}><span className="dot" style={{background:m.color}}/>{m.label}</span>;};
+  /* The checklist that used to unfold under the board is gone. A client is a
+     screen, not a drawer: everything about the deal, the money, the delivery
+     and what came of the meetings now opens full-screen, the same way a lead
+     or a relationship does. `expand` still carries either a lead id or a
+     'pj:<lead>:<project>' key, and both resolve to the one client. */
   const sel=visible.find(l=>l.id===expand);
   const onBoard=boardProjects(visible,showChurned);
   const selProj=String(expand||'').startsWith('pj:')?onBoard.find(x=>'pj:'+x.lead.id+':'+x.project.id===expand)||null:null;
@@ -7985,72 +8050,13 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,a
     </div>
     {!visible.length?<div className="empty">No clients yet. Move a lead to <b>Signed</b> (or hit Convert to Client) to start onboarding.</div>
     :<><ClientBoard clients={visible} settings={settings} stages={stages} setClientPhase={setClientPhase} onCard={id=>setExpand(id===expand?null:id)} projects={onBoard} setProjectPhase={setProjectPhase} tracks={tracks}/>
-      {selProj&&(()=>{ const l=selProj.lead, pj=selProj.project; const flow=projFlowOf(settings); const ph=projPhaseOf(pj,settings); const i=flow.indexOf(ph); const pr=projectProgress(pj,tracks);
-        return (<div className="cli-detail proj-detail">
-          <div className="cli-detail-h">
-            <div><div className="cli-name" onClick={()=>open(l.id)}>{personLabel(l)} · {pj.label||'Project'}</div>
-              <div className="subcell">{pr.total?`${pr.done}/${pr.total} delivery steps complete`:'No checklist picked yet'}{pj.startedAt?` · started ${fmtDate(pj.startedAt)}`:''}</div></div>
-            <button className="m-x" onClick={()=>setExpand(null)}><X size={17}/></button>
-          </div>
-          <div className="cli-actions">
-            {i<flow.length-1&&<button className="btn btn-p btn-sm" onClick={()=>setProjectPhase(l.id,pj.id,flow[i+1])}><ArrowUpRight size={14}/>Advance to {phaseInfo(flow[i+1],settings).label}</button>}
-            <select className="phase-sel" value={ph} onChange={e=>setProjectPhase(l.id,pj.id,e.target.value)}>
-              {flow.map(k=><option key={k} value={k}>{phaseInfo(k,settings).label}</option>)}
-            </select>
-            <select className="phase-sel" value={pj.trackKey||''} onChange={e=>setProject(l.id,pj.id,{trackKey:e.target.value})} title="Which checklist this project follows">
-              <option value="">Pick a checklist</option>
-              {tracks.map(t=><option key={t.key} value={t.key}>{t.label}</option>)}
-            </select>
-            <button className="btn btn-s btn-sm" onClick={()=>open(l.id)}>Open client</button>
-            <button className="btn btn-d btn-sm proj-remove" onClick={()=>{ if(window.confirm(`Stop tracking ${pj.label||'this project'} on the board? The deal and its money stay on the client.`)){ removeProject(l.id,pj.id); setExpand(null); } }}>Remove project</button>
-          </div>
-          {pr.total?<div className="onb-group">{pr.milestones.map(m=>{ const e=normEntry((pj.milestones||{})[m]); return (
-            <div className={'onb-item'+(e.done?' done':'')} key={m}>
-              <span className="onb-check" onClick={()=>toggleProjectMilestone(l.id,pj.id,m)}>{e.done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color="#C9C5D9"/>}</span>
-              <span className="onb-label" onClick={()=>toggleProjectMilestone(l.id,pj.id,m)}>{m}</span>
-              {e.done&&<span className="subcell">{fmtDate(e.done)}</span>}
-            </div>); })}</div>
-          :<div className="empty">Pick which checklist this project follows. Checklists are edited in Settings under Delivery Tracks.</div>}
-        </div>); })()}
-      {sel?(()=>{ const l=sel; const phase=l.clientPhase||'intake'; const order=flowOrder(settings,l); const i=order.indexOf(phase); const canAdvance=i>=0&&i<order.length-1;
-        return (<div className="cli-detail">
-          <div className="cli-detail-h">
-            <div><div className="cli-name" onClick={()=>open(l.id)}>{personLabel(l)}</div><div className="subcell">{onboardingStat(l).done}/{ONB_ITEMS.length} onboarding complete</div></div>
-            <button className="m-x" onClick={()=>setExpand(null)}><X size={17}/></button>
-          </div>
-          <div className="cli-actions">
-            {canAdvance&&<button className="btn btn-p btn-sm" onClick={()=>advance(l)}><ArrowUpRight size={14}/>Advance to {phaseInfo(order[i+1],settings,l).label}</button>}
-            <select className="phase-sel" value={phase} onChange={e=>{ if(e.target.value==='churned'&&!window.confirm('Mark this client churned? They drop out of the default view.')) return; setClientPhase(l.id,e.target.value); }}>
-              {clientPhaseList(settings,l).map(p=><option key={p.key} value={p.key}>{p.label}{p.custom?' (custom)':''}</option>)}
-            </select>
-            <CustomPhaseAdd settings={settings} onAdd={info=>addCustomPhase(l.id,info)}/>
-          </div>
-          {(l.customPhases||[]).length>0&&<div className="cp-list">{(l.customPhases||[]).map(cp=><span key={cp.key} className="cp-chip" style={{borderColor:cp.color,color:cp.color}}><span className="dot" style={{background:cp.color}}/>{cp.label}<span className="subcell" style={{fontWeight:400}}>after {phaseInfo(cp.after,settings).label}</span><button onClick={()=>{if(window.confirm(`Remove custom phase "${cp.label}"?`))removeCustomPhase(l.id,cp.key);}}><X size={11}/></button></span>)}</div>}
-          {(()=>{const n=skippedOnb(l).length; return n>0?(<button className="onb-showskip" onClick={()=>setShowSkipped(v=>!v)}>
-            {showSkipped?'Hide':'Show'} {n} item{n===1?'':'s'} marked N/A</button>):null;})()}
-          {ONBOARDING.map(g=>{const gp=phaseProgress(l,g.phase);return (<div className="onb-group" key={g.phase}>
-            <div className="onb-gh"><PhaseBadge k={g.phase}/><span className="onb-gc">{gp.done}/{gp.total}</span></div>
-            {g.items.filter(([key])=>showSkipped||!onbSkipped(l,key)).map(([key,label])=>{const e=normEntry((l.onboarding||{})[key]);const done=!!e.done;const od=!done&&e.due&&daysUntil(e.due)<0;const skipped=onbSkipped(l,key);
-              if(skipped) return (<div className="onb-item skipped" key={key}>
-                <span className="onb-check"><Ban size={15} color="#C9C5D9"/></span>
-                <span className="onb-label">{label}</span>
-                <button className="onb-skip" onClick={()=>toggleSkip&&toggleSkip(l.id,key)}>Bring back</button>
-              </div>);
-              return (
-              <div className={'onb-item'+(done?' done':'')+(od?' over':'')} key={key}>
-                <span className="onb-check" onClick={()=>toggleOnboarding(l.id,key)}>{done?<CheckCircle2 size={17} color={GREEN}/>:<Circle size={17} color={od?RED:'#C9C5D9'}/>}</span>
-                <span className="onb-label" onClick={()=>toggleOnboarding(l.id,key)}>{label}</span>
-                <select className={'onb-assign'+(e.assignee?' set':'')} value={e.assignee||''} onClick={ev=>ev.stopPropagation()} onChange={ev=>assignOnboarding&&assignOnboarding(l.id,key,ev.target.value)} title={e.assignee?`Assigned to ${e.assignee}`:'Assign to a teammate'}>
-                  <option value="">+ assign</option>
-                  {(team||[]).map(n=><option key={n} value={n}>{n}</option>)}
-                </select>
-                <button className="onb-skip hide" title="Doesn't apply to this client" onClick={()=>toggleSkip&&toggleSkip(l.id,key)}>N/A</button>
-                {done?<span className="onb-date done">✓ {fmtDate(e.done)}</span>
-                     :<label className="onb-due"><span>{od?'overdue':'due'}</span><input type="date" className={od?'over':''} value={e.due||''} onChange={ev=>setOnboardingDue(l.id,key,ev.target.value)}/></label>}
-              </div>);})}
-          </div>);})}
-        </div>);
-      })():<div className="cli-hint"><ChevronUp size={14}/>Tap a client card to open its onboarding checklist and phase controls.</div>}
+      {(()=>{ const c = selProj ? selProj.lead : sel; if(!c) return null;
+        return <ClientView lead={c} settings={settings} stages={stages} tracks={tracks}
+                 invoices={invoices} team={team} phaseInfo={phaseInfo}
+                 onClose={()=>setExpand(null)} openRecord={open}
+                 updateLead={updateLead} setClientPhase={setClientPhase}
+                 toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
+                 toggleProjectMilestone={toggleProjectMilestone}/>; })()}
     </>}
   </>);
 }
