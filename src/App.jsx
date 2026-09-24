@@ -1125,32 +1125,22 @@ const CSS=`
    into a slightly different navy. Each surface still paints its own ground:
    .modal.lead fills a viewport, .relsurface sits inside the page body. */
 .modal.lead,.relsurface{
-  --arc:#38BDF8; --arc2:#7FD8FF; --arc3:#EAFBFF; --cob:#2B4DE0;
-  --gold:#E0A22B; --gold2:#F2C55C; --hot:#C1352B; --ok:#3FB978; --ok2:#7FE3AC;
-  --plate:#0F1433; --plate2:#0A0E27; --plate3:#05071A;
-  --ink:#DCF3FB; --ink-hi:#F2FCFF; --ink-mid:#BDEAFA;
-  --dim:rgba(127,216,255,.52); --faint:rgba(127,216,255,.3);
-  --line:rgba(56,189,248,.16); --line-hi:rgba(56,189,248,.34);
+  --arc:${COBALT}; --arc2:${COBALT}; --arc3:${INK}; --cob:${COBALT};
+  --gold:#A8680F; --gold2:#B7791F; --hot:#C1352B; --ok:#1F9D55; --ok2:#1a7d46;
+  --plate:#FFFFFF; --plate2:#FFFFFF; --plate3:#F7F7FB;
+  --ink:#2E2A4A; --ink-hi:${INK}; --ink-mid:#3B3470; --ink-lo:#77738F;
+  --dim:#6E6A8A; --faint:#85819F;
+  --line:#ECEDF3; --line-hi:#DCDDEA;
   color:var(--ink);
 }
-.modal.lead{
-  background:radial-gradient(1200px 460px at 50% -14%,rgba(56,189,248,.17),transparent 64%),
-             linear-gradient(180deg,var(--plate) 0%,var(--plate2) 55%,var(--plate3) 100%);
-  border:1px solid rgba(56,189,248,.22);
-  box-shadow:0 26px 70px -34px rgba(0,0,0,.9),inset 0 1px 0 rgba(127,216,255,.12)}
-.modal.lead::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.5;
-  background-image:linear-gradient(rgba(56,189,248,.055) 1px,transparent 1px),
-                   linear-gradient(90deg,rgba(56,189,248,.055) 1px,transparent 1px);
-  background-size:26px 26px}
-.modal.lead::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;opacity:.18;
-  background:repeating-linear-gradient(0deg,rgba(56,189,248,.06) 0 1px,transparent 1px 3px)}
+.modal.lead{background:#F7F7FB;border:1px solid #E4E5EE;box-shadow:0 30px 80px -40px rgba(24,21,48,.45)}
 .modal.lead>*{position:relative;z-index:1}
 
 /* --- head, jump bar, rails ------------------------------------------------ */
-.modal.lead .m-head{background:linear-gradient(180deg,rgba(5,7,26,.62),rgba(5,7,26,.28));border-bottom:1px solid var(--line)}
+/* the head's ground is set once, by the band rule under THE LIGHT RULE */
 .modal.lead .m-head h2{color:var(--ink-hi)}
 .modal.lead .m-head .co,.modal.lead .m-head .meta{color:var(--dim)}
-.modal.lead .m-jump{background:linear-gradient(180deg,rgba(5,7,26,.5),rgba(5,7,26,.22));border-bottom:1px solid var(--line)}
+.modal.lead .m-jump{background:linear-gradient(180deg,rgba(24,21,48,0.03),rgba(24,21,48,0.013));border-bottom:1px solid var(--line)}
 /* WHERE THE GUTTERS ARE PAID FOR — 18px of the 24, out of the chrome above the
    working area rather than out of the feed.
 
@@ -1168,17 +1158,17 @@ const CSS=`
 .modal.lead .m-head{padding-bottom:8px}
 .modal.lead .m-jump{padding-top:6px;padding-bottom:6px}
 .modal.lead .mj-l{color:var(--dim)}
-.modal.lead .m-prep{background:rgba(5,7,26,.24);border-right:1px solid var(--line)}
-.modal.lead .m-right{background:rgba(5,7,26,.1);border-right:1px solid var(--line);border-left:0}
+.modal.lead .m-prep{background:rgba(24,21,48,0.014);border-right:1px solid var(--line)}
+.modal.lead .m-right{background:rgba(24,21,48,0.006);border-right:1px solid var(--line);border-left:0}
 .modal.lead .m-left{background:transparent}
 .modal.lead .dh{color:var(--ink-mid)}
 .modal.lead .subcell,.modal.lead .fmeta{color:var(--dim)}
 
 /* --- controls ------------------------------------------------------------- */
 .modal.lead input,.modal.lead select,.modal.lead textarea{
-  background:rgba(56,189,248,.05);border:1px solid var(--line-hi);color:var(--ink-hi)}
+  background:rgba(43,77,224,0.028);border:1px solid var(--line-hi);color:var(--ink-hi)}
 .modal.lead input:focus,.modal.lead select:focus,.modal.lead textarea:focus{
-  outline:none;border-color:rgba(56,189,248,.6);box-shadow:0 0 0 3px rgba(56,189,248,.12)}
+  outline:none;border-color:rgba(43,77,224,0.54);box-shadow:0 0 0 3px rgba(43,77,224,0.036)}
 .modal.lead input::placeholder,.modal.lead textarea::placeholder{color:var(--faint)}
 .modal.lead label{color:var(--dim)}
 
@@ -1188,31 +1178,31 @@ const CSS=`
    exactly what tests/leadcontrast.mjs caught. Same tokens as everything else
    here, so the second surface cannot drift into a slightly different navy. */
 .modal.lead .pp-face,.relsurface .pp-face{
-  background:rgba(56,189,248,.05);border-color:var(--line-hi);color:var(--ink-hi)}
-.modal.lead .pp-face:hover,.relsurface .pp-face:hover{border-color:rgba(56,189,248,.45)}
+  background:rgba(43,77,224,0.028);border-color:var(--line-hi);color:var(--ink-hi)}
+.modal.lead .pp-face:hover,.relsurface .pp-face:hover{border-color:rgba(43,77,224,0.405)}
 .modal.lead .pp-face svg,.relsurface .pp-face svg,
 .modal.lead .pp-search svg,.relsurface .pp-search svg{color:var(--dim)}
 .modal.lead .pp-val.none,.relsurface .pp-val.none{color:var(--faint)}
 .modal.lead .pp-open,.relsurface .pp-open{
-  background:var(--plate2);border-color:rgba(56,189,248,.45);
-  box-shadow:0 22px 52px -20px rgba(0,0,0,.85)}
+  background:var(--plate2);border-color:rgba(43,77,224,0.405);
+  box-shadow:0 22px 52px -20px rgba(24,21,48,0.14)}
 .modal.lead .pp-search,.relsurface .pp-search{border-bottom-color:var(--line)}
 .modal.lead .pp-search input,.relsurface .pp-search input{
   background:none;border:none;color:var(--ink-hi)}
 .modal.lead .pp-row,.relsurface .pp-row{color:var(--ink)}
-.modal.lead .pp-row.hi,.relsurface .pp-row.hi{background:rgba(56,189,248,.14)}
+.modal.lead .pp-row.hi,.relsurface .pp-row.hi{background:rgba(43,77,224,0.077)}
 .modal.lead .pp-row.none,.relsurface .pp-row.none,
 .modal.lead .pp-row.blank,.relsurface .pp-row.blank{color:var(--dim)}
 .modal.lead .pp-group,.relsurface .pp-group{color:var(--faint)}
 .modal.lead .pp-empty,.relsurface .pp-empty,
 .modal.lead .pp-more,.relsurface .pp-more{color:var(--dim)}
 .modal.lead .pp-more,.relsurface .pp-more{border-top-color:var(--line)}
-.modal.lead .m-x{color:var(--arc2);border-color:var(--line-hi);background:rgba(56,189,248,.05)}
-.modal.lead .m-x:hover{background:rgba(56,189,248,.14)}
+.modal.lead .m-x{color:var(--arc2);border-color:var(--line-hi);background:rgba(43,77,224,0.028)}
+.modal.lead .m-x:hover{background:rgba(43,77,224,0.077)}
 
 /* --- the fact strip and jump chips: lit edge, not slab -------------------- */
 .modal.lead .mf{background:linear-gradient(90deg,rgba(43,77,224,.16),rgba(43,77,224,.04));
-  border:1px solid var(--line);box-shadow:inset 2px 0 0 rgba(56,189,248,.5);color:var(--ink)}
+  border:1px solid var(--line);box-shadow:inset 2px 0 0 rgba(43,77,224,0.12);color:var(--ink)}
 .modal.lead .mf i{color:var(--dim)}
 .modal.lead .mf b{color:var(--ink-hi)}
 /* THE STAGE AND PRIORITY TILES PUT THEIR VALUE IN .mf-v, NOT IN <b>.
@@ -1224,30 +1214,30 @@ const CSS=`
    Asserted per-element now in tests/leadcontrast.mjs. */
 .modal.lead .mf-v{color:var(--ink-hi)}
 .modal.lead .mf.hot{border-color:rgba(224,162,43,.4);box-shadow:inset 2px 0 0 var(--gold)}
-.modal.lead .mj{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink-mid)}
-.modal.lead .mj.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
-  border-color:rgba(56,189,248,.55);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(56,189,248,.9)}
+.modal.lead .mj{background:rgba(43,77,224,0.033);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .mj.on{background:linear-gradient(180deg,rgba(43,77,224,0.08),rgba(43,77,224,0.055));
+  border-color:rgba(43,77,224,0.495);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(43,77,224,0.12)}
 
 /* --- FOLLOW-UP: gold, because a promise is a person's ---------------------- */
 .modal.lead .m-prep .fu-block{border:1px solid rgba(224,162,43,.34);border-radius:12px;padding:12px;
   background:linear-gradient(180deg,rgba(224,162,43,.13),rgba(224,162,43,.03));
   box-shadow:inset 2px 0 0 var(--gold),0 0 30px -14px rgba(224,162,43,.75)}
-.modal.lead .m-prep .fu-block label{color:rgba(241,223,187,.72)}
-.modal.lead .fu-chip{background:rgba(224,162,43,.09);border:1px solid rgba(224,162,43,.32);color:#F1DFBB}
-.modal.lead .fu-chip:hover{border-color:var(--gold2);color:#FFF3DC}
-.modal.lead .fu-chip.clear{color:rgba(241,223,187,.6)}
-.modal.lead .fu-when{color:#F6E7C8}
-.modal.lead .fu-when.od{color:#FFC9C2}
+.modal.lead .m-prep .fu-block label{color:var(--gold)}
+.modal.lead .fu-chip{background:rgba(224,162,43,.09);border:1px solid rgba(224,162,43,.32);color:var(--ink-hi)}
+.modal.lead .fu-chip:hover{border-color:var(--gold2);color:var(--ink-hi)}
+.modal.lead .fu-chip.clear{color:var(--gold)}
+.modal.lead .fu-when{color:var(--ink-hi)}
+.modal.lead .fu-when.od{color:var(--ink-hi)}
 /* overdue turns the whole module red — the state you must not scroll past */
 .modal.lead .m-prep .fu-block:has(.fu-when.od){border-color:rgba(193,53,43,.46);
   background:linear-gradient(180deg,rgba(193,53,43,.16),rgba(193,53,43,.04));
   box-shadow:inset 2px 0 0 var(--hot),0 0 30px -14px rgba(193,53,43,.8)}
-.modal.lead .touchbar{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink)}
+.modal.lead .touchbar{background:rgba(43,77,224,0.033);border:1px solid var(--line);color:var(--ink)}
 .modal.lead .touchbar b{color:var(--ink-hi)}
 .modal.lead .touchbar span,.modal.lead .touchbar em{color:var(--dim)}
 
 /* --- sections ------------------------------------------------------------- */
-.modal.lead .msec{background:linear-gradient(180deg,rgba(15,20,51,.72),rgba(10,14,39,.5));
+.modal.lead .msec{background:linear-gradient(180deg,rgba(24,21,48,0.035),rgba(24,21,48,0.03));
   border:1px solid var(--line)}
 .modal.lead .msec-t{color:var(--ink-mid)}
 /* The HOVER state needs its own override or it inherits the light theme's
@@ -1284,37 +1274,37 @@ const CSS=`
   border-color:rgba(224,162,43,.24);box-shadow:inset 2px 0 0 var(--gold)}
 .modal.lead .fic{color:var(--arc2)}
 .modal.lead .fitem.note .fic{color:var(--gold2)}
-.modal.lead .sysrun{background:rgba(5,7,26,.4);border:1px dashed rgba(56,189,248,.26);color:var(--faint)}
+.modal.lead .sysrun{background:rgba(24,21,48,0.024);border:1px dashed rgba(24,21,48,.1);color:var(--faint)}
 .modal.lead .sysrun:hover{border-color:var(--line-hi);color:var(--dim)}
 .modal.lead .sysrun b{color:var(--ink-mid)}
-.modal.lead .ftag{background:rgba(56,189,248,.12);border:1px solid var(--line-hi);color:var(--ink-mid)}
+.modal.lead .ftag{background:rgba(43,77,224,0.066);border:1px solid var(--line-hi);color:var(--ink-mid)}
 .modal.lead .fmeta-src{color:var(--gold2)}
-.modal.lead .afilter button{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
-.modal.lead .afilter button.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
-  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
-.modal.lead .act-t{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
-.modal.lead .act-t.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
-  border-color:rgba(56,189,248,.55);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(56,189,248,.9)}
+.modal.lead .afilter button{background:rgba(43,77,224,0.028);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .afilter button.on{background:linear-gradient(180deg,rgba(43,77,224,0.08),rgba(43,77,224,0.055));
+  border-color:rgba(43,77,224,0.495);color:var(--ink-hi)}
+.modal.lead .act-t{background:rgba(43,77,224,0.028);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .act-t.on{background:linear-gradient(180deg,rgba(43,77,224,0.08),rgba(43,77,224,0.055));
+  border-color:rgba(43,77,224,0.495);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(43,77,224,0.12)}
 /* The disposition bar on the dark plate. Mirrors .act-t above, because it is
    the same control one row higher and the two must not read as different kinds
    of thing. The two no-contact codes stay quieter here too — dimmer ink, no
    glow when selected — so the codes that mean "nothing happened" never look
    like progress. tests/leadcontrast.mjs walks every text node in this view and
    fails dark-on-dark, which is how the light version of this got caught. */
-.modal.lead .disp-b{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .disp-b{background:rgba(43,77,224,0.028);border:1px solid var(--line);color:var(--ink-mid)}
 .modal.lead .disp-b b{color:var(--ink-lo)}
-.modal.lead .disp-b:hover{border-color:rgba(56,189,248,.45);color:var(--ink-hi)}
-.modal.lead .disp-b.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
-  border-color:rgba(56,189,248,.55);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(56,189,248,.9)}
+.modal.lead .disp-b:hover{border-color:rgba(43,77,224,0.405);color:var(--ink-hi)}
+.modal.lead .disp-b.on{background:linear-gradient(180deg,rgba(43,77,224,0.08),rgba(43,77,224,0.055));
+  border-color:rgba(43,77,224,0.495);color:var(--ink-hi);box-shadow:0 0 18px -6px rgba(43,77,224,0.12)}
 .modal.lead .disp-b.on b{color:var(--ink-hi)}
 .modal.lead .disp-b.quiet{background:rgba(148,163,184,.07);color:var(--ink-mid)}
 .modal.lead .disp-b.quiet.on{background:rgba(148,163,184,.2);border-color:rgba(148,163,184,.5);
   color:var(--ink-hi);box-shadow:none}
 .modal.lead .disp-b.quiet.on b{color:var(--ink-hi)}
 .modal.lead .disp-cb label{color:var(--ink-mid)}
-.modal.lead .disp-cb input{background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-hi)}
+.modal.lead .disp-cb input{background:rgba(43,77,224,0.028);border:1px solid var(--line);color:var(--ink-hi)}
 .modal.lead .disp-note{color:var(--ink-mid)}
-.modal.lead .disp-err{color:#FCA5A5}
+.modal.lead .disp-err{color:var(--hot)}
 /* ---- THE REP PROFILE, on the lead view's own plate ----
    Scoped under .modal.lead deliberately: it inherits the dark surface, the
    section cards and the type scale, and it inherits tests/leadcontrast.mjs,
@@ -1322,46 +1312,46 @@ const CSS=`
    class set would have looked identical on the day and drifted by the next. */
 .modal.lead.rp .m-scroll{padding-bottom:40px}
 .modal.lead .rp-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:10px}
-.modal.lead .rp-stat{background:rgba(56,189,248,.05);border:1px solid var(--line);border-radius:12px;
+.modal.lead .rp-stat{background:rgba(43,77,224,0.028);border:1px solid var(--line);border-radius:12px;
   padding:12px 14px;display:flex;flex-direction:column;gap:3px}
 .modal.lead .rp-stat span{font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;
   color:var(--ink-lo)}
 .modal.lead .rp-stat b{font-size:21px;font-weight:700;color:var(--ink-hi);letter-spacing:-.01em}
 .modal.lead .rp-stat i{font-style:normal;font-size:11.5px;color:var(--ink-mid)}
-.modal.lead .rp-stat.good b{color:#6EE7B7}
-.modal.lead .rp-stat.gold b{color:#FCD34D}
+.modal.lead .rp-stat.good b{color:var(--ink-hi)}
+.modal.lead .rp-stat.gold b{color:var(--ink-hi)}
 /* ---- where he stands ----
    The state is carried by a LEFT EDGE and the label, never by colour alone —
    "behind" must still read as behind in a screenshot, in greyscale, and to
    anyone who does not see red and green apart. */
 .modal.lead .rp-stand{display:flex;flex-direction:column;gap:8px;margin-top:12px}
 .modal.lead .rp-band{border:1px solid var(--line);border-left:3px solid var(--line);
-  background:rgba(56,189,248,.04);border-radius:10px;padding:11px 14px;display:flex;
+  background:rgba(43,77,224,0.022);border-radius:10px;padding:11px 14px;display:flex;
   flex-direction:column;gap:3px}
 .modal.lead .rp-band b{font-size:15px;font-weight:700;color:var(--ink-hi)}
 .modal.lead .rp-band i{font-style:normal;font-size:12px;color:var(--ink-mid);line-height:1.5}
 .modal.lead .rp-band.on{border-left-color:#6EE7B7}
-.modal.lead .rp-band.on b{color:#6EE7B7}
+.modal.lead .rp-band.on b{color:var(--ink-hi)}
 .modal.lead .rp-band.ahead{border-left-color:#7DD3FC}
-.modal.lead .rp-band.ahead b{color:#7DD3FC}
+.modal.lead .rp-band.ahead b{color:var(--arc)}
 .modal.lead .rp-band.behind{border-left-color:#FCA5A5}
-.modal.lead .rp-band.behind b{color:#FCA5A5}
+.modal.lead .rp-band.behind b{color:var(--hot)}
 .modal.lead .rp-band.unknown{border-left-color:var(--line-hi)}
 .modal.lead .rp-band.unknown b{color:var(--ink-mid)}
 .modal.lead .rp-band.day{border-left-color:#FCD34D}
 .modal.lead .rp-check{display:flex;gap:10px;align-items:flex-start;margin-top:10px;
   border:1px solid rgba(252,211,77,.28);background:rgba(252,211,77,.07);border-radius:10px;
   padding:11px 13px}
-.modal.lead .rp-check svg{flex:none;margin-top:2px;color:#FCD34D}
+.modal.lead .rp-check svg{flex:none;margin-top:2px;color:var(--ink-hi)}
 .modal.lead .rp-check b{display:block;font-size:13.5px;color:var(--ink-hi);margin-bottom:3px}
 .modal.lead .rp-check span{font-size:12.5px;line-height:1.6;color:var(--ink-mid)}
 .modal.lead .rp-codes{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .modal.lead .rp-codes span.scope{background:none;border:none;padding:4px 0;color:var(--ink-lo);
   font-size:10px;font-weight:800;letter-spacing:.13em;text-transform:uppercase;width:100%}
-.modal.lead .rp-codes span{display:inline-flex;align-items:baseline;gap:6px;background:rgba(56,189,248,.06);
+.modal.lead .rp-codes span{display:inline-flex;align-items:baseline;gap:6px;background:rgba(43,77,224,0.033);
   border:1px solid var(--line);border-radius:9px;padding:5px 10px;font-size:12px;color:var(--ink-hi)}
 .modal.lead .rp-codes span.quiet{background:rgba(148,163,184,.07);color:var(--ink-mid)}
-.modal.lead .rp-codes b{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:#7DD3FC}
+.modal.lead .rp-codes b{font-size:10.5px;font-weight:800;letter-spacing:.06em;color:var(--arc)}
 .modal.lead .rp-codes span.quiet b{color:var(--ink-mid)}
 .modal.lead .rp-codes i{font-style:normal;font-size:11px;color:var(--ink-lo)}
 .modal.lead .rp-days{display:flex;flex-direction:column;margin-top:14px}
@@ -1370,9 +1360,9 @@ const CSS=`
 .modal.lead .rp-day+.rp-day{border-top:1px solid var(--line)}
 .modal.lead .rp-date{min-width:118px;font-weight:700;color:var(--ink-hi)}
 .modal.lead .rp-dn{min-width:76px}
-.modal.lead .rp-dn.good{color:#6EE7B7;font-weight:700}
+.modal.lead .rp-dn.good{color:var(--ink-hi);font-weight:700}
 .modal.lead .rp-blocks{display:flex;gap:10px;flex-wrap:wrap;margin-left:auto}
-.modal.lead .rp-blocks em{font-style:normal;font-size:11.5px;color:var(--ink-lo);background:rgba(56,189,248,.06);
+.modal.lead .rp-blocks em{font-style:normal;font-size:11.5px;color:var(--ink-lo);background:rgba(43,77,224,0.033);
   border-radius:7px;padding:2px 8px}
 .modal.lead .rp-blocks em.none{background:none;opacity:.6}
 .modal.lead .rp-deals{display:flex;flex-direction:column;margin-top:12px}
@@ -1381,33 +1371,33 @@ const CSS=`
 .modal.lead .rp-dl{flex:1;min-width:0;color:var(--ink-hi);font-weight:600}
 .modal.lead .rp-dv{min-width:88px;text-align:right;color:var(--ink-hi)}
 .modal.lead .rp-dc{min-width:150px;text-align:right;font-size:11.5px;color:var(--ink-lo)}
-.modal.lead .rp-dc.earned{color:#6EE7B7}
-.modal.lead .rp-dc.pending{color:#FCD34D}
+.modal.lead .rp-dc.earned{color:var(--ink-hi)}
+.modal.lead .rp-dc.pending{color:var(--ink-hi)}
 .modal.lead .rp-onb{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
 .modal.lead .rp-onb-i{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);
   background:rgba(148,163,184,.07);border-radius:10px;padding:8px 12px;font-size:12.5px;
   color:var(--ink-mid)}
-.modal.lead .rp-onb-i.done{background:rgba(56,189,248,.07);color:var(--ink-hi)}
+.modal.lead .rp-onb-i.done{background:rgba(43,77,224,0.039);color:var(--ink-hi)}
 .modal.lead .rp-onb-i svg{color:var(--ink-lo)}
-.modal.lead .rp-onb-i.done svg{color:#6EE7B7}
+.modal.lead .rp-onb-i.done svg{color:var(--ink-hi)}
 .modal.lead .rp-onb-i i{font-style:normal;font-size:11px;color:var(--ink-lo)}
 .modal.lead .rp-priv{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.55;
   color:var(--ink-mid);background:rgba(148,163,184,.07);border:1px solid var(--line);
   border-radius:10px;padding:10px 12px;margin-bottom:12px}
-.modal.lead .rp-priv svg{flex:none;margin-top:2px;color:#FCD34D}
-.modal.lead .rp-note-in{background:rgba(56,189,248,.05)!important;border:1px solid var(--line)!important;
+.modal.lead .rp-priv svg{flex:none;margin-top:2px;color:var(--ink-hi)}
+.modal.lead .rp-note-in{background:rgba(43,77,224,0.028)!important;border:1px solid var(--line)!important;
   color:var(--ink-hi)!important}
 .modal.lead .rp-notes{display:flex;flex-direction:column;gap:10px;margin-top:14px}
-.modal.lead .rp-note{border:1px solid var(--line);background:rgba(56,189,248,.04);border-radius:12px;
+.modal.lead .rp-note{border:1px solid var(--line);background:rgba(43,77,224,0.022);border-radius:12px;
   padding:11px 13px}
 .modal.lead .rp-note-m{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--ink-lo);
   margin-bottom:6px}
 .modal.lead .rp-note-m b{color:var(--ink-mid);font-weight:700}
 .modal.lead .rp-note-m button{margin-left:auto;background:none;border:none;color:var(--ink-lo);cursor:pointer;
   padding:2px}
-.modal.lead .rp-note-m button:hover{color:#FCA5A5}
+.modal.lead .rp-note-m button:hover{color:var(--hot)}
 .modal.lead .rp-note-b{font-size:13.5px;line-height:1.6;color:var(--ink-hi);white-space:pre-wrap}
-.modal.lead .compose-open{background:rgba(56,189,248,.06);border:1px dashed var(--line-hi);color:var(--ink-mid)}
+.modal.lead .compose-open{background:rgba(43,77,224,0.033);border:1px dashed var(--line-hi);color:var(--ink-mid)}
 .modal.lead .compose-open:hover{border-style:solid;color:var(--ink-hi)}
 .modal.lead .empty{color:var(--dim)}
 
@@ -1420,11 +1410,11 @@ const CSS=`
    Stage and Priority were simply the two anyone reads first.
    Found by walking every element that renders text and checking its luminance,
    not by looking — which is what tests/leadcontrast.mjs now does on every run. */
-.modal.lead .qbtn{color:var(--arc2);border-color:var(--line-hi);background:rgba(56,189,248,.06)}
-.modal.lead .qbtn:hover{background:rgba(56,189,248,.14);color:var(--ink-hi)}
-.modal.lead .lblchip{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink-mid)}
-.modal.lead .lblchip.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
-  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+.modal.lead .qbtn{color:var(--arc2);border-color:var(--line-hi);background:rgba(43,77,224,0.033)}
+.modal.lead .qbtn:hover{background:rgba(43,77,224,0.077);color:var(--ink-hi)}
+.modal.lead .lblchip{background:rgba(43,77,224,0.033);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .lblchip.on{background:linear-gradient(180deg,rgba(43,77,224,0.08),rgba(43,77,224,0.055));
+  border-color:rgba(43,77,224,0.495);color:var(--ink-hi)}
 .modal.lead .lblchip.add{color:var(--dim);border-style:dashed}
 .modal.lead .kd-row{border-color:var(--line)}
 .modal.lead .kd-l{color:var(--ink-hi)}
@@ -1435,15 +1425,15 @@ const CSS=`
 .modal.lead .mtg-when{color:var(--ink-hi)}
 .modal.lead .mtg-band{color:var(--dim)}
 .modal.lead .mtg-row,.modal.lead .mtg-form{border-color:var(--line)}
-.modal.lead .notnow{background:rgba(224,162,43,.09);border:1px solid rgba(224,162,43,.3);color:#F1DFBB}
-.modal.lead .notnow span{color:rgba(241,223,187,.66)}
-.modal.lead .notnow:hover{border-color:var(--gold);color:#FFF3DC}
-.modal.lead .mj i{background:rgba(56,189,248,.18);color:var(--ink-hi)}
+.modal.lead .notnow{background:rgba(224,162,43,.09);border:1px solid rgba(224,162,43,.3);color:var(--ink-hi)}
+.modal.lead .notnow span{color:var(--gold)}
+.modal.lead .notnow:hover{border-color:var(--gold);color:var(--ink-hi)}
+.modal.lead .mj i{background:rgba(43,77,224,0.08);color:var(--ink-hi)}
 .modal.lead .feed-wide{color:var(--dim)}
 .modal.lead .feed-wide:hover{color:var(--ink-hi)}
 /* danger stays red, but a red mixed for white ground disappears on navy */
-.modal.lead .btn-d{color:#FFC9C2;background:rgba(193,53,43,.16);border-color:rgba(193,53,43,.45)}
-.modal.lead .btn-d:hover{background:rgba(193,53,43,.28);color:#fff}
+.modal.lead .btn-d{color:var(--ink-hi);background:rgba(193,53,43,.16);border-color:rgba(193,53,43,.45)}
+.modal.lead .btn-d:hover{background:rgba(193,53,43,.28);color:var(--ink-hi)}
 /* Stage and priority pills carry an INLINE colour — a stage colour is
    configurable, so there is no palette to swap to. Brightening what is there
    keeps whatever the owner chose and makes it survive the dark ground. */
@@ -1462,15 +1452,15 @@ const CSS=`
 /* the chip and button families inside the sections — same treatment as the
    activity type chips, which the paint did cover, so the two agree */
 .modal.lead .chip,.modal.lead .mtype,.modal.lead .ms-b,.modal.lead .tier-btn{
-  background:rgba(56,189,248,.05);border:1px solid var(--line);color:var(--ink-mid)}
+  background:rgba(43,77,224,0.028);border:1px solid var(--line);color:var(--ink-mid)}
 .modal.lead .chip.on,.modal.lead .mtype.on,.modal.lead .ms-b.on,.modal.lead .tier-btn.on{
-  background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
-  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+  background:linear-gradient(180deg,rgba(43,77,224,0.08),rgba(43,77,224,0.055));
+  border-color:rgba(43,77,224,0.495);color:var(--ink-hi)}
 .modal.lead .chip.add{color:var(--dim);border-style:dashed}
 .modal.lead .ms-b.held.on{background:linear-gradient(180deg,rgba(63,185,120,.28),rgba(63,185,120,.1));
-  border-color:rgba(63,185,120,.5);color:#A8E9C4}
+  border-color:rgba(63,185,120,.5);color:var(--ink-hi)}
 .modal.lead .ms-b.no.on{background:linear-gradient(180deg,rgba(193,53,43,.26),rgba(193,53,43,.08));
-  border-color:rgba(193,53,43,.5);color:#FFC9C2}
+  border-color:rgba(193,53,43,.5);color:var(--ink-hi)}
 /* cobalt reads as a link on white and as nothing on navy */
 .modal.lead .addline,.modal.lead .deal-add-btn,.modal.lead .pay-add,
 .modal.lead .morebtn,.modal.lead .sp-name{color:var(--arc2)}
@@ -1479,23 +1469,23 @@ const CSS=`
 .modal.lead .mtg-title{color:var(--ink-hi)}
 .modal.lead .mtg-acct{color:var(--ink-mid)}
 /* the not-connected warning: amber mixed for a white card, on navy */
-.modal.lead .mtg-warn{background:rgba(224,162,43,.1);border-color:rgba(224,162,43,.32);color:#F1DFBB}
-.modal.lead .mtg-warn b,.modal.lead .mtg-warn span{color:#F6E7C8}
+.modal.lead .mtg-warn{background:rgba(224,162,43,.1);border-color:rgba(224,162,43,.32);color:var(--ink-hi)}
+.modal.lead .mtg-warn b,.modal.lead .mtg-warn span{color:var(--ink-hi)}
 .modal.lead .imp-warn,.modal.lead .dupe-warn{background:rgba(224,162,43,.1);
-  border-color:rgba(224,162,43,.32);color:#F1DFBB}
-.modal.lead .convert-banner,.modal.lead .client-bar{background:linear-gradient(180deg,rgba(15,20,51,.8),rgba(10,14,39,.55));
+  border-color:rgba(224,162,43,.32);color:var(--ink-hi)}
+.modal.lead .convert-banner,.modal.lead .client-bar{background:linear-gradient(180deg,rgba(24,21,48,0.035),rgba(24,21,48,0.033));
   border-color:var(--line)}
 .modal.lead .convert-banner b,.modal.lead .client-bar b{color:var(--ink-hi)}
 .modal.lead .convert-banner div,.modal.lead .client-bar span{color:var(--dim)}
 .modal.lead .rel-hint,.modal.lead .rel-gave,.modal.lead .pool-note{color:var(--dim);
-  background:rgba(56,189,248,.06);border-color:var(--line)}
+  background:rgba(43,77,224,0.033);border-color:var(--line)}
 .modal.lead .rel-gave b,.modal.lead .rc-node{color:var(--ink-hi)}
 .modal.lead .track-h b,.modal.lead .deal-card-v,.modal.lead .deal-total b,
 .modal.lead .pay-head b,.modal.lead .dh-head b{color:var(--ink-hi)}
 .modal.lead .pay-inv{background:transparent;border-color:var(--line-hi);color:var(--ink-mid)}
-.modal.lead .pay-inv:hover{background:rgba(56,189,248,.14);color:var(--ink-hi)}
+.modal.lead .pay-inv:hover{background:rgba(43,77,224,0.077);color:var(--ink-hi)}
 .modal.lead .pay-dupe{background:rgba(224,162,43,.10);border-color:rgba(224,162,43,.34)}
-.modal.lead .pay-dupe .pd-h{color:#F2C55C}
+.modal.lead .pay-dupe .pd-h{color:var(--gold)}
 .modal.lead .pay-dupe .pd-list,.modal.lead .pay-dupe .pd-p{color:var(--ink-mid)}
 .modal.lead .phase,.modal.lead .mdate,.modal.lead .msdue-l,
 .modal.lead .pay-mon,.modal.lead .sp-tag{color:var(--dim)}
@@ -1506,24 +1496,24 @@ const CSS=`
 .modal.lead .deal-total span{color:var(--ink-mid)}
 .modal.lead .pay-nums span:first-child,.modal.lead .pay-head b.clear{color:var(--ok2)}
 .modal.lead .pay-head b.due{color:var(--gold2)}
-.modal.lead .deal-total{background:rgba(56,189,248,.07);border:1px solid var(--line)}
-.modal.lead .tagchip{background:rgba(56,189,248,.06);border:1px solid var(--line);color:var(--ink-mid)}
-.modal.lead .tagchip.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
-  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+.modal.lead .deal-total{background:rgba(43,77,224,0.039);border:1px solid var(--line)}
+.modal.lead .tagchip{background:rgba(43,77,224,0.033);border:1px solid var(--line);color:var(--ink-mid)}
+.modal.lead .tagchip.on{background:linear-gradient(180deg,rgba(43,77,224,0.08),rgba(43,77,224,0.055));
+  border-color:rgba(43,77,224,0.495);color:var(--ink-hi)}
 /* .btn-g is the generic secondary button and was only ever converted inside
    .m-danger, so every other use of it in this view was a light slab with dark
    text on it. Converted at the source; the danger row still overrides below. */
-.modal.lead .btn-g{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);color:var(--ink-mid)}
-.modal.lead .btn-g:hover{border-color:var(--line-hi);color:var(--ink-hi);background:rgba(56,189,248,.08)}
+.modal.lead .btn-g{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);color:var(--ink-mid)}
+.modal.lead .btn-g:hover{border-color:var(--line-hi);color:var(--ink-hi);background:rgba(43,77,224,0.044)}
 /* the destructive row: a lit edge, not a grey slab */
-.modal.lead .m-danger .btn-g{background:rgba(193,53,43,.08);border:1px solid rgba(193,53,43,.38);color:#FFC9C2}
-.modal.lead .m-danger .btn-g:hover{background:rgba(193,53,43,.16);border-color:rgba(193,53,43,.6);color:#FFE1DC}
+.modal.lead .m-danger .btn-g{background:rgba(193,53,43,.08);border:1px solid rgba(193,53,43,.38);color:var(--ink-hi)}
+.modal.lead .m-danger .btn-g:hover{background:rgba(193,53,43,.16);border-color:rgba(193,53,43,.6);color:var(--ink-hi)}
 /* the three sponsor/relationship toggles keep their hues — they're how the
    three states are told apart — lifted onto the plate rather than recoloured */
-.modal.lead .spon-tog{background:rgba(56,189,248,.05);border-color:var(--line);color:var(--ink-mid)}
-.modal.lead .spon-tog.on{background:rgba(56,189,248,.14);border-color:rgba(56,189,248,.5);color:var(--ink-hi)}
-.modal.lead .spon-tog.past.on{background:rgba(224,162,43,.14);border-color:rgba(224,162,43,.5);color:#F6E7C8}
-.modal.lead .spon-tog.rel.on{background:rgba(160,130,240,.16);border-color:rgba(160,130,240,.55);color:#DCCDFF}
+.modal.lead .spon-tog{background:rgba(43,77,224,0.028);border-color:var(--line);color:var(--ink-mid)}
+.modal.lead .spon-tog.on{background:rgba(43,77,224,0.077);border-color:rgba(43,77,224,0.45);color:var(--ink-hi)}
+.modal.lead .spon-tog.past.on{background:rgba(224,162,43,.14);border-color:rgba(224,162,43,.5);color:var(--ink-hi)}
+.modal.lead .spon-tog.rel.on{background:rgba(160,130,240,.16);border-color:rgba(160,130,240,.55);color:var(--ink-hi)}
 .modal.lead .spon-tog.rel input{accent-color:#A082F0}
 /* ---- contact actions -------------------------------------------------------
    The most-used controls in the view, so they get size and position rather
@@ -1532,22 +1522,22 @@ const CSS=`
 .modal.lead .m-acts{display:flex;flex-direction:column;gap:7px;margin:2px 0 4px}
 .modal.lead .m-act-row{display:flex;align-items:stretch;gap:6px}
 .modal.lead .m-act{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:10px 12px;
-  border-radius:11px;border:1px solid var(--line);background:rgba(5,7,26,.4);
+  border-radius:11px;border:1px solid var(--line);background:rgba(24,21,48,0.024);
   color:var(--ink-hi);font:inherit;font-size:13.5px;font-weight:650;cursor:pointer;
   text-decoration:none;text-align:left;transition:border-color .12s,background .12s}
 .modal.lead .m-act i{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;
-  background:rgba(56,189,248,.1);color:var(--arc2)}
+  background:rgba(43,77,224,0.055);color:var(--arc2)}
 .modal.lead .m-act b{flex:none;font-weight:700}
 .modal.lead .m-act .m-act-v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
   text-align:right;font-size:11.5px;font-weight:600;color:var(--dim)}
-.modal.lead .m-act:hover{border-color:var(--line-hi);background:rgba(56,189,248,.09)}
-.modal.lead .m-act:hover i{background:rgba(56,189,248,.2);color:var(--ink-hi)}
-.modal.lead button.m-act[disabled]{cursor:default;opacity:.55;background:rgba(5,7,26,.22);border-style:dashed}
-.modal.lead button.m-act[disabled] i{background:rgba(56,189,248,.05);color:var(--dim)}
-.modal.lead button.m-act[disabled]:hover{border-color:var(--line);background:rgba(5,7,26,.22)}
+.modal.lead .m-act:hover{border-color:var(--line-hi);background:rgba(43,77,224,0.05)}
+.modal.lead .m-act:hover i{background:rgba(43,77,224,0.08);color:var(--ink-hi)}
+.modal.lead button.m-act[disabled]{cursor:default;opacity:.55;background:rgba(24,21,48,0.013);border-style:dashed}
+.modal.lead button.m-act[disabled] i{background:rgba(43,77,224,0.028);color:var(--dim)}
+.modal.lead button.m-act[disabled]:hover{border-color:var(--line);background:rgba(24,21,48,0.013)}
 .modal.lead .m-act-copy{flex:none;width:38px;border-radius:11px;border:1px solid var(--line);
-  background:rgba(5,7,26,.4);color:var(--dim);cursor:pointer;display:grid;place-items:center}
-.modal.lead .m-act-copy:hover{border-color:var(--line-hi);color:var(--ink-hi);background:rgba(56,189,248,.09)}
+  background:rgba(24,21,48,0.024);color:var(--dim);cursor:pointer;display:grid;place-items:center}
+.modal.lead .m-act-copy:hover{border-color:var(--line-hi);color:var(--ink-hi);background:rgba(43,77,224,0.05)}
 
 /* ===========================================================================
    HIERARCHY.
@@ -1573,49 +1563,49 @@ const CSS=`
 /* ---- WORK SURFACES --------------------------------------------------------
    Contact, Qualifying, Service Interest, Labels, key dates, custom fields,
    sponsorship, the section shells. Forms shouldn't shimmer. */
-.modal.lead .msec{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13)}
+.modal.lead .msec{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1)}
 /* the open-section lit bar goes: four open sections were four lit bars down
    the rail, which is most of where "uniformly blue" came from */
-.modal.lead .msec.open{border-color:var(--line);box-shadow:none;background:rgba(5,7,26,.46)}
+.modal.lead .msec.open{border-color:var(--line);box-shadow:none;background:rgba(24,21,48,0.028)}
 .modal.lead .lblchip,.modal.lead .chip,.modal.lead .tagchip,.modal.lead .spon-tog,
 .modal.lead .qbtn,.modal.lead .mtype,.modal.lead .act-t{
-  background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13)}
-.modal.lead .kd-row{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13)}
+  background:rgba(24,21,48,0.02);border-color:rgba(24,21,48,.1)}
+.modal.lead .kd-row{background:rgba(24,21,48,0.02);border-color:rgba(24,21,48,.1)}
 /* key dates flat throughout — the prep rail already surfaces what's coming up,
    so a second highlight here says the same thing twice */
-.modal.lead .kd-row.soon{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13)}
+.modal.lead .kd-row.soon{background:rgba(24,21,48,0.02);border-color:rgba(24,21,48,.1)}
 .modal.lead .kd-row.soon b{color:var(--ink-mid)}
 /* the fact row: flat, EXCEPT a tile carrying a state. That exception is the
    only reason .mf.hot means anything. */
-.modal.lead .mf{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13);box-shadow:none}
-.modal.lead .mf:hover{border-color:var(--line);background:rgba(5,7,26,.5)}
+.modal.lead .mf{background:rgba(24,21,48,0.02);border-color:rgba(24,21,48,.1);box-shadow:none}
+.modal.lead .mf:hover{border-color:var(--line);background:rgba(24,21,48,0.03)}
 .modal.lead .mf.hot{border-color:rgba(224,162,43,.4);background:rgba(224,162,43,.07);
   box-shadow:inset 2px 0 0 var(--gold)}
 /* destructive, not urgent: flat at rest, red on the way to clicking it */
-.modal.lead .m-danger .btn-g{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13);color:var(--ink-mid)}
+.modal.lead .m-danger .btn-g{background:rgba(24,21,48,0.02);border-color:rgba(24,21,48,.1);color:var(--ink-mid)}
 .modal.lead .m-danger .btn-g:hover{background:rgba(193,53,43,.16);
-  border-color:rgba(193,53,43,.6);color:#FFE1DC}
+  border-color:rgba(193,53,43,.6);color:var(--ink-hi)}
 
 /* ---- SIGNAL SURFACES ------------------------------------------------------
    The feed, the log form, follow-up, the money, a rep's cut, what's coming up,
    and anything the app is warning about. These keep the lit edge and the glow
    — and now they are the only things that have it. */
-.modal.lead .fitem{box-shadow:inset 2px 0 0 rgba(56,189,248,.5)}
+.modal.lead .fitem{box-shadow:inset 2px 0 0 rgba(43,77,224,0.12)}
 .modal.lead .fitem.note{box-shadow:inset 2px 0 0 var(--gold)}
 /* logging is the second thing you're here to do: a live surface, not a form */
 .modal.lead .compose,.modal.lead .mtg-form{
-  background:linear-gradient(180deg,rgba(56,189,248,.11),rgba(56,189,248,.03));
+  background:linear-gradient(180deg,rgba(43,77,224,0.061),rgba(43,77,224,0.017));
   border:1px solid var(--line-hi);border-radius:12px;
-  box-shadow:0 0 24px -16px var(--arc),inset 0 1px 0 rgba(127,216,255,.12)}
+  box-shadow:0 0 24px -16px var(--arc),inset 0 1px 0 rgba(43,77,224,0.036)}
 .modal.lead .compose textarea,.modal.lead .compose input,
 .modal.lead .mtg-form input,.modal.lead .mtg-form textarea{
-  background:rgba(5,7,26,.5);border-color:var(--line);color:var(--ink-hi)}
-.modal.lead .compose-open{background:linear-gradient(180deg,rgba(56,189,248,.1),rgba(56,189,248,.02));
+  background:rgba(24,21,48,0.03);border-color:var(--line);color:var(--ink-hi)}
+.modal.lead .compose-open{background:linear-gradient(180deg,rgba(43,77,224,0.055),rgba(43,77,224,0.011));
   border:1px solid var(--line-hi);color:var(--ink-mid)}
 .modal.lead .compose-open:hover{border-color:var(--arc);color:var(--ink-hi);
   box-shadow:0 0 20px -14px var(--arc)}
-.modal.lead .act-t.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
-  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+.modal.lead .act-t.on{background:linear-gradient(180deg,rgba(43,77,224,0.08),rgba(43,77,224,0.055));
+  border-color:rgba(43,77,224,0.495);color:var(--ink-hi)}
 
 /* ---- LIGHT SURFACES THE PAINT NEVER CONVERTED -----------------------------
    The meeting card, the deal card, the payments panel and the day dividers
@@ -1625,10 +1615,10 @@ const CSS=`
    card, which is why the meeting title read as missing. leadcontrast.mjs checks
    surfaces as well as text now, and found all of these at once. */
 .modal.lead .deal-card,.modal.lead .pay-panel,.modal.lead .cmsn-box{
-  background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13)}
-.modal.lead .fday{background:linear-gradient(180deg,rgba(5,7,26,.96),rgba(5,7,26,.82));
+  background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1)}
+.modal.lead .fday{background:linear-gradient(180deg,rgba(24,21,48,0.035),rgba(24,21,48,0.035));
   color:var(--dim)}
-.modal.lead .feed-wide{background:rgba(5,7,26,.34);border-color:rgba(56,189,248,.13);color:var(--dim)}
+.modal.lead .feed-wide{background:rgba(24,21,48,0.02);border-color:rgba(24,21,48,.1);color:var(--dim)}
 .modal.lead .feed-wide:hover{border-color:var(--line-hi);color:var(--ink-hi)}
 /* ---- THE LATTICE, IN THE DARK VIEW ----------------------------------------
    The light rules above paint white chips, and a white chip inside this modal
@@ -1639,22 +1629,22 @@ const CSS=`
    slot is a thing you ACT on, so it is flat and quiet. The lit edge is spent
    on the two chips that are the app telling you something — the one you have
    selected, and a soft block you would be displacing. */
-.modal.lead .slot{background:rgba(5,7,26,.42);border-color:var(--line);color:var(--ink-mid)}
-.modal.lead .slot.open{background:rgba(5,7,26,.42);border-color:var(--line-hi);color:var(--ink-hi)}
-.modal.lead .slot.open:hover{border-color:var(--arc);background:rgba(56,189,248,.09)}
+.modal.lead .slot{background:rgba(24,21,48,0.025);border-color:var(--line);color:var(--ink-mid)}
+.modal.lead .slot.open{background:rgba(24,21,48,0.025);border-color:var(--line-hi);color:var(--ink-hi)}
+.modal.lead .slot.open:hover{border-color:var(--arc);background:rgba(43,77,224,0.05)}
 .modal.lead .slot.soft{border-style:dashed;border-color:rgba(224,162,43,.5);
   background:rgba(224,162,43,.09);color:var(--gold2)}
 .modal.lead .slot.soft:hover{border-color:var(--gold);background:rgba(224,162,43,.16)}
-.modal.lead .slot.blocked,.modal.lead .slot.past{background:rgba(5,7,26,.66);
-  border-color:rgba(56,189,248,.09);color:var(--dim)}
-.modal.lead .slot.unknown{border-style:dashed;border-color:rgba(56,189,248,.22);color:var(--ink-mid);
-  background:rgba(5,7,26,.42)}
+.modal.lead .slot.blocked,.modal.lead .slot.past{background:rgba(24,21,48,0.035);
+  border-color:rgba(24,21,48,.1);color:var(--dim)}
+.modal.lead .slot.unknown{border-style:dashed;border-color:rgba(24,21,48,.1);color:var(--ink-mid);
+  background:rgba(24,21,48,0.025)}
 .modal.lead .slot.on{background:var(--arc);border-color:var(--arc);color:#04121C;
   outline-color:var(--arc);box-shadow:0 0 22px -10px var(--arc)}
 .modal.lead .slot.soft.on{background:var(--gold);border-color:var(--gold);color:#1B1200;
   outline-color:var(--gold);box-shadow:0 0 22px -10px var(--gold)}
-.modal.lead .slot-unver{background:rgba(224,162,43,.1);border-color:rgba(224,162,43,.32);color:#F1DFBB}
-.modal.lead .slot-unver b{color:#F6E7C8}
+.modal.lead .slot-unver{background:rgba(224,162,43,.1);border-color:rgba(224,162,43,.32);color:var(--ink-hi)}
+.modal.lead .slot-unver b{color:var(--ink-hi)}
 .modal.lead .slot-note{color:var(--dim)}
 .modal.lead .slot-note.ok{color:var(--ok2)}
 .modal.lead .slot-note.warn{color:var(--gold2)}
@@ -1666,24 +1656,24 @@ const CSS=`
 .modal.lead .slot-why{color:var(--dim)}
 .modal.lead .slot-why svg{color:var(--arc2)}
 .modal.lead .mtg-b.soft{background:rgba(224,162,43,.16);color:var(--gold2)}
-.modal.lead .mtg-b.unver{background:rgba(193,53,43,.18);color:#F3B9B4}
+.modal.lead .mtg-b.unver{background:rgba(193,53,43,.18);color:var(--hot)}
 .modal.lead .deal-add-btn{background:transparent;border-color:var(--line);color:var(--arc2)}
-.modal.lead .deal-add-btn:hover{border-color:var(--arc);color:var(--ink-hi);background:rgba(56,189,248,.06)}
-.modal.lead .pay-bar{background:rgba(5,7,26,.6)}
-.modal.lead .ex-del{background:rgba(5,7,26,.34);color:var(--dim)}
-.modal.lead .dh-proj{background:rgba(52,211,153,.14);color:#6EE7B7}
-.modal.lead .dh-proj-btn{background:rgba(56,189,248,.14);border-color:rgba(56,189,248,.34);color:#BAE6FD}
-.modal.lead .ex-del:hover{background:rgba(193,53,43,.16);color:#FFC9C2}
+.modal.lead .deal-add-btn:hover{border-color:var(--arc);color:var(--ink-hi);background:rgba(43,77,224,0.033)}
+.modal.lead .pay-bar{background:rgba(24,21,48,0.035)}
+.modal.lead .ex-del{background:rgba(24,21,48,0.02);color:var(--dim)}
+.modal.lead .dh-proj{background:rgba(52,211,153,.14);color:var(--ink-hi)}
+.modal.lead .dh-proj-btn{background:rgba(43,77,224,0.077);border-color:rgba(24,21,48,.1);color:var(--ink-hi)}
+.modal.lead .ex-del:hover{background:rgba(193,53,43,.16);color:var(--ink-hi)}
 
 /* ---- THE MEETING CARD -----------------------------------------------------
    Two lines, not one. The time and title read first; the type, the badges and
    the actions sit under them on their own line, right-aligned, so Held /
    No-show / Calendar read as actions ON this meeting rather than as controls
    stacked on top of it. Upcoming is signal — it is the thing coming at you. */
-.modal.lead .mtg-row{display:block;background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);
+.modal.lead .mtg-row{display:block;background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);
   padding:11px 12px;position:relative}
 .modal.lead .mtg-row.upcoming{border-color:var(--line-hi);
-  background:linear-gradient(180deg,rgba(56,189,248,.1),rgba(56,189,248,.02));
+  background:linear-gradient(180deg,rgba(43,77,224,0.055),rgba(43,77,224,0.011));
   box-shadow:inset 2px 0 0 var(--arc)}
 .modal.lead .mtg-when{color:var(--arc2);font-size:11.5px;padding-right:30px}
 .modal.lead .mtg-mid{margin-top:3px}
@@ -1691,10 +1681,10 @@ const CSS=`
 .modal.lead .mtg-badges{margin-top:8px;align-items:center}
 .modal.lead .mtg-status{margin-left:auto}
 .modal.lead .mtg-row>.m-x{position:absolute;top:8px;right:8px}
-.modal.lead .mtg-b{background:rgba(56,189,248,.1);color:var(--ink-mid)}
-.modal.lead .mtg-b.link{background:rgba(56,189,248,.14);color:var(--arc2)}
-.modal.lead .mtg-type{background:rgba(160,130,240,.16);border-color:rgba(160,130,240,.45);color:#DCCDFF}
-.modal.lead .mtg-type.unset{background:rgba(224,162,43,.14);border-color:rgba(224,162,43,.45);color:#F6E7C8}
+.modal.lead .mtg-b{background:rgba(43,77,224,0.055);color:var(--ink-mid)}
+.modal.lead .mtg-b.link{background:rgba(43,77,224,0.077);color:var(--arc2)}
+.modal.lead .mtg-type{background:rgba(160,130,240,.16);border-color:rgba(160,130,240,.45);color:var(--ink-hi)}
+.modal.lead .mtg-type.unset{background:rgba(224,162,43,.14);border-color:rgba(224,162,43,.45);color:var(--ink-hi)}
 .modal.lead .mtg-row.held{border-color:rgba(63,185,120,.34);background:rgba(63,185,120,.07)}
 .modal.lead .mtg-row.noshow{border-color:rgba(193,53,43,.34);background:rgba(193,53,43,.06)}
 .modal.lead .mtg-loc{color:var(--dim)}
@@ -1711,7 +1701,7 @@ const CSS=`
    The headline is signal: it is the app telling you what this relationship has
    been worth in both directions. The list and the form under it are work. */
 .modal.lead .rl-head{display:flex;align-items:center;gap:14px;padding:12px 14px;border-radius:12px;
-  background:linear-gradient(180deg,rgba(56,189,248,.12),rgba(56,189,248,.03));
+  background:linear-gradient(180deg,rgba(43,77,224,0.066),rgba(43,77,224,0.017));
   border:1px solid var(--line-hi);box-shadow:0 0 26px -18px var(--arc)}
 .modal.lead .rl-stat{display:flex;flex-direction:column;gap:1px;min-width:0}
 .modal.lead .rl-stat b{font-size:19px;font-weight:800;color:var(--ink-hi);
@@ -1721,7 +1711,7 @@ const CSS=`
 .modal.lead .rl-sep{width:1px;align-self:stretch;background:var(--line)}
 .modal.lead .rl-list{display:flex;flex-direction:column;gap:6px}
 .modal.lead .rl-row{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:10px;
-  background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13)}
+  background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1)}
 .modal.lead .rl-who{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .modal.lead .rl-link{background:none;border:0;padding:0;text-align:left;cursor:pointer;
   font:inherit;font-size:13.5px;font-weight:650;color:var(--arc2)}
@@ -1734,11 +1724,11 @@ const CSS=`
 .modal.lead .rl-add{display:flex;align-items:center;gap:7px;width:100%;justify-content:center;
   margin-top:8px;padding:9px;border-radius:10px;border:1px dashed var(--line-hi);
   background:transparent;color:var(--arc2);font:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
-.modal.lead .rl-add:hover{border-style:solid;color:var(--ink-hi);background:rgba(56,189,248,.07)}
+.modal.lead .rl-add:hover{border-style:solid;color:var(--ink-hi);background:rgba(43,77,224,0.039)}
 .modal.lead .rl-form{display:flex;flex-direction:column;gap:7px;margin-top:8px;padding:11px;
-  border-radius:11px;background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13)}
+  border-radius:11px;background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1)}
 .modal.lead .rl-in{width:100%;padding:8px 10px;border-radius:9px;border:1px solid var(--line);
-  background:rgba(5,7,26,.5);color:var(--ink-hi);font:inherit;font-size:13px}
+  background:rgba(24,21,48,0.03);color:var(--ink-hi);font:inherit;font-size:13px}
 .modal.lead .rl-in:focus{outline:none;border-color:var(--arc)}
 .modal.lead .rl-date{color-scheme:dark}
 .modal.lead .rl-acts{display:flex;align-items:center;gap:8px}
@@ -2004,38 +1994,38 @@ const CSS=`
    harness cannot resolve is a paint that cannot be verified. Learned the hard
    way on the lead view, where the first cut silently changed nothing.
    ======================================================================== */
-.relsurface{background:radial-gradient(900px 380px at 50% -18%,rgba(56,189,248,.14),transparent 62%),
+.relsurface{background:radial-gradient(900px 380px at 50% -18%,rgba(43,77,224,0.077),transparent 62%),
   linear-gradient(180deg,var(--plate) 0%,var(--plate2) 60%,var(--plate3) 100%);
   border:1px solid var(--line);border-radius:16px;padding:16px;margin:-4px 0 0}
 
 /* ---- SIGNAL: needs attention ---- */
 .relsurface .needs-att{background:linear-gradient(180deg,rgba(224,162,43,.13),rgba(224,162,43,.03));
   border:1px solid rgba(224,162,43,.34);box-shadow:0 0 34px -20px var(--gold)}
-.relsurface .na-top{color:#F1DFBB}
+.relsurface .na-top{color:var(--ink-hi)}
 .relsurface .na-top svg{color:var(--gold2)}
-.relsurface .na-tot{background:rgba(224,162,43,.2);color:#F6E7C8}
+.relsurface .na-tot{background:rgba(224,162,43,.2);color:var(--ink-hi)}
 .relsurface .na-h{color:var(--dim)}
-.relsurface .na-n{background:rgba(56,189,248,.14);color:var(--ink-mid)}
-.relsurface .na-col.over .na-h{color:#FFC9C2}
-.relsurface .na-col.over .na-n{background:rgba(193,53,43,.24);color:#FFC9C2}
-.relsurface .na-col.today .na-h{color:#F6E7C8}
-.relsurface .na-col.today .na-n{background:rgba(224,162,43,.22);color:#F6E7C8}
+.relsurface .na-n{background:rgba(43,77,224,0.077);color:var(--ink-mid)}
+.relsurface .na-col.over .na-h{color:var(--ink-hi)}
+.relsurface .na-col.over .na-n{background:rgba(193,53,43,.24);color:var(--ink-hi)}
+.relsurface .na-col.today .na-h{color:var(--ink-hi)}
+.relsurface .na-col.today .na-n{background:rgba(224,162,43,.22);color:var(--ink-hi)}
 .relsurface .na-col.quiet .na-h{color:var(--arc2)}
-.relsurface .na-col.quiet .na-n{background:rgba(56,189,248,.18);color:var(--ink-hi)}
-.relsurface .na-row{background:rgba(5,7,26,.42);border:1px solid rgba(56,189,248,.14)}
-.relsurface .na-row:hover{border-color:var(--line-hi);background:rgba(56,189,248,.09)}
+.relsurface .na-col.quiet .na-n{background:rgba(43,77,224,0.08);color:var(--ink-hi)}
+.relsurface .na-row{background:rgba(24,21,48,0.025);border:1px solid rgba(24,21,48,.1)}
+.relsurface .na-row:hover{border-color:var(--line-hi);background:rgba(43,77,224,0.05)}
 .relsurface .na-name{color:var(--ink-hi)}
 .relsurface .na-why{color:var(--dim)}
 .relsurface .na-more{color:var(--dim)}
 
 /* ---- WORK: the tier columns ---- */
-.relsurface .rel-tier{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
-.relsurface .rel-tier.on{border-color:var(--line-hi);background:rgba(5,7,26,.5)}
+.relsurface .rel-tier{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);box-shadow:none}
+.relsurface .rel-tier.on{border-color:var(--line-hi);background:rgba(24,21,48,0.03)}
 .relsurface .rt-head{border-bottom:1px solid var(--line)}
 .relsurface .rt-top{color:var(--ink-hi)}
-.relsurface .rt-count{background:rgba(56,189,248,.14);color:var(--ink-mid)}
+.relsurface .rt-count{background:rgba(43,77,224,0.077);color:var(--ink-mid)}
 .relsurface .rt-d{color:var(--dim)}
-.relsurface .rt-person:hover{background:rgba(56,189,248,.09)}
+.relsurface .rt-person:hover{background:rgba(43,77,224,0.05)}
 .relsurface .rt-pn{color:var(--ink-hi)}
 .relsurface .rt-pc{color:var(--dim)}
 .relsurface .rt-empty{color:var(--dim)}
@@ -2043,51 +2033,51 @@ const CSS=`
 .relsurface .rt-foot:hover{color:var(--ink-hi)}
 
 /* ---- WORK: tables, toolbar, groups ---- */
-.relsurface .card{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
+.relsurface .card{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);box-shadow:none}
 /* .tbl-wrap paints its own white ground and a light drop shadow — the exact
    shape that hid the meeting card in the lead view, caught here by the surface
    pass rather than by looking. */
-.relsurface .tbl-wrap{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
+.relsurface .tbl-wrap{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);box-shadow:none}
 .relsurface .card .tbl-wrap{background:transparent;border:0}
-.relsurface .tbl th{background:rgba(5,7,26,.5);color:var(--dim);border-bottom-color:var(--line)}
-.relsurface .tbl td{border-bottom-color:rgba(56,189,248,.1);color:var(--ink-mid)}
-.relsurface .tbl tbody tr:hover{background:rgba(56,189,248,.07)}
+.relsurface .tbl th{background:rgba(24,21,48,0.03);color:var(--dim);border-bottom-color:var(--line)}
+.relsurface .tbl td{border-bottom-color:rgba(24,21,48,.1);color:var(--ink-mid)}
+.relsurface .tbl tbody tr:hover{background:rgba(43,77,224,0.039)}
 .relsurface .namecell{color:var(--ink-hi)}
 .relsurface .subcell{color:var(--dim)}
 .relsurface .empty{color:var(--dim)}
-.relsurface .searchbox{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .searchbox{background:rgba(24,21,48,0.025);border:1px solid var(--line)}
 .relsurface .searchbox input{background:transparent;color:var(--ink-hi)}
 .relsurface .searchbox input::placeholder{color:var(--dim)}
 .relsurface .searchbox svg{color:var(--dim)}
-.relsurface .selctl{background:rgba(5,7,26,.42);border:1px solid var(--line);color:var(--ink-mid)}
-.relsurface .seg{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .selctl{background:rgba(24,21,48,0.025);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .seg{background:rgba(24,21,48,0.025);border:1px solid var(--line)}
 .relsurface .seg button{color:var(--dim);background:transparent}
-.relsurface .seg button.on{background:rgba(56,189,248,.2);color:var(--ink-hi)}
+.relsurface .seg button.on{background:rgba(43,77,224,0.08);color:var(--ink-hi)}
 .relsurface .rel-netline{color:var(--dim)}
-.relsurface .rel-clearf{background:rgba(56,189,248,.1);border:1px solid var(--line-hi);color:var(--ink-mid)}
+.relsurface .rel-clearf{background:rgba(43,77,224,0.055);border:1px solid var(--line-hi);color:var(--ink-mid)}
 .relsurface .rel-ghead{border-bottom:1px solid var(--line)}
 .relsurface .rel-gname{color:var(--arc2)}
 .relsurface .rel-gname.plain{color:var(--ink-mid)}
-.relsurface .rel-gcount{background:rgba(56,189,248,.14);color:var(--ink-mid)}
-.relsurface .rel-chip{background:rgba(56,189,248,.12);border:1px solid var(--line);color:var(--ink-mid)}
-.relsurface .tier-pick{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .rel-gcount{background:rgba(43,77,224,0.077);color:var(--ink-mid)}
+.relsurface .rel-chip{background:rgba(43,77,224,0.066);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .tier-pick{background:rgba(24,21,48,0.025);border:1px solid var(--line)}
 .relsurface .tier-pick select{background:transparent;color:var(--ink-mid)}
 .relsurface .tier-pick option{background:var(--plate2);color:var(--ink-hi)}
 
 /* ---- the two row readouts ---- */
 .relsurface .since{color:var(--ink-mid)}
 .relsurface .since.warm{color:var(--gold2)}
-.relsurface .since.cold{color:#FF9E93}
-.relsurface .since.never{color:#FF9E93}
+.relsurface .since.cold{color:var(--hot)}
+.relsurface .since.never{color:var(--hot)}
 .relsurface .refct{color:var(--dim)}
 .relsurface .refct b{color:var(--ink-hi)}
 .relsurface .refct i{color:var(--dim)}
-.relsurface .refct em{color:rgba(127,216,255,.3)}
+.relsurface .refct em{color:var(--arc)}
 /* the due pill, which arrives from the light theme */
-.relsurface .due{background:rgba(5,7,26,.42);border:1px solid var(--line);color:var(--ink-mid)}
-.relsurface .due.over{background:rgba(193,53,43,.18);border-color:rgba(193,53,43,.45);color:#FFC9C2}
-.relsurface .due.today{background:rgba(224,162,43,.18);border-color:rgba(224,162,43,.45);color:#F6E7C8}
-.relsurface .due.soon{background:rgba(56,189,248,.14);border-color:var(--line-hi);color:var(--ink-hi)}
+.relsurface .due{background:rgba(24,21,48,0.025);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .due.over{background:rgba(193,53,43,.18);border-color:rgba(193,53,43,.45);color:var(--ink-hi)}
+.relsurface .due.today{background:rgba(224,162,43,.18);border-color:rgba(224,162,43,.45);color:var(--ink-hi)}
+.relsurface .due.soon{background:rgba(43,77,224,0.077);border-color:var(--line-hi);color:var(--ink-hi)}
 .rel-tier{display:flex;flex-direction:column;min-height:280px;background:#fff;border:1.5px solid #EAEBF2;border-radius:14px;overflow:hidden;position:relative;transition:.14s}
 .rel-tier::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc);z-index:1}
 .rel-tier:hover{border-color:var(--tc)}
@@ -2644,9 +2634,9 @@ const CSS=`
   cursor:pointer;padding:2px}
 .bookmsg button:hover{opacity:1}
 .mtg-b.noinvite{background:rgba(209,67,67,.1);color:#b4322e;border-color:rgba(209,67,67,.3)}
-.modal.lead .bookmsg{border-color:rgba(110,231,183,.28);background:rgba(110,231,183,.07);color:#6EE7B7}
-.modal.lead .bookmsg.bad{border-color:rgba(252,165,165,.32);background:rgba(252,165,165,.08);color:#FCA5A5}
-.modal.lead .mtg-b.noinvite{background:rgba(252,165,165,.12);color:#FCA5A5;border-color:rgba(252,165,165,.3)}
+.modal.lead .bookmsg{border-color:rgba(110,231,183,.28);background:rgba(110,231,183,.07);color:var(--ink-hi)}
+.modal.lead .bookmsg.bad{border-color:rgba(252,165,165,.32);background:rgba(252,165,165,.08);color:var(--hot)}
+.modal.lead .mtg-b.noinvite{background:rgba(252,165,165,.12);color:var(--hot);border-color:rgba(252,165,165,.3)}
 /* ---- the time picker ----
    Chips sized for a thumb on a phone while the other hand holds a handset. */
 .whenp{margin-top:10px;display:flex;flex-direction:column;gap:7px}
@@ -2667,15 +2657,15 @@ const CSS=`
 .whenp input[type=datetime-local]{border:1px solid #E2E4EF;border-radius:8px;padding:7px 9px;
   font-size:12.5px;font-family:inherit;align-self:flex-start}
 .modal.lead .whenp-l{color:var(--ink-mid)}
-.modal.lead .whenp-c{background:rgba(56,189,248,.05);border-color:var(--line);color:var(--ink-mid)}
-.modal.lead .whenp-c:hover{border-color:rgba(56,189,248,.5);color:var(--ink-hi)}
-.modal.lead .whenp-c.on{background:linear-gradient(180deg,rgba(56,189,248,.26),rgba(56,189,248,.1));
-  border-color:rgba(56,189,248,.55);color:var(--ink-hi)}
+.modal.lead .whenp-c{background:rgba(43,77,224,0.028);border-color:var(--line);color:var(--ink-mid)}
+.modal.lead .whenp-c:hover{border-color:rgba(43,77,224,0.45);color:var(--ink-hi)}
+.modal.lead .whenp-c.on{background:linear-gradient(180deg,rgba(43,77,224,0.08),rgba(43,77,224,0.055));
+  border-color:rgba(43,77,224,0.495);color:var(--ink-hi)}
 .modal.lead .whenp-more{border-color:var(--line);color:var(--ink-lo)}
-.modal.lead .whenp-more:hover{color:#7DD3FC;border-color:rgba(56,189,248,.5)}
+.modal.lead .whenp-more:hover{color:var(--arc);border-color:rgba(43,77,224,0.45)}
 .modal.lead .whenp-why{color:var(--ink-lo)}
-.modal.lead .whenp-raw{color:#7DD3FC}
-.modal.lead .whenp input[type=datetime-local]{background:rgba(56,189,248,.05);
+.modal.lead .whenp-raw{color:var(--arc)}
+.modal.lead .whenp input[type=datetime-local]{background:rgba(43,77,224,0.028);
   border-color:var(--line);color:var(--ink-hi)}
 .disp-brief{margin-top:12px;border-top:1px solid #E2E4EF;padding-top:12px;display:flex;
   flex-direction:column;gap:9px}
@@ -2686,7 +2676,7 @@ const CSS=`
   margin-top:7px;font-size:12px;font-weight:600;color:#56527a;cursor:pointer}
 .disp-none input{width:auto;margin:0}
 .modal.lead .disp-brief{border-top-color:var(--line)}
-.modal.lead .disp-brief-h{color:#7DD3FC}
+.modal.lead .disp-brief-h{color:var(--arc)}
 .modal.lead .disp-brief .field label span{color:var(--ink-lo)}
 .modal.lead .disp-none{color:var(--ink-mid)}
 .disp-note{margin-top:7px;font-size:11.5px;color:#6B7280;line-height:1.5}
@@ -2956,9 +2946,9 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .cv-a:first-child{border-top:0}
 .cv-a-t{font-size:11px;font-weight:700;color:${COBALT};text-transform:uppercase;letter-spacing:.06em}
 .cv-a-d{font-size:11.5px;color:#8b88a0}
-.modal.lead .mrr-note.quoted{background:rgba(255,255,255,.07);color:#C6C8DE}
-.modal.lead .mrr-note.live{background:rgba(31,157,85,.16);color:#7BE3AC}
-.modal.lead .mrr-note.ended{background:rgba(255,255,255,.07);color:#A8AAC6}
+.modal.lead .mrr-note.quoted{background:rgba(24,21,48,0.025);color:var(--arc)}
+.modal.lead .mrr-note.live{background:rgba(31,157,85,.16);color:var(--ink-hi)}
+.modal.lead .mrr-note.ended{background:rgba(24,21,48,0.025);color:var(--arc)}
 /* rep pay */
 .rp-rep{border:1px solid #EDEEF5;border-radius:12px;padding:12px 14px;margin-bottom:12px}
 .rp-head{display:flex;align-items:center;gap:10px;cursor:pointer}
@@ -3667,6 +3657,116 @@ button,a,label,select,input,textarea,.kcard,.fu-card,.cli-card,.rt-person,.msec-
 .tbl.sc td,.tbl.sc th{white-space:nowrap}
 .tbl.sc tbody tr{cursor:default}
 @media (max-width:640px){ .cmsn-v{font-size:32px} .cel{left:14px;right:14px;bottom:14px;max-width:none} }
+
+/* ============================================================================
+   THE LIGHT RULE — lead view, client dashboard, Relationships.
+
+   These three used to be navy end to end. It read as deliberate and it was
+   hard on the eyes over a working day, so the rule is now narrower:
+
+     NAVY is the band at the top — who this is, and the circuit art.
+     WHITE is everything underneath — anything you read at length or type into.
+
+   The band is the only dark surface on these screens. Everything inside it is
+   light-on-navy; everything below it is ink-on-white. tests/leadcontrast.mjs
+   and tests/relscontrast.mjs hold both halves to a real contrast ratio against
+   whatever actually sits behind each piece of text.
+   ========================================================================== */
+.cband{position:absolute;top:0;right:0;bottom:0;width:72%;height:100%;pointer-events:none;z-index:0;opacity:.55}
+.modal.lead .m-head{position:relative;overflow:hidden;
+  background-color:${INK};
+  background-image:radial-gradient(700px 220px at 88% 120%,rgba(56,189,248,.16),transparent 70%),
+                   linear-gradient(135deg,${INK} 0%,#0F1433 100%);
+  border-bottom:0;color:#fff}
+.cv-head{position:relative;overflow:hidden;
+  background-color:${INK};
+  background-image:radial-gradient(700px 220px at 88% 120%,rgba(56,189,248,.16),transparent 70%),
+                   linear-gradient(135deg,${INK} 0%,#0F1433 100%);
+  border-bottom:0;color:#fff}
+.modal.lead .m-head>*:not(.cband),.cv-head>*:not(.cband){position:relative;z-index:1}
+.modal.lead .m-head h2{color:#fff}
+.modal.lead .m-head .co{color:#C9CBE3}
+.modal.lead .m-head .meta{color:#A3A6C6}
+.modal.lead .m-head .m-x{color:#fff;background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.14)}
+.modal.lead .m-head .m-x:hover{background:rgba(255,255,255,.16)}
+.modal.lead .m-head .m-x:disabled{opacity:.35}
+.modal.lead .m-head .m-headright span{color:#C9CBE3 !important}
+.modal.lead .m-head .mf{background:rgba(15,20,51,.72);border:1px solid rgba(255,255,255,.14);box-shadow:none;backdrop-filter:blur(2px)}
+.modal.lead .m-head .mf:hover{background:rgba(15,20,51,.9);border-color:rgba(127,216,255,.5)}
+.modal.lead .m-head .mf i{color:#9A9DC0}
+.modal.lead .m-head .mf b,.modal.lead .m-head .mf-v{color:#fff}
+.modal.lead .m-head .mf.hot{border-color:rgba(240,122,43,.7);background:rgba(15,20,51,.8)}
+.modal.lead .m-head .mf.hot b{color:#FFB27A}
+.modal.lead .m-head .qa .badge,.modal.lead .m-head .qa span{filter:none}
+.modal.lead .m-jump{background:#fff;border-bottom:1px solid #ECEDF3}
+.modal.lead .m-prep,.modal.lead .m-right{background:#FBFBFD}
+.modal.lead .m-left{background:#F7F7FB}
+.cv-head{background-color:${INK}}
+.cv-sub{color:#B3B6D3}
+/* the client dashboard's inputs were inheriting the old cyan-on-navy field
+   paint — the pale labels and tinted boxes in the Recurring card */
+.modal.lead.client label{color:#8b88a0}
+.modal.lead.client input,.modal.lead.client select:not(.phase-sel),.modal.lead.client textarea{background:#fff;border:1px solid #E2E3EE;color:${INK}}
+.modal.lead.client .cv-m-due{color:#8b88a0}
+/* Relationships is a page, and it already has a page title, so it gets no band
+   of its own: it is light like every page you drive. Its records open in the
+   lead view, which is where the band lives. */
+.relsurface{background:transparent;border:0;box-shadow:none;padding:0;color:${INK}}
+.relsurface::before,.relsurface::after{display:none}
+.relsurface .rel-tier,.relsurface .rel-tier.on,.relsurface .card,.relsurface .tbl-wrap,
+.relsurface .searchbox,.relsurface .selctl,.relsurface .seg,.relsurface .tier-pick,.relsurface .na-row{background:#fff;border-color:#E8E9F2}
+.relsurface .rel-tier.on{border-color:#C9D1F5;box-shadow:0 0 0 3px rgba(43,77,224,.08)}
+.relsurface .tbl th{background:#FAFAFD}
+.relsurface .searchbox input,.relsurface .tier-pick select,.relsurface .seg button{border:0;box-shadow:none;background:transparent}
+.relsurface .seg button.on{background:#EEF1FD;color:${COBALT}}
+.relsurface .needs-att{background:#fff;border-color:#F0DDB5;box-shadow:inset 3px 0 0 var(--gold)}
+
+/* cards on a quiet ground — white is where you read, not a blue wash */
+.modal.lead .fitem{background:#fff;border:1px solid #ECEDF3;box-shadow:inset 3px 0 0 ${COBALT}}
+.modal.lead .fitem.note{background:#fff;box-shadow:inset 3px 0 0 var(--gold)}
+.modal.lead .fitem .fic{background:#F1F3FD;color:${COBALT}}
+.modal.lead .fday{background:none;color:#8b88a0}
+.modal.lead .m-act,.modal.lead .m-act-copy,.modal.lead .touchbar,.modal.lead .kd-row{background:#fff;border-color:#ECEDF3}
+.modal.lead .m-act i{background:#F1F3FD;color:${COBALT}}
+.modal.lead .m-act:hover,.modal.lead .m-act-copy:hover{background:#fff;border-color:#C9D1F5}
+/* stage and priority pills on the navy band: the page colours are tuned for
+   white and go muddy on navy, so the band gets its own light versions */
+.modal.lead .m-head .qa .pill{background:rgba(255,255,255,.1) !important;color:#fff !important;border:1px solid rgba(255,255,255,.18)}
+
+/* anything you type into is white — the old field paint was a cobalt tint */
+.modal.lead input,.modal.lead select,.modal.lead textarea,.relsurface input,.relsurface select,.relsurface textarea{background:#fff;border:1px solid #E2E3EE;color:${INK}}
+.modal.lead input:focus,.modal.lead select:focus,.modal.lead textarea:focus,.relsurface input:focus,.relsurface select:focus{border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.12)}
+.modal.lead .m-head .qa .pill{box-shadow:none !important}
+
+.cv-head .m-x{color:#fff}
+.cv-head-a .phase-sel{background:rgba(255,255,255,.1) !important;color:#fff !important;border:1px solid rgba(255,255,255,.22) !important}
+.cv-head-a .phase-sel option{color:${INK}}
+
+/* The old paint recessed fields per component (.compose, .mtg-form, .whenp,
+   .disp-cb …), each with its own tint and each more specific than a general
+   rule. One rule with !important on the ground colour, rather than chasing
+   every component: a field in these views is white, full stop. Checkboxes,
+   radios and the phase picker on the navy band are the exceptions. */
+.modal.lead :is(input,select,textarea):not([type=checkbox]):not([type=radio]):not([type=range]):not(.phase-sel){background-color:#fff !important;background-image:none !important}
+.modal.lead .msec,.modal.lead .msec.open{background:#fff;border:1px solid #ECEDF3;box-shadow:none}
+.modal.lead .compose,.modal.lead .mtg-form{background:#fff;border:1px solid #DCE2F8;box-shadow:0 1px 2px rgba(24,21,48,.04)}
+.modal.lead .compose-open{background:#fff;border:1px dashed #C9D1F5;color:${COBALT}}
+.modal.lead .compose-open:hover{border-style:solid;box-shadow:none}
+.relsurface .due.over{border:0}
+
+.modal.lead .pay-add{background:${GREEN};color:#fff;border:0}
+.modal.lead .pay-add:hover{color:#fff;filter:brightness(1.06)}
+.pay-head b.notyet{color:#8b88a0;font-size:12px;font-weight:600;margin-left:auto}
+
+.modal.lead .pay-head b.notyet{color:#8b88a0;letter-spacing:0;text-transform:none}
+
+/* the quiet text in these views still has to clear 3:1 on white —
+   tests/leadcontrast.mjs measures it. Quiet means grey, not invisible. */
+.modal.lead .afilter button.none{opacity:1;color:#85819F}
+.modal.lead .sysrun{color:#6E6A8A}
+.modal.lead .sysrun em{opacity:1;color:#85819F}
+.modal.lead .linkbtn{color:#77738F}
+
 `;
 
 const Due=({iso})=>{if(!iso)return <span className="subcell">—</span>;const d=daysUntil(iso);let c='far',t=fmtDate(iso);if(d<0){c='over';t='Overdue · '+fmtDate(iso);}else if(d===0){c='today';t='Today';}else if(d<=7){c='soon';t=fmtDate(iso);}return <span className={'due '+c}>{t}</span>;};

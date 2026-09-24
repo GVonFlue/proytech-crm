@@ -7,8 +7,9 @@ import {
   personLabel, usd, num, fmtDate, todayISO, daysUntil, contractedTotal, owedBy,
   anyPayments, meetingsOf, activeTracks, trackProgress, clientOverall,
   projectsOf, projectProgress, lastTouch, daysSinceTouch, dealsOf, dealBits,
-  closedDealsTotal, stdPhases,
+  stdPhases,
 } from './lib/lead';
+import CircuitBand from './CircuitBand';
 import { retainerState, monthsDue, monthsPaid, allPaid } from './lib/retainer';
 
 /* ============================================================================
@@ -71,7 +72,15 @@ export default function ClientView({
   const due        = monthsDue(l, monthKey()).length;
   const paidMonths = monthsPaid(l).size;
   const behind     = Math.max(0, due - paidMonths);
-  const lifetime   = collected + closedDealsTotal(l);
+  /* Lifetime is CASH, so it is allPaid and nothing else. It used to add
+     closedDealsTotal on top — but a closed deal is BOOKED value, and the payment
+     that settled it is already in allPaid. Chris Waipa paid $2,499 for a $2,499
+     build and read $4,998. Booked value is the Contracted tile's job. */
+  const lifetime   = collected;
+  /* Deals ever sold, open or closed. dealsOf() is OPEN deals only — it returns
+     [] once a deal closes — so a client who bought one site read "0 deals"
+     under $2,499 contracted. */
+  const dealCount  = dealsOf(l).length + ((l.closedDeals || []).length);
   const openInv    = (invoices || []).filter(i => i && i.clientId === l.id && i.status !== 'paid');
 
   /* ------------------------------------------------------------- delivery */
@@ -111,6 +120,7 @@ export default function ClientView({
 
         {/* ------------------------------------------------------- header */}
         <div className="cv-head">
+          <CircuitBand />
           <div className="cv-head-m">
             <div className="cv-name">{personLabel(l)}</div>
             <div className="cv-sub">
@@ -135,7 +145,7 @@ export default function ClientView({
 
           {/* ------------------------------------------------------ money */}
           <div className="cv-strip">
-            <Stat label="Contracted" value={usd(contracted)} sub={`${dealsOf(l).length} deal${dealsOf(l).length === 1 ? '' : 's'}`} />
+            <Stat label="Contracted" value={usd(contracted)} sub={`${dealCount} deal${dealCount === 1 ? '' : 's'}`} />
             <Stat label="Collected" value={usd(collected)} sub={`${anyPayments(l).length} payment${anyPayments(l).length === 1 ? '' : 's'}`} tone="good" />
             <Stat label="Still owed" value={usd(owed)} tone={owed > 0 ? 'warn' : ''}
               sub={owed > 0

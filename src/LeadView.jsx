@@ -22,6 +22,7 @@
    ========================================================================== */
 
 import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import CircuitBand from './CircuitBand';
 import { BRAND } from './lib/brand';
 import {
   DEMO_MINUTES, SLOT_MINUTES, TZ_DEFAULT,
@@ -34,7 +35,7 @@ import {
   cmsnOf, dateVocab, datelessOf, dayLabel, daysToDate, daysUntil, dealsOf, depositPaidAt,
   evNum, fmtDate, fmtMeetingTime, fmtStamp, introChain, isPoolLead, isUpsellDeal, isoOf,
   keyDatesOf, labelVocab, labelsOf, manualSponsorships, needsDate, normEntry,
-  num, nurtureDaysOf, onbSkipped, openInvoicesFor, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
+  num, nurtureDaysOf, onbSkipped, isWon, openInvoicesFor, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
   stdPhases, stripTagText, tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc,
   gmailCompose, isSystemNote, yearsAt,
   projectsOf, projectForDeal, newProject,
@@ -1330,6 +1331,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   return (<div className="scrim2 lead" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal lead" onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head">
+        <CircuitBand/>
         <div style={{minWidth:0}}>
           <h2>{draft.name||draft.company||(newRel?'New Relationship':'New Lead')}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
           {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · {lastTouch(draft)?`Last contact ${fmtDate(lastTouch(draft))}`:'never contacted'}</div>}
@@ -2297,7 +2299,10 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                   const outstanding=openInvoicesFor(draft,invoices);
                   const raise=()=>{ setInvAsk(false); if(invoiceBalance) invoiceBalance(draft); };
                   return (<div className="pay-panel">
-                    <div className="pay-head"><span>Payments</span>{owed>0&&<b className={remaining>0?'due':'clear'}>{remaining>0?`${usdc(remaining)} remaining`:'paid in full'}</b>}
+                    <div className="pay-head"><span>Payments</span>{owed>0&&(remaining>0
+                      ?<b className="due">{usdc(remaining)} remaining</b>
+                      :isWon(draft,stages)?<b className="clear">paid in full</b>
+                      :<b className="notyet">not closed yet</b>)}
                       {remaining>0&&invoiceBalance&&!invAsk&&(
                         <button className="pay-inv" onClick={()=>{ if(outstanding.length) setInvAsk(true); else raise(); }}
                           title={`Create an invoice for ${usdc(remaining)}`}>
