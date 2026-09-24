@@ -37,7 +37,7 @@ import { BRAND } from './brand';
 import { setupPaid, allPayments as paymentRows } from './retainer';
 
 /* ===================== brand ===================== */
-export const COBALT=BRAND.colors.cobalt, INDIGO=BRAND.colors.indigo, INK=BRAND.colors.ink, GOLD=BRAND.colors.gold, GREEN=BRAND.colors.green, RED=BRAND.colors.red;
+export const COBALT=BRAND.colors.cobalt, INDIGO=BRAND.colors.indigo, INK=BRAND.colors.ink, GOLD=BRAND.colors.gold, GREEN=BRAND.colors.green, RED=BRAND.colors.red, ACCENT=BRAND.colors.accent;
 /* ===================== editable defaults ===================== */
 export const DEFAULT_OPTIONS={
   businessType:['—','Real Estate','Lending','Restaurant','Retail','Law Firm','Construction','Professional Services','Other'],
@@ -447,7 +447,9 @@ export const calendarOwner=(roster,users,gcalEmail)=>{
    earned  = an owner approved it. void = cancelled, out of every count.       */
 export const cmsnAmount=(base,pct)=>Math.round(num(base)*num(pct))/100;
 export const cmsnOf=l=>(l&&l.commission&&typeof l.commission==='object')?l.commission:null;
-export const CMSN_STATE={pending:{label:'Pending',color:'#C8A24A'},earned:{label:'Earned',color:GREEN},void:{label:'Voided',color:'#8E89A8'}};
+/* pending is written as TEXT on white (the rep's commission rows), so it uses a
+   text-weight gold: the brand gold #C8A24A is 2.3:1 on white and fails. */
+export const CMSN_STATE={pending:{label:'Pending',color:'#9A6B12'},earned:{label:'Earned',color:GREEN},void:{label:'Voided',color:'#8E89A8'}};
 /* migrate any legacy 'Booked' activity that never became a meeting into one,
    so old history shows up in the new unified views. Idempotent: an activity
    already linked to a meeting (meetingId) is skipped. */
@@ -571,13 +573,17 @@ export const countsAsBusiness=l=>!!l&&(!l.isRelationship||hasRealDeal(l));
    treated as settled, because that's exactly how revenue counts it — the legacy
    fallback. Saying "revenue counted" and "still owes it" about the same client
    would be two answers to one question. */
+/* Has this record actually been bought? A client, or a lead sitting in a won
+   stage. owedBy() and the lead view's payment header both ask this, so it has
+   one name — the header used to read "paid in full" on an open Discovery lead
+   because owedBy() returned 0 for "not won" and the header read 0 as "settled". */
+export const isWon=(l,stages)=>!!(l&&(l.isClient||(stages&&sOf(l.stage,stages).won)));
 export const owedBy=(l,stages)=>{
   /* Only money you've actually WON can be owed. An open lead sitting at
      Discovery hasn't bought anything, and counting its deal value as debt made
      "still owed" read as roughly the whole open pipeline. Lost leads owe
      nothing either. */
-  const won=!!(l&&(l.isClient||(stages&&sOf(l.stage,stages).won)));
-  if(!won) return 0;
+  if(!isWon(l,stages)) return 0;
   /* AUDIT #21 + #22. This read `cashConfirmed(l) ? 0 : ...`, treating ANY
      deposit-ticked client with no payment rows as settled — the mirror of the
      revenue fallback, wrong the same way and for the same reason. Both read

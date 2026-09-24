@@ -48,6 +48,10 @@ export const BRAND = {
     gold:   val(import.meta.env.VITE_COLOR_GOLD,   '#C8A24A'),
     green:  val(import.meta.env.VITE_COLOR_GREEN,  '#1F9D55'),
     red:    val(import.meta.env.VITE_COLOR_RED,    '#D14343'),
+    /* the second trace colour in the circuit band (lead, client and
+       relationship headers). Warm against cobalt the way the brand mark is.
+       Override per install; nothing else reads it. */
+    accent: val(import.meta.env.VITE_COLOR_ACCENT, '#F07A2B'),
   },
 
   /* invoice defaults (client can edit these in Settings afterwards) */
