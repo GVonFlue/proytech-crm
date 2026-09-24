@@ -134,12 +134,17 @@ console.log('\nits checklist, from the card');
 const proj2=cards().find(c=>c.classList.contains('kproj')&&/Business Suite/.test(c.textContent||''));
 if(proj2) await click(proj2.querySelector('.kn')||proj2);
 await act(async()=>{await new Promise(r=>setTimeout(r,40));});
-const panel=document.querySelector('.proj-detail');
-ok('opening the card shows the project panel', !!panel);
-const step=panel&&[...panel.querySelectorAll('.onb-item')].find(e=>/Install set up/.test(e.textContent||''));
-ok('with the Business Suite checklist', panel && panel.querySelectorAll('.onb-item').length===8, panel&&('items='+panel.querySelectorAll('.onb-item').length));
+/* The drawer that used to unfold under the board is gone: a client opens
+   full-screen now, and the project's checklist lives on that screen. Same
+   claims, one surface up — the assertion is that ticking a step still writes
+   to the PROJECT and not to the client's own onboarding, which is the bug
+   this file was written for. */
+const panel=document.querySelector('.modal.lead.client');
+ok('opening the card shows the client dashboard', !!panel);
+const step=panel&&[...panel.querySelectorAll('.cv-m')].find(e=>/Install set up/.test(e.textContent||''));
+ok('with the Business Suite checklist on it', panel && panel.querySelectorAll('.cv-m').length>=8, panel&&('steps='+panel.querySelectorAll('.cv-m').length));
 globalThis.__WRITES__.length=0;
-if(step) await click(step.querySelector('.onb-check'));
+if(step) await click(step.querySelector('.cv-m-i'));
 await act(async()=>{await new Promise(r=>setTimeout(r,40));});
 w=globalThis.__WRITES__.filter(x=>x.id==='l1').at(-1);
 const ms=w&&((w.projects||[]).find(x=>x.id==='pj_c2')||{}).milestones||{};
