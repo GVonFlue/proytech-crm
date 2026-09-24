@@ -1,27 +1,19 @@
-/* Nothing in the lead view is dark text on the dark plate.
+/* Every piece of text in the lead view is readable against what is behind it.
    ============================================================================
 
-   PR 4 painted the surface and restyled `.mf b`. It never restyled `.mf-v` —
-   the span the Stage and Priority tiles put their value in, because those two
-   are <label>s wrapping an invisible <select> rather than buttons with a <b>.
-   They kept ${INK}, near-black, on a navy plate. Legible before the paint,
-   invisible after it, and only on those two of the nine tiles, which is why it
-   read as "those two are broken" rather than as a row-wide problem.
+   The view used to be navy end to end and this file checked "is the text
+   light". It is now white with a navy band across the top — light text is
+   right in the band and invisible below it — so it checks a real contrast
+   ratio instead, text against its actual ground (tests/contrast.mjs).
 
-   So this does not check those two. It walks EVERY element that renders text
-   inside the lead view, computes the luminance of its resolved colour, and
-   fails anything dark — because the next tile to be added will be the next one
-   nobody checked.
-
-   WHY LUMINANCE AND NOT A CONTRAST RATIO. The surface is a gradient over a
-   plate over a scrim; jsdom resolves `color` but cannot composite what is
-   behind it, so a true WCAG ratio is not available here. It is not needed: the
-   ground is dark everywhere in this view, so "is this text light" answers the
-   only question being asked, and answers it for elements a hand-audit skips.
+   The two picker tiles are still named individually. They put their value in
+   .mf-v rather than <b>, which is the exact split that once left them unpainted
+   while every other tile was fine. They sit in the band, so they must be light;
+   the band must actually be navy for that to mean anything.
    ========================================================================== */
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
-import { audit, nodeLuminance } from './darksurface.mjs';
+import { contrast, fresh, parseColor, luminance, MIN } from './contrast.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',
   { url: 'https://crm.test/', pretendToBeVisual: true });
@@ -132,24 +124,31 @@ const openAll = async () => {
   const o = curEl.querySelector('.compose-open'); if (o) { await click(o); await settle(120); } };
 
 const cs = n => dom.window.getComputedStyle(n);
-/* The engine lives in darksurface.mjs — the Relationships page gets the same
-   check, and a second copy of it would drift the moment one screen needed a
-   tweak. This file is the lead view's fixtures and the two tiles worth naming. */
-const A = { win: dom.window, host: '.modal.lead' };
-const L1 = n => nodeLuminance(n, A);
-const DARK = 0.35;
-const nm = e => e.tagName.toLowerCase() +
-  ((e.className||'').toString().split(' ').filter(Boolean).map(c => '.' + c).join(''));
+const A = { win: dom.window };
+/* the colour a person sees for one element, var() resolved */
+const seenColor = n => { let raw = String(cs(n).color || '');
+  for (let i = 0; i < 4 && /var\(/.test(raw); i++) raw = raw.replace(/var\(\s*(--[\w-]+)\s*(?:,([^)]*))?\)/g,
+    (_, name, fb) => { for (let a = n; a; a = a.parentElement) { const g = cs(a).getPropertyValue(name).trim(); if (g) return g; } return (fb||'').trim(); });
+  const c = parseColor(raw); return c ? luminance(c.rgb) : null; };
 
 function scan(label) {
   const modal = curEl.querySelector('.modal.lead');
-  ok(`${label}: the lead view is the dark surface`, !!modal);
+  ok(`${label}: the lead view is open`, !!modal);
   if (!modal) return;
-  const { count, dark, light } = audit(modal, A);
-  ok(`${label}: ${count} elements render text, none of it dark`,
-     dark.length === 0, dark.join('\n        '));
-  ok(`${label}: no element paints a light surface in the dark view`,
-     light.length === 0, light.join('\n        '));
+  fresh(dom.window);
+  /* the rule itself: a navy band, a light body */
+  const head = modal.querySelector('.m-head');
+  const hb = head && parseColor(cs(head).backgroundColor);
+  ok(`${label}: the header band is navy`, !!hb && hb.a > 0.99 && luminance(hb.rgb) < 0.05, head && cs(head).backgroundColor);
+  const body = modal.querySelector('.m-left');
+  const bb = body && parseColor(cs(body).backgroundColor);
+  ok(`${label}: the working area below it is light`, !!bb && bb.a > 0.99 && luminance(bb.rgb) > 0.8, body && cs(body).backgroundColor);
+  const field = modal.querySelector('.m-right input:not([type=checkbox]), .m-left input:not([type=checkbox])');
+  const fb = field && parseColor(cs(field).backgroundColor);
+  ok(`${label}: a field you type into is white`, !!fb && fb.a > 0.99 && luminance(fb.rgb) > 0.95, field && cs(field).backgroundColor);
+  const { count, low } = contrast(modal, A);
+  ok(`${label}: ${count} elements render text, all of it at least ${MIN}:1 against its ground`,
+     low.length === 0, low.join('\n        '));
 }
 
 /* Every mode, not just the one the bug was reported on. A rep sees a different
@@ -161,13 +160,14 @@ scan('owner');
 
 /* the two tiles that were actually reported, named, so a regression is obvious */
 {
+  fresh(dom.window);
   const sel = [...curEl.querySelectorAll('.mf-sel')];
   ok('both picker tiles are present', sel.length === 2, sel.length + ' .mf-sel tiles');
   for (const t of sel) {
     const v = t.querySelector('.mf-v');
-    const L = v ? L1(v) : null;
+    const L = v ? seenColor(v) : null;
     const which = ((t.querySelector('i')||{}).textContent || '?');
-    ok(`  the ${which} tile's value is light`, L !== null && L >= DARK, v ? `color=${cs(v).color} L=${L}` : 'no .mf-v');
+    ok(`  the ${which} tile's value is light, on the band`, L !== null && L >= 0.4, v ? `color=${cs(v).color} L=${L}` : 'no .mf-v');
   }
 }
 /* the rest of the row uses <b>, which the paint did cover — asserted so the
@@ -175,7 +175,7 @@ scan('owner');
 {
   const bs = [...curEl.querySelectorAll('.m-facts .mf b')];
   ok(`the other ${bs.length} tiles put their value in <b>`, bs.length >= 5, String(bs.length));
-  ok('  and every one of those is light too', bs.every(b => (L1(b) ?? 0) >= DARK),
+  ok('  and every one of those is light too', bs.every(b => (seenColor(b) ?? 0) >= 0.4),
      bs.map(b => cs(b).color).join(' '));
 }
 

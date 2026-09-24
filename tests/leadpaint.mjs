@@ -173,12 +173,18 @@ console.log('\nthe fold changed NO counts — the real bug is still there');
 console.log('\nthe paint, only where it can leak');
 {
   const m = curEl.querySelector('.modal.lead');
-  ok('the lead view carries the dark surface', !!m);
+  /* The view is light now, with a navy band on top (THE LIGHT RULE in
+     App.jsx); readability of every element is tests/leadcontrast.mjs's job.
+     What this file still owns is the TOKENS: they must resolve here, to the
+     install's brand colour rather than a hardcoded hex, and nowhere else. */
+  ok('the lead view carries its own surface', !!m);
   const bg = cs(m).backgroundColor + ' ' + cs(m).backgroundImage;
   ok('  its background is painted, not inherited', /rgb|gradient/.test(bg), bg.slice(0, 90));
-  ok('  the arc token resolves inside it', cs(m).getPropertyValue('--arc').trim() === '#38BDF8',
+  ok('  the arc token resolves inside it, to the brand cobalt', cs(m).getPropertyValue('--arc').trim().toUpperCase() === '#2B4DE0',
      JSON.stringify(cs(m).getPropertyValue('--arc')));
-  ok('  and it is the SAME token JARVIS ships',
+  ok('  composed from BRAND, not a literal hex',
+     /--arc:\$\{COBALT\}/.test(fs.readFileSync('src/App.jsx','utf8')));
+  ok('  JARVIS keeps its own dark palette — the two no longer share one',
      fs.readFileSync('src/Jarvis.jsx','utf8').includes('--arc:#38BDF8'));
 }
 {

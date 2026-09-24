@@ -1,16 +1,10 @@
-/* Nothing on the Relationships page is unreadable on the dark surface.
+/* Every piece of text on the Relationships page is readable against its ground.
    ============================================================================
 
-   The page joined the lead view as an intelligence surface: dark when the app
-   is telling you something, light when you are telling it. That makes it the
-   second screen to need the audit, which is why the engine was pulled out into
-   darksurface.mjs first rather than after.
-
-   Both passes run, and the second is the one that matters here: this page is
-   built almost entirely from components written for a white background — .tbl,
-   .card, .searchbox, .seg, .due — so the failure mode is not dark text on the
-   plate, it is a light component still painting its own white ground inside a
-   dark page. That is exactly what hid the meeting card in the lead view.
+   The page used to be a navy panel and this file checked "is the text light".
+   It is now a light page like every other page you drive — its records open in
+   the lead view, which is where the navy band lives — so it checks a real
+   contrast ratio against whatever sits behind each element (tests/contrast.mjs).
 
    Every mode is swept, because Grouped, List and a tier-filtered view mount
    different components, and a component nobody rendered is a component nobody
@@ -18,7 +12,7 @@
 */
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
-import { audit } from './darksurface.mjs';
+import { contrast, MIN } from './contrast.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',
   { url: 'https://crm.test/', pretendToBeVisual: true });
@@ -108,18 +102,16 @@ await settle(240);
 const nav = [...el.querySelectorAll('.nav-i')].find(e => /^Relationships$/.test((e.textContent||'').trim()));
 await click(nav); await settle(200);
 
-const A = { win: dom.window, host: '.relsurface' };
+const A = { win: dom.window };
 const surface = () => el.querySelector('.relsurface');
 
 function sweep(label) {
   const root = surface();
-  ok(`${label}: the page is the dark surface`, !!root);
+  ok(`${label}: the page is rendered`, !!root);
   if (!root) return;
-  const { count, dark, light } = audit(root, A);
-  ok(`${label}: ${count} elements render text, none of it dark`,
-     dark.length === 0, dark.join('\n        '));
-  ok(`${label}: no element paints a light surface in the dark page`,
-     light.length === 0, light.join('\n        '));
+  const { count, low } = contrast(root, A);
+  ok(`${label}: ${count} elements render text, all of it at least ${MIN}:1 against its ground`,
+     low.length === 0, low.join('\n        '));
 }
 
 const seg = () => [...el.querySelectorAll('.seg button')];
