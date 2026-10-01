@@ -1072,27 +1072,49 @@ const CSS=`
    screen while the activity log, the thing this is opened for, stayed
    compressed. Width belongs to the feed. */
 .m-grid.lead3{grid-template-columns:302px minmax(0,1fr) 344px}
-/* ---- JUMP TABS AS A WORKING PANEL ---------------------------------------
+/* ---- JUMP TABS AS A POPUP -----------------------------------------------
    No tab open: two columns, and the activity log takes everything the rail
-   used to hold. A tab open: the panel takes the feed's place at full working
-   width, so a deal is edited in 1fr rather than in 344px. The feed is hidden
-   rather than squeezed, because half a feed beside half a form is two things
-   you cannot use at once. */
+   used to hold. A tab open: that one section floats above the record as its
+   own light card, with the record dimmed behind it.
+
+   The card re-declares the lead view's theme variables. Every dark rule in
+   this file reads them rather than hard-coding colour, so flipping the eight
+   below turns the whole subtree back to paper without chasing 384 selectors.
+   That is what the variables were for. */
 .m-grid.lead3.panel-off{grid-template-columns:302px minmax(0,1fr)}
 .m-grid.lead3.panel-off .m-left{display:none}
-.m-grid.lead3.panel-on{grid-template-columns:302px minmax(0,1fr)}
-.m-grid.lead3.panel-on .m-right{display:none}
-.m-grid.lead3.panel-on .m-left{border-left:0}
-/* Only the section whose tab is open. The rail renders them all; this picks
-   one, so the panel never needs its own copy of the markup. */
-.m-left[data-panel]:not([data-panel=""]) .msec{display:none}
-.m-left[data-panel="meetings"] #msec-meetings,
-.m-left[data-panel="qual"] #msec-qual,
-.m-left[data-panel="svc"] #msec-svc,
-.m-left[data-panel="type"] #msec-type,
-.m-left[data-panel="deal"] #msec-deal,
-.m-left[data-panel="refer"] #msec-refer,
-.m-left[data-panel="spon"] #msec-spon{display:block}
+.m-grid{position:relative}
+.m-popscrim{position:absolute;inset:0;background:rgba(5,7,26,.55);z-index:38;
+  animation:popIn .14s ease-out}
+.modal.lead .m-pop,.m-pop{
+  --plate:#fff; --plate2:#FAFBFE; --plate3:#F4F6FB;
+  --ink:#181530; --ink-hi:#0C0A24; --ink-mid:#3A3660;
+  --dim:#8b88a0; --faint:#B9B6CC;
+  --line:#E8E9F2; --line-hi:#D7D9E6; --arc:${COBALT}; --arc2:${COBALT};
+  position:absolute;z-index:40;left:50%;transform:translateX(-50%);
+  top:26px;width:min(900px,calc(100% - 56px));max-height:calc(100% - 52px);
+  overflow-y:auto;overscroll-behavior:contain;
+  background:#fff;color:var(--ink);
+  border:1px solid #E4E6F0;border-radius:18px;
+  box-shadow:0 34px 90px -22px rgba(5,7,26,.6);
+  padding:18px 24px 30px;animation:popIn .16s ease-out}
+@keyframes popIn{from{opacity:0;transform:translateX(-50%) translateY(6px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+/* one section at a time — the rail still renders them all, this picks one */
+.m-pop .msec,.m-pop #msec-contact{display:none}
+.m-pop[data-panel="contact"] #msec-contact,
+.m-pop[data-panel="meetings"] #msec-meetings,
+.m-pop[data-panel="qual"] #msec-qual,
+.m-pop[data-panel="svc"] #msec-svc,
+.m-pop[data-panel="type"] #msec-type,
+.m-pop[data-panel="deal"] #msec-deal,
+.m-pop[data-panel="refer"] #msec-refer,
+.m-pop[data-panel="spon"] #msec-spon{display:block}
+/* a section inside the popup is already the only thing there, so it never
+   collapses and never needs its own header chrome */
+.m-pop .msec{border:0;padding:0;background:transparent}
+.m-pop .msec-h{display:none}
+.m-pop .msec .msec-b{display:block!important;padding:0}
+@media(max-width:820px){.m-pop{top:12px;width:calc(100% - 20px);max-height:calc(100% - 24px);padding:14px 16px 22px}}
 .mp-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;
   margin:-4px 0 10px;padding-bottom:10px;border-bottom:1px solid #EDEEF5}
 .mp-who{font-weight:600;font-size:13.5px;color:#5A5680}

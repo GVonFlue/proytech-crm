@@ -734,6 +734,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
      screen is opened for in the first place. Never open on mount: landing on a
      lead with the Deal panel up would hide the history you came to read. */
   const [panel,setPanel]=useState(null);
+  const popRef=useRef(null);
   /* Escape closes the PANEL first and the lead second, because the panel is the
      thing most recently opened and the one a reflex Escape is aimed at. */
   useEffect(()=>{ if(!panel) return;
@@ -973,7 +974,10 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     if(panel===k){ setPanel(null); return; }
     setOpenSec(o=>({...o,[k]:true}));
     setPanel(k);
-    setTimeout(()=>{ const el=document.getElementById('msec-'+k); if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'auto',block:'start'}); },40); };
+    /* Top of the section, every time. scrollIntoView landed wherever the card
+       happened to sit in a column that had already been scrolled; the popup is
+       a fresh surface, so the only correct position is the start of it. */
+    setTimeout(()=>{ if(popRef.current) popRef.current.scrollTop=0; },0); };
   const Sec=(k,icon,title,summary,body,defOpen)=>{
     const isOpen=openSec[k]??!!defOpen;
     return (<div className={'msec'+(isOpen?' open':'')} id={'msec-'+k} key={k}>
@@ -1406,11 +1410,13 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
       </div>
       {!isNew&&<div className="m-jump">
         <span className="mj-l">Jump to</span>
-        {[['meetings','Meetings',CalendarCheck,bookedCount(draft)||''],
+        {[['contact','Contact',Contact2,''],
+          ['meetings','Meetings',CalendarCheck,bookedCount(draft)||''],
           ['qual','Qualifying',SlidersHorizontal,''],
           ['svc','Service',Target,(draft.serviceInterest||[]).length||''],
           ['type','Intro',Users,''],
-          ['deal','Deal',DollarSign,'']].map(([k,label,Ic,badge])=>(
+          ['deal','Deal',DollarSign,''],
+          ['spon','Sponsors',Award,'']].map(([k,label,Ic,badge])=>(
           <button key={k} className={'mj'+(panel===k?' on':'')} onClick={()=>jumpTo(k)}><Ic size={13}/>{label}{badge!==''&&<i>{badge}</i>}</button>
         ))}
       </div>}
@@ -1421,9 +1427,99 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           beside a compressed feed once the surface went full width. History is
           what this screen is opened for, so it takes the middle and all the
           slack; the two rails are fixed and narrow. */}
-      <div className={'m-grid lead3'+(wideFeed?' wide':'')+(panel?' panel-on':' panel-off')}>
+      <div className={'m-grid lead3'+(wideFeed?' wide':'')+(panel?' panel-on':(isNew?'':' panel-off'))}>
         {/* ---------- PREP: what you need before you call ---------- */}
         {!isNew&&<div className="m-prep">
+          {/* CONVERT AND THE CLIENT BAR LIVE HERE NOW.
+              Both used to sit at the bottom of the sections column, which was
+              fine while that column was always on screen. It is a panel now —
+              hidden unless a tab is open — and "Convert to Client" is not a
+              thing you should have to open a tab to find. The prep rail is the
+              one column that is always there, so the two controls that change
+              what a record IS belong at the top of it. */}
+          {/* ---------- 6. CONVERT — the last thing, not the first ---------- */}
+          {/* A relationship is not a deal you are trying to win. "Won the deal?
+              Convert to Client" on a referral partner is the app asking the
+              wrong question, and it was the loudest thing at the bottom of
+              their record. Same for the close-tracking prompt below. */}
+          {!isNew&&!draft.isClient&&!draft.isRelationship&&<div className="convert-banner">
+            <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'var(--dim)',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
+            <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
+          </div>}
+
+          {/* legacy clients created before close-tracking: offer a one-click backfill */}
+          {/* A client banner that's always there: says whether the money has
+              landed yet, and puts the undo where you'd look for it rather than
+              at the bottom of the delivery checklist. */}
+          {!isNew&&draft.isClient&&(()=>{
+            const paid=depositPaidAt(draft);
+            const noSetup=onbSkipped(draft,'deposit_paid');
+            const doRevert=()=>{ if(window.confirm(
+              'Revert this client back to a lead?\n\n'+
+              '· They come off the client board and out of closed-deal counts\n'+
+              '· Their delivery checklist and any ticks are kept\n'+
+              '· Any closed deals stay closed — those are separate\n\n'+
+              'You can convert them again at any time.')) revertClient(draft.id); };
+            return (<div className={'client-bar'+(paid?' paid':'')}>
+              <div className="cb-l">
+                {noSetup&&!paid
+                  ? <><CheckCircle2 size={14} color="var(--ok2)"/><span><b>Monthly only — no setup fee</b>{draft.retainerActive?` · ${usd(num(draft.retainer))}/mo`:''} · nothing held back</span></>
+                  : paid?<><CheckCircle2 size={14} color="var(--ok2)"/><span><b>Payment confirmed {fmtDate(paid)}</b> · counting in your numbers</span></>
+                     :<><Clock size={14} color="#D97706"/><span><b>Client, payment not collected yet</b> · {usd(num(draft.dealValue))} counts once you tick <i>Deposit / first payment collected</i></span></>}
+              </div>
+              {/* The tick lives here, not just on the Clients page. Gating
+                  revenue on a checkbox you can only reach from another screen
+                  would mean money silently not counting with no way to fix it
+                  from the record you're looking at. */}
+              {/* Confirming payment and logging it are the same event, so this
+                  does both in one write. Previously it only ticked the flag and
+                  you had to log the money again in the Payments panel below —
+                  two places for one thing, and the payments total would sit at
+                  $0 while the record claimed payment was confirmed.
+                  It reads the payments already logged so pressing this after
+                  using the panel confirms without double-counting. */}
+              {(!noSetup||paid)&&<button className={'cb-pay'+(paid?' on':'')} onClick={()=>{
+                const ob={...(draft.onboarding||{})};
+                const cur=normEntry(ob.deposit_paid);
+                if(cur.done){
+                  if(!window.confirm('Mark the payment as NOT collected?\n\nIt stops counting in your numbers. Any payments you logged stay on the record.')) return;
+                  ob.deposit_paid={done:null,due:cur.due||null};
+                  const act={id:uid(),ts:new Date().toISOString(),type:'Note',text:'Payment marked as not collected.',who:me};
+                  set({onboarding:ob,activities:[act,...(draft.activities||[])]});
+                  return;
+                }
+                const d=window.prompt('What date did the payment land? (YYYY-MM-DD)',todayISO());
+                if(d===null) return; const clean=String(d).trim().slice(0,10);
+                if(!/^\d{4}-\d{2}-\d{2}$/.test(clean)){ window.alert('Please use YYYY-MM-DD, e.g. 2026-08-01.'); return; }
+                ob.deposit_paid={done:clean,due:cur.due||null};
+
+                const pays=Array.isArray(draft.payments)?draft.payments:[];
+                const already=pays.reduce((a,x)=>a+num(x.amount),0);
+                const owed=dealsOf(draft).reduce((a,x)=>a+dealSum(x),0)+(draft.retainerActive?num(draft.retainer):0);
+                const suggest=Math.max(0,owed-already);
+                const raw=window.prompt(
+                  already>0?`How much came in? (${usdc(already)} already logged)`:'How much came in? ($)',
+                  suggest>0?String(suggest):'');
+                /* Cancel here still confirms the date — you said the money
+                   landed, and refusing to record that because the amount prompt
+                   was dismissed would be the more surprising outcome. */
+                const amount=raw===null?0:num(raw);
+                const patch={onboarding:ob};
+                const acts=[];
+                if(amount>0){
+                  const note=(window.prompt('Note (e.g. "Square deposit", "cash at discovery") — optional:','')||'').trim();
+                  patch.payments=[...pays,{id:uid(),amount,date:clean,note}];
+                  acts.push({id:uid(),ts:new Date().toISOString(),type:'Payment',
+                    text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who:me});
+                }
+                acts.push({id:uid(),ts:new Date().toISOString(),type:'Note',
+                  text:`Payment confirmed ${fmtDate(clean)} — ${usd(num(draft.dealValue))} now counting.`,who:me});
+                set({...patch,activities:[...acts,...(draft.activities||[])]});
+              }}>{paid?<><CheckCircle2 size={13}/>Payment collected</>:<><DollarSign size={13}/>Mark payment collected</>}</button>}
+              <button className="linkbtn cb-undo" onClick={doRevert}>Revert to lead</button>
+            </div>);
+          })()}
+
           {/* CONTACT ACTIONS.
 
               These were four 11px chips wedged between the badges in the header,
@@ -1819,12 +1915,25 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               : <button className="btn btn-d" onClick={()=>{if(window.confirm('Delete this lead permanently?'))delLead(draft.id);}}><Trash2 size={15}/>Delete lead</button>}</div>
           </>}
         </div>
-        <div className="m-left" data-panel={panel||''}>
+        {/* A POPUP OVER THE RECORD, not a column inside it.
+            Swapping it in beside the feed meant the section inherited the lead
+            view's dark surface and read as a wall of navy. It is its own light
+            card now, floating above the record with the record dimmed behind
+            it — so it is obvious what you are working on and obvious how to
+            leave. A new lead is the exception: the contact form IS the screen
+            then, so it stays an ordinary column until the record exists. */}
+        {panel&&<div className="m-popscrim" onMouseDown={()=>setPanel(null)}/>}
+        <div className={'m-left'+(panel?' m-pop':'')} data-panel={panel||''} ref={popRef}>
           {panel&&<div className="mp-bar">
             <span className="mp-who">{personLabel(draft)}</span>
             <button className="mp-x" onClick={()=>setPanel(null)}><X size={15}/>Close</button>
           </div>}
           {/* ---------- 1. CONTACT — always first, always open ---------- */}
+          {/* CONTACT IS A SECTION NOW. It used to sit above every other block in
+              the rail, which meant that once the rail became a one-section popup
+              it appeared at the top of ALL of them — the deal panel opened with a
+              phone number form stapled to its head. It gets its own tab instead. */}
+          <div id="msec-contact" className="msec-raw">
           <div className="dh"><Contact2 size={13}/>{isNew?'New lead':'Contact'}</div>
           <div className="fgrid">
             {F({label:'Name',k:'name'})}{F({label:'Company',k:'company'})}
@@ -1938,6 +2047,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
             </div>);
           })()}
 
+          </div>
           {/* ---------- 5. EVERYTHING ELSE — collapsed ---------- */}
           {!isNew&&<div className="msecs">
             {/* a relationship leads with what it is, not with what it is not */}
@@ -2396,88 +2506,6 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               </>)}
           </div>}
 
-          {/* ---------- 6. CONVERT — the last thing, not the first ---------- */}
-          {/* A relationship is not a deal you are trying to win. "Won the deal?
-              Convert to Client" on a referral partner is the app asking the
-              wrong question, and it was the loudest thing at the bottom of
-              their record. Same for the close-tracking prompt below. */}
-          {!isNew&&!draft.isClient&&!draft.isRelationship&&<div className="convert-banner">
-            <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'var(--dim)',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
-            <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
-          </div>}
-
-          {/* legacy clients created before close-tracking: offer a one-click backfill */}
-          {/* A client banner that's always there: says whether the money has
-              landed yet, and puts the undo where you'd look for it rather than
-              at the bottom of the delivery checklist. */}
-          {!isNew&&draft.isClient&&(()=>{
-            const paid=depositPaidAt(draft);
-            const noSetup=onbSkipped(draft,'deposit_paid');
-            const doRevert=()=>{ if(window.confirm(
-              'Revert this client back to a lead?\n\n'+
-              '· They come off the client board and out of closed-deal counts\n'+
-              '· Their delivery checklist and any ticks are kept\n'+
-              '· Any closed deals stay closed — those are separate\n\n'+
-              'You can convert them again at any time.')) revertClient(draft.id); };
-            return (<div className={'client-bar'+(paid?' paid':'')}>
-              <div className="cb-l">
-                {noSetup&&!paid
-                  ? <><CheckCircle2 size={14} color="var(--ok2)"/><span><b>Monthly only — no setup fee</b>{draft.retainerActive?` · ${usd(num(draft.retainer))}/mo`:''} · nothing held back</span></>
-                  : paid?<><CheckCircle2 size={14} color="var(--ok2)"/><span><b>Payment confirmed {fmtDate(paid)}</b> · counting in your numbers</span></>
-                     :<><Clock size={14} color="#D97706"/><span><b>Client, payment not collected yet</b> · {usd(num(draft.dealValue))} counts once you tick <i>Deposit / first payment collected</i></span></>}
-              </div>
-              {/* The tick lives here, not just on the Clients page. Gating
-                  revenue on a checkbox you can only reach from another screen
-                  would mean money silently not counting with no way to fix it
-                  from the record you're looking at. */}
-              {/* Confirming payment and logging it are the same event, so this
-                  does both in one write. Previously it only ticked the flag and
-                  you had to log the money again in the Payments panel below —
-                  two places for one thing, and the payments total would sit at
-                  $0 while the record claimed payment was confirmed.
-                  It reads the payments already logged so pressing this after
-                  using the panel confirms without double-counting. */}
-              {(!noSetup||paid)&&<button className={'cb-pay'+(paid?' on':'')} onClick={()=>{
-                const ob={...(draft.onboarding||{})};
-                const cur=normEntry(ob.deposit_paid);
-                if(cur.done){
-                  if(!window.confirm('Mark the payment as NOT collected?\n\nIt stops counting in your numbers. Any payments you logged stay on the record.')) return;
-                  ob.deposit_paid={done:null,due:cur.due||null};
-                  const act={id:uid(),ts:new Date().toISOString(),type:'Note',text:'Payment marked as not collected.',who:me};
-                  set({onboarding:ob,activities:[act,...(draft.activities||[])]});
-                  return;
-                }
-                const d=window.prompt('What date did the payment land? (YYYY-MM-DD)',todayISO());
-                if(d===null) return; const clean=String(d).trim().slice(0,10);
-                if(!/^\d{4}-\d{2}-\d{2}$/.test(clean)){ window.alert('Please use YYYY-MM-DD, e.g. 2026-08-01.'); return; }
-                ob.deposit_paid={done:clean,due:cur.due||null};
-
-                const pays=Array.isArray(draft.payments)?draft.payments:[];
-                const already=pays.reduce((a,x)=>a+num(x.amount),0);
-                const owed=dealsOf(draft).reduce((a,x)=>a+dealSum(x),0)+(draft.retainerActive?num(draft.retainer):0);
-                const suggest=Math.max(0,owed-already);
-                const raw=window.prompt(
-                  already>0?`How much came in? (${usdc(already)} already logged)`:'How much came in? ($)',
-                  suggest>0?String(suggest):'');
-                /* Cancel here still confirms the date — you said the money
-                   landed, and refusing to record that because the amount prompt
-                   was dismissed would be the more surprising outcome. */
-                const amount=raw===null?0:num(raw);
-                const patch={onboarding:ob};
-                const acts=[];
-                if(amount>0){
-                  const note=(window.prompt('Note (e.g. "Square deposit", "cash at discovery") — optional:','')||'').trim();
-                  patch.payments=[...pays,{id:uid(),amount,date:clean,note}];
-                  acts.push({id:uid(),ts:new Date().toISOString(),type:'Payment',
-                    text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who:me});
-                }
-                acts.push({id:uid(),ts:new Date().toISOString(),type:'Note',
-                  text:`Payment confirmed ${fmtDate(clean)} — ${usd(num(draft.dealValue))} now counting.`,who:me});
-                set({...patch,activities:[...acts,...(draft.activities||[])]});
-              }}>{paid?<><CheckCircle2 size={13}/>Payment collected</>:<><DollarSign size={13}/>Mark payment collected</>}</button>}
-              <button className="linkbtn cb-undo" onClick={doRevert}>Revert to lead</button>
-            </div>);
-          })()}
           {!isNew&&draft.isClient&&(()=>{
             const wonStage=stages.find(s=>s.won); const inWon=wonStage&&draft.stage===wonStage.key;
             const counted=inWon&&draft.closedAt;
