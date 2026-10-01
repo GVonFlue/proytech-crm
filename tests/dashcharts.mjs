@@ -95,6 +95,13 @@ if(dealTab) await click(dealTab);
 const sel=[...document.querySelectorAll('select')].find(x=>[...x.options].some(o=>o.textContent==='CRM Setup'));
 ok('a deal carries a Service picker', !!sel, 'selects='+document.querySelectorAll('.m-right select').length);
 
+console.log('\nCONVERT STAYS REACHABLE');
+const prep=document.querySelector('.m-prep');
+const conv=[...document.querySelectorAll('.m-prep button')].find(b=>/Convert to Client/.test(b.textContent||''));
+ok('Convert to Client is in the always-visible rail', !!conv,
+   'prep buttons='+(prep?prep.querySelectorAll('button').length:'no rail'));
+ok('and it is still there with a panel open', !!conv&&!!document.querySelector('.m-grid.panel-on'));
+
 console.log('\nTHE TAB PANEL');
 const grid=document.querySelector('.m-grid.lead3');
 ok('opening a tab puts the grid in panel mode', !!grid&&/panel-on/.test(grid.className), grid&&grid.className);
@@ -105,6 +112,23 @@ ok('only the open section is picked', document.querySelector('.m-left').getAttri
 if(dealTab) await click(dealTab);
 const grid2=document.querySelector('.m-grid.lead3');
 ok('clicking the same tab closes it', !!grid2&&/panel-off/.test(grid2.className), grid2&&grid2.className);
+
+console.log('\nIT IS A POPUP, AND IT IS NOT NAVY');
+if(dealTab) await click(dealTab);
+const pop=document.querySelector('.m-pop');
+ok('the section floats as its own card', !!pop, 'classes='+(document.querySelector('.m-left')||{}).className);
+ok('the record is dimmed behind it', !!document.querySelector('.m-popscrim'));
+ok('it opens at the top of the section', !pop||pop.scrollTop===0, pop&&String(pop.scrollTop));
+ok('contact is not stapled to the deal panel', pop&&pop.getAttribute('data-panel')==='deal');
+const tabText=[...document.querySelectorAll('.mj')].map(b=>(b.textContent||'').trim()).join('|');
+ok('Contact has a tab of its own', /Contact/.test(tabText), tabText);
+ok('Sponsors has a tab', /Sponsors/.test(tabText), tabText);
+const contactTab=[...document.querySelectorAll('.mj')].find(b=>/Contact/.test(b.textContent||''));
+if(contactTab) await click(contactTab);
+ok('and it opens its own section', (document.querySelector('.m-pop')||{getAttribute:()=>null}).getAttribute('data-panel')==='contact');
+const scrim=document.querySelector('.m-popscrim');
+if(scrim) await act(async()=>{scrim.dispatchEvent(new dom.window.MouseEvent('mousedown',{bubbles:true}));});
+ok('clicking away closes it', !document.querySelector('.m-pop'));
 
 console.log('\n'+pass+' passed, '+fail+' failed\n');
 process.exit(fail?1:0);
