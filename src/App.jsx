@@ -1144,6 +1144,30 @@ const CSS=`
 .fu-chip:hover{border-color:${COBALT};color:${COBALT}}
 .fu-chip.clear{margin-left:auto;color:#8b88a0}
 .fu-chip.clear:hover{border-color:${RED};color:${RED}}
+/* REACH OUT on the white surface. These buttons were only ever styled under
+   .modal.lead, the dark skin, so when the record moved to leadfs they fell back
+   to raw underlined browser links with loose icons and wrapping copy buttons.
+   Two-class selectors on purpose: the dark rules carry three, so turning the
+   skin back on still wins without touching this block. */
+.m-acts{display:flex;flex-direction:column;gap:7px;margin:2px 0 6px}
+.m-act-row{display:flex;align-items:stretch;gap:6px}
+.m-acts .m-act{flex:1;min-width:0;display:flex;align-items:center;gap:10px;padding:9px 11px;
+  border-radius:11px;border:1px solid #E1E2EC;background:#fff;color:${INK};
+  font:inherit;font-size:13.5px;font-weight:650;cursor:pointer;
+  text-decoration:none;text-align:left;transition:border-color .12s,background .12s}
+.m-acts .m-act i{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:8px;
+  background:#EEF2FE;color:${COBALT};font-style:normal}
+.m-acts .m-act b{flex:none;font-weight:700}
+.m-acts .m-act .m-act-v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  text-align:right;font-size:11.5px;font-weight:600;color:#6B6885}
+.m-acts .m-act:hover{border-color:${COBALT};background:#F6F8FF}
+.m-acts .m-act:hover i{background:${COBALT};color:#fff}
+.m-acts button.m-act[disabled]{cursor:default;opacity:.6;background:#FAFAFC;border-style:dashed}
+.m-acts button.m-act[disabled] i{background:#F1F1F5;color:#9A98AE}
+.m-acts button.m-act[disabled]:hover{border-color:#E1E2EC;background:#FAFAFC}
+.m-acts .m-act-copy{flex:none;width:38px;border-radius:11px;border:1px solid #E1E2EC;
+  background:#fff;color:#8b88a0;cursor:pointer;display:grid;place-items:center;padding:0}
+.m-acts .m-act-copy:hover{border-color:${COBALT};color:${COBALT};background:#F6F8FF}
 /* a folded run of machine-written notes: quiet, one tap to open, never hidden */
 .sysrun{display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;
   background:#F7F8FC;border:1px dashed #DFE1EE;border-radius:9px;padding:7px 11px;margin:2px 0;
