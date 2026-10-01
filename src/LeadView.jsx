@@ -1351,8 +1351,8 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   /* `lead` is what widens this to the full viewport; every other modal in the
      app keeps the 960px card. Structure below is untouched — this PR moves no
      element and renames no class. */
-  return (<div className="scrim2 lead" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
-    <div className="modal lead" onMouseDown={e=>e.stopPropagation()}>
+  return (<div className="scrim2 leadfs" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
+    <div className="modal leadfs" onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head">
         <div style={{minWidth:0}}>
           <h2>{draft.name||draft.company||(newRel?'New Relationship':'New Lead')}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}

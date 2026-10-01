@@ -1026,12 +1026,21 @@ const CSS=`
    route cannot do that.
    Inset rather than a true 100vw so the scrim still reads as depth and the
    Escape target stays obvious. */
-.scrim2.lead{padding:0}
-.modal.lead{width:100%;max-width:none;max-height:none;height:100%;border-radius:0;animation:leadin .16s ease}
+.scrim2.lead,.scrim2.leadfs{padding:0}
+.modal.lead,.modal.leadfs{width:100%;max-width:none;max-height:none;height:100%;border-radius:0;animation:leadin .16s ease}
+/* ---- THE LIGHT LEAD VIEW --------------------------------------------------
+   leadfs is the SIZE of the lead view; lead was the size AND a dark skin
+   painted across 380 rules, 220 of which hard-code a colour rather than read
+   the theme variables. Flipping the variables could never have undone that, so
+   the record carries leadfs and the dark rules simply stop matching — the
+   base styles above are the white design, unchanged and still there. The skin
+   is left in the file rather than deleted: it is one class away if it is ever
+   wanted, and deleting 380 rules to prove a point is how working CSS gets
+   lost. */
 @keyframes leadin{from{opacity:0;transform:scale(.995)}to{opacity:1;transform:none}}
 @media (min-width:1080px){
-  .scrim2.lead{padding:18px}
-  .modal.lead{border-radius:18px;height:100%}
+  .scrim2.lead,.scrim2.leadfs{padding:18px}
+  .modal.lead,.modal.leadfs{border-radius:18px;height:100%}
 }
 @keyframes pop{from{transform:scale(.97);opacity:.5}to{transform:none;opacity:1}}
 .m-head{background:#fff;border-bottom:1px solid #E8E9F2;padding:18px 24px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
@@ -1086,7 +1095,7 @@ const CSS=`
 .m-grid{position:relative}
 .m-popscrim{position:absolute;inset:0;background:rgba(5,7,26,.55);z-index:38;
   animation:popIn .14s ease-out}
-.modal.lead .m-pop,.m-pop{
+.m-pop{
   --plate:#fff; --plate2:#FAFBFE; --plate3:#F4F6FB;
   --ink:#181530; --ink-hi:#0C0A24; --ink-mid:#3A3660;
   --dim:#8b88a0; --faint:#B9B6CC;
@@ -2952,7 +2961,7 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
    surface because it is the app telling a rep what to do next; a client screen
    is one you read and type into, so the navy is spent on the header band and
    the numbers only. */
-.modal.lead.client{background:#F7F7FB;color:${INK}}
+.modal.leadfs.client{background:#F7F7FB;color:${INK}}
 .cv-head{background:${INK};color:#fff;padding:20px 26px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex:none}
 .cv-name{font-family:'Space Grotesk';font-size:24px;font-weight:700;letter-spacing:-.02em}
 .cv-sub{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:#A8AAC6;margin-top:6px}

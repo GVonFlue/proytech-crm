@@ -150,8 +150,8 @@ export default function RepProfile({
   };
 
   return (
-    <div className="scrim2 lead" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal lead rp" onMouseDown={e => e.stopPropagation()}>
+    <div className="scrim2 leadfs" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="modal leadfs rp" onMouseDown={e => e.stopPropagation()}>
         <div className="m-head">
           <div style={{ minWidth: 0 }}>
             <h2>{rep.name}</h2>
