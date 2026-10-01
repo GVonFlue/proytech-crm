@@ -22,7 +22,6 @@
    ========================================================================== */
 
 import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import CircuitBand from './CircuitBand';
 import { BRAND } from './lib/brand';
 import {
   DEMO_MINUTES, SLOT_MINUTES, TZ_DEFAULT,
@@ -35,7 +34,7 @@ import {
   cmsnOf, dateVocab, datelessOf, dayLabel, daysToDate, daysUntil, dealsOf, depositPaidAt,
   evNum, fmtDate, fmtMeetingTime, fmtStamp, introChain, isPoolLead, isUpsellDeal, isoOf,
   keyDatesOf, labelVocab, labelsOf, manualSponsorships, needsDate, normEntry,
-  num, nurtureDaysOf, onbSkipped, isWon, openInvoicesFor, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
+  num, nurtureDaysOf, onbSkipped, openInvoicesFor, owedBy, pct, poolList, sOf, seedOnboarding, sponsorshipsOf,
   stdPhases, stripTagText, tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc,
   gmailCompose, isSystemNote, yearsAt,
   projectsOf, projectForDeal, newProject,
@@ -726,6 +725,21 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   const [atype,setAtype]=useState('Call');const [adisp,setAdisp]=useState('');const [cbAt,setCbAt]=useState('');const [brief,setBrief]=useState({});const [atext,setAtext]=useState('');const [pendTags,setPendTags]=useState([]);const [kdLabel,setKdLabel]=useState('Birthday');const [kdDate,setKdDate]=useState('');const [who,setWho]=useState(me||BRAND.team[0]||'');const [feedFilter,setFeedFilter]=useState('All');const [composeOpen,setComposeOpen]=useState(!!rep);
   const [wideFeed,setWideFeed]=useState(()=>{ try{return localStorage.getItem('pt_widefeed')==='1';}catch{return false;} });
   const [openSec,setOpenSec]=useState({});
+  /* WHICH TAB IS OPEN AS A PANEL, or null for none.
+     The jump bar used to scroll a 344px rail to a heading, which meant doing
+     real work — a deal, a meeting — in the narrowest column on the screen
+     while the widest one showed an activity log nobody was reading at that
+     moment. A tab now OPENS that section as a panel across the working area,
+     and closing it gives the whole width back to the feed, which is what the
+     screen is opened for in the first place. Never open on mount: landing on a
+     lead with the Deal panel up would hide the history you came to read. */
+  const [panel,setPanel]=useState(null);
+  /* Escape closes the PANEL first and the lead second, because the panel is the
+     thing most recently opened and the one a reflex Escape is aimed at. */
+  useEffect(()=>{ if(!panel) return;
+    const h=e=>{ if(e.key==='Escape'){ e.stopPropagation(); setPanel(null); } };
+    window.addEventListener('keydown',h,true);
+    return ()=>window.removeEventListener('keydown',h,true); },[panel]);
   const [showMore,setShowMore]=useState(false);
   const [firstNote,setFirstNote]=useState('');
   const [logMtype,setLogMtype]=useState('Coffee');
@@ -953,8 +967,13 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
      never remount and lose focus while typing. */
   /* one-tap access: open a section and bring it into view. Clicking a header
      fact or a jump chip lands you on the right block with no scrolling. */
-  const jumpTo=k=>{ setOpenSec(o=>({...o,[k]:true}));
-    setTimeout(()=>{ const el=document.getElementById('msec-'+k); if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'smooth',block:'start'}); },70); };
+  const jumpTo=k=>{
+    /* Same tab again closes it. A panel you can only leave by finding an X is
+       one more thing to hunt for on a screen you are working quickly in. */
+    if(panel===k){ setPanel(null); return; }
+    setOpenSec(o=>({...o,[k]:true}));
+    setPanel(k);
+    setTimeout(()=>{ const el=document.getElementById('msec-'+k); if(el&&el.scrollIntoView) el.scrollIntoView({behavior:'auto',block:'start'}); },40); };
   const Sec=(k,icon,title,summary,body,defOpen)=>{
     const isOpen=openSec[k]??!!defOpen;
     return (<div className={'msec'+(isOpen?' open':'')} id={'msec-'+k} key={k}>
@@ -1331,7 +1350,6 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   return (<div className="scrim2 lead" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal lead" onMouseDown={e=>e.stopPropagation()}>
       <div className="m-head">
-        <CircuitBand/>
         <div style={{minWidth:0}}>
           <h2>{draft.name||draft.company||(newRel?'New Relationship':'New Lead')}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
           {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · {lastTouch(draft)?`Last contact ${fmtDate(lastTouch(draft))}`:'never contacted'}</div>}
@@ -1393,7 +1411,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           ['svc','Service',Target,(draft.serviceInterest||[]).length||''],
           ['type','Intro',Users,''],
           ['deal','Deal',DollarSign,'']].map(([k,label,Ic,badge])=>(
-          <button key={k} className={'mj'+(openSec[k]?' on':'')} onClick={()=>jumpTo(k)}><Ic size={13}/>{label}{badge!==''&&<i>{badge}</i>}</button>
+          <button key={k} className={'mj'+(panel===k?' on':'')} onClick={()=>jumpTo(k)}><Ic size={13}/>{label}{badge!==''&&<i>{badge}</i>}</button>
         ))}
       </div>}
       {/* THREE COLUMNS, IN THE ORDER THE WORK HAPPENS.
@@ -1403,7 +1421,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           beside a compressed feed once the surface went full width. History is
           what this screen is opened for, so it takes the middle and all the
           slack; the two rails are fixed and narrow. */}
-      <div className={'m-grid lead3'+(wideFeed?' wide':'')}>
+      <div className={'m-grid lead3'+(wideFeed?' wide':'')+(panel?' panel-on':' panel-off')}>
         {/* ---------- PREP: what you need before you call ---------- */}
         {!isNew&&<div className="m-prep">
           {/* CONTACT ACTIONS.
@@ -1801,7 +1819,11 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               : <button className="btn btn-d" onClick={()=>{if(window.confirm('Delete this lead permanently?'))delLead(draft.id);}}><Trash2 size={15}/>Delete lead</button>}</div>
           </>}
         </div>
-        <div className="m-left">
+        <div className="m-left" data-panel={panel||''}>
+          {panel&&<div className="mp-bar">
+            <span className="mp-who">{personLabel(draft)}</span>
+            <button className="mp-x" onClick={()=>setPanel(null)}><X size={15}/>Close</button>
+          </div>}
           {/* ---------- 1. CONTACT — always first, always open ---------- */}
           <div className="dh"><Contact2 size={13}/>{isNew?'New lead':'Contact'}</div>
           <div className="fgrid">
@@ -2163,6 +2185,17 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                     <span className="deal-card-v">{usd(dealSum(d))}</span>
                     {openDeals.length>1&&<button className="ex-del" title="Remove this deal" onClick={()=>removeDeal(d.id)}><X size={14}/></button>}
                   </div>
+                  {/* WHAT THIS DEAL IS, not what they were interested in.
+                      serviceInterest lives on the lead and means "they asked
+                      about this"; it can never answer what we actually sold.
+                      The dashboard's Sold-by-service chart reads THIS field, so
+                      a deal left unset shows up as Unassigned rather than being
+                      quietly dropped out of the total. */}
+                  <div className="field"><label>Service</label>
+                    <select value={d.service||''} onChange={e=>updateDeal(d.id,{service:e.target.value})}>
+                      <option value="">— not set —</option>
+                      {opt.service.map(sv=><option key={sv} value={sv}>{sv}</option>)}
+                    </select></div>
                   <div className="fgrid">
                     <div className="field"><label>Setup $</label><input type="number" value={d.setup??''} onChange={e=>updateDeal(d.id,{setup:e.target.value})}/></div>
                     <div className="field"><label>Website $</label><input type="number" value={d.website??''} onChange={e=>updateDeal(d.id,{website:e.target.value})}/></div>
@@ -2299,10 +2332,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                   const outstanding=openInvoicesFor(draft,invoices);
                   const raise=()=>{ setInvAsk(false); if(invoiceBalance) invoiceBalance(draft); };
                   return (<div className="pay-panel">
-                    <div className="pay-head"><span>Payments</span>{owed>0&&(remaining>0
-                      ?<b className="due">{usdc(remaining)} remaining</b>
-                      :isWon(draft,stages)?<b className="clear">paid in full</b>
-                      :<b className="notyet">not closed yet</b>)}
+                    <div className="pay-head"><span>Payments</span>{owed>0&&<b className={remaining>0?'due':'clear'}>{remaining>0?`${usdc(remaining)} remaining`:'paid in full'}</b>}
                       {remaining>0&&invoiceBalance&&!invAsk&&(
                         <button className="pay-inv" onClick={()=>{ if(outstanding.length) setInvAsk(true); else raise(); }}
                           title={`Create an invoice for ${usdc(remaining)}`}>
