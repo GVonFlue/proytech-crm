@@ -81,7 +81,9 @@ export default async function handler(req, res) {
   if (!gate.ok) return;
   sweep();
 
-  const b = req.body || {};
+  let b = req.body;
+  if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } }
+  b = b || {};
   const host = String(b.host || 'Garrett').trim() || 'Garrett';
   const date = String(b.date || '').slice(0, 10);
   const slot = String(b.slot || '').trim();           // '0900' | '1030' | '1200'

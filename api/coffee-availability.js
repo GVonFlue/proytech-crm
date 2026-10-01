@@ -32,7 +32,7 @@ function cors(res, origin) {
   // Allow the marketing site (www and apex) to call this cross-origin.
   const ok = origin === 'https://www.getproytech.com' || origin === 'https://getproytech.com';
   res.setHeader('Access-Control-Allow-Origin', ok ? origin : ALLOW_ORIGIN);
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'content-type');
   res.setHeader('Vary', 'Origin');
 }
@@ -46,7 +46,10 @@ export default async function handler(req, res) {
   sweep();
 
   try {
-    const date = String((req.query && req.query.date) || '').slice(0, 10);
+    let body = req.body;
+    if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
+    body = body || {};
+    const date = String((body.date || '')).slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       res.status(400).json({ ok: false, error: 'bad date' }); return;
     }
