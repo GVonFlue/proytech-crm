@@ -113,6 +113,12 @@ if(dealTab) await click(dealTab);
 const grid2=document.querySelector('.m-grid.lead3');
 ok('clicking the same tab closes it', !!grid2&&/panel-off/.test(grid2.className), grid2&&grid2.className);
 
+console.log('\nTHE RECORD IS WHITE AGAIN');
+const modal=document.querySelector('.modal.leadfs');
+ok('the lead view carries the light class', !!modal, 'classes='+((document.querySelector('.scrim2')||{}).className||'none'));
+ok('and not the dark skin', !document.querySelector('.modal.lead'),
+   'still dark: '+((document.querySelector('.modal.lead')||{}).className||''));
+
 console.log('\nIT IS A POPUP, AND IT IS NOT NAVY');
 if(dealTab) await click(dealTab);
 const pop=document.querySelector('.m-pop');

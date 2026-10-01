@@ -139,7 +139,7 @@ await act(async()=>{await new Promise(r=>setTimeout(r,40));});
    claims, one surface up — the assertion is that ticking a step still writes
    to the PROJECT and not to the client's own onboarding, which is the bug
    this file was written for. */
-const panel=document.querySelector('.modal.lead.client');
+const panel=document.querySelector('.modal.leadfs.client');
 ok('opening the card shows the client dashboard', !!panel);
 const step=panel&&[...panel.querySelectorAll('.cv-m')].find(e=>/Install set up/.test(e.textContent||''));
 ok('with the Business Suite checklist on it', panel && panel.querySelectorAll('.cv-m').length>=8, panel&&('steps='+panel.querySelectorAll('.cv-m').length));
