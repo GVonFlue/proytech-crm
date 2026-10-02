@@ -1388,7 +1388,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           the record below stays white, where the work is read. */}
       <div className="m-head plate">
         <div style={{minWidth:0}}>
-          <h2>{draft.name||draft.company||(newRel?'New Relationship':'New Lead')}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
+          <h2>{draft.name||draft.company||(newRel?'New Relationship':'New Lead')}</h2>{!isNew&&<div className="co">{[String(draft.company||'').trim().toLowerCase()===String(draft.name||'').trim().toLowerCase()?'':draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
           {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · {lastTouch(draft)?`Last contact ${fmtDate(lastTouch(draft))}`:'never contacted'}</div>}
           {!isNew&&<div className="qa">
             <StageBadge k={draft.stage} stages={stages}/><PriBadge p={draft.priority}/>

@@ -8,6 +8,7 @@ import {
   anyPayments, meetingsOf, activeTracks, trackProgress, clientOverall,
   projectsOf, projectProgress, lastTouch, daysSinceTouch, dealsOf, dealBits,
   closedDealsTotal, stdPhases,
+  dealRows, assignDealService, servicesOf, tracksForService, isUpsellDeal,
 } from './lib/lead';
 import { retainerState, monthsDue, monthsPaid, allPaid } from './lib/retainer';
 
@@ -156,6 +157,37 @@ export default function ClientView({
               {openInv.length > 0 && <span className="cv-act-n">{openInv.length} invoice{openInv.length === 1 ? '' : 's'} already out — check before billing again.</span>}
             </div>
           )}
+
+          {/* ---------------------------------------- what they bought
+              Every deal on the client, the service it was, and the delivery
+              checklist that service sets off. The picker is the same
+              labelling the Label-your-deals screen does (assignDealService):
+              it writes a service name only, never an amount. */}
+          {(() => {
+            const rows = dealRows(l).filter(r => r.amount > 0);
+            if (!rows.length) return null;
+            const names = servicesOf(settings).map(s => s.name);
+            const upsell = new Set(dealsOf(l).filter(isUpsellDeal).map(d => d.id));
+            return (<div className="cv-card cv-bought">
+              <div className="cv-card-h"><Target size={15} />What they bought</div>
+              {rows.map(r => {
+                const pitched = r.kind === 'open' && upsell.has(r.id);
+                const trs = tracksForService(r.service, tracks);
+                return (<div className={'cvb-row' + (r.service ? '' : ' todo')} key={r.kind + r.id}>
+                  <div className="cvb-m">
+                    <b>{r.label}</b>
+                    <span>{pitched ? 'being pitched' : r.kind === 'closed' ? `closed ${r.when ? fmtDate(r.when) : ''}` : 'won, open'} · {usd(r.amount)}</span>
+                    {r.service && <span className="cvb-t">{trs.length ? `Checklist: ${trs.map(t => t.label).join(' + ')}` : 'No delivery checklist for this service. Add it to a track in Settings.'}</span>}
+                  </div>
+                  <select value={r.service} onChange={e => { const p = assignDealService(l, r, e.target.value); if (p) set(p); }} aria-label={`Service for ${r.label}`}>
+                    <option value="">Service?</option>
+                    {r.service && !names.includes(r.service) && <option value={r.service}>{r.service}</option>}
+                    {names.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>);
+              })}
+            </div>);
+          })()}
 
           {/* --------------------------------------------- the retainer */}
           {(rate > 0 || rState !== 'none') && (

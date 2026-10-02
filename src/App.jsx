@@ -14,7 +14,7 @@ import {
   Users, Link2, UserPlus, Expand, Video, CalendarCheck, Zap, Clipboard,
   Trophy, Crown, Ban, BadgeCheck, KeyRound,
   Ticket, Bot, Mic,
-  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2, Megaphone, Server,
+  Handshake, Sheet, RefreshCw, Clock, MapPin, ExternalLink, AtSign, Gift, Maximize2, Minimize2, Megaphone, Server, Tags,
 } from 'lucide-react';
 import JSZip from 'jszip';
 import MeetingLog from './MeetingLog';
@@ -23,7 +23,8 @@ import PersonPicker from './PersonPicker';
 import Jarvis from './Jarvis';
 import MassOutreach from './MassOutreach';
 import ClientView from './ClientView';
-import { monthKeys, collectedByMonth, mrrByMonth, soldByService, cashByMonth } from './lib/charts';
+import ServiceAssign from './ServiceAssign';
+import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import { playbookGate, unreadSince } from './lib/kb';
@@ -1169,6 +1170,50 @@ const CSS=`
 .m-acts .m-act-copy{flex:none;width:38px;border-radius:11px;border:1px solid #E1E2EC;
   background:#fff;color:#8b88a0;cursor:pointer;display:grid;place-items:center;padding:0}
 .m-acts .m-act-copy:hover{border-color:${COBALT};color:${COBALT};background:#F6F8FF}
+/* LABEL YOUR DEALS (ServiceAssign.jsx) */
+.sa-scrim{position:fixed;inset:0;z-index:1200;background:rgba(5,7,26,.55);display:flex;align-items:center;justify-content:center;padding:18px}
+.sa-card{background:#fff;border-radius:18px;width:min(720px,100%);max-height:calc(100vh - 36px);display:flex;flex-direction:column;box-shadow:0 34px 90px -22px rgba(5,7,26,.6);overflow:hidden}
+.sa-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:18px 20px 12px;border-bottom:1px solid #EEF0F6}
+.sa-title{display:flex;align-items:center;gap:8px;font-size:17px;font-weight:750;color:${INK}}
+.sa-sub{margin-top:4px;font-size:13px;color:#6B6885;line-height:1.45}
+.sa-x{display:flex;align-items:center;gap:4px;border:none;background:none;color:#8b88a0;font:inherit;font-size:13px;cursor:pointer;flex:none}
+.sa-tabs{display:flex;gap:6px;padding:10px 20px;border-bottom:1px solid #EEF0F6}
+.sa-tabs button{border:1px solid #E1E2EC;background:#fff;border-radius:20px;padding:6px 12px;font:inherit;font-size:12.5px;font-weight:650;color:#5A5680;cursor:pointer}
+.sa-tabs button.on{border-color:${COBALT};color:${COBALT};background:#F4F7FF}
+.sa-body{overflow-y:auto;padding:6px 20px 14px;-webkit-overflow-scrolling:touch}
+.sa-group{padding:12px 0;border-bottom:1px solid #F1F2F7}
+.sa-who{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13.5px;font-weight:700;color:${INK};margin-bottom:7px}
+.sa-who em{font-style:normal;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:#1f8a55;background:#EAF7F0;border-radius:6px;padding:2px 6px;margin-left:8px}
+.sa-who button{border:none;background:none;color:#8b88a0;cursor:pointer;padding:4px}
+.sa-row{display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid #EDEEF5;border-radius:10px;margin-bottom:6px;background:#FBFBFE}
+.sa-row.todo{border-color:#F0C9A8;background:#FFF9F4}
+.sa-deal{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.sa-deal b{font-size:13.5px;color:${INK};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sa-deal span{font-size:12px;color:#8b88a0}
+.sa-row select{flex:none;max-width:52%;border:1px solid #E1E2EC;border-radius:8px;padding:7px 8px;font:inherit;font-size:13px;color:${INK};background:#fff}
+.sa-row.todo select{border-color:#F0C09B;color:#B4541E}
+.sa-empty{padding:30px 0;text-align:center;color:#8b88a0;font-size:13.5px}
+.sa-foot{padding:10px 20px 14px;border-top:1px solid #EEF0F6;font-size:12px;color:#8b88a0}
+.sa-open{display:inline-flex;align-items:center;gap:6px;margin:4px 0 6px;border:1px dashed #F0C09B;background:#FFF9F4;color:#B4541E;border-radius:8px;padding:6px 10px;font:inherit;font-size:12.5px;font-weight:650;cursor:pointer}
+.cvb-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid #F1F2F7}
+.cvb-row:first-of-type{border-top:none}
+.cvb-m{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cvb-m b{font-size:13.5px;color:${INK}}
+.cvb-m span{font-size:12px;color:#8b88a0}
+.cvb-m .cvb-t{color:#1f8a55;font-weight:600}
+.cvb-row select{flex:none;max-width:48%;border:1px solid #E1E2EC;border-radius:8px;padding:7px 8px;font:inherit;font-size:13px;color:${INK};background:#fff}
+.cvb-row.todo select{border-color:#F0C09B;color:#B4541E;background:#FFF9F4}
+@media (max-width:640px){ .cvb-row{flex-wrap:wrap} .cvb-row select{max-width:none;flex:1 1 100%} }
+.svc-rev{margin-top:12px;border-top:1px solid #EEF0F6;padding-top:8px}
+.svc-rev-r{display:grid;grid-template-columns:minmax(0,1.2fr) auto minmax(0,1.3fr) auto;gap:10px;align-items:baseline;padding:6px 0;font-size:12.5px;color:#6B6885;border-bottom:1px dashed #F0F1F6}
+.svc-rev-r b{color:${INK};font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.svc-rev-r .w{color:${INK};font-weight:700}
+.svc-rev-r .p{color:#5B74D6;text-align:right}
+.svc-rev-r.un b,.svc-rev-r.un .w{color:#8b88a0}
+.svc-rev-x{margin-top:8px;font-size:12px;color:#8b88a0}
+@media (max-width:640px){ .svc-rev-r{grid-template-columns:minmax(0,1fr) auto;row-gap:2px} .svc-rev-r .p{text-align:left} }
+.sa-cta{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:16px;padding:12px 14px;border:1px solid #D6E0FA;background:#F6F8FF;border-radius:12px;font-size:13px;color:#4a4763}
+@media (max-width:820px){ .sa-scrim{padding:0;align-items:stretch} .sa-card{width:100%;max-height:none;border-radius:0} .sa-head{padding-top:calc(14px + env(safe-area-inset-top,0px))} .sa-row{flex-wrap:wrap} .sa-row select{max-width:none;flex:1 1 100%} }
 /* SERVICES AND PRICING: the catalog editor in Settings, and the picker that
    opens under Add a deal. */
 .svc-cat{display:flex;flex-direction:column;gap:8px}
@@ -3824,6 +3869,74 @@ button,a,label,select,input,textarea,.kcard,.fu-card,.cli-card,.rt-person,.msec-
 .tbl.sc td,.tbl.sc th{white-space:nowrap}
 .tbl.sc tbody tr{cursor:default}
 @media (max-width:640px){ .cmsn-v{font-size:32px} .cel{left:14px;right:14px;bottom:14px;max-width:none} }
+/* ===================== PHONE: the lead record and the shell =====================
+   Last in the sheet ON PURPOSE, with selectors at least as heavy as the rules
+   they correct. Both big phone bugs (Oct 2026) were a phone rule losing to a
+   heavier desktop rule, or a phone rule catching something it was not meant
+   for:
+   - .m-grid.lead3.panel-off (three classes) beat the phone's one-column
+     .m-grid.lead3 (two), so a record with no tab open stayed two columns and
+     the activity log was crushed into a 70px strip.
+   - .m-left,.m-right{overflow:visible}, written so the stacked columns flow as
+     one page, also hit the tab popup, which IS a .m-left, so it spilled its
+     content over the log instead of scrolling.
+   tests/mobile.mjs opens a record on a phone and fails on either. */
+@media (max-width:820px){
+  .m-grid.lead3.panel-off,.m-grid.lead3.panel-on,.m-grid.lead3.wide{grid-template-columns:minmax(0,1fr)}
+  /* stacked, the prep rail is part of the page: a scroll box with
+     min-height:0 collapsed to a 60px strip that hid Call, Text and Email */
+  .m-grid.lead3>.m-prep{overflow:visible;min-height:auto}
+  .m-grid.lead3{align-content:start}
+
+  /* a tab is a sheet over the whole record, not a card squeezed under the
+     header: the header alone was 53% of an iPhone screen */
+  .m-left.m-pop{position:fixed;left:0;right:0;bottom:0;top:calc(env(safe-area-inset-top,0px) + 56px);
+    width:auto;max-height:none;transform:none;border-radius:18px 18px 0 0;
+    overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;
+    padding:0 16px calc(28px + env(safe-area-inset-bottom,0px));z-index:1000;animation:sheetUp .2s ease-out}
+  .m-left.m-pop .mp-bar{position:sticky;top:0;z-index:2;background:#fff;margin:0 -16px 8px;padding:14px 16px 10px;border-bottom:1px solid #EEF0F6}
+  .m-popscrim{position:fixed;inset:0;z-index:999}
+
+  /* the header: name, one line of meta, Convert, one scrolling row of facts */
+  .m-head.plate{padding:14px 14px 12px;gap:8px}
+  .m-head.plate h2{font-size:21px;line-height:1.2;padding-right:168px}
+  .m-head.plate .co{font-size:13.5px}
+  .m-head.plate .meta{font-size:11.5px}
+  .m-head.plate .qa{display:none}
+  /* .m-head.plate>* makes every header child position:relative, which would
+     anchor the nav to the fact strip instead of the header's corner */
+  .m-head.plate>.m-headright{position:static}
+  .m-head.plate .m-headright>div:first-child{position:absolute;top:10px;right:10px;gap:4px;z-index:3}
+  .m-head.plate .m-x{width:34px;height:34px}
+  .convert-banner.hdr b{display:none}
+  .convert-banner.hdr .btn{padding:8px 13px;font-size:13px}
+  .m-head.plate .m-facts{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:6px;scrollbar-width:none;margin:0 -14px;padding:0 14px}
+  .m-head.plate .m-facts::-webkit-scrollbar{display:none}
+  .m-head.plate .mf{flex:0 0 auto;min-width:92px;padding:6px 10px}
+
+  /* the tab row scrolls sideways; the fade says so */
+  .m-jump{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 40px),transparent);mask-image:linear-gradient(90deg,#000 calc(100% - 40px),transparent);padding-right:40px}
+
+  /* a meeting row wraps instead of stacking its controls on each other */
+  .mtg-row{flex-wrap:wrap;row-gap:8px}
+  .mtg-row>.mtg-when{order:0;flex:1 1 auto;min-width:0}
+  .mtg-row>.m-x{order:1}
+  .mtg-row>.mtg-mid{order:2;flex:1 1 100%;min-width:0}
+  .mtg-row>.mtg-status{order:3}
+
+  /* the menu: the pinned block took half the drawer and left 7 of 20 items */
+  .sb-foot{display:none}
+  .sb-fixed{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+  .sb-fixed .nav-i{padding-top:9px;padding-bottom:9px;font-size:13px;gap:8px}
+  .sb nav .nav-i{padding-top:8px;padding-bottom:8px}
+
+  /* Services & pricing rows: name on its own line, price and button beneath */
+  .svc-row{flex-wrap:wrap}
+  .svc-row .svc-name{flex:1 1 100%}
+  .svc-row .svc-price{flex:1 1 auto;width:auto}
+  .sb-brand{padding:12px 14px 8px;margin-bottom:6px}
+}
+@keyframes sheetUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
 `;
 
 const Due=({iso})=>{if(!iso)return <span className="subcell">—</span>;const d=daysUntil(iso);let c='far',t=fmtDate(iso);if(d<0){c='over';t='Overdue · '+fmtDate(iso);}else if(d===0){c='today';t='Today';}else if(d<=7){c='soon';t=fmtDate(iso);}return <span className={'due '+c}>{t}</span>;};
@@ -4149,6 +4262,7 @@ export default function App(){
   const [pockets,setPockets]=useState([]);
   const [pocketId,setPocketId]=useState(null);
   const [importOpen,setImportOpen]=useState(false);
+  const [svcAssign,setSvcAssign]=useState(false);
   const [navEdit,setNavEdit]=useState(false);   // sidebar reorder mode
   useEffect(()=>{ if(!session) return; let dead=false;
     db.getEvents().then(r=>{ if(!dead) setEvents(r||[]); }).catch(console.error);
@@ -5284,7 +5398,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedMoney} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null}/>:
+          view==='dash'?<Dashboard labelServices={isOwner?()=>setSvcAssign(true):null} pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -5295,7 +5409,7 @@ export default function App(){
             saveSettings={saveSettings} me={me} updateLead={updateLead} rep={rep} myPools={myPools}
             users={users} addActivity={addActivity} LeadTable={Leads}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
-          view==='clients'?<Clients leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}/>:
+          view==='clients'?<Clients labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings} rep={rep} myUser={repUser||myUser} myUid={myUid}/>:
@@ -5329,6 +5443,7 @@ export default function App(){
       lastSeen={(lastSeen||[]).find(x=>x.id===repOpen.id)} notes={repNotes}
       onAddNote={addRepNote} onDeleteNote={delRepNote} onResetPlaybook={resetKbProgress}
       onClose={()=>{setRepOpen(null);setRepNotes(null);}}/>}
+    {svcAssign&&<ServiceAssign leads={leads} settings={settings} updateLead={updateLead} onClose={()=>setSvcAssign(false)} openLead={id=>{setSvcAssign(false);openLead(id);}}/>}
     {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} invoices={invoices} invoiceBalance={invoiceBalance} openInvoice={id=>setInvId(id)} onBooked={notifyBooked} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} readAvailability={readAvailability} tagMeeting={tagMeeting} inbound={inbound}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
@@ -5636,7 +5751,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep,invoices}){
+function Dashboard({labelServices,leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep,invoices}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings,txns);
   const [drill,setDrill]=useState(null);
@@ -5940,7 +6055,8 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
      disagree about the same month. */
   const chartMonths=useMemo(()=>collectedByMonth(leads,12),[leads]);
   const chartMrr=useMemo(()=>mrrByMonth(leads,12),[leads]);
-  const chartSvc=useMemo(()=>soldByService(leads).slice(0,8),[leads]);
+  const svcRev=useMemo(()=>serviceRevenue(leads,stages),[leads,stages]);
+  const chartSvc=svcRev.rows.slice(0,8);
   const chartCash=useMemo(()=>cashByMonth(leads,txns,t=>((TX_TYPES[t.type]||{}).dir)==='out',12),[leads,txns]);
   const anyRev=chartMonths.some(m=>m.value>0);
   const anyMrr=chartMrr.some(m=>m.value>0);
@@ -6474,17 +6590,34 @@ function Dashboard({leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,
         </AreaChart></ResponsiveContainer></div>
       </ChartCard>
 
-      <ChartCard title="Sold by service" sub="What the money actually came from"
+      {/* WON AND PIPELINE, NOT ONE NUMBER. This used to add unsigned proposals
+          to won work, which is "what do we sell", not "what have we earned".
+          serviceRevenue (lib/charts) splits them; deals on lost or parked
+          leads are in neither and are noted underneath, so nothing vanishes. */}
+      <ChartCard title="Revenue by service" sub="Won work, with open pipeline beside it"
+        action={labelServices&&chartSvc.some(r=>r.name==='Unassigned')&&<button className="sa-open" onClick={labelServices}><Tags size={13}/>Label deals to fill this in</button>}
         empty={chartSvc.length?null:'Put a service on your deals and this fills in.'}>
         <div className="chart-sq"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartSvc} layout="vertical" margin={{top:6,right:18,left:8,bottom:0}}>
           <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F6" horizontal={false}/>
           <XAxis type="number" tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false} tickFormatter={v=>v>=1000?`${Math.round(v/1000)}k`:v}/>
           <YAxis type="category" dataKey="name" width={120} tick={{fontSize:11,fill:'#5A5680'}} axisLine={false} tickLine={false}/>
           <Tooltip contentStyle={tipStyle} cursor={{fill:'#F4F6FB'}} formatter={v=>usd(v)}/>
-          <Bar dataKey="value" name="Sold" radius={[0,6,6,0]}>
-            {chartSvc.map((e,i)=><Cell key={i} fill={e.name==='Unassigned'?'#B9B6CC':COBALT}/>)}
+          <Bar dataKey="won" name="Won" stackId="s">
+            {chartSvc.map((e,i)=><Cell key={i} fill={e.name==='Unassigned'?'#9A97B3':COBALT}/>)}
+          </Bar>
+          <Bar dataKey="pipeline" name="Pipeline" stackId="s" radius={[0,6,6,0]}>
+            {chartSvc.map((e,i)=><Cell key={i} fill={e.name==='Unassigned'?'#DCDAE6':'#AFC0F5'}/>)}
           </Bar>
         </BarChart></ResponsiveContainer></div>
+        <div className="svc-rev">
+          {chartSvc.map(r=>(<div className={'svc-rev-r'+(r.name==='Unassigned'?' un':'')} key={r.name}>
+            <b>{r.name}</b>
+            <span className="w">{usd(r.won)} won</span>
+            <span>{r.clients?`${r.clients} client${r.clients===1?'':'s'} · ${r.deals} deal${r.deals===1?'':'s'}`:'none won yet'}</span>
+            <span className="p">{r.pipeline?`${usd(r.pipeline)} in pipeline`:''}</span>
+          </div>))}
+          {svcRev.excluded>0&&<div className="svc-rev-x">{usd(svcRev.excluded)} on lost or parked leads is not counted in either.</div>}
+        </div>
       </ChartCard>
 
       <ChartCard title="In and out" sub="Collected against what the business spent"
@@ -8215,7 +8348,7 @@ function ClientBoard({clients,settings,onCard,setClientPhase,stages,projects,set
     </div>);})}</div>);
 }
 
-function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue}){
+function Clients({labelServices,leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue}){
   /* off by default: hidden items should stay out of the way, but you need a way
      back to them or switching one off would be one-directional */
   const [showSkipped,setShowSkipped]=useState(false);
@@ -8254,6 +8387,8 @@ function Clients({leads,stages,settings,open,toggleOnboarding,setOnboardingDue,a
       <Kpi label="At risk / churned" value={byPhase('atrisk')+byPhase('churned')} icon={<Flag size={14}/>} d={`${byPhase('active')} active`}/>
     </div>
     {wonNotConverted.length>0&&<div className="note" style={{marginBottom:18}}><b>{wonNotConverted.length} signed {wonNotConverted.length===1?'lead is':'leads are'} not onboarding yet.</b> Open {wonNotConverted.length===1?'it':'them'} and hit <b>Convert to Client</b>: {wonNotConverted.slice(0,5).map(l=>l.company||l.name).join(', ')}{wonNotConverted.length>5?'…':''}</div>}
+    {labelServices&&<div className="sa-cta"><span><b>Which service was each deal?</b> Label them and Sold by service on the dashboard fills in.</span>
+      <button className="btn btn-g btn-sm" onClick={labelServices}><Tags size={14}/>Label deals</button></div>}
     <div className="toolbar" style={{marginBottom:14}}>
       <div className="sec-title" style={{margin:0}}><KanbanSquare size={15}/>Client Pipeline</div>
       <label className="chip-toggle" style={{marginLeft:'auto'}}><input type="checkbox" checked={showChurned} onChange={e=>setShowChurned(e.target.checked)}/>Show churned</label>
@@ -9697,7 +9832,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
     <div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><Rocket size={15}/>Delivery Tracks</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>The fulfillment steps clients move through after converting. Each track shows only for clients who bought a matching service.</div>
-      <DeliveryEditor tracks={settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS} services={settings.options.service} onChange={t=>saveSettings({...settings,deliveryTracks:t})}/>
+      <DeliveryEditor tracks={settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS} services={[...new Set([...servicesOf(settings).map(x=>x.name),...(settings.options.service||[])])]} onChange={t=>saveSettings({...settings,deliveryTracks:t})}/>
     </div>
 
     {/* custom fields */}
@@ -10069,4 +10204,4 @@ function Drill({title,sub,onClose,children}){
     <div className="drill-b">{children}</div>
   </div>);
 }
-function ChartCard({title,sub,children,empty}){return (<div className="card"><h3>{title}</h3>{sub&&<div className="ch-sub">{sub}</div>}{empty?<div className="empty">{empty}</div>:children}</div>);}
+function ChartCard({title,sub,children,empty,action}){return (<div className="card"><h3>{title}</h3>{sub&&<div className="ch-sub">{sub}</div>}{action}{empty?<div className="empty">{empty}</div>:children}</div>);}
