@@ -13,7 +13,7 @@
    and a tile disagree about one month, you stop trusting both.
    ========================================================================== */
 
-import { anyPayments, dealsOf, dealBits, num } from './lead';
+import { anyPayments, dealsOf, dealBits, num, isUpsellDeal, sOf } from './lead';
 import { retainerState } from './retainer';
 
 const A = x => (Array.isArray(x) ? x : []);
@@ -104,6 +104,50 @@ export function soldByService(leads) {
   return Object.entries(bucket)
     .map(([name, value]) => ({ name, value: Math.round(value * 100) / 100 }))
     .sort((a, b) => b.value - a.value);
+}
+
+/** Revenue by service, split into WON and PIPELINE.
+ *
+ *  soldByService answers "what do we sell" and adds unsigned proposals to won
+ *  work. This answers "what have we earned from each service":
+ *   - won:      every closed deal, plus open deals on a record that is won
+ *               (a client, or a won stage) that are not upsells still pitched.
+ *               The same won test owedBy uses.
+ *   - pipeline: open deals on a record in an OPEN stage, and upsells being
+ *               pitched to clients. The same open test the pipeline uses.
+ *   - neither:  deals on lost or parked ("not right now") leads. Returned as
+ *               `excluded` so the parts always add up to soldByService.
+ *  deals and clients count won work only. Same per-deal sums as everywhere
+ *  (dealBits; closed amount-or-dealBits). */
+export function serviceRevenue(leads, stages) {
+  const by = {}; let excluded = 0;
+  const row = n => by[n] || (by[n] = { name: n, won: 0, pipeline: 0, deals: 0, clients: new Set() });
+  const key = v => String(v || '').trim() || 'Unassigned';
+  A(leads).forEach(l => {
+    if (!l) return;
+    const st = stages ? sOf(l.stage, stages) : {};
+    const recordWon = !!(l.isClient || (st && st.won));
+    const recordOpen = !!(st && st.open);
+    A(l.closedDeals).forEach(c => {
+      if (!c) return;
+      const v = num(c.amount) || dealBits(c.deal || {}); if (!v) return;
+      const r = row(key(c.service || (c.deal && c.deal.service)));
+      r.won += v; r.deals++; r.clients.add(l.id);
+    });
+    dealsOf(l).forEach(d => {
+      if (!d) return;
+      const v = dealBits(d); if (!v) return;
+      const r = row(key(d.service));
+      if (recordWon && !isUpsellDeal(d)) { r.won += v; r.deals++; r.clients.add(l.id); }
+      else if (recordOpen || (recordWon && isUpsellDeal(d))) r.pipeline += v;
+      else excluded += v;
+    });
+  });
+  const r2 = x => Math.round(x * 100) / 100;
+  const rows = Object.values(by).map(r => ({ name: r.name, won: r2(r.won), pipeline: r2(r.pipeline), deals: r.deals, clients: r.clients.size }))
+    .filter(r => r.won || r.pipeline)
+    .sort((a, b) => b.won - a.won || b.pipeline - a.pipeline);
+  return { rows, excluded: r2(excluded) };
 }
 
 /** Money in against money out, by month.

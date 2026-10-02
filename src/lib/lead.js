@@ -685,6 +685,36 @@ export const serviceByName=(settings,name)=>{
    integration fields rather than replacing them, so deals sold before the
    catalog existed keep their amounts exactly as entered. */
 export const dealBits=d=>num(d.price)+num(d.setup)+num(d.website)+num(d.integration)+((d.extras||[]).reduce((a,e)=>a+num(e.amount),0));
+/* EVERY DEAL ON A RECORD, OPEN AND CLOSED, AS ROWS TO LABEL.
+   Amounts come from the same sums Sold-by-service uses (dealBits for open,
+   amount-or-dealBits for closed), so the labelling screen and the chart can
+   never disagree about what a deal was worth. */
+export const dealRows=l=>{
+  const open=dealsOf(l).map(d=>({kind:'open',id:d.id,label:d.label||'Deal',amount:dealBits(d),
+    service:String(d.service||'').trim(),when:String(d.addedAt||'').slice(0,10)}));
+  const closed=((l&&l.closedDeals)||[]).filter(Boolean).map(c=>({kind:'closed',id:c.id,label:c.label||'Deal',
+    amount:num(c.amount)||dealBits(c.deal||{}),service:String(c.service||(c.deal&&c.deal.service)||'').trim(),
+    when:String(c.closedAt||'').slice(0,10)}));
+  return [...open,...closed];
+};
+/* THE PATCH THAT LABELS ONE DEAL. Writes ONLY a service name, in whichever
+   shape the deal already lives in, and never touches an amount, a date, or
+   the record's structure:
+     closed deal      -> closedDeals[i].service
+     itemised deal    -> deals[i].service
+     old single deal  -> deal.service
+     bare dealValue   -> dealService (read back by dealsOf)
+   tests/moneylock.mjs labels every deal on every fixture record and requires
+   every money figure to come out identical. */
+export const assignDealService=(l,row,service)=>{
+  const svc=String(service||'').trim();
+  if(!l||!row) return null;
+  if(row.kind==='closed') return {closedDeals:(l.closedDeals||[]).map(c=>c&&c.id===row.id?{...c,service:svc}:c)};
+  if(Array.isArray(l.deals)&&l.deals.length) return {deals:l.deals.map(d=>d&&d.id===row.id?{...d,service:svc}:d)};
+  if(row.id==='d_legacy'&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return {deal:{...l.deal,service:svc}};
+  if(row.id==='d_legacy'&&num(l.dealValue)>0) return {dealService:svc};
+  return null;
+};
 /* The invoice line for deal.price, worded the same in both invoice builders. */
 export const priceLineLabel=(d,multi)=>{
   const svc=String((d&&d.service)||'').trim(), lab=String((d&&d.label)||'').trim();
@@ -715,7 +745,10 @@ export const dealsOf=l=>{
      legacy open deal by definition. */
   if((l&&l.closedDeals||[]).length) return [];
   if(l&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return [{id:'d_legacy',label:'Deal',...l.deal}];
-  if(l&&num(l.dealValue)>0) return [{id:'d_legacy',label:'Deal',setup:l.dealValue}];
+  /* dealService is the service label for a record whose only deal is a bare
+     dealValue. It rides alongside rather than restructuring the record, because
+     a dozen screens read dealValue directly and must keep reading it unchanged. */
+  if(l&&num(l.dealValue)>0) return [{id:'d_legacy',label:'Deal',setup:l.dealValue,...(l.dealService?{service:l.dealService}:{})}];
   return [];
 };
 export const ACT_LABEL={Booked:'Meeting Booked'};
@@ -745,9 +778,13 @@ export const daysUntil=iso=>{if(!iso)return null;const a=new Date(iso+'T00:00:00
 export const sOf=(k,stages)=>stages.find(s=>s.key===k)||stages[0];
 /* ===================== delivery (post-sale fulfillment) ===================== */
 export const DEFAULT_DELIVERY_TRACKS=[
-  { key:'website', label:'Website', services:['Web Design','Website','Both','Full Front Office'],
+  /* services lists hold BOTH the old Service Interest names and the catalog
+     names deals are sold under (Website, CRM, Automations, Web+CRM, Google
+     Business Profile setup), so a client's checklist follows what they bought.
+     CRM is the Business Suite install; Web+CRM is both. */
+  { key:'website', label:'Website', services:['Web Design','Website','Both','Full Front Office','Web+CRM'],
     milestones:['Discovery call complete','Website dev pending','Website V1 sent','Revisions','Final proof sent','Website approved by client'] },
-  { key:'ai', label:'AI / Integrations', services:['AI Integration','AI Receptionist','Missed-Call Text-Back','Booking / Scheduling','CRM Setup','Both','Full Front Office'],
+  { key:'ai', label:'AI / Integrations', services:['AI Integration','AI Receptionist','Missed-Call Text-Back','Booking / Scheduling','CRM Setup','Both','Full Front Office','Automations'],
     milestones:['Discovery & scoping','Integrations started','Build & configuration','Testing','Integrations delivered'] },
   /* fallback:false keeps this track out of activeTracks' "nothing matched, show
      every track" branch. Without it, adding the track would have given every
@@ -755,22 +792,58 @@ export const DEFAULT_DELIVERY_TRACKS=[
      clientOverall's "all delivery steps complete" back to incomplete on
      clients who were finished. It still applies to a client who bought a
      Business Suite, and to any project that uses it. */
-  { key:'suite', label:'Business Suite', services:['Business Suite'], fallback:false,
+  { key:'suite', label:'Business Suite', services:['Business Suite','CRM','Web+CRM'], fallback:false,
     milestones:['Kickoff and intake received','Install set up','Branding and logins configured','Contacts and data imported','AI and integrations connected','Pre-delivery check','Walkthrough and training delivered','Client signed off'] },
+  /* Google Business Profile setup had no checklist anywhere. fallback:false
+     for the same reason as the suite: it must not appear on clients who never
+     bought it. Steps are a starting point; edit them in Settings. */
+  { key:'gbp', label:'Google Business Profile', services:['Google Business Profile setup'], fallback:false,
+    milestones:['Access or ownership verified','Business info, hours and categories set','Photos and services added','Review link set up for the client','Profile live and checked on Maps'] },
 ];
 /* Bumped when a default track is added. A saved settings.deliveryTracks
    overrides the defaults entirely, so an install that ever saved the editor
    would never see the new track. withDefaultTracks adds tracks introduced since
    the saved version ONCE; after that, deleting one in Settings sticks. */
-export const DELIVERY_TRACKS_V=1;
-const TRACKS_ADDED_AT={suite:1};
+export const DELIVERY_TRACKS_V=2;
+const TRACKS_ADDED_AT={suite:1,gbp:2};
+/* v2 also taught the existing default tracks the catalog's service names. A
+   saved install never sees default changes, so those names are added to the
+   saved track with the same key, ONCE, adding only what is missing. Nothing a
+   person typed is removed or reordered, and after v2 is saved, taking a name
+   off a track in Settings sticks. */
+const SERVICES_ADDED_AT={2:{website:['Website','Web+CRM'],ai:['Automations'],suite:['CRM','Web+CRM']}};
 export const withDefaultTracks=(saved,v)=>{
   if(!Array.isArray(saved)||!saved.length) return DEFAULT_DELIVERY_TRACKS;
   const have=Number(v)||0;
-  const add=DEFAULT_DELIVERY_TRACKS.filter(t=>(TRACKS_ADDED_AT[t.key]||0)>have&&!saved.some(x=>x&&x.key===t.key));
-  return add.length?[...saved,...add]:saved;
+  let out=saved, changed=false;
+  for(const [ver,byKey] of Object.entries(SERVICES_ADDED_AT)){
+    if(Number(ver)<=have) continue;
+    out=out.map(t=>{ const want=t&&byKey[t.key]; if(!want) return t;
+      const cur=Array.isArray(t.services)?t.services:[]; const miss=want.filter(x=>!cur.includes(x));
+      if(!miss.length) return t; changed=true; return {...t,services:[...cur,...miss]}; });
+  }
+  const add=DEFAULT_DELIVERY_TRACKS.filter(t=>(TRACKS_ADDED_AT[t.key]||0)>have&&!out.some(x=>x&&x.key===t.key));
+  return add.length?[...out,...add]:(changed?out:saved);
 };
-export const activeTracks=(lead,tracks)=>{ const svc=lead.serviceInterest||[]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]).filter(tr=>tr.fallback!==false); };
+/* WHAT A CLIENT BOUGHT, AS SERVICE NAMES. Won work only: every closed deal,
+   plus open deals on a client that are not upsells still being pitched. A
+   lead's proposal is not something being delivered. */
+export const wonServicesOf=l=>{
+  if(!l) return [];
+  const out=((l.closedDeals)||[]).filter(Boolean).map(c=>c.service||(c.deal&&c.deal.service));
+  if(l.isClient) dealsOf(l).forEach(d=>{ if(d&&!isUpsellDeal(d)) out.push(d.service); });
+  return [...new Set(out.map(x=>String(x||'').trim()).filter(Boolean))];
+};
+/* the delivery tracks a service sets off */
+export const tracksForService=(service,tracks)=>{
+  const s=String(service||'').trim(); if(!s) return [];
+  return (Array.isArray(tracks)?tracks:[]).filter(t=>t&&(t.services||[]).includes(s));
+};
+/* A client's checklists follow what they asked about AND what they bought.
+   Bought wins in practice: a won CRM deal brings the Business Suite checklist
+   even if nobody ever ticked a Service Interest chip. Nothing matched still
+   falls back to every fallback track, as before. */
+export const activeTracks=(lead,tracks)=>{ const svc=[...(lead.serviceInterest||[]),...wonServicesOf(lead)]; const m=(tracks||[]).filter(tr=>(tr.services||[]).some(s=>svc.includes(s))); return m.length?m:(tracks||[]).filter(tr=>tr.fallback!==false); };
 
 /* ===================== projects: a client's next purchase =====================
    A client used to be ONE card on the Clients board with ONE phase and ONE
@@ -803,7 +876,9 @@ export const trackForLabel=(label,tracks)=>{
     ||null;
 };
 export const newProject=(closed,tracks,firstPhase)=>{
-  const tr=trackForLabel(closed&&closed.label,tracks);
+  /* the service it was sold as picks the track; the old name match is the
+     fallback for deals closed before services existed */
+  const tr=tracksForService(closed&&(closed.service||(closed.deal&&closed.deal.service)),tracks)[0]||trackForLabel(closed&&closed.label,tracks);
   return { id:'pj_'+((closed&&closed.id)||uid()), dealId:(closed&&closed.id)||'', label:(closed&&closed.label)||'Project',
     trackKey:tr?tr.key:'', phase:firstPhase||'intake', milestones:{}, startedAt:todayISO() };
 };
@@ -1253,7 +1328,9 @@ export const personBiz  = l => clean(l && l.company);
 export function personLabel(l) {
   if (!l) return '';
   const n = personName(l), b = personBiz(l);
-  if (n && b) return `${n} — ${b}`;
+  /* a sole trader often has their own name as the business; saying it twice
+     ("Braydon Stephenson — Braydon Stephenson") reads as a bug */
+  if (n && b) return n.toLowerCase() === b.toLowerCase() ? n : `${n} — ${b}`;
   if (n || b) return n || b;
   const contact = clean(l.email) || clean(l.phone);
   return contact ? `Unnamed — ${contact}` : 'Unnamed';
