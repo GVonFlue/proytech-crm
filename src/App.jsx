@@ -1168,6 +1168,42 @@ const CSS=`
 .m-acts .m-act-copy{flex:none;width:38px;border-radius:11px;border:1px solid #E1E2EC;
   background:#fff;color:#8b88a0;cursor:pointer;display:grid;place-items:center;padding:0}
 .m-acts .m-act-copy:hover{border-color:${COBALT};color:${COBALT};background:#F6F8FF}
+/* THE PROYTECH PLATE on the lead header. Navy band, blue and orange circuit
+   traces glowing off it: the same art direction as the shirt back and the
+   site, where the logo always sits on a navy band. Header only. The record
+   below stays white, so the light decision holds where the work is read.
+   The traces are a static inline SVG (no request, no JS) and fade out under
+   the name so the text never sits on a busy line. */
+.m-head.plate{position:relative;overflow:hidden;border-bottom:none;
+  background:radial-gradient(ellipse 55% 140% at 60% 50%,rgba(19,56,222,.34),transparent 70%),
+             linear-gradient(180deg,#030628 0%,#000110 100%);
+  --dim:#8F9AC4}
+.m-head.plate::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
+  background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2000 200' preserveAspectRatio='xMaxYMid slice'%3E%3Cdefs%3E%3Cfilter id='g' x='-5%25' y='-50%25' width='110%25' height='200%25'%3E%3CfeGaussianBlur stdDeviation='2.2' result='b'/%3E%3CfeMerge%3E%3CfeMergeNode in='b'/%3E%3CfeMergeNode in='SourceGraphic'/%3E%3C/feMerge%3E%3C/filter%3E%3C/defs%3E%3Cg filter='url(%23g)' fill='none' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1119,12 1079,12 1039,12 1039,12 979,12 959,32 919,32 909,42 769,42'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1196,20 1296,20 1304,12 1444,12 1524,12 1524,12 1604,12 1664,12 1664,12 1704,12 1704,12 1744,12'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1131,30 1031,30 1021,20 961,20 931,50 831,50 731,50 721,40 581,40 571,50'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1164,42 1304,42 1384,42 1414,72 1514,72 1614,72 1634,52 1734,52'/%3E%3Cpolyline stroke='%2338BDF8' stroke-opacity='.8' points='1124,44 1024,44 994,74 914,74 894,94 834,94 734,94 724,104 664,104 654,114 594,114 584,124 484,124'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1216,54 1276,54 1286,44 1346,44 1386,44 1406,24 1486,24 1516,54 1596,54 1676,54'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1117,64 1077,64 1057,84 957,84 927,114 827,114 817,104 717,104 687,134 647,134 617,104 577,104 437,104'/%3E%3Cpolyline stroke='%2338BDF8' stroke-opacity='.8' points='1176,74 1316,74 1326,64 1426,64 1526,64 1536,74 1596,74'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1150,80 1110,80 1100,90 960,90 820,90 790,60 710,60 690,40 630,40 600,70'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1214,88 1274,88 1334,88 1354,108 1394,108 1474,108 1504,78 1644,78'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1137,96 1077,96 1067,106 987,106 967,86 887,86 847,86 807,86'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1171,106 1251,106 1271,126 1371,126 1411,126 1471,126 1511,126 1541,156 1601,156 1741,156'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1152,114 1112,114 1072,114 1052,94 992,94 932,94 912,74 772,74'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1186,122 1226,122 1306,122 1446,122 1586,122'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1127,132 1087,132 1027,132 967,132 937,162 897,162 817,162 677,162 637,162 597,162'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1195,138 1235,138 1265,108 1345,108 1375,138 1435,138 1515,138'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1132,150 1032,150 1012,170 972,170 872,170 862,180 802,180'/%3E%3Cpolyline stroke='%2338BDF8' stroke-opacity='.8' points='1168,156 1228,156 1268,156 1278,166 1338,166 1360,188 1460,188 1480,168 1560,168 1570,178 1650,178'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1139,164 999,164 989,154 929,154 889,154 879,164 819,164 799,144 719,144 689,174 609,174'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1164,170 1204,170 1284,170 1294,160 1374,160 1474,160 1494,180 1634,180'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1153,180 1093,180 1083,170 1003,170 863,170 783,170 763,150 683,150 603,150 573,120 433,120 373,120'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1201,186 1301,186 1303,188 1383,188 1443,188 1463,168 1543,168 1603,168 1623,188 1683,188'/%3E%3Ccircle cx='769' cy='42' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1744' cy='12' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='571' cy='50' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1734' cy='52' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='484' cy='124' r='3.6' stroke='%2338BDF8' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1676' cy='54' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='437' cy='104' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1596' cy='74' r='3.6' stroke='%2338BDF8' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='600' cy='70' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1644' cy='78' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='807' cy='86' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1741' cy='156' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='772' cy='74' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1586' cy='122' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='597' cy='162' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1515' cy='138' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='802' cy='180' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1650' cy='178' r='3.6' stroke='%2338BDF8' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='609' cy='174' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1634' cy='180' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='373' cy='120' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1683' cy='188' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3C/g%3E%3C/svg%3E") right center/cover no-repeat;
+  -webkit-mask-image:linear-gradient(90deg,rgba(0,0,0,.14) 0%,rgba(0,0,0,.14) 24%,#000 48%,#000 100%);
+          mask-image:linear-gradient(90deg,rgba(0,0,0,.14) 0%,rgba(0,0,0,.14) 24%,#000 48%,#000 100%)}
+.m-head.plate::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;pointer-events:none;
+  background:linear-gradient(90deg,#1338DE 0%,#38BDF8 58%,#FB6926 100%)}
+.m-head.plate>*{position:relative;z-index:1}
+.m-head.plate h2{color:#fff}
+.m-head.plate .co{color:#B7C4FF}
+.m-head.plate .meta{color:#7D88B5}
+.m-head.plate .m-x{background:rgba(255,255,255,.08);color:#DCE3FF;border:1px solid rgba(120,150,255,.18)}
+.m-head.plate .m-x:hover{background:rgba(255,255,255,.16)}
+.m-head.plate .mf{background:rgba(3,6,40,.72);border-color:rgba(98,130,255,.26);backdrop-filter:blur(2px)}
+.m-head.plate .mf:hover{border-color:#38BDF8;background:rgba(19,56,222,.35)}
+.m-head.plate .mf i{color:#8F9AC4}
+.m-head.plate .mf b,.m-head.plate .mf-v{color:#fff}
+.m-head.plate .mf.hot{border-color:rgba(251,105,38,.6);background:rgba(251,105,38,.14)}
+.m-head.plate .mf.hot b{color:#FFB48E}
+/* Convert beside the name: the one orange thing on the plate */
+.convert-banner.hdr{flex-direction:column;align-items:flex-start;justify-content:center;gap:6px;
+  align-self:center;margin:0 auto 0 28px;padding:0;background:none;border:none;border-radius:0}
+.convert-banner.hdr b{font-family:'Space Grotesk';font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:#8F9AC4}
+.convert-banner.hdr .btn{background:#FB6926;border-color:#FB6926;color:#fff;white-space:nowrap;
+  box-shadow:0 0 0 1px rgba(251,105,38,.35),0 6px 22px -6px rgba(251,105,38,.65)}
+.convert-banner.hdr .btn:hover{background:#E85A18;border-color:#E85A18}
 /* a folded run of machine-written notes: quiet, one tap to open, never hidden */
 .sysrun{display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;
   background:#F7F8FC;border:1px dashed #DFE1EE;border-radius:9px;padding:7px 11px;margin:2px 0;
@@ -3644,6 +3680,7 @@ tbody tr.picked:hover{background:#E9EDFD}
      ran off the right edge. On a phone it stacks — title, nav, then facts
      across the full width — and nothing inside may exceed the screen. */
   .m-head{flex-direction:column;align-items:stretch;gap:10px;padding:14px 16px}
+  .convert-banner.hdr{margin:0;align-self:flex-start}
   .m-headright{align-items:stretch;width:100%}
   .m-headright>div:first-child{justify-content:flex-end}
   .m-facts{max-width:100%;justify-content:flex-start}

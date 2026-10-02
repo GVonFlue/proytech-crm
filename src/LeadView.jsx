@@ -1353,7 +1353,10 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
      element and renames no class. */
   return (<div className="scrim2 leadfs" onMouseDown={e=>{if(e.target===e.currentTarget)onClose();}}>
     <div className="modal leadfs" onMouseDown={e=>e.stopPropagation()}>
-      <div className="m-head">
+      {/* THE HEADER IS THE PROYTECH PLATE: navy band, blue and orange circuit
+          traces, same art direction as the shirt and the site. Only the header;
+          the record below stays white, where the work is read. */}
+      <div className="m-head plate">
         <div style={{minWidth:0}}>
           <h2>{draft.name||draft.company||(newRel?'New Relationship':'New Lead')}</h2>{!isNew&&<div className="co">{[draft.company,draft.businessType].filter(Boolean).join(' · ')}</div>}
           {!isNew&&<div className="meta">Added {fmtDate(draft.createdAt)} · {lastTouch(draft)?`Last contact ${fmtDate(lastTouch(draft))}`:'never contacted'}</div>}
@@ -1361,6 +1364,16 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
             <StageBadge k={draft.stage} stages={stages}/><PriBadge p={draft.priority}/>
           </div>}
         </div>
+        {/* CONVERT, BESIDE THE NAME. It was a card at the top of the prep rail,
+            where at rail width it wrapped into five lines and a two-line button.
+            The header is always on screen, so it is still reachable with a tab
+            open, and the thing that changes what a record IS sits next to who
+            the record is. Relationships never get it: a referral partner is
+            not a deal you are trying to win. */}
+        {!isNew&&!draft.isClient&&!draft.isRelationship&&<div className="convert-banner hdr">
+          <b>Won the deal?</b>
+          <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
+        </div>}
         <div className="m-headright">
           <div style={{display:'flex',alignItems:'center',gap:8}}>
             {!isNew&&_list.length>1&&<>
@@ -1430,23 +1443,16 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
       <div className={'m-grid lead3'+(wideFeed?' wide':'')+(panel?' panel-on':(isNew?'':' panel-off'))}>
         {/* ---------- PREP: what you need before you call ---------- */}
         {!isNew&&<div className="m-prep">
-          {/* CONVERT AND THE CLIENT BAR LIVE HERE NOW.
+          {/* THE CLIENT BAR LIVES HERE. Convert to Client moved up into the
+              header, beside the name (Oct 2026). What follows is the original
+              reasoning, which still holds for the client bar.
+              CONVERT AND THE CLIENT BAR LIVE HERE NOW.
               Both used to sit at the bottom of the sections column, which was
               fine while that column was always on screen. It is a panel now —
               hidden unless a tab is open — and "Convert to Client" is not a
               thing you should have to open a tab to find. The prep rail is the
               one column that is always there, so the two controls that change
               what a record IS belong at the top of it. */}
-          {/* ---------- 6. CONVERT — the last thing, not the first ---------- */}
-          {/* A relationship is not a deal you are trying to win. "Won the deal?
-              Convert to Client" on a referral partner is the app asking the
-              wrong question, and it was the loudest thing at the bottom of
-              their record. Same for the close-tracking prompt below. */}
-          {!isNew&&!draft.isClient&&!draft.isRelationship&&<div className="convert-banner">
-            <div><b>Won the deal?</b><div style={{fontSize:12.5,color:'var(--dim)',marginTop:2}}>Convert to a client to start tracking delivery.</div></div>
-            <button className="btn btn-p" onClick={()=>convertToClient(draft.id)}><UserCheck size={15}/>Convert to Client</button>
-          </div>}
-
           {/* legacy clients created before close-tracking: offer a one-click backfill */}
           {/* A client banner that's always there: says whether the money has
               landed yet, and puts the undo where you'd look for it rather than
