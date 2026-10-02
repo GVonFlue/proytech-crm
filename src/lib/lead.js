@@ -692,7 +692,7 @@ export const dealBits=d=>num(d.price)+num(d.setup)+num(d.website)+num(d.integrat
 export const dealRows=l=>{
   const open=dealsOf(l).map(d=>({kind:'open',id:d.id,label:d.label||'Deal',amount:dealBits(d),
     service:String(d.service||'').trim(),when:String(d.addedAt||'').slice(0,10)}));
-  const closed=((l&&l.closedDeals)||[]).filter(Boolean).map(c=>({kind:'closed',id:c.id,label:c.label||'Deal',
+  const closed=((l&&l.closedDeals)||[]).filter(Boolean).map(c=>({kind:'closed',id:c.id,dealId:(c.deal&&c.deal.id)||'',label:c.label||'Deal',
     amount:num(c.amount)||dealBits(c.deal||{}),service:String(c.service||(c.deal&&c.deal.service)||'').trim(),
     when:String(c.closedAt||'').slice(0,10)}));
   return [...open,...closed];
@@ -714,6 +714,42 @@ export const assignDealService=(l,row,service)=>{
   if(row.id==='d_legacy'&&l.deal&&typeof l.deal==='object'&&dealBits(l.deal)>0) return {deal:{...l.deal,service:svc}};
   if(row.id==='d_legacy'&&num(l.dealValue)>0) return {dealService:svc};
   return null;
+};
+/* ===================== which service a payment paid for =====================
+   Revenue by service counts CASH, so every payment needs a service. Payments
+   are logged against the client, not a deal, so this decides, in order:
+     1. A retainer payment (stored as one, or its purpose is "Retainer") belongs
+        to the client's retainer service.
+     2. A work payment tagged to a deal (payment.dealId) belongs to that deal's
+        service, read live, so relabelling the deal moves its money with it.
+        A tag survives the deal being closed (closedDeals keep deal.id).
+     3. An untagged work payment belongs to the client's service ONLY when that
+        is certain: every won deal on the record carries the same service.
+     4. Otherwise '' (Unassigned) until someone tags it. Never a pro-rata guess:
+        an estimate on a revenue chart is a number that quietly misleads. */
+export const isRetainerPayment=p=>!!p&&(p.kind==='retainer'||String(p.purpose||'').trim().toLowerCase()==='retainer');
+/* won = a client OR a won stage: the same test owedBy and serviceRevenue use.
+   Pass stages wherever they are to hand; without them only clients count, so a
+   Signed lead nobody converted yet would leave its cash Unassigned. */
+const recordWon=(l,stages)=>!!(l&&(l.isClient||(Array.isArray(stages)&&stages.length&&sOf(l.stage,stages).won)));
+const wonRowsOf=(l,stages)=>{ if(!l) return [];
+  const open=recordWon(l,stages)?dealsOf(l).filter(d=>d&&!isUpsellDeal(d)).map(d=>String(d.service||'').trim()):[];
+  const closed=((l.closedDeals)||[]).filter(Boolean).map(c=>String(c.service||(c.deal&&c.deal.service)||'').trim());
+  return [...closed,...open]; };
+/* the one service a client bought, or '' when it is not certain */
+export const soleServiceOf=(l,stages)=>{ const w=wonRowsOf(l,stages); return w.length&&w[0]&&w.every(x=>x===w[0])?w[0]:''; };
+export const retainerServiceOf=(l,stages)=>String((l&&l.retainerService)||'').trim()||soleServiceOf(l,stages);
+export const paymentService=(l,p,stages)=>{
+  if(!l||!p) return '';
+  if(isRetainerPayment(p)) return retainerServiceOf(l,stages);
+  if(p.dealId){ const r=dealRows(l).find(x=>x.id===p.dealId||(x.dealId&&x.dealId===p.dealId)); if(r) return r.service; }
+  return soleServiceOf(l,stages);
+};
+/* tag a work payment to a deal; writes payment.dealId and nothing else */
+export const tagPayment=(l,paymentId,dealId)=>{
+  if(!l||!Array.isArray(l.payments)) return null;
+  if(!l.payments.some(p=>p&&p.id===paymentId)) return null;
+  return {payments:l.payments.map(p=>p&&p.id===paymentId?{...p,dealId:String(dealId||'')}:p)};
 };
 /* The invoice line for deal.price, worded the same in both invoice builders. */
 export const priceLineLabel=(d,multi)=>{

@@ -13,7 +13,7 @@
    and a tile disagree about one month, you stop trusting both.
    ========================================================================== */
 
-import { anyPayments, dealsOf, dealBits, num, isUpsellDeal, sOf } from './lead';
+import { anyPayments, dealsOf, dealBits, num, isUpsellDeal, sOf, paymentService } from './lead';
 import { retainerState } from './retainer';
 
 const A = x => (Array.isArray(x) ? x : []);
@@ -148,6 +148,38 @@ export function serviceRevenue(leads, stages) {
     .filter(r => r.won || r.pipeline)
     .sort((a, b) => b.won - a.won || b.pipeline - a.pipeline);
   return { rows, excluded: r2(excluded) };
+}
+
+/** REVENUE BY SERVICE: cash collected, by what it paid for.
+ *
+ *  Revenue is money in the bank, so this counts PAYMENT ROWS: the same rows,
+ *  read the same way, as collectedByMonth (anyPayments, num(amount)). The
+ *  service comes from paymentService (lib/lead). `total` is every payment
+ *  ever logged and the rows always add up to it; anything that cannot be
+ *  placed for certain is Unassigned, never estimated.
+ *  `won` beside each service is contracted value from serviceRevenue, for
+ *  context only. It is not revenue and is never added to it. All time. */
+export function collectedByService(leads, stages) {
+  const by = {}; let total = 0;
+  const row = n => by[n] || (by[n] = { name: n, collected: 0, payments: 0, clients: new Set() });
+  A(leads).forEach(l => {
+    if (!l) return;
+    anyPayments(l).forEach(p => {
+      const v = num(p && p.amount); if (!v) return;
+      total += v;
+      const r = row(String(paymentService(l, p, stages) || '').trim() || 'Unassigned');
+      r.collected += v; r.payments++; r.clients.add(l.id);
+    });
+  });
+  const won = Object.fromEntries(serviceRevenue(leads, stages).rows.map(r => [r.name, r]));
+  /* a service that has won work but no cash yet still gets its row (won for
+     context); Unassigned only appears when actual CASH is unplaced */
+  Object.keys(won).forEach(n => { if (won[n].won && n !== 'Unassigned') row(n); });
+  const r2 = x => Math.round(x * 100) / 100;
+  const rows = Object.values(by).map(r => ({ name: r.name, collected: r2(r.collected), payments: r.payments,
+    clients: r.clients.size, won: r2((won[r.name] || {}).won || 0) }))
+    .sort((a, b) => (a.name === 'Unassigned') - (b.name === 'Unassigned') || b.collected - a.collected || b.won - a.won);
+  return { rows, total: r2(total) };
 }
 
 /** Money in against money out, by month.
