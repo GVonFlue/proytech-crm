@@ -249,12 +249,16 @@ export function detailOf(l, opts = {}) {
     d.retainer = num(l.retainer);
     d.retainerActive = !!l.retainerActive;
     d.closedAt = str(l.closedAt, 12);
-    d.deals = arr(l.deals).slice(0, 10).map(x => ({ label: str(x.label, 60), setup: num(x.setup), website: num(x.website), integration: num(x.integration) }));
+    d.deals = arr(l.deals).slice(0, 10).map(x => ({ label: str(x.label, 60), service: str(x.service, 60), price: num(x.price), setup: num(x.setup), website: num(x.website), integration: num(x.integration) }));
     d.payments = arr(l.payments).slice(0, 20).map(p => ({ d: str(p.date, 12), amt: num(p.amount), note: str(p.note, 80) }));
     d.sponsorAmount = num(l.sponsorAmount);
     d.retainerStart = str(l.retainerStart, 12);
     d.closedDeals = arr(l.closedDeals).slice(0, 12).map(x => ({
-      label: str(x && x.label, 60), when: str(x && (x.closedAt || x.date), 12), value: num(x && x.value),
+      label: str(x && x.label, 60), service: str(x && (x.service || (x.deal && x.deal.service)), 60),
+      when: str(x && (x.closedAt || x.date), 12),
+      /* closed deals are written with "amount" (LeadView closeDeal); reading
+         only "value" sent JARVIS a zero for every one of them */
+      value: num(x && (x.amount != null ? x.amount : x.value)),
     }));
   }
   return rep ? redactMoney(d) : d;
