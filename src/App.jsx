@@ -77,6 +77,7 @@ import {
   tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt,
   gmailIndex, setGmailIndex,
   introducedLeads, lastTouch, daysSinceTouch, referralsOut, isRealTouch, isAppWritten,
+  servicesOf, priceLineLabel,
 } from './lib/lead';
 
 const PIE=[COBALT,INDIGO,GOLD,'#5C76EE','#8E86C9',GREEN,'#D98A3D','#7AA0F0'];
@@ -717,7 +718,7 @@ const invTotal=inv=>invSubtotal(inv)+invTax(inv);
 const invState=inv=>{ if(inv.status==='paid') return 'paid'; if(inv.dueDate&&daysUntil(inv.dueDate)<0) return 'overdue'; return inv.status||'draft'; };
 const addDays=(iso,n)=>{ const d=new Date((iso||todayISO())+'T00:00:00'); d.setDate(d.getDate()+num(n)); return isoOf(d); };
 function itemsFromLead(l){ const items=[];
-  const pushDeal=(d,prefix)=>{ if(num(d.setup)) items.push({id:uid(),label:(prefix||'')+'Setup',qty:1,amount:num(d.setup)}); if(num(d.website)) items.push({id:uid(),label:(prefix||'')+'Website',qty:1,amount:num(d.website)}); if(num(d.integration)) items.push({id:uid(),label:(prefix||'')+'AI / Integration',qty:1,amount:num(d.integration)}); (d.extras||[]).forEach(e=>{ if(num(e.amount)) items.push({id:uid(),label:(prefix||'')+(e.label||'Line item'),qty:1,amount:num(e.amount)}); }); };
+  const pushDeal=(d,prefix)=>{ if(num(d.price)) items.push({id:uid(),label:priceLineLabel(d,!!prefix),qty:1,amount:num(d.price)}); if(num(d.setup)) items.push({id:uid(),label:(prefix||'')+'Setup',qty:1,amount:num(d.setup)}); if(num(d.website)) items.push({id:uid(),label:(prefix||'')+'Website',qty:1,amount:num(d.website)}); if(num(d.integration)) items.push({id:uid(),label:(prefix||'')+'AI / Integration',qty:1,amount:num(d.integration)}); (d.extras||[]).forEach(e=>{ if(num(e.amount)) items.push({id:uid(),label:(prefix||'')+(e.label||'Line item'),qty:1,amount:num(e.amount)}); }); };
   const deals=Array.isArray(l&&l.deals)?l.deals:null;
   if(deals&&deals.length){ deals.forEach(d=>pushDeal(d,deals.length>1&&d.label?`${d.label} — `:'')); }
   else { const d=(l&&l.deal&&typeof l.deal==='object')?l.deal:null;
@@ -1168,6 +1169,35 @@ const CSS=`
 .m-acts .m-act-copy{flex:none;width:38px;border-radius:11px;border:1px solid #E1E2EC;
   background:#fff;color:#8b88a0;cursor:pointer;display:grid;place-items:center;padding:0}
 .m-acts .m-act-copy:hover{border-color:${COBALT};color:${COBALT};background:#F6F8FF}
+/* SERVICES AND PRICING: the catalog editor in Settings, and the picker that
+   opens under Add a deal. */
+.svc-cat{display:flex;flex-direction:column;gap:8px}
+.svc-row{display:flex;align-items:center;gap:8px}
+.svc-row .svc-name{flex:1;min-width:0;border:1px solid #E1E2EC;border-radius:9px;padding:9px 11px;font:inherit;font-size:13.5px;color:${INK}}
+.svc-row .svc-price{display:flex;align-items:center;gap:4px;width:150px;border:1px solid #E1E2EC;border-radius:9px;padding:0 10px;background:#fff}
+.svc-row .svc-price span{color:#8b88a0;font-weight:700}
+.svc-row .svc-price input{border:none;outline:none;width:100%;padding:9px 0;font:inherit;font-size:13.5px;color:${INK};background:none}
+.svc-row .svc-name:focus,.svc-row .svc-price:focus-within{border-color:${COBALT};outline:none}
+.svc-row.add .svc-name,.svc-row.add .svc-price{border-style:dashed}
+.svc-pick{border:1px solid #D6E0FA;background:#F6F8FF;border-radius:12px;padding:12px;margin-top:4px}
+.svc-pick-h{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;color:${INK};margin-bottom:9px}
+.svc-pick-h button{border:none;background:none;color:#8b88a0;cursor:pointer;font:inherit;font-size:12px}
+.svc-pick-g{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:7px}
+.svc-opt{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;border:1px solid #E1E2EC;background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer;font:inherit}
+.svc-opt b{font-size:13.5px;color:${INK}}
+.svc-opt span{font-size:12px;font-weight:650;color:#1f8a55}
+.svc-opt span.unset{color:#8b88a0;font-weight:600}
+.svc-opt:hover{border-color:${COBALT};background:#fff;box-shadow:0 2px 10px -4px rgba(43,77,224,.35)}
+.svc-opt.custom{border-style:dashed}
+.svc-opt.pricing{cursor:default;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.12);gap:8px}
+.svc-q{display:flex;align-items:center;gap:4px;width:100%;border:1px solid #D6E0FA;border-radius:8px;padding:0 9px;background:#fff}
+.svc-q span{color:#8b88a0;font-weight:700}
+.svc-q input{border:none;outline:none;width:100%;padding:8px 0;font:inherit;font-size:14px;font-weight:650;color:${INK};background:none}
+.svc-q-act{display:flex;align-items:center;gap:8px}
+.svc-q-back{border:none;background:none;color:#8b88a0;cursor:pointer;font:inherit;font-size:12px}
+.svc-opt.custom b{color:#6B6885}
+.dh-svc{border:1px solid #E1E2EC;border-radius:7px;padding:3px 6px;font:inherit;font-size:12px;color:${INK};background:#fff;max-width:170px}
+.dh-svc.unset{border-color:#F0C9A8;background:#FFF7F0;color:#B4541E}
 /* THE PROYTECH PLATE on the lead header. Navy band, blue and orange circuit
    traces glowing off it: the same art direction as the shirt back and the
    site, where the logo always sits on a navy band. Header only. The record
@@ -9435,7 +9465,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
   const onLogo=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>saveSettings({...settings,logo:r.result});r.readAsDataURL(f);};
   const setOptions=(key,arr)=>saveSettings({...settings,options:{...settings.options,[key]:arr}});
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
-  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,modulesV:num(d.settings.modulesV),pools:Array.isArray(d.settings.pools)?d.settings.pools:[],notifyEmails:d.settings.notifyEmails||'',leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
+  const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,modulesV:num(d.settings.modulesV),pools:Array.isArray(d.settings.pools)?d.settings.pools:[],notifyEmails:d.settings.notifyEmails||'',leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,...(Array.isArray(d.settings.services)?{services:d.settings.services}:{}),invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
   return (<>
     {/* team & roles — owner-only */}
@@ -9607,6 +9637,14 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       </div>
     </div>); })()}
 
+    {/* SERVICES AND PRICING. The catalog the deal picker reads. Its own card,
+        above the dropdowns, because it carries money and they do not. */}
+    <div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><DollarSign size={15}/>Services &amp; pricing</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>What you sell. The price here is optional and only a guide: it shows as a hint when you add a deal, and you type the real price for each client on the deal itself. Nothing here ever changes a deal's value.</div>
+      <ServiceCatalogEditor services={servicesOf(settings)} onChange={a=>saveSettings({...settings,services:a})}/>
+    </div>
+
     {/* dropdown options */}
     <div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><SlidersHorizontal size={15}/>Dropdown Options</div>
@@ -9684,6 +9722,39 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <b>This preview saves to your browser.</b> The next step wires it to Supabase so you and Logan share one live board with separate logins — and your data lives in the database, not the code, so future redeploys can never wipe a single lead. Keep exporting JSON backups as your offline safety net.
     </div>
   </>);
+}
+
+/* Rows of name + price. Edits are held locally and saved on blur or Enter,
+   so typing a price does not write to the database once per keystroke. */
+function ServiceCatalogEditor({services,onChange}){
+  const [rows,setRows]=useState(services);
+  const [nm,setNm]=useState(''); const [pr,setPr]=useState('');
+  useEffect(()=>{ setRows(services); },[JSON.stringify(services)]);
+  const commit=next=>{ const clean=next.map(r=>({...r,name:String(r.name||'').trim()})).filter(r=>r.name);
+    if(JSON.stringify(clean)!==JSON.stringify(services)) onChange(clean); };
+  const edit=(i,patch)=>setRows(rows.map((r,j)=>j===i?{...r,...patch}:r));
+  const add=()=>{ const v=nm.trim(); if(!v) return;
+    if(rows.some(r=>String(r.name).trim().toLowerCase()===v.toLowerCase())){ window.alert(`"${v}" is already on the list.`); return; }
+    const next=[...rows,{id:'svc_'+uid(),name:v,price:pr===''?'':String(num(pr))}]; setRows(next); commit(next); setNm(''); setPr(''); };
+  const del=i=>{ if(!window.confirm(`Remove "${rows[i].name}" from the list? Deals already sold as it keep that name.`)) return;
+    const next=rows.filter((_,j)=>j!==i); setRows(next); commit(next); };
+  const enter=e=>{ if(e.key==='Enter') e.currentTarget.blur(); };
+  return (<div className="svc-cat">
+    {rows.length===0&&<div className="ch-sub">No services yet. Add the first one below.</div>}
+    {rows.map((r,i)=>(<div className="svc-row" key={r.id||i}>
+      <input className="svc-name" value={r.name} placeholder="Service name"
+        onChange={e=>edit(i,{name:e.target.value})} onBlur={()=>commit(rows)} onKeyDown={enter}/>
+      <div className="svc-price"><span>$</span><input type="number" min="0" value={r.price??''} placeholder="Usual price (optional)"
+        onChange={e=>edit(i,{price:e.target.value})} onBlur={()=>commit(rows)} onKeyDown={enter}/></div>
+      <button className="iconbtn" title="Remove" onClick={()=>del(i)}><X size={14}/></button>
+    </div>))}
+    <div className="svc-row add">
+      <input className="svc-name" value={nm} placeholder="Add a service…" onChange={e=>setNm(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()}/>
+      <div className="svc-price"><span>$</span><input type="number" min="0" value={pr} placeholder="Usual (optional)" onChange={e=>setPr(e.target.value)} onKeyDown={e=>e.key==='Enter'&&add()}/></div>
+      <button className="btn btn-g btn-sm" onClick={add}><Plus size={14}/>Add</button>
+    </div>
+    <div className="ch-sub" style={{marginTop:8}}>Renaming a service does not rename deals already sold under the old name, so the chart would show both. Rename before you sell under it, or fix the old deals by hand.</div>
+  </div>);
 }
 
 function OptionEditor({label,items,onChange}){

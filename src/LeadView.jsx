@@ -43,6 +43,7 @@ import {
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
   MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames, bookingBrief, briefText,
   timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom, DEMO_MIN, personLabel, countsAsBusiness,
+  dealBits, servicesOf, serviceByName,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import { useScrollLock } from './lib/scrolllock';
@@ -694,6 +695,8 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
      branch, so a useState down there is a CONDITIONAL HOOK — the crash this
      file has shipped three times and warns about at the top of every section. */
   const [invAsk,setInvAsk]=useState(false);
+  const [pickSvc,setPickSvc]=useState(false);
+  const [pricing,setPricing]=useState(null); const [quote,setQuote]=useState('');
   /* 'Call', not 'Note'. The button that opens this says "Log a call, note or
      text" and then handed you a note, so logging the most common thing a rep
      does all day cost an extra click every single time.
@@ -906,7 +909,10 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     {draft.followUp&&<div className={'fu-when'+(daysUntil(draft.followUp)<0?' od':'')}>{daysUntil(draft.followUp)<0?`${Math.abs(daysUntil(draft.followUp))} days overdue`:daysUntil(draft.followUp)===0?'Due today':`Due in ${daysUntil(draft.followUp)} days`} · {fmtDate(draft.followUp)}</div>}
   </div>);
   const F=({label,k,type,full})=>(<div className={'field'+(full?' full':'')}><label>{label}</label><input type={type||'text'} value={draft[k]??''} onChange={e=>set({[k]:e.target.value})}/></div>);
-  const dealSum=d=>num(d.setup)+num(d.website)+num(d.integration)+(d.extras||[]).reduce((a,e)=>a+num(e.amount),0);
+  /* ONE DEFINITION. This was a local copy of lib/lead's dealBits; the moment
+     deal.price existed, the copy and the original would have disagreed and the
+     panel would show a different deal value from the dashboard. */
+  const dealSum=dealBits;
   /* MULTI-DEAL MODEL. A client can have several deals running at once.
      draft.deals is the array of OPEN deals; dealValue stays as their sum so
      every existing metric (commission, forecast, funnel) keeps working.
@@ -922,16 +928,40 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   /* write the whole deals array + keep dealValue = sum of open deals */
   const writeDeals=next=>set({deals:next,dealValue:next.reduce((a,d)=>a+dealSum(d),0)});
   const updateDeal=(id,patch)=>writeDeals(openDeals.map(d=>d.id===id?{...d,...patch}:d));
-  const addDeal=()=>{ const label=window.prompt('Name this deal (e.g. "Website build", "Q3 advisory"):','Deal '+(openDeals.length+1)); if(label===null) return;
-    writeDeals([...openDeals,{id:uid(),label:label.trim()||('Deal '+(openDeals.length+1)),setup:'',website:'',integration:'',extras:[],
-      addedAt:new Date().toISOString(), upsell:!!draft.isClient}]); };
+  /* A DEAL STARTS FROM A SERVICE AND A PRICE FOR THIS CLIENT. The service name
+     goes on deal.service (what Sold-by-service groups by). The price is what
+     was typed for this client: ProyTech quotes by site size and build depth,
+     so the catalog's usual price is only ever a hint, never copied in. A list
+     price left in by accident would be a wrong number on the books.
+     Custom still exists for one-off work, and lands as Unassigned on the
+     chart until a service is picked on it. */
+  const addDeal=(svc,typed)=>{
+    let label, service='', price='';
+    if(svc){ label=svc.name; service=svc.name; price=num(typed)>0?String(num(typed)):''; }
+    else { const raw=window.prompt('Name this deal (e.g. "Q3 advisory"):','Deal '+(openDeals.length+1)); if(raw===null) return;
+      label=raw.trim()||('Deal '+(openDeals.length+1)); }
+    writeDeals([...openDeals,{id:uid(),label,service,price,setup:'',website:'',integration:'',extras:[],
+      addedAt:new Date().toISOString(), upsell:!!draft.isClient}]);
+    setPickSvc(false); setPricing(null); setQuote(''); };
+  const confirmPriced=()=>{ const svc=serviceByName(settings,pricing); if(!svc) return;
+    if(!(num(quote)>0)&&!window.confirm(`Add ${svc.name} with no price yet? It counts as $0 until you set one.`)) return;
+    addDeal(svc,quote); };
+  /* Picking a service on an existing deal. It changes WHAT the deal is, never
+     what it costs: the price is this client's quote and only you change it.
+     That also means an older deal priced through Setup/Website can be given a
+     service without its value moving by a cent. */
+  const setDealService=(d,name)=>{
+    const patch={service:name};
+    const prev=serviceByName(settings,d.service);
+    if(!String(d.label||'').trim()||(prev&&d.label===prev.name)||/^Deal \d+$/.test(String(d.label||''))) patch.label=name||d.label;
+    updateDeal(d.id,patch); };
   const removeDeal=id=>{ if(!window.confirm('Remove this open deal? Nothing is archived.')) return; writeDeals(openDeals.filter(d=>d.id!==id)); };
   /* One patch, not three. Removing the deal, archiving it and logging the note
      are a single event and have to land together — done separately, whichever
      write went last rebuilt the lead from the same stale draft and undid the
      others, so the note appeared and the deal never moved. */
   const closeDeal=d=>{ const amount=dealSum(d); if(amount<=0){ window.alert('Add a dollar amount before closing this deal.'); return; }
-    const closed={id:uid(),label:d.label||'Deal',amount,deal:{...d},closedAt:todayISO(),by:me};
+    const closed={id:uid(),label:d.label||'Deal',service:d.service||'',amount,deal:{...d},closedAt:todayISO(),by:me};
     const nextOpen=openDeals.filter(x=>x.id!==d.id);
     /* Winning work from somebody who is already a client means a NEW build. It
        used to replace the client's one checklist: the old one was archived onto
@@ -2078,7 +2108,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
 
             {Sec('svc',<Target size={13}/>,'Service Interest',
               (draft.serviceInterest||[]).length?`${(draft.serviceInterest||[]).length} selected`:'none',
-              <div className="chips">{opt.service.map(s=><span key={s} className={'chip '+((draft.serviceInterest||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(s)}>{s}</span>)}<span className="chip add" onClick={addCustomSvc}><Plus size={12}/>Custom</span></div>)}
+              <div className="chips">{[...new Set([...opt.service,...servicesOf(settings).map(x=>x.name)])].map(s=><span key={s} className={'chip '+((draft.serviceInterest||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(s)}>{s}</span>)}<span className="chip add" onClick={addCustomSvc}><Plus size={12}/>Custom</span></div>)}
 
           {!draft.isRelationship&&typeSection}
 
@@ -2284,6 +2314,17 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                     <div className="dh-head"><span>Closed deals</span><b>{usd(histTotal)} · {hist.length} deal{hist.length===1?'':'s'}</b></div>
                     {hist.map(d=>(<div className="dh-row" key={d.id}>
                       <div className="dh-m"><b>{d.label||'Deal'}</b><span>closed {fmtDate(d.closedAt)}{d.by?` · ${d.by}`:''}</span></div>
+                      {/* Closed deals sold before the catalog have no service,
+                          which is most of the Unassigned bar. This is where
+                          they get one; the chart reads it straight away. */}
+                      {(()=>{ const cur=d.service||(d.deal&&d.deal.service)||'';
+                        const names=servicesOf(settings).map(x=>x.name);
+                        return (<select className={'dh-svc'+(cur?'':' unset')} value={cur} title="Which service this was"
+                          onChange={e=>set({closedDeals:hist.map(x=>x.id===d.id?{...x,service:e.target.value}:x)})}>
+                          <option value="">Service?</option>
+                          {cur&&!names.includes(cur)&&<option value={cur}>{cur}</option>}
+                          {names.map(n=><option key={n} value={n}>{n}</option>)}
+                        </select>); })()}
                       <span className="dh-v">{usd(d.amount)}</span>
                       {draft.isClient&&(projectForDeal(draft,d.id)
                         ?<span className="dh-proj" title="This purchase has its own card on the Clients board">On the board</span>
@@ -2307,16 +2348,30 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                       The dashboard's Sold-by-service chart reads THIS field, so
                       a deal left unset shows up as Unassigned rather than being
                       quietly dropped out of the total. */}
-                  <div className="field"><label>Service</label>
-                    <select value={d.service||''} onChange={e=>updateDeal(d.id,{service:e.target.value})}>
-                      <option value="">— not set —</option>
-                      {opt.service.map(sv=><option key={sv} value={sv}>{sv}</option>)}
-                    </select></div>
-                  <div className="fgrid">
-                    <div className="field"><label>Setup $</label><input type="number" value={d.setup??''} onChange={e=>updateDeal(d.id,{setup:e.target.value})}/></div>
-                    <div className="field"><label>Website $</label><input type="number" value={d.website??''} onChange={e=>updateDeal(d.id,{website:e.target.value})}/></div>
-                    <div className="field"><label>Integration $</label><input type="number" value={d.integration??''} onChange={e=>updateDeal(d.id,{integration:e.target.value})}/></div>
-                  </div>
+                  {(()=>{ const names=servicesOf(settings).map(x=>x.name);
+                    const cat=serviceByName(settings,d.service);
+                    /* The old three price boxes stay on deals that used them,
+                       and on deals made before deal.price existed, so nothing
+                       entered there disappears. New deals get one price. */
+                    const legacy=!!(d.price===undefined||num(d.setup)||num(d.website)||num(d.integration));
+                    return (<>
+                      <div className="fgrid">
+                        <div className="field"><label>Service</label>
+                          <select value={d.service||''} onChange={e=>setDealService(d,e.target.value)}>
+                            <option value="">— not set —</option>
+                            {d.service&&!names.includes(d.service)&&<option value={d.service}>{d.service}</option>}
+                            {names.map(sv=><option key={sv} value={sv}>{sv}</option>)}
+                          </select></div>
+                        <div className="field"><label>Price $</label>
+                          <input type="number" value={d.price??''} placeholder={cat&&num(cat.price)>0?`usually ${num(cat.price)}`:'This client’s price'}
+                            onChange={e=>updateDeal(d.id,{price:e.target.value})}/></div>
+                      </div>
+                      {legacy&&<div className="fgrid">
+                        <div className="field"><label>Setup $</label><input type="number" value={d.setup??''} onChange={e=>updateDeal(d.id,{setup:e.target.value})}/></div>
+                        <div className="field"><label>Website $</label><input type="number" value={d.website??''} onChange={e=>updateDeal(d.id,{website:e.target.value})}/></div>
+                        <div className="field"><label>Integration $</label><input type="number" value={d.integration??''} onChange={e=>updateDeal(d.id,{integration:e.target.value})}/></div>
+                      </div>}
+                    </>); })()}
                   {(d.extras||[]).length>0&&<div className="extras">{d.extras.map((ex,i)=>(
                     <div className="extra-row" key={ex.id||i}>
                       <input className="ex-label" placeholder="Line item (e.g. Extra web page)" value={ex.label||''} onChange={e=>{const x=d.extras.slice();x[i]={...x[i],label:e.target.value};updateDeal(d.id,{extras:x});}}/>
@@ -2327,7 +2382,29 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                   {dealSum(d)>0&&<button className="deal-close-btn sm" onClick={()=>closeDeal(d)}><CheckCircle2 size={14}/>{isUpsellDeal(d)?'Won it — close this deal':'Close this deal'}</button>}
                 </div>))}
 
-                <button className="deal-add-btn" onClick={addDeal}><Plus size={15}/>{openDeals.length?'Add another deal':'Add a deal'}</button>
+                {!pickSvc&&<button className="deal-add-btn" onClick={()=>setPickSvc(true)}><Plus size={15}/>{openDeals.length?'Add another deal':'Add a deal'}</button>}
+                {pickSvc&&<div className="svc-pick">
+                  <div className="svc-pick-h"><span>{pricing?`What are you charging ${draft.name||draft.company||'them'} for ${pricing}?`:'What are they buying?'}</span><button onClick={()=>{ setPickSvc(false); setPricing(null); setQuote(''); }}>Cancel</button></div>
+                  <div className="svc-pick-g">
+                    {servicesOf(settings).map(sv=>pricing===sv.name
+                      ?(<div key={sv.id||sv.name} className="svc-opt pricing">
+                        <b>{sv.name}</b>
+                        <label className="svc-q"><span>$</span><input type="number" min="0" autoFocus value={quote}
+                          placeholder={num(sv.price)>0?`usually ${num(sv.price)}`:'Price for this client'}
+                          onChange={e=>setQuote(e.target.value)}
+                          onKeyDown={e=>{ if(e.key==='Enter') confirmPriced(); if(e.key==='Escape'){ setPricing(null); setQuote(''); } }}/></label>
+                        <div className="svc-q-act">
+                          <button className="btn btn-p btn-sm" onClick={confirmPriced}>Add deal</button>
+                          <button className="svc-q-back" onClick={()=>{ setPricing(null); setQuote(''); }}>Back</button>
+                        </div>
+                      </div>)
+                      :(<button key={sv.id||sv.name} className="svc-opt" onClick={()=>{ setPricing(sv.name); setQuote(''); }}>
+                        <b>{sv.name}</b>
+                        {num(sv.price)>0?<span className="unset">usually {usd(num(sv.price))}</span>:<span className="unset">You set the price</span>}
+                      </button>))}
+                    <button className="svc-opt custom" onClick={()=>addDeal(null)}><b>Custom deal</b><span className="unset">Name it yourself</span></button>
+                  </div>
+                </div>}
 
                 {openDeals.length>0&&<div className="deal-total"><span>{openDeals.length>1?'All open deals':'One-time total'}</span><b>{usd(openDealsTotal)}</b></div>}
                 <div className="field" style={{marginTop:12}}><label>Monthly Retainer $</label><input type="number" value={draft.retainer??''} onChange={e=>set({retainer:e.target.value})}/></div>
