@@ -56,7 +56,8 @@ console.log('\nCHARTS');
 const txt=()=>document.body.textContent||'';
 ok('Revenue collected tile is on the dashboard', /Revenue collected/.test(txt()));
 ok('Recurring revenue tile', /Recurring revenue/.test(txt()));
-ok('Sold by service tile', /Sold by service/.test(txt()));
+/* renamed Oct 2026: it now splits won work from pipeline (serviceRevenue) */
+ok('Revenue by service tile', /Revenue by service/.test(txt()));
 ok('In and out tile', /In and out/.test(txt()));
 ok('they sit in one grid', !!document.querySelector('.chart-grid'));
 ok('four cards in it', (document.querySelectorAll('.chart-grid .card')||[]).length===4,

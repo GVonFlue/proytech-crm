@@ -12,7 +12,7 @@
    If this goes red, an existing figure changed. That may be intended, but it
    must be a decision, not a side effect: update the golden only on purpose.
    Dates are fixed, so this cannot rot on a calendar boundary.
-   Seen red: dealBits counting price twice; servicesOf prices leaking into a
+   Seen red: assignDealService writing an amount; dealBits counting price twice; servicesOf prices leaking into a
    deal's value; dropping extras from dealBits. */
 import fs from 'fs';
 import esbuild from 'esbuild';
@@ -70,6 +70,57 @@ for (const l of FIX) {
 ok('sold by service unchanged', JSON.stringify(C.soldByService(FIX))===JSON.stringify(GOLDEN.sold));
 ok('revenue collected by month unchanged', JSON.stringify(C.collectedByMonth(FIX,12,NOW).map(m=>m.value))===JSON.stringify(GOLDEN.coll));
 ok('MRR by month unchanged', JSON.stringify(C.mrrByMonth(FIX,12,NOW).map(m=>m.value))===JSON.stringify(GOLDEN.mrr));
+
+/* LABELLING A DEAL MOVES NO MONEY. Label every deal on every record, in all
+   four shapes (itemised, closed, old single deal, bare dealValue), with the
+   same function the Label-your-deals screen uses, then demand the golden
+   figures again. Then check the chart lost its Unassigned bar but no dollars. */
+const labelled = FIX.map(l => {
+  let rec = JSON.parse(JSON.stringify(l));
+  for (const row of L.dealRows(rec)) {
+    const p = L.assignDealService(rec, row, 'Website');
+    ok(`record ${l.id}: a ${row.kind} deal (${row.id}) can be labelled`, !!p, row);
+    if (p) rec = { ...rec, ...p };
+  }
+  return rec;
+});
+for (const l of labelled) {
+  const g=GOLDEN.per[l.id];
+  const now={ owed:r2(L.owedBy(l,ST)), openSale:r2(L.openSaleValue(l)), closed:r2(L.closedDealsTotal(l)),
+    deals:r2(L.dealsOf(l).reduce((a,d)=>a+L.dealBits(d),0)),
+    invoice:r2(((L.balanceItems(l,ST))||[]).reduce((a,it)=>a+Number(it.amount)*(it.qty||1),0)) };
+  ok(`record ${l.id} after labelling: every figure unchanged`, JSON.stringify(now)===JSON.stringify(g), {was:g, now});
+  ok(`record ${l.id} after labelling: dealValue untouched`, l.dealValue===FIX.find(x=>x.id===l.id).dealValue);
+}
+ok('revenue collected unchanged after labelling', JSON.stringify(C.collectedByMonth(labelled,12,NOW).map(m=>m.value))===JSON.stringify(GOLDEN.coll));
+ok('MRR unchanged after labelling', JSON.stringify(C.mrrByMonth(labelled,12,NOW).map(m=>m.value))===JSON.stringify(GOLDEN.mrr));
+const soldAfter=C.soldByService(labelled), soldBefore=GOLDEN.sold;
+const tot=a=>r2(a.reduce((x,r)=>x+r.value,0));
+ok('after labelling, nothing is Unassigned', !soldAfter.some(r=>r.name==='Unassigned'), soldAfter);
+ok('and the chart total is the same dollars, just relabelled', tot(soldAfter)===tot(soldBefore), {before:tot(soldBefore), after:tot(soldAfter)});
+
+/* REVENUE BY SERVICE: won, pipeline, and the lost/parked remainder.
+   Must add up to the old Sold-by-service total exactly, and WON must match
+   an independent sum from the app's own closed and won definitions. */
+for (const [tag, set] of [['as stored', FIX], ['after labelling', labelled]]) {
+  const sr = C.serviceRevenue(set, ST);
+  const won = r2(sr.rows.reduce((a, r) => a + r.won, 0)), pipe = r2(sr.rows.reduce((a, r) => a + r.pipeline, 0));
+  const sold = r2(C.soldByService(set).reduce((a, r) => a + r.value, 0));
+  ok(`${tag}: won + pipeline + lost/parked = the old chart total`, r2(won + pipe + sr.excluded) === sold, { won, pipe, excluded:sr.excluded, sold });
+  const indep = r2(set.reduce((a, l) => a + L.closedDealsTotal(l) +
+    ((l.isClient || L.sOf(l.stage, ST).won) ? L.dealsOf(l).filter(d => !L.isUpsellDeal(d)).reduce((x, d) => x + L.dealBits(d), 0) : 0), 0));
+  ok(`${tag}: won matches the app's own closed + won-record sums`, won === indep, { won, indep });
+}
+const byId = id => { const sr = C.serviceRevenue([FIX.find(l => l.id === id)], ST); return { won:sr.rows.reduce((a,r)=>a+r.won,0), pipe:sr.rows.reduce((a,r)=>a+r.pipeline,0), x:sr.excluded }; };
+ok('a signed client\'s deals are won', byId('a').won > 0 && byId('a').pipe === 0);
+ok('an open-stage lead\'s deal is pipeline, not won', byId('d').won === 0 && byId('d').pipe === 1500);
+ok('a bare deal value on a new lead is pipeline', byId('c').pipe === 1999 && byId('c').won === 0);
+ok('a lost lead\'s deal is in neither', byId('e').won === 0 && byId('e').pipe === 0 && byId('e').x === 5000);
+ok('a parked (not right now) lead\'s deal is in neither', byId('i').won === 0 && byId('i').pipe === 0 && byId('i').x === 2200);
+const ups = C.serviceRevenue([{ id:'u', isClient:true, stage:'signed', deals:[{ id:'x', price:700, service:'CRM', upsell:true }] }], ST).rows[0];
+ok('an upsell being pitched to a client is pipeline until won', ups.won === 0 && ups.pipeline === 700);
+const cl = C.serviceRevenue(labelled, ST).rows.find(r => r.name === 'Website');
+ok('clients and deals are counted for won work', cl.clients >= 4 && cl.deals >= cl.clients, cl);
 
 /* the new rules */
 ok('a deal priced for a client is worth exactly that price', L.dealBits({price:'4200'})===4200);
