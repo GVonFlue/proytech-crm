@@ -89,6 +89,15 @@ ok('Settings has the catalog editor', /<ServiceCatalogEditor services=\{services
 ok('the second invoice builder bills the price too', /if\(num\(d\.price\)\) items\.push/.test(app));
 ok('a backup restore carries the catalog', /services:d\.settings\.services/.test(app));
 
+/* payments are tagged to the deal they paid for, at both places they are logged */
+ok('the composer tags a payment to its deal (automatic with one deal)',
+  /const dealId=isRet\?'':\(payRows\.length===1\?payRows\[0\]\.id:payDeal\);/.test(lv) && /methodSource:payMethod\?'recorded':'',\.\.\.\(dealId\?\{dealId\}:\)\};/.test(lv));
+ok('the deal panel asks which deal when there are several',
+  /if\(payRows\.length===1\) dealId=payRows\[0\]\.id;/.test(lv) && /Which deal was it for\?/.test(lv)
+  && /methodSource:method\?'recorded':'',\.\.\.\(dealId\?\{dealId\}:\)\};/.test(lv));
+ok('a retainer payment is never tagged to a deal', (lv.match(/isRet\?''|if\(purpose!=='Retainer'\)/g) || []).length === 2);
+ok('both retainer screens offer Retainer is for', /<label>Retainer is for<\/label>/.test(lv) &&
+  /<label>Retainer is for<\/label>/.test(fs.readFileSync('src/ClientView.jsx','utf8')));
 console.log(`\n${pass} passed, ${fail} failed`);
 for (const t of ['bsvc_lead', 'bsvc_charts']) { try { fs.unlinkSync(`tests/.${t}.mjs`); } catch {} }
 process.exit(fail ? 1 : 0);

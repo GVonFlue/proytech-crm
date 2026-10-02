@@ -122,6 +122,58 @@ ok('an upsell being pitched to a client is pipeline until won', ups.won === 0 &&
 const cl = C.serviceRevenue(labelled, ST).rows.find(r => r.name === 'Website');
 ok('clients and deals are counted for won work', cl.clients >= 4 && cl.deals >= cl.clients, cl);
 
+/* REVENUE BY SERVICE IS CASH. collectedByService must add up, to the cent,
+   to every payment logged, which for this fixture is the ORIGINAL code's
+   Revenue-collected figures (GOLDEN.coll). Placing cash never moves money. */
+const sumColl = r2(GOLDEN.coll.reduce((a, v) => a + v, 0));
+for (const [tag, set] of [['as stored', FIX], ['after labelling', labelled]]) {
+  const cs = C.collectedByService(set, ST);
+  ok(`${tag}: revenue by service totals the original Revenue collected`, cs.total === sumColl, { total:cs.total, sumColl });
+  ok(`${tag}: the service bars add up to that total`, r2(cs.rows.reduce((a, r) => a + r.collected, 0)) === cs.total);
+}
+const csStored = C.collectedByService(FIX, ST);
+ok('unlabelled work leaves its cash Unassigned, not guessed', (csStored.rows.find(r => r.name === 'Unassigned') || {}).collected === csStored.total);
+const csLab = C.collectedByService(labelled, ST);
+ok('once every deal is labelled, single-service clients\' cash is placed', (csLab.rows.find(r => r.name === 'Website') || {}).collected === csLab.total);
+ok('won is shown beside cash but never added to it', csLab.rows.every(r => typeof r.won === 'number') && csLab.total === sumColl);
+
+/* the placement rules, on a client who bought two things */
+const two = { id:'t', isClient:true, stage:'signed', retainer:199, retainerActive:true,
+  deals:[{ id:'w', label:'Site', service:'Website', price:'3000' }, { id:'c', label:'Suite', service:'CRM', price:'2500' }],
+  payments:[{ id:'p1', amount:1500, date:'2026-09-01' }, { id:'p2', amount:1000, date:'2026-09-05', dealId:'c' },
+            { id:'p3', amount:199, date:'2026-09-30', purpose:'Retainer' }] };
+const place = l => Object.fromEntries(C.collectedByService([l], ST).rows.map(r => [r.name, r.collected]));
+let pl = place(two);
+ok('two services: an untagged payment stays Unassigned', pl.Unassigned === 1500 + 199, pl);
+ok('a payment tagged to the CRM deal counts as CRM', pl.CRM === 1000, pl);
+let t2 = { ...two, ...L.tagPayment(two, 'p1', 'w') };
+ok('tagging it to the Website deal moves it to Website', place(t2).Website === 1500, place(t2));
+ok('tagging writes only the tag', t2.payments[0].amount === 1500 && t2.payments[0].date === '2026-09-01' && t2.payments[0].dealId === 'w');
+t2 = { ...t2, retainerService:'CRM' };
+ok('the retainer payment goes to the retainer\'s service', place(t2).CRM === 1000 + 199, place(t2));
+const relab = { ...t2, ...L.assignDealService(t2, { kind:'open', id:'w' }, 'Web+CRM') };
+ok('relabelling a deal moves its payments with it', place(relab)['Web+CRM'] === 1500 && !place(relab).Website, place(relab));
+const closedT = { ...t2, deals:[t2.deals[1]], closedDeals:[{ id:'zz', label:'Site', amount:3000, service:'Website', deal:{ ...t2.deals[0] } }] };
+ok('a tag survives the deal being closed', place(closedT).Website === 1500, place(closedT));
+const one = { id:'o', isClient:true, stage:'signed', retainer:249, retainerActive:true,
+  deals:[{ id:'x', service:'Website', price:'2999' }], payments:[{ id:'q', amount:999, date:'2026-09-01' }, { id:'r', amount:249, date:'2026-09-02', purpose:'Retainer' }] };
+ok('one service: cash and retainer place themselves', place(one).Website === 1248 && !place(one).Unassigned, place(one));
+ok('a retainer set to another service wins over the automatic one', place({ ...one, retainerService:'CRM' }).CRM === 249);
+const kindRet = { id:'k', isClient:true, stage:'signed', retainerService:'Automations', retainerPayments:[{ id:'rp', amount:300, date:'2026-09-03' }] };
+ok('a payment stored as a retainer row is a retainer payment', place(kindRet).Automations === 300);
+
+/* tagging every payment on every record moves no money */
+const tagged = labelled.map(l => { let rec = l; const rows = L.dealRows(rec);
+  (rec.payments || []).forEach(p => { const pt = rows[0] && L.tagPayment(rec, p.id, rows[0].id); if (pt) rec = { ...rec, ...pt }; }); return rec; });
+for (const l of tagged) {
+  const g = GOLDEN.per[l.id];
+  const now = { owed:r2(L.owedBy(l,ST)), openSale:r2(L.openSaleValue(l)), closed:r2(L.closedDealsTotal(l)),
+    deals:r2(L.dealsOf(l).reduce((a,d)=>a+L.dealBits(d),0)),
+    invoice:r2(((L.balanceItems(l,ST))||[]).reduce((a,it)=>a+Number(it.amount)*(it.qty||1),0)) };
+  ok(`record ${l.id} after tagging its payments: every figure unchanged`, JSON.stringify(now) === JSON.stringify(g), { was:g, now });
+}
+ok('revenue collected unchanged after tagging', JSON.stringify(C.collectedByMonth(tagged,12,NOW).map(m=>m.value)) === JSON.stringify(GOLDEN.coll));
+
 /* the new rules */
 ok('a deal priced for a client is worth exactly that price', L.dealBits({price:'4200'})===4200);
 ok('the price counts once, beside any older fields', L.dealBits({price:1000,setup:250,extras:[{amount:50}]})===1300);
