@@ -96,10 +96,16 @@ const sel=[...document.querySelectorAll('select')].find(x=>[...x.options].some(o
 ok('a deal carries a Service picker', !!sel, 'selects='+document.querySelectorAll('.m-right select').length);
 
 console.log('\nCONVERT STAYS REACHABLE');
-const prep=document.querySelector('.m-prep');
-const conv=[...document.querySelectorAll('.m-prep button')].find(b=>/Convert to Client/.test(b.textContent||''));
-ok('Convert to Client is in the always-visible rail', !!conv,
-   'prep buttons='+(prep?prep.querySelectorAll('button').length:'no rail'));
+/* Convert moved from the prep rail into the header, beside the name (Oct
+   2026). The header is always on screen, so the reachability promise holds;
+   and it must exist ONCE, not in both places. */
+const head=document.querySelector('.m-head');
+const conv=[...document.querySelectorAll('.m-head button')].find(b=>/Convert to Client/.test(b.textContent||''));
+ok('Convert to Client is in the always-visible header', !!conv,
+   'header buttons='+(head?head.querySelectorAll('button').length:'no header'));
+ok('and only there, not also in the rail',
+   ![...document.querySelectorAll('.m-prep button')].some(b=>/Convert to Client/.test(b.textContent||'')));
+ok('the header carries the ProyTech plate', !!document.querySelector('.m-head.plate'));
 ok('and it is still there with a panel open', !!conv&&!!document.querySelector('.m-grid.panel-on'));
 
 console.log('\nTHE TAB PANEL');
