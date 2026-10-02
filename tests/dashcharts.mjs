@@ -90,9 +90,10 @@ await act(async()=>{await new Promise(r=>setTimeout(r,120));});
 const dealTab=[...document.querySelectorAll('.mj')].find(b=>/Deal/.test(b.textContent||''));
 ok('the lead opened', !!dealTab);
 if(dealTab) await click(dealTab);
-/* the picker offers whatever Settings holds, so match the shipped default list
-   rather than a service this install has never heard of */
-const sel=[...document.querySelectorAll('select')].find(x=>[...x.options].some(o=>o.textContent==='CRM Setup'));
+/* the picker offers the Settings service catalog (Services & pricing), so
+   match its shipped default rather than the older Service Interest list, which
+   the deal picker stopped reading in Oct 2026 */
+const sel=[...document.querySelectorAll('select')].find(x=>[...x.options].some(o=>o.textContent==='Web+CRM'));
 ok('a deal carries a Service picker', !!sel, 'selects='+document.querySelectorAll('.m-right select').length);
 
 console.log('\nCONVERT STAYS REACHABLE');
