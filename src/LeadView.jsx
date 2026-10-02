@@ -43,7 +43,7 @@ import {
   DISPOSITIONS, dispIsContact, dispLabel, dispRequired, hasVoicemail, dialState,
   MAX_ATTEMPTS, BRIEF_FIELDS, briefMissing, briefOf, ownerNames, bookingBrief, briefText,
   timesFor, nextDays, chipTime, joinWhen, splitWhen, quartersFrom, DEMO_MIN, personLabel, countsAsBusiness,
-  dealBits, servicesOf, serviceByName,
+  dealBits, servicesOf, serviceByName, dealRows, retainerServiceOf,
 } from './lib/lead';
 import { meetingLogsOf } from './lib/meetinglog';
 import { useScrollLock } from './lib/scrolllock';
@@ -748,7 +748,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
   const [firstNote,setFirstNote]=useState('');
   const [logMtype,setLogMtype]=useState('Coffee');
   const [payAmt,setPayAmt]=useState('');const [payNote,setPayNote]=useState('');
-  const [payMethod,setPayMethod]=useState('');const [payPurpose,setPayPurpose]=useState('');
+  const [payMethod,setPayMethod]=useState('');const [payPurpose,setPayPurpose]=useState('');const [payDeal,setPayDeal]=useState('');
   /* who can log a payment from the composer: owners always; reps only if the
      owner has switched it on for the install. */
   const canLogPayment=!rep||(settings&&settings.repPayments);
@@ -1221,14 +1221,21 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
        mashed into the note, which worked only while one person typed four exact
        phrases. methodSource records whether a human chose it or a migration
        read it off an old note — the two must never look alike on screen. */
+    /* WHICH DEAL IT PAID FOR, so Revenue by service can place the cash. One
+       deal: tagged to it automatically. Several: whatever was picked, or left
+       untagged to place later. A retainer payment is placed by the client's
+       retainer service instead, so it is never tagged to a deal. */
+    const payRows=dealRows(draft).filter(r=>r.amount>0);
+    const isRet=String(payPurpose||'').toLowerCase()==='retainer';
+    const dealId=isRet?'':(payRows.length===1?payRows[0].id:payDeal);
     const pay={id:uid(),amount,date:todayISO(),note,
       method:payMethod||'',purpose:payPurpose||'',
-      methodSource:payMethod?'recorded':''};
+      methodSource:payMethod?'recorded':'',...(dealId?{dealId}:{})};
     const pays=Array.isArray(draft.payments)?draft.payments:[];
     const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who};
     const patch={payments:[...pays,pay],activities:[act,...(draft.activities||[])]};
     setDraft(d=>({...d,...patch})); updateLead(draft.id,patch);
-    setPayAmt(''); setPayNote(''); setPayMethod(''); setPayPurpose('');
+    setPayAmt(''); setPayNote(''); setPayMethod(''); setPayPurpose(''); setPayDeal('');
   };
   const create=()=>{
     if(!draft.name.trim()){window.alert('Add a name first.');return;}
@@ -1819,6 +1826,11 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                       <option value="">What was it for?</option>
                       {(opt.payPurpose||[]).map(m=><option key={m} value={m}>{m}</option>)}
                     </select>
+                    {payPurpose!=='Retainer'&&dealRows(draft).filter(r=>r.amount>0).length>1&&
+                      <select className="pc-sel" value={payDeal} onChange={e=>setPayDeal(e.target.value)} aria-label="Which deal it paid for">
+                        <option value="">Which deal was it for?</option>
+                        {dealRows(draft).filter(r=>r.amount>0).map(r=><option key={r.kind+r.id} value={r.id}>{r.label}{r.service?` (${r.service})`:''}</option>)}
+                      </select>}
                     <input className="pc-note" placeholder="Note (optional)" value={payNote} onChange={e=>setPayNote(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')logPaymentFromComposer();}}/>
                   </div>
                 </div>
@@ -2408,6 +2420,11 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
 
                 {openDeals.length>0&&<div className="deal-total"><span>{openDeals.length>1?'All open deals':'One-time total'}</span><b>{usd(openDealsTotal)}</b></div>}
                 <div className="field" style={{marginTop:12}}><label>Monthly Retainer $</label><input type="number" value={draft.retainer??''} onChange={e=>set({retainer:e.target.value})}/></div>
+                {num(draft.retainer)>0&&<div className="field" style={{marginTop:10}}><label>Retainer is for</label>
+                  <select value={draft.retainerService||''} onChange={e=>set({retainerService:e.target.value})}>
+                    <option value="">{retainerServiceOf({...draft,retainerService:''},stages)?`Automatic: ${retainerServiceOf({...draft,retainerService:''},stages)}`:'Pick a service'}</option>
+                    {servicesOf(settings).map(x=><option key={x.name} value={x.name}>{x.name}</option>)}
+                  </select></div>}
                 <div className="toggle" onClick={()=>set({retainerActive:!draft.retainerActive})}><span className={'sw '+(draft.retainerActive?'on':'')}><b/></span>{draft.retainerActive?'On monthly retainer':'Not on retainer'}</div>
 
                 {/* ---- When the billing actually starts -------------------
@@ -2508,8 +2525,18 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                     const pRaw=(window.prompt('What was it for? ('+pList.join(' / ')+') \u2014 optional:','')||'').trim();
                     const purpose=pList.find(x=>x.toLowerCase()===pRaw.toLowerCase())||'';
                     const note=(window.prompt('Note \u2014 optional:','')||'').trim();
+                    /* which deal it paid for: automatic with one deal, asked
+                       with several, skipped for a retainer (see the composer) */
+                    const payRows=dealRows(draft).filter(r=>r.amount>0);
+                    let dealId='';
+                    if(purpose!=='Retainer'){
+                      if(payRows.length===1) dealId=payRows[0].id;
+                      else if(payRows.length>1){
+                        const pick=(window.prompt('Which deal was it for? Type the number, or leave blank to place it later:\n'+payRows.map((r,i)=>`${i+1}. ${r.label}${r.service?` (${r.service})`:''} \u2014 ${usd(r.amount)}`).join('\n'),'')||'').trim();
+                        const ix=parseInt(pick,10); if(ix>=1&&ix<=payRows.length) dealId=payRows[ix-1].id; }
+                    }
                     const pay={id:uid(),amount,date,note,method,purpose,
-                      methodSource:method?'recorded':''};
+                      methodSource:method?'recorded':'',...(dealId?{dealId}:{})};
                     const act={id:uid(),ts:new Date().toISOString(),type:'Payment',text:`Payment received: ${usdc(amount)}${note?` — ${note}`:''}`,who:me};
                     set({payments:[...pays,pay],activities:[act,...(draft.activities||[])]});
                   };

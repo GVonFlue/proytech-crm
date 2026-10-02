@@ -8,7 +8,7 @@ import {
   anyPayments, meetingsOf, activeTracks, trackProgress, clientOverall,
   projectsOf, projectProgress, lastTouch, daysSinceTouch, dealsOf, dealBits,
   closedDealsTotal, stdPhases,
-  dealRows, assignDealService, servicesOf, tracksForService, isUpsellDeal,
+  dealRows, assignDealService, servicesOf, tracksForService, isUpsellDeal, retainerServiceOf,
 } from './lib/lead';
 import { retainerState, monthsDue, monthsPaid, allPaid } from './lib/retainer';
 
@@ -200,6 +200,12 @@ export default function ClientView({
                   <input type="date" value={l.retainerStart || ''} onChange={e => set({ retainerStart: e.target.value })} /></div>
                 <div className="field"><label>Billing ended</label>
                   <input type="date" value={l.retainerEnd || ''} onChange={e => set({ retainerEnd: e.target.value })} /></div>
+                {/* which service these monthly payments count toward on Revenue by service */}
+                <div className="field"><label>Retainer is for</label>
+                  <select value={l.retainerService || ''} onChange={e => set({ retainerService: e.target.value })}>
+                    <option value="">{retainerServiceOf({ ...l, retainerService: '' }, stages) ? `Automatic: ${retainerServiceOf({ ...l, retainerService: '' }, stages)}` : 'Pick a service'}</option>
+                    {servicesOf(settings).map(x => <option key={x.name} value={x.name}>{x.name}</option>)}
+                  </select></div>
               </div>
               {rState === 'quoted' && <div className="mrr-note quoted">
                 <b>Quoted, not billing.</b> A rate with no start date is deliberately kept out of MRR —

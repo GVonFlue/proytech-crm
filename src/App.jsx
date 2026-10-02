@@ -24,7 +24,7 @@ import Jarvis from './Jarvis';
 import MassOutreach from './MassOutreach';
 import ClientView from './ClientView';
 import ServiceAssign from './ServiceAssign';
-import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, cashByMonth } from './lib/charts';
+import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, collectedByService, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
 import { playbookGate, unreadSince } from './lib/kb';
@@ -1192,6 +1192,10 @@ const CSS=`
 .sa-deal span{font-size:12px;color:#8b88a0}
 .sa-row select{flex:none;max-width:52%;border:1px solid #E1E2EC;border-radius:8px;padding:7px 8px;font:inherit;font-size:13px;color:${INK};background:#fff}
 .sa-row.todo select{border-color:#F0C09B;color:#B4541E}
+.sa-pay .sa-deal b{white-space:normal}
+.sa-none{font-size:12.5px;color:#8b88a0}
+.sa-none button{border:none;background:none;color:${COBALT};font:inherit;font-weight:650;cursor:pointer;padding:0 0 0 4px}
+.sa-note{margin-top:10px;font-size:12px;color:#8b88a0}
 .sa-empty{padding:30px 0;text-align:center;color:#8b88a0;font-size:13.5px}
 .sa-foot{padding:10px 20px 14px;border-top:1px solid #EEF0F6;font-size:12px;color:#8b88a0}
 .sa-open{display:inline-flex;align-items:center;gap:6px;margin:4px 0 6px;border:1px dashed #F0C09B;background:#FFF9F4;color:#B4541E;border-radius:8px;padding:6px 10px;font:inherit;font-size:12.5px;font-weight:650;cursor:pointer}
@@ -5443,7 +5447,7 @@ export default function App(){
       lastSeen={(lastSeen||[]).find(x=>x.id===repOpen.id)} notes={repNotes}
       onAddNote={addRepNote} onDeleteNote={delRepNote} onResetPlaybook={resetKbProgress}
       onClose={()=>{setRepOpen(null);setRepNotes(null);}}/>}
-    {svcAssign&&<ServiceAssign leads={leads} settings={settings} updateLead={updateLead} onClose={()=>setSvcAssign(false)} openLead={id=>{setSvcAssign(false);openLead(id);}}/>}
+    {svcAssign&&<ServiceAssign leads={leads} settings={settings} stages={stages} updateLead={updateLead} onClose={()=>setSvcAssign(false)} openLead={id=>{setSvcAssign(false);openLead(id);}}/>}
     {(active||activeId==='new'||activeId==='new-rel')&&<Modal key={activeId} lead={active} isNew={activeId==='new'||activeId==='new-rel'} newRel={activeId==='new-rel'} settings={settings} stages={stages} addOption={addOption} me={me} myUid={myUid} allLeads={leads} rep={rep} events={events} mlogs={mlogs} goEvents={()=>setPage('events')} isOwner={isOwner} setCommission={setCommission} users={users} teamRoster={team} navList={(navIds&&navIds.length?navIds:leads.map(l=>l.id))} onNav={id=>setActiveId(id)} convertToClient={convertToClient} revertClient={revertClient} fixCloseTracking={fixCloseTracking} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue} onClose={()=>setActiveId(null)} updateLead={updateLead} addActivity={addActivity} invoices={invoices} invoiceBalance={invoiceBalance} openInvoice={id=>setInvId(id)} onBooked={notifyBooked} delActivity={delActivity} delLead={delLead} createNew={createNew} gcalConnected={gcal.connected} gcalEmail={gcal.email} createCalendarEvent={createCalendarEvent} deleteCalendarEvent={deleteCalendarEvent} readAvailability={readAvailability} tagMeeting={tagMeeting} inbound={inbound}/>}
     {invId&&(()=>{const inv=invoices.find(x=>x.id===invId);return inv?<InvoiceModal key={invId} invoice={inv} leads={leads} settings={settings} saveSettings={saveSettings} onSave={upsertInvoice} onDelete={deleteInvoice} onPaid={applyInvoicePayment} onClose={()=>setInvId(null)}/>:null;})()}
   </div></>);
@@ -6055,8 +6059,8 @@ function Dashboard({labelServices,leads,stages,open,tagBooked,setMeetingStatus,s
      disagree about the same month. */
   const chartMonths=useMemo(()=>collectedByMonth(leads,12),[leads]);
   const chartMrr=useMemo(()=>mrrByMonth(leads,12),[leads]);
-  const svcRev=useMemo(()=>serviceRevenue(leads,stages),[leads,stages]);
-  const chartSvc=svcRev.rows.slice(0,8);
+  const svcCash=useMemo(()=>collectedByService(leads,stages),[leads,stages]);
+  const chartSvc=svcCash.rows.slice(0,8);
   const chartCash=useMemo(()=>cashByMonth(leads,txns,t=>((TX_TYPES[t.type]||{}).dir)==='out',12),[leads,txns]);
   const anyRev=chartMonths.some(m=>m.value>0);
   const anyMrr=chartMrr.some(m=>m.value>0);
@@ -6590,33 +6594,30 @@ function Dashboard({labelServices,leads,stages,open,tagBooked,setMeetingStatus,s
         </AreaChart></ResponsiveContainer></div>
       </ChartCard>
 
-      {/* WON AND PIPELINE, NOT ONE NUMBER. This used to add unsigned proposals
-          to won work, which is "what do we sell", not "what have we earned".
-          serviceRevenue (lib/charts) splits them; deals on lost or parked
-          leads are in neither and are noted underneath, so nothing vanishes. */}
-      <ChartCard title="Revenue by service" sub="Won work, with open pipeline beside it"
-        action={labelServices&&chartSvc.some(r=>r.name==='Unassigned')&&<button className="sa-open" onClick={labelServices}><Tags size={13}/>Label deals to fill this in</button>}
-        empty={chartSvc.length?null:'Put a service on your deals and this fills in.'}>
+      {/* REVENUE IS CASH COLLECTED. Bars are payments, placed by what they paid
+          for (collectedByService, lib/charts): the same payment rows as the
+          Revenue collected chart, so the two can never disagree. Won is shown
+          beside each service for context and is never added to revenue. */}
+      <ChartCard title="Revenue by service" sub="Cash collected, by what it paid for · all time"
+        action={labelServices&&(chartSvc.some(r=>r.name==='Unassigned')||serviceRevenue(leads,stages).rows.some(r=>r.name==='Unassigned'))&&<button className="sa-open" onClick={labelServices}><Tags size={13}/>Label deals and place payments</button>}
+        empty={chartSvc.length?null:'Log a payment and label your deals, and this fills in.'}>
         <div className="chart-sq"><ResponsiveContainer width="100%" height="100%"><BarChart data={chartSvc} layout="vertical" margin={{top:6,right:18,left:8,bottom:0}}>
           <CartesianGrid strokeDasharray="3 3" stroke="#EEF0F6" horizontal={false}/>
           <XAxis type="number" tick={{fontSize:11,fill:'#8E89A8'}} axisLine={false} tickLine={false} tickFormatter={v=>v>=1000?`${Math.round(v/1000)}k`:v}/>
           <YAxis type="category" dataKey="name" width={120} tick={{fontSize:11,fill:'#5A5680'}} axisLine={false} tickLine={false}/>
           <Tooltip contentStyle={tipStyle} cursor={{fill:'#F4F6FB'}} formatter={v=>usd(v)}/>
-          <Bar dataKey="won" name="Won" stackId="s">
-            {chartSvc.map((e,i)=><Cell key={i} fill={e.name==='Unassigned'?'#9A97B3':COBALT}/>)}
-          </Bar>
-          <Bar dataKey="pipeline" name="Pipeline" stackId="s" radius={[0,6,6,0]}>
-            {chartSvc.map((e,i)=><Cell key={i} fill={e.name==='Unassigned'?'#DCDAE6':'#AFC0F5'}/>)}
+          <Bar dataKey="collected" name="Collected" radius={[0,6,6,0]}>
+            {chartSvc.map((e,i)=><Cell key={i} fill={e.name==='Unassigned'?'#B9B6CC':COBALT}/>)}
           </Bar>
         </BarChart></ResponsiveContainer></div>
         <div className="svc-rev">
           {chartSvc.map(r=>(<div className={'svc-rev-r'+(r.name==='Unassigned'?' un':'')} key={r.name}>
             <b>{r.name}</b>
-            <span className="w">{usd(r.won)} won</span>
-            <span>{r.clients?`${r.clients} client${r.clients===1?'':'s'} · ${r.deals} deal${r.deals===1?'':'s'}`:'none won yet'}</span>
-            <span className="p">{r.pipeline?`${usd(r.pipeline)} in pipeline`:''}</span>
+            <span className="w">{usd(r.collected)} collected</span>
+            <span>{r.payments?`${r.payments} payment${r.payments===1?'':'s'} · ${r.clients} client${r.clients===1?'':'s'}`:'nothing paid yet'}</span>
+            <span className="p">{r.won?`${usd(r.won)} won`:''}</span>
           </div>))}
-          {svcRev.excluded>0&&<div className="svc-rev-x">{usd(svcRev.excluded)} on lost or parked leads is not counted in either.</div>}
+          <div className="svc-rev-x">Total collected {usd(svcCash.total)}, every payment logged. Won is contract value, shown for context, not counted as revenue.</div>
         </div>
       </ChartCard>
 
