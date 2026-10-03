@@ -16,7 +16,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test, testAsync, report } from './assert.mjs';
-import { countRace, racerFor } from '../api/coffee-race.js';
+import { countRace, meetingDay, racerFor } from '../api/coffee-race.js';
 import {
   BOTH, COFFEE_WINDOWS, eventOwner, knownHost, openWindows, readDayEvents, windowInterval,
 } from '../api/_coffee.js';
@@ -102,6 +102,44 @@ test('credit goes to m.host first, then falls back to heldBy', () => {
     coffee({ host: undefined, heldBy: undefined }),
   )];
   eq(countRace(rows, '2026-10-03', '2026-10-10'), { Garrett: 0, Logan: 2 }, 'counts follow credit');
+});
+
+/* The race day is decided in the CALENDAR's zone. Slicing the raw string read
+   a UTC stamp of a Saturday-evening coffee as Sunday, outside the race. */
+const RACE = ['2026-10-03', '2026-10-10', 'America/Chicago'];
+const one = start => countRace([lead(coffee({ start }))], ...RACE).Garrett;
+
+test('a coffee at 7:30 PM Central on Sat Oct 10 counts, however it is stamped', () => {
+  eq(one('2026-10-10T19:30:00'), 1, 'wall clock, as coffee-book and the CRM write it');
+  eq(one('2026-10-10T19:30:00-05:00'), 1, 'with its Central offset');
+  eq(one('2026-10-11T00:30:00.000Z'), 1, 'as UTC, where the date already reads Oct 11');
+});
+
+test('a coffee at 12:30 AM Central on Sun Oct 11 does not count', () => {
+  eq(one('2026-10-11T00:30:00'), 0, 'wall clock');
+  eq(one('2026-10-11T00:30:00-05:00'), 0, 'with offset');
+  eq(one('2026-10-11T05:30:00.000Z'), 0, 'as UTC');
+});
+
+test('a UTC-stamped start that is still Oct 10 in Central counts', () => {
+  eq(one('2026-10-11T04:59:00Z'), 1, '11:59 PM Central');
+  eq(one('2026-10-11T05:00:00Z'), 0, 'midnight Central is Sunday');
+  eq(meetingDay({ start: '2026-10-11T03:00:00.000Z' }, 'America/Chicago'), '2026-10-10', 'meetingDay');
+});
+
+test('the first day is decided the same way', () => {
+  eq(one('2026-10-03T03:00:00Z'), 0, '10 PM Central on Fri Oct 2');
+  eq(one('2026-10-03T05:00:00Z'), 1, 'midnight Central on Sat Oct 3');
+});
+
+test('heldAt, which the CRM stamps in UTC, is converted too', () => {
+  const rows = [lead(coffee({ start: undefined, heldAt: '2026-10-11T02:00:00.000Z' }))];   // 9 PM Oct 10 Central
+  eq(countRace(rows, ...RACE).Garrett, 1, 'held Saturday night');
+});
+
+test('an unreadable start is no day, not a guess', () => {
+  eq(meetingDay({ start: 'soon' }, 'America/Chicago'), '', 'garbage');
+  eq(meetingDay({ start: '2026-13-45T99:00:00Z' }, 'America/Chicago'), '', 'impossible instant');
 });
 
 test('bad rows do not throw and return numbers only', () => {

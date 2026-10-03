@@ -61,11 +61,11 @@ same reason as the 20 Aug pass. **25 route files, 22 of them described below.**
 | `google-callback.js` | ❌ none — correctly | 🟠 no `state` parameter. **Still open.** |
 | `google-auth.js` | ❌ none | 🟡 low. **Still open**, and paired with the above. |
 | `coffee-availability.js` | ❌ none — public by design | rate-limited; returns window ids only — see *The coffee routes* |
-| `coffee-book.js` | ❌ none — public by design | rate-limited; writes a calendar event and a lead — see below. 🟠 its `/api/notify` call cannot succeed |
+| `coffee-book.js` | ❌ none — public by design | rate-limited; writes a calendar event and a lead, mails the owners in-process via `_mail.js` — see below |
 | `coffee-race.js` | ❌ none — public by design | rate-limited GET; returns two integers — see below |
 
-`_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js`, `_coffee.js`
-are helpers with no route.
+`_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js`, `_coffee.js`,
+`_mail.js` are helpers with no route.
 
 ### `outreach-draft.js` — why owner, and why it shares JARVIS's budget
 
@@ -182,6 +182,26 @@ Two changes, and the second is the real one.
 Note the deliberate asymmetry: a **delivery** failure is soft (`{ok:false}`,
 the app carries on, the in-app queue is the real record). An **allowlist**
 failure is hard. A send with no provable recipient does not go out.
+
+> **Oct 2026: the send moved into `_mail.js`.** Points 2 and the Resend call
+> now live in `sendMail()` in `api/_mail.js`, a helper with no route.
+> `notify.js` is unchanged at its door (`guard({requireAuth:true})`,
+> `perDay:300`), builds its email as before, and calls `sendMail()`. The reason
+> is `coffee-book.js`, which is public and must email the owners. It posted to
+> this route with no session, so every booking email was a silent 401. It now
+> calls `sendMail()` in-process. No key was added and no route was opened.
+>
+> **The allowlist is enforced inside `sendMail()`, not by its callers.** A
+> caller's `to` can only narrow the list. `coffee-book.js` passes no `to` at
+> all, so it reaches exactly `NOTIFY_TO` plus active owners and never the
+> address typed into the booking form. The `app_settings` exclusion is
+> asserted on `_mail.js` as well as `notify.js` in `tests/apiauth.mjs`.
+> `tests/mail.mjs` proves all of it by running real code against stubs.
+> An anonymous or forged-token call to `notify.js` is still a 401 with nothing
+> sent. The helper refuses an outsider, a look-alike address and the outsider
+> half of a mixed list. A real `coffee-book` booking mails the owners and not
+> the guest. If Resend rejects the send or cannot be reached, the booking still
+> succeeds.
 
 ### 🔴 `calendar-event.js` — was unauthenticated calendar write/delete + invite spam
 
@@ -368,11 +388,11 @@ returns, not a policy.
   (shop, window, a known host — an unknown host is now a 400), and the only
   invitee is the email they typed, so it cannot be turned into an invite relay
   to third parties beyond the rate limit. It re-checks availability for that
-  host before writing. **Known defect, not fixed here:** it posts to
-  `/api/notify` with no bearer token, and `notify.js` is
-  `guard({requireAuth})`, so that email cannot be sent. The fail-soft `catch`
-  hides the 401. Fixing it is an auth decision (a server-to-server
-  secret, or calling Resend directly), so it is escalated rather than patched.
+  host before writing. It emails the owners by calling `sendMail()` from
+  `_mail.js` in-process, with no `to`, so the allowlist alone decides the
+  recipients and the guest's address cannot be one of them. A failed send
+  is logged and the booking still succeeds. See the Oct 2026 note under
+  `notify.js` above.
 - **`coffee-race.js`** — GET. Reads every lead's `data` with the service key and
   returns `{Garrett: n, Logan: n}`, the race dates and the goal. No name,
   contact detail or deal field is in the response. `tests/coffee.mjs` covers

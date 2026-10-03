@@ -120,6 +120,13 @@ console.log('\nguarding is not the whole fix — see tests/relay.mjs');
   ok('notify no longer claims "whatever is sent is used"', !/whatever is sent is used/.test(n));
   ok('  and the allowlist is not read from app_settings', !/app_settings/.test(n.replace(/\/\*[\s\S]*?\*\//g, '')),
      'app_settings is writable by any listed user — it cannot authorise a recipient');
+
+  /* The allowlist moved into the helper notify.js and coffee-book.js share, so
+     the same rule has to hold where the list is actually built now. */
+  const m = await fs.readFile(path.join(root, 'api/_mail.js'), 'utf8');
+  ok('  nor in _mail.js, where the allowlist now lives', !/app_settings/.test(m.replace(/\/\*[\s\S]*?\*\//g, '')),
+     'app_settings is writable by any listed user — it cannot authorise a recipient');
+  ok('  and _mail.js is not a route', !/export default/.test(m));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

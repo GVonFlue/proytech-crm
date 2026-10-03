@@ -17,7 +17,9 @@
       matter whose session sent the mail that got you blacklisted.
 
    So the recipient is now decided SERVER-SIDE. The caller may narrow the list;
-   it cannot extend it.
+   it cannot extend it. The rule and the Resend call live in ./_mail.js, so
+   that other server code (api/coffee-book.js) can send in-process without a
+   session and still cannot pick a recipient. This route keeps its guard.
 
    WHERE THE ALLOWLIST COMES FROM, AND WHY NOT FROM SETTINGS
 
@@ -51,35 +53,19 @@
                       Shared with the Google flow; api/_google.js holds the
                       default if it is unset.
    ========================================================================== */
-import { SUPA_KEY, SUPA_URL } from './_env.js';
 import { guard, sweep } from './_guard.js';
+import { pickRecipients, sendMail } from './_mail.js';
 // appUrl(), not a second copy of the app's URL and its fallback. Two spellings
 // of "where this app lives" drift, and the one that drifts here silently drops
 // the only link in the email.
 import { appUrl } from './_google.js';
 
-const SUPA = SUPA_URL;
-const KEY  = SUPA_KEY;
-
 const esc = s => String(s == null ? '' : s).replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 const usd = v => '$' + Math.round(Number(v) || 0).toLocaleString();
-const norm = s => String(s == null ? '' : s).trim().toLowerCase();
 
-/** The caller may NARROW the allowlist. It cannot extend it.
- *
- *  Exported so the rule is tested for what it does rather than matched for how
- *  it is spelled — same reason sheet-read.js exports sheetIdFrom.
- *
- *  An unknown address is dropped, not fatal: one stale entry in
- *  settings.notifyEmails must not silently stop the owners being told. */
-export function pickRecipients(asked, allowed) {
-  const want = (Array.isArray(asked) ? asked : []).map(norm).filter(e => e.includes('@'));
-  if (!want.length) return { to: allowed.slice(), dropped: [] };
-  return {
-    to: want.filter(e => allowed.includes(e)),
-    dropped: want.filter(e => !allowed.includes(e)),
-  };
-}
+// Re-exported: the rule lives in ./_mail.js and is tested through this name
+// by tests/relay.mjs.
+export { pickRecipients };
 
 /** The link is an anchor in mail leaving a domain you verified, so it is pinned
  *  to the app's own origin rather than to "starts with http". Anything else
@@ -89,25 +75,6 @@ export function safeLink(wanted, app) {
   const APP = String(app || '').replace(/\/+$/, '');
   const w = typeof wanted === 'string' ? wanted.trim() : '';
   return (APP && w && (w === APP || w.startsWith(APP + '/'))) ? w : APP;
-}
-
-/** Active owners' addresses, read with the service key because a rep's own
- *  token cannot see anybody else's crm_users row. */
-async function ownerEmails() {
-  if (!SUPA || !KEY) return [];
-  try {
-    const r = await fetch(
-      `${SUPA}/rest/v1/crm_users?role=eq.owner&active=is.true&select=email`,
-      { headers: { apikey: KEY, authorization: `Bearer ${KEY}` } });
-    if (!r.ok) return [];
-    const rows = await r.json();
-    return (Array.isArray(rows) ? rows : []).map(u => norm(u && u.email)).filter(e => e.includes('@'));
-  } catch {
-    // Fails to EMPTY, not to open. NOTIFY_TO below still carries the common
-    // case, and an install with neither sends nothing rather than sending
-    // wherever it was told to.
-    return [];
-  }
 }
 
 export default async function handler(req, res) {
@@ -121,30 +88,11 @@ export default async function handler(req, res) {
   if (!gate.ok) return;
   sweep();
 
-  const RESEND = process.env.RESEND_API_KEY;
-  const FROM = process.env.NOTIFY_FROM;
-  if (!RESEND || !FROM) return res.status(200).json({ ok: false, reason: 'not_configured' });
-
   let body = req.body;
   if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
   body = body || {};
-
-  // --- the allowlist. Built here, from sources the caller cannot write. -----
-  const envTo = String(process.env.NOTIFY_TO || '').split(',').map(norm).filter(e => e.includes('@'));
-  const allowed = [...new Set([...envTo, ...(await ownerEmails())])];
-  if (!allowed.length) {
-    console.error('[notify] no allowed recipients: NOTIFY_TO is unset and no active owner has an email on their crm_users row');
-    return res.status(200).json({ ok: false, reason: 'no_recipients' });
-  }
-
-  const { to, dropped } = pickRecipients(body.to, allowed);
-  if (dropped.length) {
-    // Loud on the server, quiet to the caller — same posture as guard()'s
-    // daily cap. The count goes back so a client can say "2 addresses were
-    // skipped" without being told which addresses would have worked.
-    console.error(`[notify] dropped ${dropped.length} recipient(s) not on the allowlist`);
-  }
-  if (!to.length) return res.status(200).json({ ok: false, reason: 'no_recipients', rejected: dropped.length });
+  // Configuration, the allowlist and delivery are all decided in sendMail():
+  // body.to can narrow the recipients, never add one.
 
   const kind = body.kind || 'conversion';
   const rep = esc(String(body.rep || 'A rep').slice(0, 120));
@@ -196,18 +144,7 @@ export default async function handler(req, res) {
       </table>
       ${link ? `<p style="margin:0"><a href="${esc(link)}" style="color:#2B4DE0">Open the lead</a></p>` : ''}
     </div>`;
-    try {
-      const r = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', Authorization: `Bearer ${RESEND}` },
-        body: JSON.stringify({ from: FROM, to, subject: subj, html: html2 }),
-      });
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) return res.status(200).json({ ok: false, reason: 'send_failed', detail: j.message || j.name || r.status });
-      return res.status(200).json({ ok: true, id: j.id || null, to, rejected: dropped.length });
-    } catch (e) {
-      return res.status(200).json({ ok: false, reason: 'send_error', detail: String((e && e.message) || e).slice(0, 200) });
-    }
+    return res.status(200).json(await sendMail({ to: body.to, subject: subj, html: html2, tag: 'notify' }));
   }
 
   const subject = kind === 'conversion'
@@ -223,16 +160,5 @@ export default async function handler(req, res) {
     <p style="margin:0 0 14px;font-size:17px;font-weight:600">New client converted</p>${lines.join('')}
   </div>`;
 
-  try {
-    const r = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', Authorization: `Bearer ${RESEND}` },
-      body: JSON.stringify({ from: FROM, to, subject, html }),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) return res.status(200).json({ ok: false, reason: 'send_failed', detail: j.message || j.name || r.status });
-    return res.status(200).json({ ok: true, id: j.id || null, to, rejected: dropped.length });
-  } catch (e) {
-    return res.status(200).json({ ok: false, reason: 'send_failed', detail: String(e.message || e) });
-  }
+  return res.status(200).json(await sendMail({ to: body.to, subject, html, tag: 'notify' }));
 }

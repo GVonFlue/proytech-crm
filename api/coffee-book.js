@@ -9,7 +9,11 @@
 //        match an existing lead by email -> phone(digits) -> name;
 //        if found, attach the coffee as a meeting + keyDate + activity note;
 //        if not, create a new lead in the pool with the coffee details.
-//   4. Email Garrett + Logan via the existing notify pipe (Resend).
+//   4. Email the owners through ./_mail.js, IN-PROCESS. Not an HTTP call to
+//      /api/notify: that route needs a signed-in session, which a public
+//      booking never has, so every one of these was a silent 401. The
+//      helper enforces the allowlist itself, so this can only reach NOTIFY_TO
+//      and active owners, never the address typed into the form.
 //
 // Reuses the CRM's own helpers so there is ONE source of truth for calendar
 // auth, the free/busy rule, the lead shape, and email.
@@ -23,6 +27,7 @@ import { getAccessToken, calendarIds, calendarTz } from './_google.js';
 import { SUPA_URL, SUPA_KEY } from './_env.js';
 import { createClient } from '@supabase/supabase-js';
 import { slotWallClock } from '../src/lib/availability.js';
+import { sendMail } from './_mail.js';
 import {
   COFFEE_HOSTS, COFFEE_WINDOWS, knownHost, openWindows, readDayEvents, windowInterval,
 } from './_coffee.js';
@@ -66,16 +71,6 @@ function findLead(rows, { email, phone, name }) {
   return null;
 }
 
-async function sendNotify(appUrl, subject, html) {
-  // Reuse the CRM's own notify endpoint (Resend + NOTIFY_TO allow-list).
-  try {
-    await fetch(appUrl + '/api/notify', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ subject, html }),
-    });
-  } catch (e) { /* fail-soft: a missed email never blocks a booking */ }
-}
 
 export default async function handler(req, res) {
   cors(res, req.headers.origin);
@@ -110,7 +105,6 @@ export default async function handler(req, res) {
   if (!SHOPS[shop]) { res.status(400).json({ ok: false, error: 'pick a listed coffee shop' }); return; }
 
   const tz = calendarTz();
-  const appUrl = process.env.APP_URL || 'https://proytech-crm.vercel.app';
 
   try {
     const token = await getAccessToken();
@@ -243,7 +237,10 @@ export default async function handler(req, res) {
       + `<li><b>CRM:</b> ${crmResult === 'attached' ? 'attached to existing lead' : crmResult === 'created' ? 'new lead created' : crmResult}</li>`
       + `</ul>`
       + (htmlLink ? `<p><a href="${htmlLink}">View on Google Calendar</a></p>` : '');
-    await sendNotify(appUrl, `Coffee booked: ${name} × ${host}`, html);
+    // No `to`: the allowlist IS the recipient list. Fail-soft: a missed email
+    // is logged inside sendMail and never blocks a booking.
+    const mail = await sendMail({ subject: `Coffee booked: ${name} × ${host}`, html, tag: 'coffee-book' });
+    if (!mail.ok) console.error('[coffee-book] booking saved, email not sent:', mail.reason);
 
     res.status(200).json({ ok: true, crm: crmResult, eventId });
   } catch (e) {
