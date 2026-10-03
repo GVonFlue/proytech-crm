@@ -63,7 +63,9 @@ export default async function handler(req, res) {
   cors(res, req.headers.origin);
   if (req.method === 'OPTIONS') { res.status(204).end(); return; }
   if (req.method !== 'GET') { res.status(405).json({ ok: false }); return; }
-  const gate = await guard(req, res, { name: 'coffee-race', perIp: 120, windowMin: 10, perDay: 5000 });
+  // methods: guard() is POST-only by default, which made every GET a 405.
+  // This is the one route that opts in to GET; the check above keeps it GET-only.
+  const gate = await guard(req, res, { name: 'coffee-race', perIp: 120, windowMin: 10, perDay: 5000, methods: ['GET'] });
   if (!gate.ok) return;
   sweep();
   if (!SUPA_URL || !SUPA_KEY) { res.status(200).json({ ok: false, error: 'not_configured' }); return; }
