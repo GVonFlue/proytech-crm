@@ -2,14 +2,14 @@
 // getproytech.com/coffee. Counts Coffee meetings marked HELD in the CRM, per
 // host, inside the race window. Returns numbers only: no names, no leads, no
 // contact details ever leave the server.
-//
 // Credit goes to the meeting's booked host (set by /api/coffee-book), falling
 // back to whoever clicked "held" (heldBy) for coffees added by hand in the CRM.
-//
 // Env (optional): RACE_START=2026-10-03  RACE_END=2026-10-10  RACE_GOAL=20
 import { guard, sweep } from './_guard.js';
 import { SUPA_URL, SUPA_KEY } from './_env.js';
 import { createClient } from '@supabase/supabase-js';
+import { calendarTz } from './_google.js';
+import { wallParts } from '../src/lib/availability.js';
 
 const START = process.env.RACE_START || '2026-10-03';
 const END   = process.env.RACE_END   || '2026-10-10';
@@ -27,12 +27,31 @@ export function racerFor(m) {
   const who = String(m.host || m.heldBy || '').toLowerCase();
   return RACERS.find(r => who.includes(r.toLowerCase())) || null;
 }
-export function countRace(leads, start = START, end = END) {
+/* The day a meeting happened, in the CALENDAR's zone — not by slicing the
+   string. A stamp with an offset or Z is an instant: 7:30 PM Central on Sat
+   Oct 10 is '2026-10-11T00:30:00.000Z', and slicing that credited it to Oct 11,
+   outside the race. A stamp WITHOUT an offset is already calendar wall clock
+   (coffee-book writes 'YYYY-MM-DDTHH:MM:SS' in calendarTz()), so its date is
+   its own first ten characters, whatever zone this server runs in. */
+const ZONED = /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/i;
+const pad2 = n => String(n).padStart(2, '0');
+export function meetingDay(m, tz = calendarTz()) {
+  const raw = String((m && (m.start || m.heldAt)) || '').trim();
+  if (ZONED.test(raw)) {
+    const ts = Date.parse(raw);
+    if (!Number.isFinite(ts)) return '';
+    const w = wallParts(ts, tz);
+    return `${w.year}-${pad2(w.month)}-${pad2(w.day)}`;
+  }
+  return /^\d{4}-\d{2}-\d{2}/.test(raw) ? raw.slice(0, 10) : '';
+}
+
+export function countRace(leads, start = START, end = END, tz = calendarTz()) {
   const counts = Object.fromEntries(RACERS.map(r => [r, 0]));
   for (const row of leads || []) {
     for (const m of ((row && row.data) || {}).meetings || []) {
       if (String(m.mtype || '').toLowerCase() !== 'coffee' || m.status !== 'held') continue;
-      const day = String(m.start || m.heldAt || '').slice(0, 10);
+      const day = meetingDay(m, tz);
       if (!day || day < start || day > end) continue;
       const r = racerFor(m); if (r) counts[r]++;
     }

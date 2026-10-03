@@ -1,11 +1,19 @@
 // api/coffee-book.js — PUBLIC endpoint for the /coffee page. One call does it all:
-//   1. Re-check the window is still free (guards against two people grabbing it).
-//   2. Create the event on the connected Google Calendar, inviting the guest.
+//   1. Re-check the window is still free FOR THIS HOST (guards against two
+//      people grabbing it). Same rule as /api/coffee-availability: ./_coffee.js.
+//   2. Create the event on the connected Google Calendar, inviting the guest,
+//      tagged extendedProperties.private.coffeeHost = host. Both hosts share
+//      one calendar, so the tag is how the next availability read knows this
+//      event blocks only this host.
 //   3. Upsert the lead in the CRM:
 //        match an existing lead by email -> phone(digits) -> name;
 //        if found, attach the coffee as a meeting + keyDate + activity note;
 //        if not, create a new lead in the pool with the coffee details.
-//   4. Email Garrett + Logan via the existing notify pipe (Resend).
+//   4. Email the owners through ./_mail.js, IN-PROCESS. Not an HTTP call to
+//      /api/notify: that route needs a signed-in session, which a public
+//      booking never has, so every one of these was a silent 401. The
+//      helper enforces the allowlist itself, so this can only reach NOTIFY_TO
+//      and active owners, never the address typed into the form.
 //
 // Reuses the CRM's own helpers so there is ONE source of truth for calendar
 // auth, the free/busy rule, the lead shape, and email.
@@ -18,17 +26,18 @@ import { guard, sweep } from './_guard.js';
 import { getAccessToken, calendarIds, calendarTz } from './_google.js';
 import { SUPA_URL, SUPA_KEY } from './_env.js';
 import { createClient } from '@supabase/supabase-js';
+import { slotWallClock } from '../src/lib/availability.js';
+import { sendMail } from './_mail.js';
 import {
-  dayWindow, availabilityFor, isBookable, slotAt, slotsForDay, slotWallClock,
-} from '../src/lib/availability.js';
-import { COFFEE_WINDOWS } from './coffee-availability.js';
+  COFFEE_HOSTS, COFFEE_WINDOWS, knownHost, openWindows, readDayEvents, windowInterval,
+} from './_coffee.js';
 
 const SHOPS = {
   'Mokas Coffee — Delano': 'Mokas Coffee, Delano District, Wichita, KS',
   'Greater Grounds — Old Town': 'Greater Grounds, Old Town, Wichita, KS',
   'Starbucks — Downtown / Douglas': 'Starbucks, Downtown on Douglas, Wichita, KS',
 };
-const WINDOW_LABEL = { '0900': '9:00–10:00 AM', '1030': '10:30–11:30 AM', '1200': '12:00–1:00 PM' };
+export const WINDOW_LABEL = { '0730': '7:30–8:30 AM', '0900': '9:00–10:00 AM', '1030': '10:30–11:30 AM', '1200': '12:00–1:00 PM' };
 const POOL = process.env.VITE_POOL_NAME || process.env.VITE_BRAND_NAME || 'ProyTech';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -62,16 +71,6 @@ function findLead(rows, { email, phone, name }) {
   return null;
 }
 
-async function sendNotify(appUrl, subject, html) {
-  // Reuse the CRM's own notify endpoint (Resend + NOTIFY_TO allow-list).
-  try {
-    await fetch(appUrl + '/api/notify', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ subject, html }),
-    });
-  } catch (e) { /* fail-soft: a missed email never blocks a booking */ }
-}
 
 export default async function handler(req, res) {
   cors(res, req.headers.origin);
@@ -84,9 +83,13 @@ export default async function handler(req, res) {
   let b = req.body;
   if (typeof b === 'string') { try { b = JSON.parse(b); } catch { b = {}; } }
   b = b || {};
-  const host = String(b.host || 'Garrett').trim() || 'Garrett';
+  /* Missing host keeps the page's old default (the first host). A host we do
+     not know is refused: it would be written onto the calendar tag and the
+     CRM meeting, and the race would credit nobody. */
+  const rawHost = String(b.host || '').trim();
+  const host = rawHost ? knownHost(rawHost) : COFFEE_HOSTS[0];
   const date = String(b.date || '').slice(0, 10);
-  const slot = String(b.slot || '').trim();           // '0900' | '1030' | '1200'
+  const slot = String(b.slot || '').trim();           // '0730' | '0900' | '1030' | '1200'
   const shop = String(b.shop || '').trim();
   const name = String(b.name || '').trim();
   const phone = String(b.phone || '').trim();
@@ -97,37 +100,28 @@ export default async function handler(req, res) {
   // ---- validate ----
   const win = COFFEE_WINDOWS.find(w => w.id === slot);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !win) { res.status(400).json({ ok: false, error: 'bad date/slot' }); return; }
+  if (!host) { res.status(400).json({ ok: false, error: 'unknown host' }); return; }
   if (!name || digits(phone).length < 10 || !EMAIL.test(email)) { res.status(400).json({ ok: false, error: 'name, phone and a valid email are required' }); return; }
   if (!SHOPS[shop]) { res.status(400).json({ ok: false, error: 'pick a listed coffee shop' }); return; }
 
   const tz = calendarTz();
-  const appUrl = process.env.APP_URL || 'https://proytech-crm.vercel.app';
 
   try {
     const token = await getAccessToken();
     if (!token) { res.status(200).json({ ok: false, error: 'calendar_not_connected' }); return; }
 
-    // ---- 1. re-check the window is STILL free across all calendars ----
-    const { start, end } = dayWindow(date, tz);
-    const ids = calendarIds();
-    let events = [];
-    for (const id of ids) {
-      const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(id)}/events`
-        + `?singleEvents=true&orderBy=startTime&maxResults=250`
-        + `&timeMin=${encodeURIComponent(new Date(start).toISOString())}&timeMax=${encodeURIComponent(new Date(end).toISOString())}`;
-      const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-      if (!r.ok) { res.status(200).json({ ok: false, error: 'calendar_read_failed' }); return; }
-      const j = await r.json();
-      if (Array.isArray(j.items)) events = events.concat(j.items);
+    // ---- 1. re-check the window is STILL free for THIS host ----
+    // Only this host's events and unattributable ones block: the other host's
+    // coffee at the same hour is not a clash. An unread calendar fails closed.
+    const events = await readDayEvents(calendarIds(), token, date, tz);
+    if (!events) { res.status(200).json({ ok: false, error: 'calendar_read_failed' }); return; }
+    if (!openWindows(date, events, { tz, now: Date.now(), host }).includes(win.id)) {
+      res.status(200).json({ ok: false, error: 'slot_taken' }); return;
     }
-    const lattice = availabilityFor(date, events, { tz, now: Date.now() });
-    const stillFree = win.slots.every(hhmm => { const s = slotAt(lattice, hhmm); return s && isBookable(s); });
-    if (!stillFree) { res.status(200).json({ ok: false, error: 'slot_taken' }); return; }
 
-    // Wall-clock start/end spanning the full 60-min window (first slot start → second slot end).
-    const first = slotAt(slotsForDay(date, tz), win.slots[0]);
-    const second = slotAt(slotsForDay(date, tz), win.slots[1]);
-    const wc = { start: slotWallClock(first, tz).start, end: slotWallClock(second, tz).end, timezone: tz };
+    // Wall-clock start/end of the 60-min window, from the same instants the
+    // re-check just approved (not the 8am lattice, which has no 7:30 slot).
+    const wc = slotWallClock(windowInterval(date, win, tz), tz);
 
     // ---- 2. create the Google Calendar event, inviting the guest ----
     const title = `Coffee: ${name} ×​ ${host} (ProyTech)`;
@@ -149,6 +143,7 @@ export default async function handler(req, res) {
         start: { dateTime: wc.start, timeZone: tz },
         end: { dateTime: wc.end, timeZone: tz },
         attendees: [{ email }],
+        extendedProperties: { private: { coffeeHost: host } },
       }),
     });
     const ev = await evResp.json();
@@ -242,7 +237,10 @@ export default async function handler(req, res) {
       + `<li><b>CRM:</b> ${crmResult === 'attached' ? 'attached to existing lead' : crmResult === 'created' ? 'new lead created' : crmResult}</li>`
       + `</ul>`
       + (htmlLink ? `<p><a href="${htmlLink}">View on Google Calendar</a></p>` : '');
-    await sendNotify(appUrl, `Coffee booked: ${name} × ${host}`, html);
+    // No `to`: the allowlist IS the recipient list. Fail-soft: a missed email
+    // is logged inside sendMail and never blocks a booking.
+    const mail = await sendMail({ subject: `Coffee booked: ${name} × ${host}`, html, tag: 'coffee-book' });
+    if (!mail.ok) console.error('[coffee-book] booking saved, email not sent:', mail.reason);
 
     res.status(200).json({ ok: true, crm: crmResult, eventId });
   } catch (e) {

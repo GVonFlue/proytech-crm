@@ -22,6 +22,11 @@ const KNOWN_OPEN = {
   'pocket-hook.js':       'webhook — Pocket signs deliveries, verified by HMAC. A session is impossible here.',
   'google-auth.js':       'redirect to Google consent. Useless without authenticating AT Google.',
   'google-callback.js':   'Google redirects the browser here; a token cannot ride along. Needs `state`, not a session.',
+  /* The public /coffee page on the marketing site. Its visitors have no CRM
+     login by definition; guard() still rate-limits all three. See API-AUDIT.md. */
+  'coffee-availability.js': 'public booking page: returns open window ids only, never event details.',
+  'coffee-book.js':         'public booking page: the booking IS the visitor. Fixed shops/windows/hosts, invite goes only to the email they typed.',
+  'coffee-race.js':         'public scoreboard: GET, two integers and the race dates. No lead field leaves the server.',
 };
 
 const files = (await fs.readdir(path.join(root, 'api')))
@@ -115,6 +120,13 @@ console.log('\nguarding is not the whole fix — see tests/relay.mjs');
   ok('notify no longer claims "whatever is sent is used"', !/whatever is sent is used/.test(n));
   ok('  and the allowlist is not read from app_settings', !/app_settings/.test(n.replace(/\/\*[\s\S]*?\*\//g, '')),
      'app_settings is writable by any listed user — it cannot authorise a recipient');
+
+  /* The allowlist moved into the helper notify.js and coffee-book.js share, so
+     the same rule has to hold where the list is actually built now. */
+  const m = await fs.readFile(path.join(root, 'api/_mail.js'), 'utf8');
+  ok('  nor in _mail.js, where the allowlist now lives', !/app_settings/.test(m.replace(/\/\*[\s\S]*?\*\//g, '')),
+     'app_settings is writable by any listed user — it cannot authorise a recipient');
+  ok('  and _mail.js is not a route', !/export default/.test(m));
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
