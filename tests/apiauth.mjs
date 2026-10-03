@@ -22,6 +22,11 @@ const KNOWN_OPEN = {
   'pocket-hook.js':       'webhook — Pocket signs deliveries, verified by HMAC. A session is impossible here.',
   'google-auth.js':       'redirect to Google consent. Useless without authenticating AT Google.',
   'google-callback.js':   'Google redirects the browser here; a token cannot ride along. Needs `state`, not a session.',
+  /* The public /coffee page on the marketing site. Its visitors have no CRM
+     login by definition; guard() still rate-limits all three. See API-AUDIT.md. */
+  'coffee-availability.js': 'public booking page: returns open window ids only, never event details.',
+  'coffee-book.js':         'public booking page: the booking IS the visitor. Fixed shops/windows/hosts, invite goes only to the email they typed.',
+  'coffee-race.js':         'public scoreboard: GET, two integers and the race dates. No lead field leaves the server.',
 };
 
 const files = (await fs.readdir(path.join(root, 'api')))

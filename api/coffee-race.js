@@ -2,10 +2,8 @@
 // getproytech.com/coffee. Counts Coffee meetings marked HELD in the CRM, per
 // host, inside the race window. Returns numbers only: no names, no leads, no
 // contact details ever leave the server.
-//
 // Credit goes to the meeting's booked host (set by /api/coffee-book), falling
 // back to whoever clicked "held" (heldBy) for coffees added by hand in the CRM.
-//
 // Env (optional): RACE_START=2026-10-03  RACE_END=2026-10-10  RACE_GOAL=20
 import { guard, sweep } from './_guard.js';
 import { SUPA_URL, SUPA_KEY } from './_env.js';

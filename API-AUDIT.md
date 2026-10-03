@@ -60,9 +60,12 @@ same reason as the 20 Aug pass. **25 route files, 22 of them described below.**
 | `google-disconnect.js` | ✅ **fixed in this PR** | `guard({requireOwner})` |
 | `google-callback.js` | ❌ none — correctly | 🟠 no `state` parameter. **Still open.** |
 | `google-auth.js` | ❌ none | 🟡 low. **Still open**, and paired with the above. |
+| `coffee-availability.js` | ❌ none — public by design | rate-limited; returns window ids only — see *The coffee routes* |
+| `coffee-book.js` | ❌ none — public by design | rate-limited; writes a calendar event and a lead — see below. 🟠 its `/api/notify` call cannot succeed |
+| `coffee-race.js` | ❌ none — public by design | rate-limited GET; returns two integers — see below |
 
-`_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js` are helpers
-with no route.
+`_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js`, `_coffee.js`
+are helpers with no route.
 
 ### `outreach-draft.js` — why owner, and why it shares JARVIS's budget
 
@@ -337,6 +340,43 @@ distinguishable on the billing page. It is read only inside `api/`, is never
 `VITE_`-prefixed, and `tests/content.mjs` asserts it appears in **no** client
 file and in **no** built bundle — the bundle check being the one that is a fact
 rather than a rule.
+
+---
+
+## The coffee routes — public on purpose
+
+Added 3 Oct 2026. `coffee-availability.js` and `coffee-book.js` were uploaded to
+`main` on 30 Sep and `coffee-race.js` on 3 Oct, none of them in this table or in
+`KNOWN_OPEN`, so `tests/apiauth.mjs` was red on `main` for all three. They now
+appear in both. That makes **28 route files, 25 with a row in the table**. The
+three without one are still the `calendar-*` routes named at the top.
+
+They serve getproytech.com/coffee, whose visitors have no CRM login, so a
+session check is impossible rather than forgotten. What stands in its place:
+`guard()` rate limits on every one (per IP and per day), CORS restricted to
+the getproytech.com origins (a browser control only; it does not stop curl),
+and the service-role key held on the server. All three read or write with that
+key, so **RLS does not apply to them**. Their boundary is what the code
+returns, not a policy.
+
+- **`coffee-availability.js`** — POST `{date, host?}`. Returns open window ids
+  (`0730`…`1200`) and never an event title, time or attendee. A calendar that
+  cannot be read returns no windows (fails closed). The `host` decides which
+  events block; the rule is in `_coffee.js`.
+- **`coffee-book.js`** — POST. Creates a Google event on `primary` with
+  `sendUpdates=all` and upserts a lead. The visitor picks only from fixed lists
+  (shop, window, a known host — an unknown host is now a 400), and the only
+  invitee is the email they typed, so it cannot be turned into an invite relay
+  to third parties beyond the rate limit. It re-checks availability for that
+  host before writing. **Known defect, not fixed here:** it posts to
+  `/api/notify` with no bearer token, and `notify.js` is
+  `guard({requireAuth})`, so that email cannot be sent. The fail-soft `catch`
+  hides the 401. Fixing it is an auth decision (a server-to-server
+  secret, or calling Resend directly), so it is escalated rather than patched.
+- **`coffee-race.js`** — GET. Reads every lead's `data` with the service key and
+  returns `{Garrett: n, Logan: n}`, the race dates and the goal. No name,
+  contact detail or deal field is in the response. `tests/coffee.mjs` covers
+  the counting.
 
 ---
 

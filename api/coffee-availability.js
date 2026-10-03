@@ -1,15 +1,17 @@
 // api/coffee-availability.js — PUBLIC endpoint for the /coffee booking page on
-// getproytech.com. Given a date, it reads Google free/busy across every
-// calendar in CALENDAR_IDS (yours + Logan's) and returns which of the three
-// fixed coffee windows are open.
+// getproytech.com. Given a date, and optionally a host, it reads every calendar
+// in CALENDAR_IDS and returns which of the four fixed coffee windows are open.
 //
-// Reuses the exact same machinery the CRM's own scheduler uses:
-//   _google.js      getAccessToken(), calendarIds(), calendarTz()
-//   availability.js dayWindow(), availabilityFor(), isBookable()
-// so "is this slot free" is decided by one rule in one place, not two.
+// Body: { date: 'YYYY-MM-DD', host?: 'Garrett' | 'Logan' }
 //
-// A coffee window is 60 minutes and the lattice is 30, so each window maps to
-// TWO underlying slots; the window is offered only when BOTH are bookable.
+// The rule lives in ./_coffee.js (shared with /api/coffee-book, so the re-check
+// at booking time is the same rule as the offer):
+//   - Both hosts book onto ONE shared calendar, so an event's owner is read
+//     from the EVENT (coffeeHost tag, coffee title, a host's name in the title).
+//     With a host given, only that host's events and unattributable ones block.
+//     With no host, every event blocks — the behaviour from before hosts.
+//   - Windows are checked by plain overlap, not on the CRM's 30-minute lattice,
+//     because the lattice starts at 8am and the first coffee is 7:30.
 //
 // Public by design (no login on the marketing site), but rate-limited and
 // CORS-locked to getproytech.com. No calendar details ever leave the server —
@@ -17,14 +19,11 @@
 
 import { guard, sweep } from './_guard.js';
 import { getAccessToken, calendarIds, calendarTz } from './_google.js';
-import { dayWindow, availabilityFor, isBookable, slotAt } from '../src/lib/availability.js';
+import { COFFEE_WINDOWS, openWindows, readDayEvents } from './_coffee.js';
 
-// The three coffee windows, each defined by the two 30-min lattice slots it covers.
-export const COFFEE_WINDOWS = [
-  { id: '0900', slots: ['09:00', '09:30'] },
-  { id: '1030', slots: ['10:30', '11:00'] },
-  { id: '1200', slots: ['12:00', '12:30'] },
-];
+// Re-exported for anything that imported the window list from here before it
+// moved to ./_coffee.js.
+export { COFFEE_WINDOWS };
 
 const ALLOW_ORIGIN = 'https://www.getproytech.com';
 
@@ -53,45 +52,20 @@ export default async function handler(req, res) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       res.status(400).json({ ok: false, error: 'bad date' }); return;
     }
+    // Optional. An unrecognised name is treated as no host (everything blocks),
+    // which can only offer FEWER windows, never a double-booking.
+    const host = String(body.host || '').trim();
 
     const token = await getAccessToken();
     if (!token) { res.status(200).json({ ok: true, open: [], reason: 'calendar_not_connected' }); return; }
 
     const tz = calendarTz();
-    const { start, end } = dayWindow(date, tz);
-    const timeMin = new Date(start).toISOString();
-    const timeMax = new Date(end).toISOString();
+    const events = await readDayEvents(calendarIds(), token, date, tz);
+    // One calendar failing to read must FAIL CLOSED, not silently offer busy
+    // time as free. Safest is to offer nothing.
+    if (!events) { res.status(200).json({ ok: true, open: [], reason: 'calendar_read_failed' }); return; }
 
-    // Pull the day's events from EVERY calendar we read; merge into one event list.
-    const ids = calendarIds();
-    let events = [];
-    for (const id of ids) {
-      const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(id)}/events`
-        + `?singleEvents=true&orderBy=startTime&maxResults=250`
-        + `&timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`;
-      const r = await fetch(url, { headers: { Authorization: 'Bearer ' + token } });
-      if (!r.ok) {
-        // One calendar failing to read must FAIL CLOSED for that calendar's
-        // owner, not silently offer their busy time. Safest is to offer nothing.
-        res.status(200).json({ ok: true, open: [], reason: 'calendar_read_failed' });
-        return;
-      }
-      const j = await r.json();
-      if (Array.isArray(j.items)) events = events.concat(j.items);
-    }
-
-    // Build the lattice for the day, marked against the merged busy list.
-    const now = Date.now();
-    const lattice = availabilityFor(date, events, { tz, now });
-
-    // A window is open only when BOTH of its 30-min slots are bookable.
-    const open = COFFEE_WINDOWS.filter(w =>
-      w.slots.every(hhmm => {
-        const s = slotAt(lattice, hhmm);
-        return s && isBookable(s);
-      })
-    ).map(w => w.id);
-
+    const open = openWindows(date, events, { tz, now: Date.now(), host });
     res.status(200).json({ ok: true, open });
   } catch (e) {
     // Fail closed: on error, offer nothing rather than risk double-booking.
