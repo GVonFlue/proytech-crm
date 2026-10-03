@@ -73,6 +73,7 @@ import {
   paidInMonth, closedDealsInMonth, closedDealsCountInMonth,
   revenueForMonth, closesForMonth, moneyMonths, owedRows, owedFromMonth, owedSince,
   keyDatesOf, labelVocab, labelsOf, manualSponsorships, meetingsOf, needsDate,
+  isUpcoming, needsStatus, meetingStatus,
   normEntry, num, nurtureDaysOf, onbSkipped, openSaleValue, owedBy, pct, poolList,
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
   tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt,
@@ -395,8 +396,8 @@ const meetingMonthKey=m=>m.start?isoOf(new Date(m.start)).slice(0,7):null;
    BOOKED — right for "meetings booked", which is an action you take and a goal
    you're measured against this month, whatever month the meeting itself lands in. */
 const bookingMonthKey=m=>{ const t=m.createdAt||m.start; return t?isoOf(new Date(t)).slice(0,7):null; };
-const isUpcoming=m=>!m.status&&!isDateless(m)&&new Date(m.end||m.start).getTime()>=Date.now();
-const needsStatus=m=>!m.status&&!isDateless(m)&&new Date(m.end||m.start).getTime()<Date.now();
+/* isUpcoming / needsStatus live in lib/lead.js beside meetingStatus(), the one
+   reader of the status vocabulary. */
 /* ---- Monday Morning Huddle -------------------------------------------------
    Everything here is plain arithmetic on data already captured. The AI only
    ever sees the finished digest, never the database. */
@@ -5838,7 +5839,7 @@ function Dashboard({labelServices,leads,stages,open,tagBooked,setMeetingStatus,s
       .sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
     const stale=openMine.filter(l=>!untouched.includes(l)&&(daysSinceTouch(l)??Infinity)>=7)
       .sort((a,b)=>(daysSinceTouch(b)??Infinity)-(daysSinceTouch(a)??Infinity));
-    const todayMtgs=allMeetings(leads).filter(r=>!r.m.status&&!needsDate(r.m)
+    const todayMtgs=allMeetings(leads).filter(r=>!meetingStatus(r.m)&&!needsDate(r.m)
       &&String(r.m.start||'').slice(0,10)===today)
       .sort((a,b)=>(a.m.start||'').localeCompare(b.m.start||''));
     const dayTotal=overdue.length+untouched.length+stale.length+todayMtgs.length;
@@ -6132,7 +6133,7 @@ function Dashboard({labelServices,leads,stages,open,tagBooked,setMeetingStatus,s
         &&(sOf(l.stage,stages).open||sOf(l.stage,stages).nurture))
         .sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
       const today=isoOf(new Date());
-      const mtgs=allMeetings(leads).filter(r=>!r.m.status&&!needsDate(r.m)
+      const mtgs=allMeetings(leads).filter(r=>!meetingStatus(r.m)&&!needsDate(r.m)
         &&String(r.m.start||'').slice(0,10)===today)
         .sort((a,b)=>(a.m.start||'').localeCompare(b.m.start||''));
       const dates=upcomingDates(leads);
