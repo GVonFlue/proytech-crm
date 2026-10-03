@@ -122,6 +122,31 @@ console.log('\nmethod and IP handling');
 { const res=mkRes();
   const g=await guard({method:'GET',headers:{},socket:{}},res,{name:'t6'});
   ok('GET is rejected', g.ok===false&&res.code===405, 'code '+res.code); }
+
+console.log('\nmethods: GET is opt-in, per route');
+/* guard() is POST-only by default. /api/coffee-race opts in to GET so a CDN
+   can cache it; no other route may get GET by accident. */
+{ const res=mkRes();
+  const g=await guard({method:'GET',headers:{'x-forwarded-for':'5.5.5.1'},socket:{}},res,{name:'t7',perIp:50,perDay:9999});
+  ok('a route WITHOUT the option still rejects GET', g.ok===false&&res.code===405, 'code '+res.code);
+  ok('  with the same message as before', res.body&&res.body.error==='POST only', JSON.stringify(res.body)); }
+{ const res=mkRes();
+  const g=await guard({method:'GET',headers:{'x-forwarded-for':'5.5.5.2'},socket:{}},res,{name:'t8',perIp:50,perDay:9999,methods:['GET']});
+  ok('methods:[\'GET\'] lets a GET through', g.ok===true, 'code '+res.code+' '+JSON.stringify(res.body)); }
+{ const res=mkRes();
+  const g=await guard(mkReq('5.5.5.3'),res,{name:'t9',perIp:50,perDay:9999,methods:['GET']});
+  ok('  and then POST is rejected on that route', g.ok===false&&res.code===405, 'code '+res.code); }
+{ store.length=0; let blocked=0;
+  for(let i=0;i<4;i++){ const res=mkRes();
+    const g=await guard({method:'GET',headers:{'x-forwarded-for':'5.5.5.4'},socket:{}},res,{name:'t10',perIp:2,perDay:9999,methods:['GET']});
+    if(!g.ok) blocked++; }
+  ok('  and a GET is still rate-limited', blocked===2, blocked+' blocked of 4'); }
+{ const res=mkRes();
+  const g=await guard({method:'DELETE',headers:{'x-forwarded-for':'5.5.5.5'},socket:{}},res,{name:'t11',methods:['DELETE']});
+  ok('a method other than GET/POST cannot be opted in', g.ok===false&&res.code===405, 'code '+res.code); }
+{ const res=mkRes();
+  const g=await guard({method:'GET',headers:{'x-forwarded-for':'5.5.5.6'},socket:{}},res,{name:'t12',methods:[]});
+  ok('an empty list falls back to POST only', g.ok===false&&res.code===405, 'code '+res.code); }
 ok('the first x-forwarded-for entry is used, not the last',
    ipOf({headers:{'x-forwarded-for':'9.9.9.9, 10.0.0.1, 172.16.0.1'},socket:{}})==='9.9.9.9',
    ipOf({headers:{'x-forwarded-for':'9.9.9.9, 10.0.0.1'},socket:{}}));

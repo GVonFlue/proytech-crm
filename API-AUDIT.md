@@ -396,7 +396,17 @@ returns, not a policy.
 - **`coffee-race.js`** — GET. Reads every lead's `data` with the service key and
   returns `{Garrett: n, Logan: n}`, the race dates and the goal. No name,
   contact detail or deal field is in the response. `tests/coffee.mjs` covers
-  the counting.
+  the counting, and `tests/coffeerace.mjs` calls the route itself.
+
+  **It shipped unable to answer anything.** The handler accepted only GET and
+  `guard()` accepted only POST, so every request in production was
+  `405 POST only`. Tests of `countRace()` passed throughout because none of them
+  called the handler. Fixed with an opt-in `methods` option on `guard()`
+  (default `['POST']`, and only GET and POST can be listed). This route is the
+  only one passing `methods: ['GET']`, and its own check above keeps it
+  GET-only. A GET is still rate-limited like a POST. The `s-maxage=60` header
+  means most hits are served by the CDN and never reach the function.
+  `tests/guard.mjs` proves a route without the option still rejects GET.
 
 ---
 

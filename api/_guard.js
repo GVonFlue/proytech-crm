@@ -127,6 +127,13 @@ export async function isOwner(token) {
  *   requireAuth  verify a Supabase JWT         (default false)
  *   requireOwner verify the JWT AND that the caller's crm_users role is owner
  *                (default false). Implies requireAuth.
+ *   methods   HTTP methods this route accepts  (default ['POST'])
+ *             Opt-in, per route. A GET is cacheable and linkable, so it is
+ *             allowed only where a route asks for it by name — today only the
+ *             public read-only /api/coffee-race scoreboard, which the
+ *             marketing page fetches with GET so the CDN can cache it. Every
+ *             other route stays POST only by default. GET and POST are the
+ *             only methods accepted here; anything else in the list is ignored.
  */
 export async function guard(req, res, opts = {}) {
   const {
@@ -137,12 +144,16 @@ export async function guard(req, res, opts = {}) {
     maxChars = 12000,
     requireAuth = false,
     requireOwner = false,
+    methods = ['POST'],
   } = opts;
   const needAuth = requireAuth || requireOwner;
 
   if (req.method === 'OPTIONS') { res.status(204).end(); return { ok: false }; }
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'POST only' });
+  const allowed = (Array.isArray(methods) ? methods : ['POST'])
+    .map(m => String(m).toUpperCase()).filter(m => m === 'GET' || m === 'POST');
+  if (!allowed.length) allowed.push('POST');
+  if (!allowed.includes(req.method)) {
+    res.status(405).json({ error: `${allowed.join(' or ')} only` });
     return { ok: false };
   }
 
