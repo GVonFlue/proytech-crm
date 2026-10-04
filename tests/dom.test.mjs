@@ -43,7 +43,7 @@
 import { testAsync, eq, ok, report } from './assert.mjs';
 import { mount } from './harness.mjs';
 
-/* modulesV 10 skips the one-time module backfills, and stages are spelled out
+/* modulesV 11 (Proposals, Oct 2026) skips the one-time module backfills, and stages are spelled out
    so migrateStages has nothing to migrate — otherwise a test's writes include
    the app's own housekeeping and "loading writes nothing" can never be true.
 
@@ -66,7 +66,7 @@ const STAGES = [
   { key: 'lost', label: 'Lost', color: '#B0606A', prob: 0, open: false, won: false, lost: true },
 ];
 const OWNER_SETTINGS = extra => ({
-  modules: ['dash', 'leads', 'settings', 'outreach'], modulesV: 10, stages: STAGES,
+  modules: ['dash', 'leads', 'settings', 'outreach', 'proposals'], modulesV: 11, stages: STAGES,
   retainerStartCleared: '2026-01-01T00:00:00.000Z', ...extra,
 });
 

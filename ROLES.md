@@ -27,6 +27,7 @@ own commission, and a leaderboard. No company money, anywhere.
 | Meetings | **Their own appointments in one place** — the same list the leads carry, scoped to leads they can see. No deal value, no totals |
 | Playbook | **Published notes only.** Never a draft — a draft returns them zero rows from Postgres, same as a meeting log |
 | Settings, Clients, Invoices, The Books, Money, Relationships, Monday Huddle | Off. You can switch individual tabs on per rep; the money ones are flagged ⚠ |
+| Proposals | **Never**, and it cannot be switched on per rep. Proposals carry prices, a client's plan and your raw meeting notes, so the table is owner-only in Postgres (VERIFY-RLS.md §12) and both proposal routes require an owner. A rep's login reads zero rows |
 
 A rep can never see a tab you've turned off for the whole install in
 **Settings → Sections**. Per-rep tabs narrow what the install has; they can't

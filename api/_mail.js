@@ -22,6 +22,17 @@
    Delivery is fail-soft and the allowlist is hard: sendMail() never throws,
    it returns {ok:false, reason} and logs, and a send with no provable
    recipient does not go out.
+
+   CLIENT MAIL IS A SEPARATE FUNCTION, NOT A WIDER sendMail()
+
+   A proposal has to reach a client, who is by definition not on the owners
+   allowlist. Widening sendMail() to "any address" would hand that reach to
+   every caller, including the public coffee-book route, so client mail is
+   its own door: sendClientMail(). It takes a PROPOSAL ID and no address at
+   all. The recipient is read here, server-side with the service key, from the
+   lead that proposal belongs to (clientRecipientFor). There is no parameter a
+   caller could aim, so no route can turn it into a relay, and sendMail()
+   below is unchanged: it still reaches the owners and nobody else.
    ========================================================================== */
 import { SUPA_KEY, SUPA_URL } from './_env.js';
 
@@ -96,6 +107,72 @@ export async function sendMail({ to, subject, html, tag = 'mail' } = {}) {
       return { ok: false, reason: 'send_failed', detail: j.message || j.name || r.status };
     }
     return { ok: true, id: j.id || null, to: picked.to, rejected: picked.dropped.length };
+  } catch (e) {
+    const detail = String((e && e.message) || e).slice(0, 200);
+    console.error(`[${tag}] send error:`, detail);
+    return { ok: false, reason: 'send_error', detail };
+  }
+}
+
+/* ---- client mail: one proposal, one recipient, read from the record ------ */
+
+export const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
+// ONE email rule, shared with the proposal standard (lib/proposal readiness),
+// so "the lead has a valid email" means the same thing on screen and here.
+import { isEmail } from '../src/lib/proposal.js';
+export { isEmail };
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The address a proposal may be emailed to: the email on the lead the
+ *  proposal belongs to, read with the service key. Returns {ok, to} or
+ *  {ok:false, reason}. Never throws, and never takes an address as input. */
+export async function clientRecipientFor(proposalId) {
+  if (!SUPA_URL || !SUPA_KEY) return { ok: false, reason: 'not_configured' };
+  const id = String(proposalId || '');
+  if (!UUID.test(id)) return { ok: false, reason: 'not_found' };
+  const H = { apikey: SUPA_KEY, authorization: `Bearer ${SUPA_KEY}` };
+  try {
+    const pr = await fetch(`${SUPA_URL}/rest/v1/proposals?id=eq.${id}&select=lead_id`, { headers: H });
+    const prow = pr.ok ? await pr.json() : null;
+    const leadId = Array.isArray(prow) && prow[0] ? prow[0].lead_id : null;
+    if (!leadId) return { ok: false, reason: 'not_found' };
+    const lr = await fetch(`${SUPA_URL}/rest/v1/leads?id=eq.${encodeURIComponent(leadId)}&select=data`, { headers: H });
+    const lrow = lr.ok ? await lr.json() : null;
+    const lead = Array.isArray(lrow) && lrow[0] ? (lrow[0].data || {}) : null;
+    if (!lead) return { ok: false, reason: 'no_lead' };
+    const to = String(lead.email || '').trim();
+    if (!isEmail(to)) return { ok: false, reason: 'no_email' };
+    return { ok: true, to };
+  } catch {
+    return { ok: false, reason: 'read_failed' };
+  }
+}
+
+/** Email ONE proposal to its client. There is deliberately no `to`: anything
+ *  else a caller passes is ignored, and the recipient is resolved here from
+ *  the proposal's lead. `replyTo` only sets where the client's reply goes.
+ *  Never throws. Used by api/proposal-send.js and nothing else. */
+export async function sendClientMail({ proposalId, subject, html, text, replyTo, tag = 'client-mail' } = {}) {
+  try {
+    const RESEND = process.env.RESEND_API_KEY;
+    const FROM = process.env.NOTIFY_FROM;
+    if (!RESEND || !FROM) return { ok: false, reason: 'not_configured' };
+    const rc = await clientRecipientFor(proposalId);
+    if (!rc.ok) return { ok: false, reason: rc.reason };
+    const payload = { from: FROM, to: [rc.to], subject: String(subject || '').slice(0, 200), html: String(html || '') };
+    if (text) payload.text = String(text);
+    if (replyTo && isEmail(replyTo)) payload.reply_to = String(replyTo).trim();
+    const r = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${RESEND}` },
+      body: JSON.stringify(payload),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      console.error(`[${tag}] send failed:`, j.message || j.name || r.status);
+      return { ok: false, reason: 'send_failed', detail: j.message || j.name || r.status };
+    }
+    return { ok: true, id: j.id || null, to: [rc.to] };
   } catch (e) {
     const detail = String((e && e.message) || e).slice(0, 200);
     console.error(`[${tag}] send error:`, detail);

@@ -20,7 +20,8 @@ import { countRace, meetingDay, racerFor } from '../api/coffee-race.js';
 import {
   BOTH, COFFEE_WINDOWS, eventOwner, knownHost, openWindows, readDayEvents, windowInterval,
 } from '../api/_coffee.js';
-import { WINDOW_LABEL } from '../api/coffee-book.js';
+import { WINDOW_LABEL, emailWhen } from '../api/coffee-book.js';
+import { execFileSync } from 'node:child_process';
 import { BANANA, DAY_START_HOUR, slotWallClock } from '../src/lib/availability.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -301,6 +302,29 @@ test('the CRM lattice still starts at 8am', () => {
 test('every coffee window has a label in coffee-book', () => {
   for (const w of COFFEE_WINDOWS) if (!WINDOW_LABEL[w.id]) throw new Error('no label for ' + w.id);
   eq(WINDOW_LABEL['0730'], '7:30–8:30 AM', '0730 label');
+});
+
+/* ---- the owners' email names the day, in the calendar's zone ----------- */
+
+test('the email reads "Thu, Oct 8 · 7:30–8:30 AM", not "2026-10-08"', () => {
+  eq(emailWhen('2026-10-08', '0730', CHI), 'Thu, Oct 8 · 7:30–8:30 AM', '7:30 on Thu Oct 8');
+  eq(emailWhen('2026-10-10', '1200', CHI), 'Sat, Oct 10 · 12:00–1:00 PM', 'noon on race Saturday');
+  eq(emailWhen('2026-11-02', '0900', CHI), 'Mon, Nov 2 · 9:00–10:00 AM', 'the Monday after DST ends');
+});
+
+test("the weekday is the calendar's, whatever zone the server runs in", () => {
+  /* new Date('2026-10-08') is UTC midnight: Wed evening in Chicago. Run the
+     real function in a process whose own zone is UTC+14, where the day has
+     long since rolled over, and it must still say Thursday. */
+  const code = "import('./api/coffee-book.js').then(m=>process.stdout.write(m.emailWhen('2026-10-08','0730','America/Chicago')))";
+  for (const zone of ['UTC', 'Pacific/Kiritimati', 'Pacific/Pago_Pago']) {
+    const out = execFileSync(process.execPath, ['-e', code], { env: { ...process.env, TZ: zone }, encoding: 'utf8' });
+    eq(out, 'Thu, Oct 8 · 7:30–8:30 AM', 'server in ' + zone);
+  }
+});
+
+test('an unknown slot falls back to the raw date rather than inventing a day', () => {
+  eq(emailWhen('2026-10-08', '9999', CHI), '2026-10-08', 'unknown slot');
 });
 
 /* ---- failing closed ---------------------------------------------------- */

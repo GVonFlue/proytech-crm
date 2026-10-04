@@ -1,0 +1,94 @@
+{
+  "company": {
+    "name": "ProyTech",
+    "people": "Garrett Von Flue & Logan Sell, Co-Founders",
+    "email": "admin@getproytech.com",
+    "website": "getproytech.com",
+    "city": "Wichita, KS",
+    "logo": "/proytech-logo-dark.png",
+    "mark": "/proytech-nucleus.png"
+  },
+  "depositPct": 50,
+  "validDays": 7,
+  "prepay": { "months": 12, "free": 2 },
+  "guarantee": "Live in 14 days from kickoff, or your first month is free.",
+  "terms": "50% of the setup at signing, 50% at launch. The monthly fee starts at launch, not before.",
+  "cancel": "Month to month, cancel anytime. Prepaid months are non-refundable after launch, and the guarantee still applies.",
+  "packages": [
+    {
+      "id": "growth-os",
+      "name": "Growth OS",
+      "service": "Web+CRM",
+      "setup": 3000,
+      "monthly": 299,
+      "seatsIncluded": 5,
+      "extraSeat": 29,
+      "summary": "A new website plus the Business Suite: the site that brings people in and the system that follows up, books and tracks every one of them.",
+      "includes": ["Custom website built to convert", "Business Suite CRM", "Pipeline, contacts and activity in one place", "Calendar booking", "Lead capture from the site into the CRM", "Up to 5 seats"],
+      "covers": ["Hosting, SSL, backups and uptime monitoring", "The Business Suite for up to 5 seats", "Text or email us for changes, about half an hour per request", "Ongoing support and fixes"],
+      "onboardingUrl": ""
+    },
+    {
+      "id": "website",
+      "name": "Website",
+      "service": "Website",
+      "setup": 1500,
+      "monthly": 149,
+      "summary": "A custom website built to turn visitors into calls and requests.",
+      "includes": ["Custom website", "Mobile first, fast loading", "Lead capture forms", "Basic on-page SEO"],
+      "covers": ["Hosting, SSL, backups and uptime monitoring", "Up to 2 small changes or 30 minutes of work a month"],
+      "onboardingUrl": ""
+    },
+    {
+      "id": "suite",
+      "name": "Business Suite",
+      "service": "CRM",
+      "setup": 1999,
+      "monthly": 199,
+      "seatsIncluded": 5,
+      "extraSeat": 29,
+      "summary": "The Business Suite CRM: every lead, call, meeting and deal in one place, set up for how you actually work.",
+      "includes": ["Business Suite CRM", "Pipeline, contacts and activity in one place", "Calendar booking", "Up to 5 seats"],
+      "covers": ["The Business Suite for up to 5 seats", "Ongoing support and fixes"],
+      "onboardingUrl": ""
+    }
+  ],
+  "addons": [
+    {
+      "id": "automations",
+      "name": "Automations",
+      "service": "Automations",
+      "setup": 1499,
+      "monthly": 249,
+      "summary": "The follow up that runs without you.",
+      "includes": ["Missed call text back", "Google review requests after each job", "Instant replies to new leads", "Appointment reminders", "New lead follow up sequence"],
+      "covers": ["All automations running and monitored", "Text and email sending for your normal volume"]
+    }
+  ],
+  "underneath": [
+    "Automations know when to stop. The moment a customer replies or books, the sequence shuts off.",
+    "Review requests only go to customers whose job is finished, so you are asking people who are happy.",
+    "Opt outs are handled automatically on every text and email.",
+    "Hosting, SSL, backups and uptime monitoring are handled for you.",
+    "You own all of it. Domain, site, customer list, review history. Nothing is held hostage."
+  ],
+  "quotedSeparately": [
+    "Paid ad management",
+    "Photography and video production",
+    "Pages or features beyond what is listed in the build",
+    "Very high volume sending"
+  ],
+  "steps": [
+    { "title": "Kickoff", "text": "You complete onboarding and we capture your voice, services, pricing approach and common questions." },
+    { "title": "Foundation", "text": "Domain, phone and messaging connected, your list cleaned and loaded." },
+    { "title": "Build", "text": "Everything in the build section is built and configured." },
+    { "title": "Test", "text": "We run every path ourselves before a customer sees it." },
+    { "title": "Go live", "text": "Everything switched on, and we walk you through it." }
+  ],
+  "needFromYou": [
+    "The onboarding form, completed",
+    "Your customer list in any shape",
+    "Real photos of your work, at the largest size you have them",
+    "Access to your domain, Google Business Profile and phone line where needed"
+  ]
+}

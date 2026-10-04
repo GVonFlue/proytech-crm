@@ -63,9 +63,40 @@ same reason as the 20 Aug pass. **25 route files, 22 of them described below.**
 | `coffee-availability.js` | ❌ none — public by design | rate-limited; returns window ids only — see *The coffee routes* |
 | `coffee-book.js` | ❌ none — public by design | rate-limited; writes a calendar event and a lead, mails the owners in-process via `_mail.js` — see below |
 | `coffee-race.js` | ❌ none — public by design | rate-limited GET; returns two integers — see below |
+| `proposal-draft.js` | ✅ `guard({requireOwner})` | + dollar ceiling, shared with `jarvis.js`. Writes nothing; returns words only, no prices |
+| `proposal-send.js` | ✅ `guard({requireOwner})` | mails through `sendClientMail()`, which takes a proposal id, **not an address**, and reads the recipient from the lead server-side. Link pinned to `APP_URL` — see below |
+| `proposal-public.js` | ❌ none — by design, token-gated | the client has no account. See below |
 
 `_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js`, `_coffee.js`,
 `_mail.js` are helpers with no route.
+
+### `proposal-public.js` — the one public route that reads client data, and why that is safe
+
+The client opening a proposal has no login, so a session is impossible here. The
+**token** stands in for one: 256 random bits, carried in the link's `#` fragment
+so it never reaches a server log or a referrer, and checked against a strict
+43-character shape before any database call.
+
+What it can do, all through **security-definer functions callable only by the
+service role** (`PROPOSALS-MIGRATION.sql`; anon and authenticated have no
+execute grant):
+
+- **Read** one proposal, the one the token names, as **named columns**, never a
+  draft, never `notes`, `email_to`, `lead_id` or `accepted_ip`. The route then
+  picks the display fields again by name (`PUBLIC_BODY_KEYS`).
+- **Stamp** the first-viewed time.
+- **Accept**, under a row lock, refusing a draft, an expired proposal, a second
+  acceptance, a blank name or an unknown plan. Those rules live in Postgres,
+  so a hand-made request cannot skip them.
+
+What it cannot do: read or write a **lead**, or read any other proposal. It never
+learns whether a token exists: malformed, unknown and draft all get the same
+404 text. Rate-limited per IP and per day. On first acceptance it emails the
+**owners allowlist** through `sendMail()` (`_mail.js`) with no `to`, the same
+rule `notify.js` and `coffee-book.js` use.
+
+Proven by `tests/proposalroutes.mjs`, and by `VERIFY-RLS.md` §12 against a real
+database.
 
 ### `outreach-draft.js` — why owner, and why it shares JARVIS's budget
 
