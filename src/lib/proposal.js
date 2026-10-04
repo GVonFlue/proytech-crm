@@ -22,6 +22,9 @@ const lines = v => A(v).map(x => S(x, 400).trim()).filter(Boolean);
 export const PROPOSAL_STATUSES = ['draft', 'sent', 'viewed', 'accepted'];
 export const PLANS = ['monthly', 'annual'];
 export const TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+/* ONE email rule: the readiness check here and api/_mail.js (which re-exports
+   it) must never disagree about whether a lead can be emailed. */
+export const isEmail = s => /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(String(s || '').trim());
 
 /* 256 random bits, base64url, 43 characters. The link is the only key to a
    proposal, so it must not be guessable or enumerable. */
@@ -172,8 +175,22 @@ export const isExpired = (expiresAt, now = Date.now()) => { const t = Date.parse
    CRM writes the prices and a stray "$1,500" in a paragraph would contradict
    the investment section. Reported, not silently rewritten: the owner reads
    the warning in review and decides. */
-export function cleanCopy(raw) {
+/* `items` is what is being bought ([{id, name}]). Each build entry is LINKED
+   to one of them by id (b.item), because "every build item matches something
+   purchased" is a send rule (readiness) and a title like "A custom website
+   that converts" cannot be matched to "Growth OS" by its words. The model is
+   asked for the id; an id that was not purchased is dropped, and an entry
+   whose title IS an item's name is linked to it. Anything else stays
+   unlinked and the review screen asks the owner to pick. */
+export function cleanCopy(raw, items = []) {
   const r = raw && typeof raw === 'object' ? raw : {};
+  const bought = A(items).filter(x => x && x.id);
+  const linkOf = b => {
+    const id = S(b && b.item, 60).trim();
+    if (bought.some(x => x.id === id)) return id;
+    const byName = bought.find(x => S(x.name).trim().toLowerCase() === S(b && b.title).trim().toLowerCase());
+    return byName ? byName.id : '';
+  };
   const t = (v, n) => S(v, n).trim();
   const plan = r.plan && typeof r.plan === 'object' ? r.plan : {};
   const out = {
@@ -185,7 +202,7 @@ export function cleanCopy(raw) {
       levers: A(plan.levers).map(x => t(x, 300)).filter(Boolean).slice(0, 3),
     },
     gaps: A(r.gaps).map(g => ({ title: t(g && g.title, 120), text: t(g && g.text, 500) })).filter(g => g.title).slice(0, 6),
-    build: A(r.build).map(b => ({ title: t(b && b.title, 80), tag: t(b && b.tag, 20), text: t(b && b.text, 400) })).filter(b => b.title).slice(0, 10),
+    build: A(r.build).map(b => ({ title: t(b && b.title, 80), tag: t(b && b.tag, 20), text: t(b && b.text, 400), item: linkOf(b) })).filter(b => b.title).slice(0, 10),
     whyNow: A(r.whyNow).map(x => t(x, 700)).filter(Boolean).slice(0, 2),
     email: { subject: t(r.email && r.email.subject, 150), body: t(r.email && r.email.body, 3000) },
   };
@@ -207,7 +224,10 @@ export function buildBody({ offer, q, copy, client, preparedOn, validDays }) {
   const pkg = offer.packages.find(p => p.id === q.packageId) || {};
   const chosen = q.items.map(it => offer.packages.concat(offer.addons).find(x => x.id === it.id) || {});
   const uniq = arr => [...new Set(arr)];
-  return {
+  /* A SNAPSHOT, not a view: deep-copied so nothing this returns shares an
+     object with the offer in Settings. Editing prices, terms or the company
+     block afterwards cannot reach a body already built, saved or sent. */
+  return JSON.parse(JSON.stringify({
     v: 1,
     client: {
       name: S(client && client.name, 120), company: S(client && client.company, 160),
@@ -227,7 +247,7 @@ export function buildBody({ offer, q, copy, client, preparedOn, validDays }) {
       guarantee: offer.guarantee, terms: offer.terms, cancel: offer.cancel,
     },
     onboardingUrl: pkg.onboardingUrl || '',
-  };
+  }));
 }
 
 /* ---------- what the CRM does when a proposal comes back accepted ----------
@@ -319,4 +339,97 @@ export function viewedPatch(lead, p) {
   const id = 'prop-view-' + p.id;
   if (A(lead.activities).some(a => a && a.id === id)) return null;
   return { activities: [{ id, ts: p.viewed_at, type: 'Note', who: 'Proposal', text: 'Opened the proposal.' }, ...A(lead.activities)] };
+}
+
+
+/* ---------- THE PROPOSAL STANDARD ----------
+   What a proposal must have before it may leave the building. ONE function,
+   called by the review screen (to show the checklist and disable Send) and by
+   api/proposal-send.js (to refuse). The screen is a courtesy; the server is
+   the boundary, so a hand-made request cannot skip a rule the screen shows.
+
+   It reads the BODY that will be published — the frozen snapshot — never the
+   offer or a draft in memory, so what is checked is exactly what is sent.
+   `mode` is 'link' or 'email'; the email rule only applies to email.
+   `reviewed` is the owner's own tick, sent with each request. */
+export const READY_RULES = ['package', 'goal', 'numbers', 'levers', 'gaps', 'build', 'email', 'reviewed'];
+export function readiness(body, { mode = 'link', leadEmail = '', reviewed = false } = {}) {
+  const b = body && typeof body === 'object' ? body : {};
+  const q = b.quote || {}; const c = b.copy || {}; const plan = c.plan || {};
+  const items = A(q.items).filter(Boolean);
+  const ids = new Set(items.map(i => i.id).filter(Boolean));
+  const filled = v => !!S(v).trim();
+  const nums = A(plan.numbers).filter(n => n && filled(n.label) && filled(n.value));
+  const levers = A(plan.levers).filter(filled);
+  const gaps = A(c.gaps).filter(g => g && filled(g.title));
+  const unlinked = A(c.build).filter(x => !x || !ids.has(x.item));
+  const pkg = items.find(i => i.id === q.packageId && i.kind !== 'addon');
+  const checks = [
+    { key: 'package', label: 'A package is selected', ok: !!pkg, detail: pkg ? pkg.name : 'Pick a package.' },
+    { key: 'goal', label: 'Their goal is filled in', ok: filled(plan.goal), detail: filled(plan.goal) ? '' : 'Add the goal in their words.' },
+    { key: 'numbers', label: 'At least 3 of their numbers', ok: nums.length >= 3, detail: nums.length >= 3 ? `${nums.length} numbers` : `${nums.length} of 3` },
+    { key: 'levers', label: 'Exactly 3 levers', ok: levers.length === 3, detail: `${levers.length} of 3` },
+    { key: 'gaps', label: '3 to 5 gaps', ok: gaps.length >= 3 && gaps.length <= 5, detail: `${gaps.length} gap${gaps.length === 1 ? '' : 's'}` },
+    { key: 'build', label: 'Every build item is part of what they are buying', ok: unlinked.length === 0,
+      detail: unlinked.length ? `Not linked: ${unlinked.map(x => (x && x.title) || 'untitled').join(', ')}` : '' },
+  ];
+  if (mode === 'email') checks.push({ key: 'email', label: 'The lead has a valid email', ok: isEmail(leadEmail), detail: isEmail(leadEmail) ? S(leadEmail, 160).trim() : 'Add an email to the lead.' });
+  checks.push({ key: 'reviewed', label: "You've read every section", ok: reviewed === true, detail: reviewed === true ? '' : 'Tick the box once you have.' });
+  return { ok: checks.every(x => x.ok), checks, missing: checks.filter(x => !x.ok).map(x => x.key) };
+}
+
+/* ---------- validating an offer before it is saved ----------
+   readOffer() is forgiving on purpose: it reads whatever is saved and drops
+   what it cannot use, so a proposal never crashes on a bad row. The EDITOR
+   must not be: an item with no name or a price of "abc" would otherwise be
+   saved and then silently vanish from the builder. So this runs readOffer's
+   own rules and also NAMES every problem, by field path, before anything is
+   written. A price is a number of 0 or more — blank is an error, never $0. */
+export function validateOffer(raw) {
+  const errors = [];
+  const err = (path, msg) => { if (!errors.some(e => e.path === path)) errors.push({ path, msg }); };
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ok: false, errors: [{ path: 'offer', msg: 'There is no offer to save.' }], offer: null };
+  const blank = v => !S(v).trim();
+  const isPrice = v => v !== '' && v !== null && v !== undefined && typeof v !== 'boolean' && Number.isFinite(Number(v)) && Number(v) >= 0;
+  const isWhole = (v, min) => v !== '' && v !== null && v !== undefined && Number.isInteger(Number(v)) && Number(v) >= min;
+  const co = raw.company && typeof raw.company === 'object' ? raw.company : {};
+  if (blank(co.name)) err('company.name', 'Company name is required.');
+  if (!blank(co.email) && !isEmail(co.email)) err('company.email', 'That is not a valid email.');
+  for (const k of ['logo', 'mark']) if (!blank(co[k]) && !safeAsset(co[k])) err('company.' + k, 'Use an https:// address, or a path on this site such as /logo.png.');
+  if (!A(raw.packages).length) err('packages', 'Add at least one package.');
+  const seen = new Set();
+  const groups = [['packages', A(raw.packages)], ['addons', A(raw.addons)]];
+  for (const [g, list] of groups) list.forEach((x, i) => {
+    const p = `${g}.${i}`; const it = x && typeof x === 'object' ? x : {};
+    if (blank(it.name)) err(p + '.name', 'Name is required.');
+    if (blank(it.id)) err(p + '.id', 'Id is required.');
+    else if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(it.id)) err(p + '.id', 'Use lowercase letters, numbers and dashes.');
+    else if (seen.has(it.id)) err(p + '.id', `Another item already uses the id "${it.id}".`);
+    else seen.add(it.id);
+    if (blank(it.service)) err(p + '.service', 'Pick the service this counts as.');
+    if (!isPrice(it.setup)) err(p + '.setup', 'Setup must be a number, 0 or more.');
+    if (!isPrice(it.monthly)) err(p + '.monthly', 'Monthly must be a number, 0 or more.');
+    if (it.seatsIncluded !== undefined && it.seatsIncluded !== '' && !isWhole(it.seatsIncluded, 0)) err(p + '.seatsIncluded', 'Seats must be a whole number, 0 or more.');
+    if (it.extraSeat !== undefined && it.extraSeat !== '' && !isPrice(it.extraSeat)) err(p + '.extraSeat', 'Extra seat price must be a number, 0 or more.');
+    if (!blank(it.onboardingUrl) && !safeHttps(it.onboardingUrl)) err(p + '.onboardingUrl', 'An onboarding link must start with https://');
+    for (const list2 of ['includes', 'covers']) A(it[list2]).forEach((v, j) => { if (blank(v)) err(`${p}.${list2}.${j}`, 'This line is empty.'); });
+  });
+  if (!(Number(raw.depositPct) > 0 && Number(raw.depositPct) <= 100) || raw.depositPct === '' || raw.depositPct == null) err('depositPct', 'Deposit must be more than 0% and at most 100%.');
+  if (!(isWhole(raw.validDays, 1) && Number(raw.validDays) <= 60)) err('validDays', 'Good-for days must be a whole number from 1 to 60.');
+  if (raw.prepay) {
+    const m = raw.prepay.months, f = raw.prepay.free;
+    if (!isWhole(m, 1)) err('prepay.months', 'Prepay months must be a whole number, 1 or more.');
+    if (!isWhole(f, 0)) err('prepay.free', 'Free months must be a whole number, 0 or more.');
+    else if (isWhole(m, 1) && Number(f) >= Number(m)) err('prepay.free', 'Free months must be fewer than the months paid up front.');
+  }
+  if (blank(raw.terms)) err('terms', 'Payment terms are required: the client agrees to them when they accept.');
+  A(raw.steps).forEach((st, i) => {
+    if (blank(st && st.title)) err(`steps.${i}.title`, 'Step title is required.');
+    if (blank(st && st.text)) err(`steps.${i}.text`, 'Say what happens in this step.');
+  });
+  for (const k of ['underneath', 'quotedSeparately', 'needFromYou']) A(raw[k]).forEach((v, j) => { if (blank(v)) err(`${k}.${j}`, 'This line is empty.'); });
+  // and whatever readOffer itself would report missing, by its own name
+  const r = readOffer({ offer: raw });
+  for (const m of r.missing) if (!errors.some(e => e.path === m || e.path.startsWith(m + '.'))) err(m, `Missing: ${m}.`);
+  return { ok: errors.length === 0, errors, offer: errors.length ? null : r.offer };
 }

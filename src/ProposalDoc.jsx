@@ -38,8 +38,19 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
     let o = next; for (let i = 0; i < path.length - 1; i++) o = o[path[i]];
     o[path[path.length - 1]] = v; onCopy(next);
   };
+  /* add/remove a list entry while editing, so the owner can meet the
+     proposal standard (lib/proposal readiness) without regenerating */
+  const listAt = (o, path) => { for (const k of path) { if (o[k] == null) o[k] = {}; o = o[k]; } return o; };
+  const push = (path, blank) => { if (!onCopy) return; const next = JSON.parse(JSON.stringify(c));
+    const parent = listAt(next, path.slice(0, -1)); const k = path[path.length - 1];
+    parent[k] = [...(Array.isArray(parent[k]) ? parent[k] : []), blank]; onCopy(next); };
+  const drop = (path, i) => { if (!onCopy) return; const next = JSON.parse(JSON.stringify(c));
+    const parent = listAt(next, path.slice(0, -1)); const k = path[path.length - 1];
+    parent[k] = (parent[k] || []).filter((_, j) => j !== i); onCopy(next); };
+  const X = (path, i, what) => edit && <button type="button" className="pd-x" aria-label={`Remove ${what}`} onClick={() => drop(path, i)}>×</button>;
+  const Add = (path, blank, label) => edit && <button type="button" className="pd-add" onClick={() => push(path, blank)}>+ {label}</button>;
   const plan = c.plan || {};
-  const hasPlan = !!(plan.goal || (plan.numbers || []).length || (plan.levers || []).length);
+  const hasPlan = edit || !!(plan.goal || (plan.numbers || []).length || (plan.levers || []).length);
   let sec = 0; const no = () => String(++sec).padStart(2, '0');
   const validLine = expiresAt ? `Valid until ${fmtDay(expiresAt)}` : `Valid ${body.validDays || 7} days from the date it is sent`;
 
@@ -68,31 +79,44 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
       <div className="pd-label">Section {no()} — your plan</div>
       <h2>Where you said you want to go</h2>
       {(plan.goal || edit) && <p className="pd-goal"><Field edit={edit} value={plan.goal} onChange={v => set(['plan', 'goal'], v)} rows={2} /></p>}
-      {(plan.numbers || []).length > 0 && <div className="pd-nums">{plan.numbers.map((n, i) => (
-        <div className="pd-num" key={i}><b><Field edit={edit} value={n.value} onChange={v => set(['plan', 'numbers', i, 'value'], v)} rows={1} /></b>
-          <span><Field edit={edit} value={n.label} onChange={v => set(['plan', 'numbers', i, 'label'], v)} rows={1} /></span></div>))}</div>}
-      {(plan.levers || []).length > 0 && <div className="pd-levers">{plan.levers.map((l, i) => (
-        <div className="pd-lever" key={i}><span>Lever {i + 1}</span><Field edit={edit} value={l} onChange={v => set(['plan', 'levers', i], v)} rows={2} /></div>))}</div>}
+      {((plan.numbers || []).length > 0 || edit) && <div className="pd-nums">{(plan.numbers || []).map((n, i) => (
+        <div className="pd-num" key={i}>{X(['plan', 'numbers'], i, 'number')}<b><Field edit={edit} value={n.value} onChange={v => set(['plan', 'numbers', i, 'value'], v)} rows={1} /></b>
+          <span><Field edit={edit} value={n.label} onChange={v => set(['plan', 'numbers', i, 'label'], v)} rows={1} /></span></div>))}
+        {Add(['plan', 'numbers'], { label: '', value: '' }, 'Add a number')}</div>}
+      {((plan.levers || []).length > 0 || edit) && <div className="pd-levers">{(plan.levers || []).map((l, i) => (
+        <div className="pd-lever" key={i}>{X(['plan', 'levers'], i, 'lever')}<span>Lever {i + 1}</span><Field edit={edit} value={l} onChange={v => set(['plan', 'levers', i], v)} rows={2} /></div>))}
+        {Add(['plan', 'levers'], '', 'Add a lever')}</div>}
     </section>}
 
-    {(c.gaps || []).length > 0 && <section className="pd-sec">
+    {((c.gaps || []).length > 0 || edit) && <section className="pd-sec">
       <div className="pd-label">Section {no()} — the gap</div>
       <h2>What is costing you right now</h2>
-      <ol className="pd-gaps">{c.gaps.map((g, i) => (<li key={i}>
+      <ol className="pd-gaps">{(c.gaps || []).map((g, i) => (<li key={i}>
         <span className="pd-gn">{String(i + 1).padStart(2, '0')}</span>
         <div><b><Field edit={edit} value={g.title} onChange={v => set(['gaps', i, 'title'], v)} rows={1} /></b>{' '}
           <Field edit={edit} value={g.text} onChange={v => set(['gaps', i, 'text'], v)} rows={3} /></div>
+        {X(['gaps'], i, 'gap')}
       </li>))}</ol>
+      {Add(['gaps'], { title: '', text: '' }, 'Add a gap')}
     </section>}
 
-    {(c.build || []).length > 0 && <section className="pd-sec pd-break">
+    {((c.build || []).length > 0 || edit) && <section className="pd-sec pd-break">
       <div className="pd-label">Section {no()} — the build</div>
       <h2>Everything that gets installed</h2>
-      <div className="pd-build">{c.build.map((b, i) => (<div className="pd-bi" key={i}>
+      <div className="pd-build">{(c.build || []).map((b, i) => (<div className="pd-bi" key={i}>
+        {X(['build'], i, 'build item')}
         <b><Field edit={edit} value={b.title} onChange={v => set(['build', i, 'title'], v)} rows={1} /></b>
         {b.tag && <em>{b.tag}</em>}{' '}
         <Field edit={edit} value={b.text} onChange={v => set(['build', i, 'text'], v)} rows={3} />
+        {/* which purchased item this is part of: the proposal standard
+            refuses a build item that is not linked to something bought */}
+        {edit && <label className={'pd-link' + ((q.items || []).some(it => it.id === b.item) ? '' : ' bad')}>Part of
+          <select value={b.item || ''} onChange={e => set(['build', i, 'item'], e.target.value)}>
+            <option value="">Pick what they are buying…</option>
+            {(q.items || []).map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+          </select></label>}
       </div>))}</div>
+      {Add(['build'], { title: '', tag: 'new', text: '', item: '' }, 'Add a build item')}
     </section>}
 
     {(st.underneath || []).length > 0 && <section className="pd-sec">
@@ -276,6 +300,14 @@ export const PROPOSAL_CSS = `
 .pd-foot-mark{position:absolute;left:0;top:50%;transform:translateY(-50%);width:36px;height:36px;object-fit:contain}
 
 .pd-edit{width:100%;box-sizing:border-box;font:inherit;color:inherit;background:#FFFBEA;border:1px dashed #E8B04A;border-radius:6px;padding:4px 6px;resize:vertical}
+/* edit mode only (the CRM's review screen; the client never sees these) */
+.pd-num,.pd-lever,.pd-bi,.pd-gaps li{position:relative}
+.pd-x{position:absolute;top:4px;right:4px;width:22px;height:22px;border-radius:50%;border:1px solid var(--pd-line);background:#fff;color:var(--pd-mute);font:inherit;font-size:14px;line-height:1;cursor:pointer}
+.pd-x:hover{color:#b4322e;border-color:#E9B4B1}
+.pd-add{font:inherit;font-size:12.5px;font-weight:600;color:var(--pd-blue);background:#F4F7FF;border:1px dashed #B7C8F3;border-radius:10px;padding:8px 12px;cursor:pointer;margin-top:8px}
+.pd-link{display:flex;align-items:center;gap:6px;margin-top:8px;font-size:11.5px;font-weight:600;color:var(--pd-mute)}
+.pd-link select{font:inherit;font-size:12px;border:1px solid var(--pd-line);border-radius:8px;padding:4px 6px;background:#fff}
+.pd-link.bad select{border-color:#E9A09B;background:#FFF5F4}
 
 @media (max-width:700px){
   .pd-build,.pd-inv,.pd-band{grid-template-columns:1fr}

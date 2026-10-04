@@ -41,7 +41,14 @@ const ok = (n, c, x = '') => { c ? (pass++, console.log('  ok  ' + n)) : (fail++
 
 const T = s => (s + 'A'.repeat(43)).slice(0, 43);
 const BODY = { client: { name: 'Dee', company: 'Dee Co' }, company: { name: 'Agency' }, preparedOn: '2026-10-03', validDays: 7,
-  copy: { headline: 'Growth', summary: 'Hi' }, quote: { setup: 3000, deposit: 1500, monthly: 299, prepay: { months: 12, free: 2, total: 2990 } },
+  /* a proposal that MEETS the standard (lib/proposal readiness), so the send
+     tests below test sending; tests/proposalstandard.mjs tests the refusals */
+  copy: { headline: 'Growth', summary: 'Hi',
+    plan: { goal: 'Book 20 jobs a month', numbers: [{ label: 'Jobs', value: '12' }, { label: 'Leads', value: '40' }, { label: 'Close', value: '1 in 4' }], levers: ['Answer fast', 'Follow up', 'Track it'] },
+    gaps: [{ title: 'Slow replies', text: 'x' }, { title: 'No follow up', text: 'x' }, { title: 'No numbers', text: 'x' }],
+    build: [{ title: 'Website', tag: 'new', text: 'x', item: 'growth-os' }] },
+  quote: { packageId: 'growth-os', items: [{ id: 'growth-os', name: 'Growth OS', kind: 'package', setup: 3000, monthly: 299 }],
+    setup: 3000, deposit: 1500, monthly: 299, prepay: { months: 12, free: 2, total: 2990 } },
   standard: { covers: ['x'] }, onboardingUrl: 'https://forms.test/g', SECRET_FIELD: 'must never leave' };
 const future = new Date(Date.now() + 5 * 864e5).toISOString(), past = new Date(Date.now() - 864e5).toISOString();
 let DB, sent, calls, leads;
@@ -161,7 +168,7 @@ console.log('\nproposal-send — owner only, and the recipient is not a paramete
   r = await hit(send, { id: DB[1].id, mode: 'email', subject: 's', message: 'x'.repeat(40) }, 'good-rep');
   ok('a rep is refused', r.code === 403 && sent.length === 0);
   calls = [];
-  r = await hit(send, { id: DB[1].id, mode: 'email', subject: 'Your proposal', message: 'Thanks for the time today. Here it is.', to: 'attacker@evil.test', email: 'attacker@evil.test' }, 'good-owner');
+  r = await hit(send, { id: DB[1].id, reviewed: true, mode: 'email', subject: 'Your proposal', message: 'Thanks for the time today. Here it is.', to: 'attacker@evil.test', email: 'attacker@evil.test' }, 'good-owner');
   ok('an owner can send', r.body.ok === true, r.body);
   ok('it goes to the email on the lead record', sent.length === 1 && sent[0].to.join() === 'dee@dee.co', sent[0] && sent[0].to);
   ok('  never to an address named in the request', !JSON.stringify(sent).includes('evil.test'));
@@ -169,7 +176,7 @@ console.log('\nproposal-send — owner only, and the recipient is not a paramete
   ok('it publishes BEFORE it sends', calls.indexOf('publish') > -1 && DB[1].status === 'sent' && !!DB[1].expires_at);
   ok('the link is the app origin plus the token in the fragment', r.body.link === proposalLink('https://crm.test', DB[1].token) && /^https:\/\/crm\.test\/proposal\.html#t=/.test(r.body.link));
   ok('the email carries the link and the good-until date', sent[0].html.includes(r.body.link) && /good until/.test(sent[0].html));
-  ok('the owner\'s message is escaped, not injected', (await (async () => { reset(); await hit(send, { id: DB[1].id, mode: 'email', subject: 's', message: 'Hello <script>alert(1)</script> there friend' }, 'good-owner'); return !sent[0].html.includes('<script>'); })()));
+  ok('the owner\'s message is escaped, not injected', (await (async () => { reset(); await hit(send, { id: DB[1].id, reviewed: true, mode: 'email', subject: 's', message: 'Hello <script>alert(1)</script> there friend' }, 'good-owner'); return !sent[0].html.includes('<script>'); })()));
   reset(); DB[1].lead_id = 'L2'; sent = [];
   r = await hit(send, { id: DB[1].id, mode: 'email', subject: 's', message: 'x'.repeat(40) }, 'good-owner');
   ok('a lead with no email sends nothing and says so', r.body.ok === false && /no valid email/.test(r.body.error) && sent.length === 0);
@@ -177,7 +184,7 @@ console.log('\nproposal-send — owner only, and the recipient is not a paramete
   r = await hit(send, { id: DB[3].id, mode: 'email', subject: 's', message: 'x'.repeat(40) }, 'good-owner');
   ok('an accepted proposal cannot be re-sent', r.body.ok === false && sent.length === 0);
   reset(); sent = [];
-  r = await hit(send, { id: DB[1].id, mode: 'link' }, 'good-owner');
+  r = await hit(send, { id: DB[1].id, reviewed: true, mode: 'link' }, 'good-owner');
   ok('copy-link publishes and returns the link without emailing', r.body.ok && !!r.body.link && sent.length === 0 && DB[1].status === 'sent');
 }
 

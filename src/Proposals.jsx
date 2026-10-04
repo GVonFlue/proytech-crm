@@ -12,13 +12,16 @@
    A SENT PROPOSAL IS FROZEN. What the client saw is what stays on record; a new
    offer is a new proposal. saveProposal refuses to update anything but a draft. */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Sparkles, Download, Link2, Send, X, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Trash2, Check } from 'lucide-react';
+import { Plus, Sparkles, Download, Link2, Send, X, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Trash2, Check, ArrowUp, ArrowDown } from 'lucide-react';
 import ProposalDoc, { PROPOSAL_CSS } from './ProposalDoc';
-import { readOffer, quote, cleanCopy, buildBody, newToken, isExpired } from './lib/proposal';
-import { personLabel, todayISO } from './lib/lead';
+import { readOffer, quote, cleanCopy, buildBody, newToken, isExpired, readiness, validateOffer, safeAsset } from './lib/proposal';
+import { personLabel, todayISO, servicesOf } from './lib/lead';
+// the shipped example offer, for "Load default offer" in Settings → Proposals
+import DEFAULT_OFFER from '../PROPOSAL-OFFER.json';
 import { db } from './lib/supabase';
 
-const usd = v => '$' + (Number(v) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
+/* cents always show two digits, as on the proposal: $2,249.50, never $2,249.5 */
+const usd = v => { const n = Number(v) || 0; return '$' + n.toLocaleString('en-US', { minimumFractionDigits: Math.round(n * 100) % 100 ? 2 : 0, maximumFractionDigits: 2 }); };
 const fmt = iso => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; };
 /* "Oct 4 · 2:14 PM" — when a client opened it matters to the hour, because the
    best time to call is right after they have read it. */
@@ -130,6 +133,15 @@ export default function Proposals({ leads, settings, apiPost, me, openLead, prop
   </div>);
 }
 
+/* The numbers a proposal shows. A SENT proposal shows the quote frozen in its
+   body, whatever the offer in Settings says now: changing a price must never
+   reach a proposal a client already has. Only a draft is priced live. */
+export function quoteFor(start, offer, sel) {
+  const frozen = !!(start && start.status && start.status !== 'draft');
+  if (frozen) return { ok: true, ...((start.body && start.body.quote) || {}) };
+  return quote(offer, sel);
+}
+
 function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLead, onBack, onSaved }) {
   const frozen = !!(start.status && start.status !== 'draft');
   const startBody = start.body || {};
@@ -152,14 +164,22 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
   const [mail, setMail] = useState(null);         // {subject, message} while the email panel is open
   const [pub, setPub] = useState({ status: start.status, expires_at: start.expires_at });
   const lead = leadsById[leadId] || null;
+  /* "I've read every section" is a claim about THIS text: any edit clears it */
+  const [reviewed, setReviewed] = useState(false);
+  useEffect(() => { setReviewed(false); }, [copy, sel, validDays, leadId]);
 
-  const q = useMemo(() => (frozen ? { ok: true, ...sq } : quote(offer, sel)), [offer, sel, frozen]);
+  const q = useMemo(() => quoteFor(start, offer, sel), [offer, sel, start]);
   const body = useMemo(() => {
     if (frozen) return startBody;
     if (!q.ok || !copy || !lead) return null;
     return buildBody({ offer, q, copy, client: clientOf(lead), preparedOn: todayISO(), validDays });
   }, [frozen, q, copy, lead, offer, validDays]);
 
+  /* THE PROPOSAL STANDARD, on the body that will be published — the same
+     readiness() api/proposal-send.js enforces. Link and email differ only by
+     the email rule. */
+  const readyLink = readiness(body, { mode: 'link', reviewed });
+  const readyEmail = readiness(body, { mode: 'email', leadEmail: lead && lead.email, reviewed });
   const pkgs = offer ? offer.packages : []; const addons = offer ? offer.addons : [];
   const chosen = offer ? [pkgs.find(p => p.id === sel.packageId), ...sel.addonIds.map(a => addons.find(x => x.id === a))].filter(Boolean) : [];
   const pkg = pkgs.find(p => p.id === sel.packageId);
@@ -176,11 +196,12 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
       const r = await apiPost('/api/proposal-draft', {
         client: clientOf(lead), notes, validDays,
         ownerName: String(me || '').split(' ')[0], agency: offer.company.name,
-        items: chosen.map(c => ({ name: c.name, kind: c.kind, summary: c.summary, includes: c.includes })),
+        items: chosen.map(c => ({ id: c.id, name: c.name, kind: c.kind, summary: c.summary, includes: c.includes })),
       });
       const j = await r.json().catch(() => ({}));
       if (!j.ok) { say('err', j.error || 'The draft did not come back. Try again.'); return; }
-      const { copy: c, warnings: w } = cleanCopy(j.draft);
+      // link each build entry to what was bought (readiness rule 'build')
+      const { copy: c, warnings: w } = cleanCopy(j.draft, chosen.map(x => ({ id: x.id, name: x.name })));
       setCopy(c); setWarnings(w); say('ok', 'Draft ready. Read it through, edit anything, then save or send.');
     } catch { say('err', 'Could not reach the server.'); }
     finally { setBusy(''); }
@@ -201,7 +222,8 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
     const pid = await save(); if (!pid) return null;
     setBusy(mode);
     try {
-      const r = await apiPost('/api/proposal-send', { id: pid, mode, ...(extra || {}) });
+      // the server re-runs the same readiness() and refuses if anything fails
+      const r = await apiPost('/api/proposal-send', { id: pid, mode, reviewed, ...(extra || {}) });
       const j = await r.json().catch(() => ({}));
       if (j.link) setPub(p => ({ ...p, status: p.status === 'viewed' ? 'viewed' : 'sent', expires_at: j.expiresAt }));
       if (!j.ok) { say('err', j.error || 'That did not go through.'); return j; }
@@ -298,11 +320,12 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
       <div className="pp-preview">
         {!body && <div className="card pp-empty pd-noprint">{!lead ? 'Pick a client to start.' : !q.ok ? q.error : 'Add your notes and press Generate. The proposal renders here for review.'}</div>}
         {body && <>
+          {st !== 'accepted' && <ReadyChecklist link={readyLink} email={readyEmail} reviewed={reviewed} onReviewed={setReviewed} />}
           <div className="pp-bar pd-noprint">
             {!frozen && <button className={'btn btn-sm ' + (edit ? 'btn-p' : 'btn-g')} onClick={() => setEdit(e => !e)}>{edit ? 'Done editing' : 'Edit text'}</button>}
             <button className="btn btn-g btn-sm" onClick={printPdf}><Download size={14} />Download PDF</button>
-            {st !== 'accepted' && <button className="btn btn-g btn-sm" onClick={copyLink} disabled={!!busy}><Link2 size={14} />{busy === 'link' ? 'Publishing…' : 'Copy client link'}</button>}
-            {st !== 'accepted' && <button className="btn btn-p btn-sm" disabled={!!busy} onClick={() => {
+            {st !== 'accepted' && <button className="btn btn-g btn-sm" onClick={copyLink} disabled={!!busy || !readyLink.ok} title={readyLink.ok ? '' : 'Finish the checklist first'}><Link2 size={14} />{busy === 'link' ? 'Publishing…' : 'Copy client link'}</button>}
+            {st !== 'accepted' && <button className="btn btn-p btn-sm" disabled={!!busy || !readyEmail.ok} title={readyEmail.ok ? '' : 'Finish the checklist first'} onClick={() => {
               if (!lead || !lead.email) { say('err', 'This lead has no email on file. Add one to the lead first.'); return; }
               if (frozen && !window.confirm('This proposal was already sent. Sending again restarts its ' + validDays + '-day window. Send again?')) return;
               const e = (body.copy && body.copy.email) || {}; setMail({ subject: e.subject || `Your proposal from ${offer ? offer.company.name : ''}`, message: e.body || '' });
@@ -316,7 +339,7 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
             <label className="pp-l">Message</label>
             <textarea rows={9} value={mail.message} onChange={e => setMail(m => ({ ...m, message: e.target.value }))} />
             <div className="pp-hint">A "View your proposal" button and the good-until date are added below your message automatically.</div>
-            <button className="btn btn-p" onClick={sendEmail} disabled={!!busy || mail.message.trim().length < 20}><Send size={14} />{busy === 'email' ? 'Sending…' : 'Send it'}</button>
+            <button className="btn btn-p" onClick={sendEmail} disabled={!!busy || !readyEmail.ok || mail.message.trim().length < 20}><Send size={14} />{busy === 'email' ? 'Sending…' : 'Send it'}</button>
           </div>}
           {st === 'accepted' && <div className="pp-msg ok pd-noprint"><CheckCircle2 size={15} /><span>Accepted {fmt(start.accepted_at)} by <b>{start.accepted_name}</b>{start.accepted_plan === 'annual' ? ', with the prepay' : ''}. Next: send the deposit payment link.</span></div>}
           <div className="pd-print-area">
@@ -329,33 +352,245 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
   </div>);
 }
 
-/* SETTINGS → PROPOSALS. The offer is JSON on purpose: it is a structured
-   document (packages, add-ons, standard sections), the owner sets it up once,
-   and PROPOSAL-OFFER.json in the repo is a complete example to paste. It is
-   validated through readOffer, the same reader the builder uses, so the editor
-   cannot accept an offer the builder would then misread. */
-export function OfferEditor({ settings, saveSettings }) {
-  const [text, setText] = useState(() => settings && settings.offer ? JSON.stringify(settings.offer, null, 2) : '');
-  const [err, setErr] = useState('');
+/* READY TO SEND. One row per rule from lib/proposal readiness(): a tick, or
+   what is missing. Send stays disabled until every row passes; the server
+   checks the same rules again and refuses if they do not. */
+export function ReadyChecklist({ link, email, reviewed, onReviewed }) {
+  const rows = email.checks;            // email mode = every rule, link's + the email one
+  const done = rows.filter(c => c.ok).length;
+  return (<div className={'pp-ready pd-noprint' + (email.ok ? ' ok' : link.ok ? ' part' : '')}>
+    <div className="pp-ready-h">
+      <div><div className="pp-kick">Ready to send</div>
+        <b>{email.ok ? 'Everything checks out. Send it.' : link.ok ? 'Ready as a link. Add an email to the lead to send it by email.' : `${rows.length - done} thing${rows.length - done === 1 ? '' : 's'} to fix before this can go out`}</b></div>
+      <span className="pp-ready-n">{done}/{rows.length}</span>
+    </div>
+    <ul>{rows.map(c => (<li key={c.key} className={c.ok ? 'ok' : 'no'}>
+      <i>{c.ok ? <Check size={12} /> : <X size={12} />}</i>
+      <span>{c.label}{c.key === 'email' ? <em> (email only)</em> : null}</span>
+      {c.detail && <small>{c.detail}</small>}
+    </li>))}</ul>
+    <label className="pp-ready-tick"><input type="checkbox" checked={!!reviewed} onChange={e => onReviewed(e.target.checked)} />
+      I've read every section of this proposal, as the client will see it.</label>
+  </div>);
+}
+
+/* SETTINGS → PROPOSALS: THE PRICE EDITOR.
+
+   A form, not a JSON box: a card per package and add-on, the deposit and
+   validity rules, the standard sections and the company block. It edits a
+   DRAFT of settings.offer and writes nothing until Save, and Save refuses
+   until validateOffer() (lib/proposal: readOffer's rules, plus every blank,
+   non-number and duplicate named by field) comes back clean.
+
+   WHAT SAVING CANNOT DO: change a proposal already sent. A proposal's prices,
+   terms and company block are copied into its body by buildBody() when it is
+   built, deep-copied so they share nothing with this offer, and the body is
+   frozen once sent (saveProposal updates drafts only). This screen writes
+   settings.offer and nothing else. tests/offereditor.mjs proves all three.
+
+   OWNER ONLY. The Settings tab can be switched on for a rep; the offer is
+   prices, so a rep sees a notice instead of the form. (app_settings itself is
+   writable by any listed user — ROLES.md, the honest limits — so this is the
+   screen's rule, not the database's.) */
+
+const clone = v => JSON.parse(JSON.stringify(v));
+const slug = s => String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
+const blankItem = kind => ({ id: '', name: '', service: '', setup: '', monthly: '', seatsIncluded: 0, extraSeat: 0, summary: '', includes: [], covers: [], ...(kind === 'package' ? { onboardingUrl: '' } : {}) });
+const blankOffer = () => ({ company: { name: '', people: '', email: '', website: '', city: '', logo: '', mark: '' }, depositPct: 50, validDays: 7, prepay: { months: 12, free: 2 },
+  guarantee: '', terms: '', cancel: '', packages: [blankItem('package')], addons: [], underneath: [], quotedSeparately: [], steps: [], needFromYou: [] });
+/* numbers are typed as text; they are saved as numbers, never as "" */
+const NUM = ['setup', 'monthly', 'seatsIncluded', 'extraSeat'];
+export function offerForSave(d) {
+  const o = clone(d);
+  for (const g of ['packages', 'addons']) o[g] = (o[g] || []).map(it => { const x = { ...it }; for (const k of NUM) if (x[k] !== '' && x[k] != null) x[k] = Number(x[k]); return x; });
+  for (const k of ['depositPct', 'validDays']) if (o[k] !== '' && o[k] != null) o[k] = Number(o[k]);
+  if (o.prepay) o.prepay = { months: Number(o.prepay.months), free: Number(o.prepay.free) };
+  return o;
+}
+/* How a price line will read on a proposal — computed by quote(), the same
+   function that prices real proposals, so the preview cannot disagree. */
+export function priceLine(draft, group, i) {
+  const it = (draft[group] || [])[i] || {};
+  const num = v => (v === '' || v == null ? NaN : Number(v));
+  if (!Number.isFinite(num(it.setup)) || num(it.setup) < 0 || !Number.isFinite(num(it.monthly)) || num(it.monthly) < 0) return 'Set a setup and a monthly price to see how it reads.';
+  // cents always show two digits, as on the proposal itself: $999.50, never $999.5
+  const usd2 = v => { const n = Number(v); return '$' + n.toLocaleString('en-US', { minimumFractionDigits: Math.round(n * 100) % 100 ? 2 : 0, maximumFractionDigits: 2 }); };
+  const seats = Number(it.seatsIncluded) > 0 ? ` · ${Number(it.seatsIncluded)} seats included, then ${usd2(num(it.extraSeat) || 0)}/mo each` : '';
+  if (group === 'addons') return `+ ${it.name || 'This add-on'}: ${usd2(it.setup)} setup + ${usd2(it.monthly)}/mo, on top of any package`;
+  const { offer } = readOffer({ offer: offerForSave({ ...draft, company: { ...(draft.company || {}), name: (draft.company && draft.company.name) || 'x' } }) });
+  const q = offer && quote(offer, { packageId: it.id || slug(it.name), seats: 0 });
+  if (!q || !q.ok) return `${it.name || 'This package'}: ${usd2(it.setup)} setup + ${usd2(it.monthly)}/mo${seats}`;
+  return `${it.name}: ${usd2(q.setup)} setup + ${usd2(q.monthly)}/mo${seats} · ${q.depositPct}% deposit, ${usd2(q.deposit)} at signing`
+    + (q.prepay ? ` · or ${q.prepay.months} months up front for ${usd2(q.prepay.total)} (${q.prepay.free} free)` : '');
+}
+
+function Fld({ label, path, errs, children, hint, wide }) {
+  const e = errs[path];
+  return (<label className={'oe-f' + (wide ? ' wide' : '') + (e ? ' bad' : '')} data-path={path}><span>{label}</span>{children}
+    {e ? <em className="oe-err">{e}</em> : hint ? <em className="oe-hint">{hint}</em> : null}</label>);
+}
+
+function ListEdit({ label, items, onChange, path, errs, placeholder, add = 'Add a line' }) {
+  const list = Array.isArray(items) ? items : [];
+  const move = (i, d) => { const n = list.slice(); const j = i + d; if (j < 0 || j >= n.length) return; [n[i], n[j]] = [n[j], n[i]]; onChange(n); };
+  return (<div className="oe-list" data-path={path}><div className="oe-ll">{label}</div>
+    {list.map((v, i) => (<div className={'oe-li' + (errs[`${path}.${i}`] ? ' bad' : '')} key={i}>
+      <input value={v} placeholder={placeholder} onChange={e => { const n = list.slice(); n[i] = e.target.value; onChange(n); }} aria-label={`${label} ${i + 1}`} />
+      <button type="button" title="Move up" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={13} /></button>
+      <button type="button" title="Move down" disabled={i === list.length - 1} onClick={() => move(i, 1)}><ArrowDown size={13} /></button>
+      <button type="button" title="Remove" onClick={() => onChange(list.filter((_, j) => j !== i))}><X size={13} /></button>
+    </div>))}
+    <button type="button" className="oe-addl" onClick={() => onChange([...list, ''])}>+ {add}</button>
+  </div>);
+}
+
+export function OfferEditor({ settings, saveSettings, isOwner = true, defaultOffer = DEFAULT_OFFER }) {
+  const [draft, setDraft] = useState(() => (settings && settings.offer ? clone(settings.offer) : null));
+  const [json, setJson] = useState(null);           // text while "Advanced: edit JSON" is open
+  const [jsonErr, setJsonErr] = useState('');
+  const [tried, setTried] = useState(false);        // show every error once Save has been pressed
   const [saved, setSaved] = useState(false);
-  const { offer, missing } = useMemo(() => readOffer(settings), [settings]);
-  const save = async () => {
-    setErr(''); setSaved(false);
-    let parsed; try { parsed = JSON.parse(text); } catch (e) { setErr('That is not valid JSON: ' + e.message); return; }
-    const chk = readOffer({ offer: parsed });
-    if (!chk.offer || chk.missing.length) { setErr('Missing: ' + (chk.missing.join(', ') || 'offer') + '.'); return; }
-    try { await saveSettings({ ...settings, offer: parsed }); setSaved(true); } catch { setErr('Could not save. Try again.'); }
+  const v = useMemo(() => (draft ? validateOffer(offerForSave(draft)) : null), [draft]);
+  const errs = useMemo(() => Object.fromEntries(((v && v.errors) || []).map(e => [e.path, e.msg])), [v]);
+  const shownErrs = tried ? errs : Object.fromEntries(Object.entries(errs).filter(([k]) => !/\.(name|id|service|setup|monthly)$|^company\.name$|^terms$/.test(k)));
+
+  if (!isOwner) return (<div className="oe-locked"><AlertTriangle size={15} /><span>Only an owner can change the offer and its prices.</span></div>);
+
+  const edit = fn => { setSaved(false); setDraft(d => { const n = clone(d); fn(n); return n; }); };
+  const setAt = (path, val) => edit(d => { let o = d; for (let k = 0; k < path.length - 1; k++) { if (o[path[k]] == null) o[path[k]] = {}; o = o[path[k]]; } o[path[path.length - 1]] = val; });
+  const loadDefault = () => {
+    if (draft && !window.confirm('Replace what is in the editor with the default offer? Nothing is saved until you press Save.')) return;
+    setJson(null); setJsonErr(''); setTried(false); setSaved(false); setDraft(clone(defaultOffer));
   };
-  return (<div>
+  const save = async () => {
+    setTried(true);
+    let d = draft;
+    if (json !== null) { try { d = JSON.parse(json); } catch (e) { setJsonErr('That is not valid JSON: ' + e.message); return; } setDraft(d); }
+    const out = offerForSave(d); const chk = validateOffer(out);
+    if (!chk.ok) return;
+    try { await saveSettings({ ...settings, offer: out }); setSaved(true); } catch { setJsonErr('Could not save. Try again.'); }
+  };
+  const toggleJson = () => {
+    if (json === null) { setJson(JSON.stringify(offerForSave(draft || blankOffer()), null, 2)); setJsonErr(''); return; }
+    try { setDraft(JSON.parse(json)); setJson(null); setJsonErr(''); } catch (e) { setJsonErr('Fix the JSON before going back to the form: ' + e.message); }
+  };
+
+  if (!draft) return (<div className="oe">
     <style>{PROPOSALS_CSS}</style>
-    {offer ? <div className="pp-offer-sum">{offer.packages.concat(offer.addons).map(p => (<div key={p.id}>
-      <b>{p.name}</b>{p.kind === 'addon' ? ' (add-on)' : ''} · {usd(p.setup)} + {usd(p.monthly)}/mo{p.seatsIncluded ? ` · ${p.seatsIncluded} seats, then ${usd(p.extraSeat)}/mo` : ''} · counts as <i>{p.service || 'no service'}</i>{p.onboardingUrl ? ' · onboarding linked' : ' · no onboarding form yet'}</div>))}
-      <div>{offer.depositPct}% deposit · good for {offer.validDays} days{offer.prepay ? ` · prepay ${offer.prepay.months} months, ${offer.prepay.free} free` : ''}</div></div>
-      : <div className="pp-warn"><AlertTriangle size={15} /><span>No offer yet. Paste the contents of <code>PROPOSAL-OFFER.json</code> below and save.</span></div>}
-    {offer && missing.length > 0 && <div className="pp-warn"><AlertTriangle size={15} /><span>Missing: {missing.join(', ')}.</span></div>}
-    <textarea className="pp-json" rows={14} value={text} onChange={e => { setText(e.target.value); setSaved(false); }} spellCheck={false} placeholder='{"company":{...},"packages":[...]}' />
-    {err && <div className="pp-total err">{err}</div>}
-    <div className="pp-acts"><button className="btn btn-p btn-sm" onClick={save}>Save offer</button>{saved && <span className="pp-hint">Saved. New proposals use it now.</span>}</div>
+    <div className="oe-empty"><div className="pp-kick">No offer yet</div><b>Set up what you sell, once.</b>
+      <p>Packages, add-ons, prices and the standard sections every proposal uses. Start from the default offer and change what differs.</p>
+      <div className="oe-acts"><button className="btn btn-p btn-sm" onClick={loadDefault}>Load default offer</button>
+        <button className="btn btn-g btn-sm" onClick={() => setDraft(blankOffer())}>Start from scratch</button></div></div>
+  </div>);
+
+  const errCount = ((v && v.errors) || []).length;
+  const co = draft.company || {};
+  const card = (group, it, i) => {
+    const p = `${group}.${i}`; const kind = group === 'packages' ? 'package' : 'addon';
+    const setIt = (k, val) => edit(d => { const x = d[group][i]; const autoId = !x.id || x.id === slug(x.name); x[k] = val; if (k === 'name' && autoId) x.id = slug(val); });
+    const toggleKind = () => edit(d => { const [x] = d[group].splice(i, 1); const to = group === 'packages' ? 'addons' : 'packages'; d[to] = [...(d[to] || []), x]; });
+    const remove = () => { if (!window.confirm(`Remove ${it.name || 'this item'} from the offer? Proposals already sent keep their own copy.`)) return; edit(d => { d[group].splice(i, 1); }); };
+    return (<div className={'oe-card ' + kind} key={p} data-path={p}>
+      <div className="oe-card-h">
+        <div className="oe-kind" role="group" aria-label="Package or add-on">
+          <button type="button" className={kind === 'package' ? 'on' : ''} onClick={() => kind !== 'package' && toggleKind()}>Package</button>
+          <button type="button" className={kind === 'addon' ? 'on' : ''} onClick={() => kind !== 'addon' && toggleKind()}>Add-on</button>
+        </div>
+        <button type="button" className="oe-rm" onClick={remove}><Trash2 size={14} />Remove</button>
+      </div>
+      <div className="oe-grid">
+        <Fld label="Name" path={p + '.name'} errs={shownErrs} wide><input value={it.name || ''} onChange={e => setIt('name', e.target.value)} placeholder="Package or add-on name" aria-label="Item name" /></Fld>
+        <Fld label="Counts as service" path={p + '.service'} errs={shownErrs} hint="The catalog service a won deal is filed under."><input list="oe-services" value={it.service || ''} onChange={e => setIt('service', e.target.value)} placeholder="Web+CRM" /></Fld>
+        <Fld label="Setup price" path={p + '.setup'} errs={shownErrs}><div className="oe-money"><i>$</i><input inputMode="decimal" value={it.setup ?? ''} onChange={e => setIt('setup', e.target.value)} aria-label={`${it.name || 'Item'} setup price`} /></div></Fld>
+        <Fld label="Monthly price" path={p + '.monthly'} errs={shownErrs}><div className="oe-money"><i>$</i><input inputMode="decimal" value={it.monthly ?? ''} onChange={e => setIt('monthly', e.target.value)} aria-label={`${it.name || 'Item'} monthly price`} /><i>/mo</i></div></Fld>
+        <Fld label="Seats included" path={p + '.seatsIncluded'} errs={shownErrs} hint="0 = no seat rule"><input inputMode="numeric" value={it.seatsIncluded ?? ''} onChange={e => setIt('seatsIncluded', e.target.value)} /></Fld>
+        <Fld label="Extra seat" path={p + '.extraSeat'} errs={shownErrs}><div className="oe-money"><i>$</i><input inputMode="decimal" value={it.extraSeat ?? ''} onChange={e => setIt('extraSeat', e.target.value)} /><i>/mo</i></div></Fld>
+        <Fld label="Id" path={p + '.id'} errs={shownErrs} hint="Set from the name. Proposals record it."><input value={it.id || ''} onChange={e => setIt('id', e.target.value)} /></Fld>
+        {kind === 'package' && <Fld label="Onboarding form (https)" path={p + '.onboardingUrl'} errs={shownErrs} hint="Where the client goes after accepting."><input value={it.onboardingUrl || ''} onChange={e => setIt('onboardingUrl', e.target.value)} placeholder="https://" /></Fld>}
+        <Fld label="Summary" path={p + '.summary'} errs={shownErrs} wide><textarea rows={2} value={it.summary || ''} onChange={e => setIt('summary', e.target.value)} /></Fld>
+      </div>
+      <div className="oe-lists">
+        <ListEdit label="Includes" items={it.includes} onChange={n => setIt('includes', n)} path={p + '.includes'} errs={errs} add="Add what it includes" />
+        <ListEdit label="The monthly covers" items={it.covers} onChange={n => setIt('covers', n)} path={p + '.covers'} errs={errs} add="Add what the monthly covers" />
+      </div>
+      <div className="oe-line"><b>On a proposal:</b> {priceLine(offerForSave(draft), group, i)}</div>
+    </div>);
+  };
+
+  return (<div className="oe">
+    <style>{PROPOSALS_CSS}</style>
+    <datalist id="oe-services">{servicesOf(settings).map(x => <option key={x.name} value={x.name} />)}</datalist>
+    <div className="oe-top">
+      <div className="oe-acts">
+        <button className="btn btn-g btn-sm" onClick={loadDefault}>Load default offer</button>
+        <button className="btn btn-g btn-sm" onClick={toggleJson}>{json === null ? 'Advanced: edit JSON' : 'Back to the form'}</button>
+      </div>
+    </div>
+
+    {json !== null ? <textarea className="pp-json" rows={22} value={json} spellCheck={false} onChange={e => { setJson(e.target.value); setSaved(false); }} aria-label="Offer JSON" /> : <>
+      <div className="oe-sec"><div className="oe-sh">Packages</div>
+        {(draft.packages || []).map((it, i) => card('packages', it, i))}
+        {shownErrs.packages && <div className="oe-err">{shownErrs.packages}</div>}
+        <button type="button" className="oe-add" onClick={() => edit(d => { d.packages = [...(d.packages || []), blankItem('package')]; })}><Plus size={14} />Add a package</button>
+      </div>
+      <div className="oe-sec"><div className="oe-sh">Add-ons</div>
+        {(draft.addons || []).map((it, i) => card('addons', it, i))}
+        <button type="button" className="oe-add" onClick={() => edit(d => { d.addons = [...(d.addons || []), blankItem('addon')]; })}><Plus size={14} />Add an add-on</button>
+      </div>
+
+      <div className="oe-sec"><div className="oe-sh">Deposit, validity and prepay</div>
+        <div className="oe-card"><div className="oe-grid">
+          <Fld label="Deposit at signing" path="depositPct" errs={shownErrs}><div className="oe-money"><input inputMode="decimal" value={draft.depositPct ?? ''} onChange={e => setAt(['depositPct'], e.target.value)} aria-label="Deposit percent" /><i>%</i></div></Fld>
+          <Fld label="Good for" path="validDays" errs={shownErrs}><div className="oe-money"><input inputMode="numeric" value={draft.validDays ?? ''} onChange={e => setAt(['validDays'], e.target.value)} aria-label="Valid days" /><i>days</i></div></Fld>
+          <label className="oe-f oe-check"><span>Prepay</span><span className="oe-cb"><input type="checkbox" checked={!!draft.prepay} onChange={e => setAt(['prepay'], e.target.checked ? { months: 12, free: 2 } : null)} />Offer a prepay</span></label>
+          {draft.prepay && <Fld label="Months paid up front" path="prepay.months" errs={shownErrs}><input inputMode="numeric" value={draft.prepay.months ?? ''} onChange={e => setAt(['prepay', 'months'], e.target.value)} aria-label="Prepay months" /></Fld>}
+          {draft.prepay && <Fld label="Of which free" path="prepay.free" errs={shownErrs}><input inputMode="numeric" value={draft.prepay.free ?? ''} onChange={e => setAt(['prepay', 'free'], e.target.value)} aria-label="Free months" /></Fld>}
+          <Fld label="Payment terms" path="terms" errs={shownErrs} wide hint="Required: the client agrees to these when they accept."><textarea rows={2} value={draft.terms || ''} onChange={e => setAt(['terms'], e.target.value)} /></Fld>
+          <Fld label="Guarantee" path="guarantee" errs={shownErrs} wide><textarea rows={2} value={draft.guarantee || ''} onChange={e => setAt(['guarantee'], e.target.value)} /></Fld>
+          <Fld label="Cancelling" path="cancel" errs={shownErrs} wide><textarea rows={2} value={draft.cancel || ''} onChange={e => setAt(['cancel'], e.target.value)} /></Fld>
+        </div></div>
+      </div>
+
+      <div className="oe-sec"><div className="oe-sh">How it runs</div>
+        <div className="oe-card">{(draft.steps || []).map((st, i) => (<div className={'oe-step' + (errs[`steps.${i}.title`] || errs[`steps.${i}.text`] ? ' bad' : '')} key={i}>
+          <span className="oe-n">{String(i + 1).padStart(2, '0')}</span>
+          <input value={st.title || ''} placeholder="Title" onChange={e => setAt(['steps', i, 'title'], e.target.value)} aria-label={`Step ${i + 1} title`} />
+          <input value={st.text || ''} placeholder="What happens" onChange={e => setAt(['steps', i, 'text'], e.target.value)} aria-label={`Step ${i + 1} text`} />
+          <button type="button" title="Move up" disabled={i === 0} onClick={() => edit(d => { [d.steps[i - 1], d.steps[i]] = [d.steps[i], d.steps[i - 1]]; })}><ArrowUp size={13} /></button>
+          <button type="button" title="Move down" disabled={i === draft.steps.length - 1} onClick={() => edit(d => { [d.steps[i + 1], d.steps[i]] = [d.steps[i], d.steps[i + 1]]; })}><ArrowDown size={13} /></button>
+          <button type="button" title="Remove" onClick={() => edit(d => { d.steps.splice(i, 1); })}><X size={13} /></button>
+        </div>))}
+          <button type="button" className="oe-addl" onClick={() => edit(d => { d.steps = [...(d.steps || []), { title: '', text: '' }]; })}>+ Add a step</button></div>
+      </div>
+
+      <div className="oe-sec"><div className="oe-sh">Standard sections</div>
+        <div className="oe-card oe-lists">
+          <ListEdit label="What we need from you" items={draft.needFromYou} onChange={n => setAt(['needFromYou'], n)} path="needFromYou" errs={errs} />
+          <ListEdit label="Underneath it" items={draft.underneath} onChange={n => setAt(['underneath'], n)} path="underneath" errs={errs} />
+          <ListEdit label="Quoted separately" items={draft.quotedSeparately} onChange={n => setAt(['quotedSeparately'], n)} path="quotedSeparately" errs={errs} />
+        </div>
+      </div>
+
+      <div className="oe-sec"><div className="oe-sh">Your company, on the cover</div>
+        <div className="oe-card"><div className="oe-grid">
+          <Fld label="Company name" path="company.name" errs={shownErrs}><input value={co.name || ''} onChange={e => setAt(['company', 'name'], e.target.value)} /></Fld>
+          <Fld label="People" path="company.people" errs={shownErrs}><input value={co.people || ''} onChange={e => setAt(['company', 'people'], e.target.value)} /></Fld>
+          <Fld label="Email" path="company.email" errs={shownErrs}><input value={co.email || ''} onChange={e => setAt(['company', 'email'], e.target.value)} /></Fld>
+          <Fld label="Website" path="company.website" errs={shownErrs}><input value={co.website || ''} onChange={e => setAt(['company', 'website'], e.target.value)} /></Fld>
+          <Fld label="City" path="company.city" errs={shownErrs}><input value={co.city || ''} onChange={e => setAt(['company', 'city'], e.target.value)} /></Fld>
+          <Fld label="Logo" path="company.logo" errs={shownErrs} hint="https:// or a path on this site, e.g. /logo.png"><input value={co.logo || ''} onChange={e => setAt(['company', 'logo'], e.target.value)} /></Fld>
+          <Fld label="Footer mark" path="company.mark" errs={shownErrs} hint="https:// or a path on this site"><input value={co.mark || ''} onChange={e => setAt(['company', 'mark'], e.target.value)} /></Fld>
+          {safeAsset(co.logo) && <div className="oe-logo"><img src={safeAsset(co.logo)} alt="Logo preview" /></div>}
+        </div></div>
+      </div>
+    </>}
+
+    <div className="oe-save">
+      {jsonErr && <div className="oe-err">{jsonErr}</div>}
+      {tried && errCount > 0 && <div className="oe-err">Fix {errCount} thing{errCount === 1 ? '' : 's'} before saving: {((v && v.errors) || []).slice(0, 4).map(e => e.msg).join(' ')}{errCount > 4 ? ' …' : ''}</div>}
+      <button className="btn btn-p" onClick={save}>Save offer</button>
+      {saved && <span className="pp-hint">Saved. New proposals use it now; proposals already sent keep their own prices.</span>}
+    </div>
   </div>);
 }
 
@@ -468,4 +703,74 @@ export const PROPOSALS_CSS = `
   .pp-who{grid-area:who}.pp-val{grid-area:val;text-align:right}.pp-when{grid-area:when}.pp-go{display:none}
   .pp-h1{font-size:22px}.pp-new{width:100%;justify-content:center}
 }
+
+/* ---- ready to send: the proposal standard, on the review screen ---- */
+.pp-ready{background:#fff;border:1px solid #DCE5F4;border-left:4px solid #E5484D;border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.pp-ready.part{border-left-color:#E8A400}
+.pp-ready.ok{border-left-color:#1f8a55;background:linear-gradient(90deg,rgba(61,187,126,.07),#fff 40%)}
+.pp-ready-h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px}
+.pp-ready-h b{display:block;font-family:"Space Grotesk",Inter,sans-serif;font-size:16px;color:#061431;margin-top:4px}
+.pp-ready-n{font-family:"Space Grotesk",Inter,sans-serif;font-weight:700;font-size:20px;color:#061431}
+.pp-ready ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:1fr 1fr;gap:4px 18px}
+.pp-ready li{display:grid;grid-template-columns:20px 1fr;align-items:start;gap:0 8px;font-size:13px;padding:3px 0}
+.pp-ready li i{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;margin-top:1px}
+.pp-ready li.ok i{background:#E6F6EE;color:#1a7a4b}
+.pp-ready li.no i{background:#FDECEC;color:#C2322C}
+.pp-ready li.no span{font-weight:600;color:#0B1633}
+.pp-ready li.ok span{color:#4A5470}
+.pp-ready li small{grid-column:2;font-size:11.5px;color:#8B93A7}
+.pp-ready li.no small{color:#B4322E}
+.pp-ready li em{font-style:normal;color:#8B93A7;font-weight:500}
+.pp-ready-tick{display:flex;gap:8px;align-items:flex-start;margin-top:10px;padding-top:10px;border-top:1px solid #EEF1F7;font-size:13px;font-weight:600;color:#0B1633;cursor:pointer}
+.pp-ready-tick input{width:17px;height:17px;margin-top:1px}
+/* a blocked Send must LOOK blocked, not just refuse the click */
+.pp-bar .btn:disabled,.pp-mail .btn:disabled{opacity:.42;cursor:not-allowed;filter:saturate(.4)}
+
+/* ---- Settings → Proposals: the price editor ---- */
+.oe{--oe-line:#DCE5F4;--oe-blue:#1F6FEB;--oe-hot:#FB6926;--oe-mute:#56637F;--oe-navy:#061431}
+.oe-top{display:flex;justify-content:flex-end;margin-bottom:6px}
+.oe-acts{display:flex;gap:8px;flex-wrap:wrap}
+.oe-sec{margin-top:16px}
+.oe-sh{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Menlo,monospace;font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--oe-blue);margin-bottom:8px}
+.oe-sh:before{content:"";width:22px;height:2px;border-radius:2px;background:linear-gradient(90deg,#2E9BFF,#FB6926)}
+.oe-card{background:#fff;border:1px solid var(--oe-line);border-top:3px solid #2E9BFF;border-radius:14px;padding:14px 16px;margin-bottom:10px}
+.oe-card.addon{border-top-color:var(--oe-hot)}
+.oe-card-h{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
+.oe-kind{display:inline-flex;background:#F1F4FA;border-radius:99px;padding:3px}
+.oe-kind button{font:inherit;font-size:12px;font-weight:700;border:none;background:none;border-radius:99px;padding:5px 12px;color:var(--oe-mute);cursor:pointer}
+.oe-kind button.on{background:#fff;color:var(--oe-navy);box-shadow:0 1px 3px rgba(6,20,49,.15)}
+.oe-rm{display:inline-flex;align-items:center;gap:5px;font:inherit;font-size:12px;font-weight:600;color:#B4322E;background:none;border:1px solid #F1C9C6;border-radius:9px;padding:5px 10px;cursor:pointer}
+.oe-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px 12px}
+.oe-f{display:flex;flex-direction:column;gap:4px;min-width:0}
+.oe-f.wide{grid-column:1/-1}
+.oe-f>span{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8B93A7}
+.oe-f input,.oe-f textarea,.oe-li input,.oe-step input{font:inherit;font-size:14px;border:1px solid #DDE3EE;border-radius:9px;padding:8px 10px;background:#fff;color:#0B1633;min-width:0;width:100%;box-sizing:border-box}
+.oe-f textarea{resize:vertical}
+.oe-f.bad input,.oe-f.bad textarea,.oe-li.bad input,.oe-step.bad input{border-color:#E9A09B;background:#FFF7F6}
+.oe-money{display:flex;align-items:center;gap:6px}
+.oe-money i{font-style:normal;color:#8B93A7;font-size:13px}
+.oe-err{display:block;color:#B4322E;font-size:12px;font-style:normal}
+.oe-hint{display:block;color:#8B93A7;font-size:11.5px;font-style:normal}
+.oe-check .oe-cb{white-space:nowrap;display:flex;align-items:center;gap:8px;font-size:14px;color:#0B1633;padding-top:8px;text-transform:none;letter-spacing:0;font-weight:600}
+.oe-lists{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:12px}
+.oe-ll{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#8B93A7;margin-bottom:6px}
+.oe-li,.oe-step{display:flex;gap:4px;align-items:center;margin-bottom:5px}
+.oe-li button,.oe-step button{flex:none;display:inline-grid;place-items:center;width:28px;height:28px;border:1px solid #E1E6F0;background:#fff;border-radius:8px;color:#6B7590;cursor:pointer}
+.oe-li button:disabled,.oe-step button:disabled{opacity:.35;cursor:default}
+.oe-step input:first-of-type{flex:0 0 160px}
+.oe-n{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--oe-blue);width:22px;flex:none}
+.oe-addl{font:inherit;font-size:12.5px;font-weight:600;color:var(--oe-blue);background:none;border:none;padding:4px 0;cursor:pointer}
+.oe-add{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:700;color:var(--oe-blue);background:#F4F7FF;border:1px dashed #B7C8F3;border-radius:12px;padding:10px 14px;cursor:pointer;width:100%;justify-content:center}
+.oe-line{margin-top:12px;font-size:13px;color:#0B1633;background:#F5F8FD;border:1px solid #E2E9F5;border-radius:10px;padding:9px 12px}
+.oe-line b{color:var(--oe-blue)}
+.oe-logo{display:flex;align-items:center;background:linear-gradient(180deg,#fff,#EEF4FF);border:1px solid var(--oe-line);border-radius:10px;padding:8px 12px}
+.oe-logo img{height:30px;width:auto}
+.oe-save{position:sticky;bottom:0;display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:16px;padding:12px 0;background:linear-gradient(180deg,rgba(255,255,255,0),#fff 30%)}
+.oe-save .oe-err{flex-basis:100%}
+.oe-empty{border:1px dashed #C9D6EE;border-radius:14px;padding:20px;text-align:center}
+.oe-empty b{display:block;font-family:"Space Grotesk",Inter,sans-serif;font-size:19px;color:#061431;margin:6px 0}
+.oe-empty p{color:#56637F;font-size:13.5px;margin:0 auto 12px;max-width:440px}
+.oe-empty .oe-acts{justify-content:center}
+.oe-locked{display:flex;gap:8px;align-items:center;color:#56637F;font-size:13.5px}
+@media (max-width:760px){ .pp-ready ul{grid-template-columns:1fr} .oe-step{flex-wrap:wrap} .oe-step input:first-of-type{flex:1 1 100%} }
 `;

@@ -42,21 +42,21 @@ FIELDS
 - summary: one paragraph, 3 to 5 sentences, opening the proposal.
 - plan.goal: the client's own goal in their words, if the notes state one, else "".
 - plan.numbers: up to 6 {label, value} pairs for numbers the notes state about their business, else [].
-- plan.levers: up to 3 short levers that will move the goal, only if the notes support them, else [].
-- gaps: 3 to 6 {title, text}. Title is a short punchy statement. Text is 1 to 3 sentences tying it to this business.
-- build: one {title, tag, text} per component being installed. tag is "new" or "included". text is 1 to 2 sentences.
+- plan.levers: exactly 3 short levers that will move the goal, grounded in the notes.
+- gaps: 3 to 5 {title, text}. Title is a short punchy statement. Text is 1 to 3 sentences tying it to this business.
+- build: one {title, tag, text, item} per component being installed. item is the [id] of the purchased item it belongs to, copied exactly from the list. tag is "new" or "included". text is 1 to 2 sentences.
 - whyNow: 1 or 2 short paragraphs. Give reasoning, not pressure. No numbers you were not given.
 - email.subject and email.body: a short professional cover email from the owner to the client. Thank them, say the proposal is attached as a link, say it is good for the number of days given, and that to get started they click Accept at the bottom of the proposal, after which onboarding and the deposit payment link follow. Sign off with the owner's first name. Plain text, no links (the CRM adds the button), no prices.
 
 Return ONLY valid JSON, no markdown fences, no preamble:
-{"headline":"","summary":"","plan":{"goal":"","numbers":[{"label":"","value":""}],"levers":[""]},"gaps":[{"title":"","text":""}],"build":[{"title":"","tag":"new","text":""}],"whyNow":[""],"email":{"subject":"","body":""}}`;
+{"headline":"","summary":"","plan":{"goal":"","numbers":[{"label":"","value":""}],"levers":[""]},"gaps":[{"title":"","text":""}],"build":[{"title":"","tag":"new","text":"","item":""}],"whyNow":[""],"email":{"subject":"","body":""}}`;
 
 const S = (v, n) => String(v == null ? '' : v).slice(0, n);
 
 export function userMessage(b) {
   const c = b.client || {};
   const items = (Array.isArray(b.items) ? b.items : []).slice(0, 8).map(it =>
-    `- ${S(it.name, 120)}${it.kind === 'addon' ? ' (add-on)' : ''}${it.summary ? `: ${S(it.summary, 400)}` : ''}${Array.isArray(it.includes) && it.includes.length ? `\n  Includes: ${it.includes.slice(0, 12).map(x => S(x, 160)).join('; ')}` : ''}`).join('\n');
+    `- [${S(it.id, 60)}] ${S(it.name, 120)}${it.kind === 'addon' ? ' (add-on)' : ''}${it.summary ? `: ${S(it.summary, 400)}` : ''}${Array.isArray(it.includes) && it.includes.length ? `\n  Includes: ${it.includes.slice(0, 12).map(x => S(x, 160)).join('; ')}` : ''}`).join('\n');
   return [
     `CLIENT: ${S(c.name, 120)}${c.company ? `, ${S(c.company, 160)}` : ''}${c.businessType ? ` (${S(c.businessType, 80)})` : ''}${c.city ? `, ${S(c.city, 80)}` : ''}${c.website ? `, ${S(c.website, 160)}` : ''}`,
     `OWNER SIGNING THE EMAIL: ${S(b.ownerName, 80) || 'the owner'}`,

@@ -9847,7 +9847,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
     <div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><FileText size={15}/>Proposals</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Your packages, add-ons, prices, terms and the standard sections every proposal uses. Prices here are the starting point; you set what you quoted on each proposal.</div>
-      <OfferEditor settings={settings} saveSettings={saveSettings}/>
+      <OfferEditor settings={settings} saveSettings={saveSettings} isOwner={isOwner}/>
     </div>
 
     {/* dropdown options */}

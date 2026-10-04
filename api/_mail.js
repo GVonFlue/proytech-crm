@@ -117,7 +117,10 @@ export async function sendMail({ to, subject, html, tag = 'mail' } = {}) {
 /* ---- client mail: one proposal, one recipient, read from the record ------ */
 
 export const esc = s => String(s == null ? '' : s).replace(/[<>&"]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' }[c]));
-export const isEmail = s => /^[^\s@<>"]+@[^\s@<>"]+\.[^\s@<>"]+$/.test(String(s || '').trim());
+// ONE email rule, shared with the proposal standard (lib/proposal readiness),
+// so "the lead has a valid email" means the same thing on screen and here.
+import { isEmail } from '../src/lib/proposal.js';
+export { isEmail };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The address a proposal may be emailed to: the email on the lead the

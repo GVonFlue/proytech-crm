@@ -5,6 +5,9 @@ import { appUrl } from './_google.js';
 // recipient from the proposal's lead itself (_mail.js). clientRecipientFor()
 // is the same lookup, used here to refuse BEFORE publishing.
 import { sendClientMail, clientRecipientFor, esc } from './_mail.js';
+// THE PROPOSAL STANDARD: the same function the review screen calls. The
+// screen disables Send; this refuses it. One rule, two callers.
+import { readiness } from '../src/lib/proposal.js';
 
 // api/proposal-send.js — publish a proposal, and optionally email it.
 //
@@ -74,6 +77,18 @@ export default async function handler(req, res) {
     if (!rc.ok && rc.reason === 'no_email') { res.status(200).json({ ok: false, error: 'This lead has no valid email on file. Add one to the lead, then send.' }); return; }
     if (!rc.ok) { res.status(404).json({ ok: false, error: 'The lead for this proposal could not be found.' }); return; }
     to = rc.to;
+  }
+
+  /* NOT READY, NOT SENT. Checked against the STORED body — the exact snapshot
+     the client would see — before anything is published, so a refusal leaves
+     the proposal a draft with no validity clock started. `reviewed` is the
+     owner's tick for THIS send; a request without it is refused. */
+  const ready = readiness(p.body, { mode, leadEmail: to, reviewed: b.reviewed === true });
+  if (!ready.ok) {
+    const failing = ready.checks.filter(c => !c.ok);
+    res.status(200).json({ ok: false, notReady: true, missing: ready.missing,
+      error: 'Not ready to send: ' + failing.map(c => c.label.toLowerCase() + (c.detail ? ` (${c.detail})` : '')).join('; ') + '.' });
+    return;
   }
 
   const now = new Date();

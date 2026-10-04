@@ -98,7 +98,9 @@ await click(growth); await click(auto);
 const setupIn=document.querySelector('input[aria-label="Growth OS setup"]');
 ok('the usual price is prefilled', setupIn&&setupIn.value==='3000', setupIn&&setupIn.value);
 await setVal(setupIn,'2800');
-ok('the running total uses what was quoted', /Setup \$4,299 · deposit \$2,149\.5 · monthly \$548/.test(txt()), (document.querySelector('.pp-total')||{}).textContent);
+/* cents with two digits, as on the proposal itself ($2,149.50); this used to
+   assert "$2,149.5", which pinned a formatting bug in place */
+ok('the running total uses what was quoted', /Setup \$4,299 · deposit \$2,149\.50 · monthly \$548/.test(txt()), (document.querySelector('.pp-total')||{}).textContent);
 await setVal(document.querySelector('.pp-notes'),'Owner wants 20 jobs a month. Misses calls on site. Has 30 years of past customers and never emails them. Reviews only by luck. ZEBRA-NOTE-7');
 await click(byText('button',/Generate proposal/)); await tick(200);
 
@@ -136,6 +138,43 @@ ok('the notes are stored apart, NOT in what the client gets', w&&/ZEBRA-NOTE-7/.
 ok('with an unguessable 43-character token', w&&/^[A-Za-z0-9_-]{43}$/.test(w.token));
 ok('the lead\'s email is not copied into the body', w&&!JSON.stringify(w.body).includes('dee@deeco.com'));
 
+console.log('\nthe proposal standard: Send stays blocked until it is met');
+const ready=()=>document.querySelector('.pp-ready');
+const row=re=>[...((ready()&&ready().querySelectorAll('li'))||[])].find(li=>re.test(li.textContent));
+const isNo=re=>{const r=row(re);return !!r&&r.className==='no';}, isOk=re=>{const r=row(re);return !!r&&r.className==='ok';};
+ok('a ready-to-send checklist is shown above Send', !!ready());
+ok('  blocked, and it says how many things are left', ready()&&/to fix before this can go out/.test(ready().textContent), ready()&&ready().textContent.slice(0,160));
+ok('  a package is selected: passes', isOk(/A package is selected/));
+ok('  three levers: passes', isOk(/Exactly 3 levers/));
+ok('  only 1 of their numbers: missing', isNo(/At least 3 of their numbers/)&&/1 of 3/.test(row(/At least 3/).textContent));
+ok('  only 1 gap: missing', isNo(/3 to 5 gaps/));
+ok('  the build item not tied to anything bought is named', isNo(/Every build item/)&&/Website/.test(row(/Every build item/).textContent)&&!/Automations/.test(row(/Every build item/).textContent));
+ok('  the lead has an email: passes', isOk(/valid email/));
+ok('  not yet read: missing', isNo(/read every section/));
+ok('  Email to client is disabled', byText('button',/Email to client/).disabled===true);
+ok('  Copy client link is disabled', byText('button',/Copy client link/).disabled===true);
+// fix it the way an owner would, in edit mode
+if(!document.querySelector('.pd-add')) await click(byText('button',/Edit text/));
+for(let k=0;k<2;k++) await click(byText('.pd-add',/Add a number/));
+const nums=[...document.querySelectorAll('.pd-num')];
+for(const [i,[val,label]] of [[1,['12','Jobs a month now']],[2,['1 in 4','Quotes that close']]].entries()){
+  const tas=nums[nums.length-2+i].querySelectorAll('textarea'); await setVal(tas[0],val); await setVal(tas[1],label); }
+for(let k=0;k<2;k++) await click(byText('.pd-add',/Add a gap/));
+const gl=[...document.querySelectorAll('.pd-gaps li')];
+await setVal(gl[gl.length-2].querySelectorAll('textarea')[0],'No follow up after a quote');
+await setVal(gl[gl.length-1].querySelectorAll('textarea')[0],'Reviews are left to chance');
+const link=[...document.querySelectorAll('.pd-link select')].find(sel=>sel.value==='');
+ok('the unlinked build item offers what they are buying', link&&[...link.options].some(o=>o.value==='growth-os'));
+await setVal(link,'growth-os');
+ok('three numbers, three gaps, every build item linked: those rows pass', isOk(/At least 3 of their numbers/)&&isOk(/3 to 5 gaps/)&&isOk(/Every build item/));
+ok('  but still blocked until the owner has read it', byText('button',/Email to client/).disabled===true&&isNo(/read every section/));
+await click(document.querySelector('.pp-ready-tick input'));
+ok('ticked: ready, and both Send buttons unlock', ready().className.includes(' ok')&&!byText('button',/Email to client/).disabled&&!byText('button',/Copy client link/).disabled);
+await setVal(gl[gl.length-1].querySelectorAll('textarea')[0],'Reviews are left to luck');
+ok('an edit AFTER ticking clears the tick: you must read what you changed', isNo(/read every section/)&&byText('button',/Email to client/).disabled===true);
+await click(document.querySelector('.pp-ready-tick input'));
+ok('  ticked again: ready', ready().className.includes(' ok'));
+
 console.log('\nemailing it');
 await click(byText('button',/Email to client/));
 const subj=document.querySelector('.pp-mail input'), msgBox=document.querySelector('.pp-mail textarea');
@@ -145,6 +184,7 @@ await setVal(msgBox,msgBox.value+' See you soon.');
 await click(byText('.pp-mail button',/Send it/)); await tick(150);
 const sendCall=SENT.find(s=>s.url.includes('proposal-send')&&s.body.mode==='email');
 ok('Send posted the edited email', sendCall&&/See you soon/.test(sendCall.body.message));
+ok('the request carries the owner\'s tick, which the server checks again', sendCall&&sendCall.body.reviewed===true);
 ok('the request names NO recipient (the server reads it from the lead)', sendCall&&!('to' in sendCall.body)&&!('email' in sendCall.body)&&!JSON.stringify(sendCall.body).includes('@'));
 ok('the owner is told it went', /Sent to dee@deeco\.com/.test(txt()));
 
