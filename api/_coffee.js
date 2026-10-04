@@ -32,7 +32,41 @@ export const COFFEE_WINDOWS = [
   { id: '0900', h: 9,  m: 0 },
   { id: '1030', h: 10, m: 30 },
   { id: '1200', h: 12, m: 0 },
+  { id: '1330', h: 13, m: 30 },
+  { id: '1700', h: 17, m: 0 },
+  { id: '1830', h: 18, m: 30 },
 ];
+
+/* CUSTOM TIMES. The /coffee page lets a visitor pick any start time; the
+   server accepts only a 15-minute step from 07:00 to 19:00 inclusive (so the
+   latest coffee ends at 8 PM). Anything else is not a time we offer and is
+   refused, never rounded: a rounded time is a booking nobody asked for.
+   `customWindow('14:15')` is a window like the presets, id 'c1415'. */
+export const CUSTOM_FIRST = 7 * 60, CUSTOM_LAST = 19 * 60, CUSTOM_STEP = 15;
+export function customWindow(hhmm) {
+  const m = /^(\d{2}):(\d{2})$/.exec(String(hhmm == null ? '' : hhmm));
+  if (!m) return null;
+  const h = Number(m[1]), mi = Number(m[2]), t = h * 60 + mi;
+  if (mi > 59 || t < CUSTOM_FIRST || t > CUSTOM_LAST || mi % CUSTOM_STEP) return null;
+  return { id: 'c' + m[1] + m[2], h, m: mi, custom: true };
+}
+/* A slot id from a booking: a preset ('1330') or a custom 'cHHMM' ('c1415'),
+   with the same validation as the availability check. Anything else: null. */
+export function slotWindow(slot) {
+  const s = String(slot == null ? '' : slot);
+  const preset = COFFEE_WINDOWS.find(w => w.id === s);
+  if (preset) return preset;
+  const c = /^c(\d{2})(\d{2})$/.exec(s);
+  return c ? customWindow(`${c[1]}:${c[2]}`) : null;
+}
+/* "2:15–3:15 PM", "11:45 AM–12:45 PM": one rule for every window's label, so
+   a custom time reads exactly like a preset (the presets' labels in
+   coffee-book's WINDOW_LABEL are checked against it in tests/coffee.mjs). */
+export function windowLabel(w) {
+  const at = t => { const h = Math.floor(t / 60) % 24, mi = t % 60; return { h12: h % 12 === 0 ? 12 : h % 12, mm: String(mi).padStart(2, '0'), ap: h < 12 ? 'AM' : 'PM' }; };
+  const a = at(w.h * 60 + w.m), b = at(w.h * 60 + w.m + COFFEE_MINUTES);
+  return a.ap === b.ap ? `${a.h12}:${a.mm}–${b.h12}:${b.mm} ${b.ap}` : `${a.h12}:${a.mm} ${a.ap}–${b.h12}:${b.mm} ${b.ap}`;
+}
 
 /** The canonical spelling of a host name, or null if it is not one of `hosts`. */
 export function knownHost(name, hosts = COFFEE_HOSTS) {
@@ -108,7 +142,20 @@ export async function readDayEvents(ids, token, date, tz, fetchFn = fetch) {
  *  With no host — or one we do not recognise — every event blocks, which is
  *  the behaviour from before hosts existed and the safe reading of a typo.
  *  A window that has already started is never offered. */
-export function openWindows(date, events, { tz, now = 0, host = '', hosts = COFFEE_HOSTS } = {}) {
+export function openWindows(date, events, opts = {}) {
+  const busy = busyFor(events, opts);
+  return COFFEE_WINDOWS.filter(w => freeOf(busy, date, w, opts)).map(w => w.id);
+}
+
+/** Is ONE window (a preset or a custom time) free for `host`? The same owner
+ *  rules and the same "already started" rule as openWindows — it is the same
+ *  code. A null window (an invalid custom time) is never free. */
+export function isWindowFree(date, events, w, opts = {}) {
+  return !!w && freeOf(busyFor(events, opts), date, w, opts);
+}
+
+/* the events that block this host: their own, and anything unattributed */
+function busyFor(events, { tz, host = '', hosts = COFFEE_HOSTS } = {}) {
   const who = knownHost(host, hosts);
   const busy = [];
   for (const ev of Array.isArray(events) ? events : []) {
@@ -120,10 +167,11 @@ export function openWindows(date, events, { tz, now = 0, host = '', hosts = COFF
     }
     busy.push(iv);
   }
-  return COFFEE_WINDOWS.filter(w => {
-    const { start, end } = windowInterval(date, w, tz);
-    if (now && start <= now) return false;
-    // Half-open overlap: an event ending at 9:00 does not touch the 9:00 window.
-    return !busy.some(iv => iv.start < end && iv.end > start);
-  }).map(w => w.id);
+  return busy;
+}
+function freeOf(busy, date, w, { tz, now = 0 } = {}) {
+  const { start, end } = windowInterval(date, w, tz);
+  if (now && start <= now) return false;
+  // Half-open overlap: an event ending at 9:00 does not touch the 9:00 window.
+  return !busy.some(iv => iv.start < end && iv.end > start);
 }

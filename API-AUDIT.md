@@ -418,13 +418,17 @@ and the service-role key held on the server. All three read or write with that
 key, so **RLS does not apply to them**. Their boundary is what the code
 returns, not a policy.
 
-- **`coffee-availability.js`** — POST `{date, host?}`. Returns open window ids
-  (`0730`…`1200`) and never an event title, time or attendee. A calendar that
+- **`coffee-availability.js`** — POST `{date, host?, custom?}`. Returns open
+  preset window ids (`0730`…`1830`) and, when asked about a custom start time
+  (`HH:MM`, 15-minute steps, 07:00–19:00), `custom: true|false` — never an
+  event title, time or attendee. Anything invalid, and every fail-closed path,
+  answers `custom: false`. A calendar that
   cannot be read returns no windows (fails closed). The `host` decides which
   events block; the rule is in `_coffee.js`.
 - **`coffee-book.js`** — POST. Creates a Google event on `primary` with
   `sendUpdates=all` and upserts a lead. The visitor picks only from fixed lists
-  (shop, window, a known host — an unknown host is now a 400), and the only
+  (shop, a preset window or a custom `cHHMM` time on a 15-minute step from
+  07:00 to 19:00 — anything else is a 400 — and a known host), and the only
   invitee is the email they typed, so it cannot be turned into an invite relay
   to third parties beyond the rate limit. It re-checks availability for that
   host before writing. It emails the owners by calling `sendMail()` from

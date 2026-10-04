@@ -15,16 +15,31 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { test, testAsync, report } from './assert.mjs';
-import { countRace, meetingDay, racerFor } from '../api/coffee-race.js';
+import { test, testAsync, report, ok } from './assert.mjs';
 import {
   BOTH, COFFEE_WINDOWS, eventOwner, knownHost, openWindows, readDayEvents, windowInterval,
+  customWindow, slotWindow, windowLabel, isWindowFree,
 } from '../api/_coffee.js';
-import { WINDOW_LABEL, emailWhen } from '../api/coffee-book.js';
 import { execFileSync } from 'node:child_process';
 import { BANANA, DAY_START_HOUR, slotWallClock } from '../src/lib/availability.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+/* The route modules read their env when first imported (api/_env.js), and ES
+   imports are hoisted — so env FIRST, then import them dynamically. The routes
+   are driven below against a fake Google / Supabase / Resend. */
+process.env.SUPABASE_URL = 'https://x.supabase.co';
+process.env.SUPABASE_SERVICE_KEY = 'svc';
+process.env.SUPABASE_SERVICE_ROLE_KEY = 'svc';
+process.env.RESEND_API_KEY = 're_test';
+process.env.NOTIFY_FROM = 'CRM <crm@getproytech.com>';
+process.env.NOTIFY_TO = 'garrett@getproytech.com';
+process.env.APP_URL = 'https://crm.test';
+process.env.CALENDAR_TZ = 'America/Chicago';
+delete process.env.CALENDAR_IDS;
+const { countRace, meetingDay, racerFor } = await import('../api/coffee-race.js');
+const { WINDOW_LABEL, emailWhen, slotLabel, default: bookRoute } = await import('../api/coffee-book.js');
+const { default: availRoute } = await import('../api/coffee-availability.js');
 const CHI = 'America/Chicago';
 const eq = (a, b, what) => {
   if (JSON.stringify(a) !== JSON.stringify(b))
@@ -223,8 +238,8 @@ test('a tag or coffee title naming someone unknown blocks both', () => {
 
 test('with NO host given, every event blocks (the old behaviour)', () => {
   const events = [ev('Garrett: dentist', '09:00', '10:00'), ev('x', '12:00', '13:00', tagged('Logan'))];
-  eq(free(events, ''), ['0730', '1030'], 'no host');
-  eq(free(events, undefined), ['0730', '1030'], 'undefined host');
+  eq(free(events, ''), ['0730', '1030', '1330', '1700', '1830'], 'no host');
+  eq(free(events, undefined), ['0730', '1030', '1330', '1700', '1830'], 'undefined host');
 });
 
 test('an unrecognised host is treated as no host, so it can only offer LESS', () => {
@@ -252,16 +267,16 @@ test('an all-day event with no host name blocks every window for both', () => {
 
 /* ---- the 7:30 window --------------------------------------------------- */
 
-test('the windows are 7:30, 9:00, 10:30 and 12:00, an hour each', () => {
-  eq(COFFEE_WINDOWS.map(w => w.id), ['0730', '0900', '1030', '1200'], 'ids');
+test('the windows are 7:30, 9:00, 10:30, 12:00, 1:30, 5:00 and 6:30, an hour each', () => {
+  eq(COFFEE_WINDOWS.map(w => w.id), ['0730', '0900', '1030', '1200', '1330', '1700', '1830'], 'ids');
   for (const w of COFFEE_WINDOWS) {
     const iv = windowInterval(DATE, w, CHI);
     eq((iv.end - iv.start) / 60000, 60, w.id + ' length');
   }
 });
 
-test('an empty day offers all four, 7:30 included', () => {
-  eq(free([], 'Garrett'), ['0730', '0900', '1030', '1200'], 'empty day');
+test('an empty day offers all seven, 7:30 included', () => {
+  eq(free([], 'Garrett'), ['0730', '0900', '1030', '1200', '1330', '1700', '1830'], 'empty day');
 });
 
 test('7:30 is 7:30 in the calendar zone, not the server\'s', () => {
@@ -292,7 +307,7 @@ test('7:30 is blocked by anything overlapping 7:30–8:30, and only that', () =>
 
 test('a window that has already started is not offered', () => {
   const now = Date.parse(at('07:31'));
-  eq(free([], 'Garrett', now), ['0900', '1030', '1200'], 'after 7:30');
+  eq(free([], 'Garrett', now), ['0900', '1030', '1200', '1330', '1700', '1830'], 'after 7:30');
 });
 
 test('the CRM lattice still starts at 8am', () => {
@@ -357,11 +372,162 @@ await testAsync('both routes fail closed on an unread calendar and use the one s
   for (const [name, src] of [['coffee-availability', avail], ['coffee-book', book]]) {
     if (!/from '\.\/_coffee\.js'/.test(src)) throw new Error(name + ' does not use ./_coffee.js');
     if (!/if \(!events\)/.test(src)) throw new Error(name + ' does not check for an unread calendar');
-    if (src.indexOf('if (!events)') > src.indexOf('openWindows(date, events')) throw new Error(name + ' decides before checking the read');
+    // the decision (openWindows for the list, isWindowFree for one window) comes after the read check
+    const decide = Math.max(src.indexOf('openWindows(date, events'), src.indexOf('isWindowFree(date, events'));
+    if (decide < 0 || src.indexOf('if (!events)') > decide) throw new Error(name + ' decides before checking the read');
   }
-  if (!/openWindows\(date, events, \{[^}]*\bhost\b/.test(book)) throw new Error('coffee-book re-check is not per host');
+  if (!/isWindowFree\(date, events, win, \{[^}]*\bhost\b/.test(book)) throw new Error('coffee-book re-check is not per host');
   if (!/extendedProperties:\s*\{\s*private:\s*\{\s*coffeeHost:\s*host\s*\}\s*\}/.test(book))
     throw new Error('coffee-book does not tag new events with coffeeHost');
+});
+
+/* ---- more coffee times: three new presets, and custom start times ------- */
+
+test('the new presets: 1:30, 5:00 and 6:30, an hour each, in Chicago time', () => {
+  const at = id => COFFEE_WINDOWS.find(w => w.id === id);
+  eq(new Date(windowInterval(DATE, at('1330'), CHI).start).toISOString(), '2026-10-05T18:30:00.000Z', '1:30 PM CDT');
+  eq(new Date(windowInterval(DATE, at('1700'), CHI).end).toISOString(), '2026-10-05T23:00:00.000Z', '5–6 PM ends at 6');
+  eq(new Date(windowInterval(DATE, at('1830'), CHI).end).toISOString(), '2026-10-06T00:30:00.000Z', '6:30–7:30 PM ends past UTC midnight');
+  eq([WINDOW_LABEL['1330'], WINDOW_LABEL['1700'], WINDOW_LABEL['1830']], ['1:30–2:30 PM', '5:00–6:00 PM', '6:30–7:30 PM'], 'labels');
+  eq(emailWhen('2026-10-08', '1830', CHI), 'Thu, Oct 8 · 6:30–7:30 PM', 'owner email');
+});
+
+test('one rule writes every label: each preset label equals windowLabel()', () => {
+  for (const w of COFFEE_WINDOWS) eq(WINDOW_LABEL[w.id], windowLabel(w), w.id);
+  eq(windowLabel(customWindow('11:45')), '11:45 AM–12:45 PM', 'across noon');
+  eq(windowLabel(customWindow('19:00')), '7:00–8:00 PM', 'the latest');
+});
+
+test('custom times: 15-minute steps from 07:00 to 19:00, nothing else', () => {
+  for (const t of ['07:00', '07:15', '09:45', '12:00', '14:15', '18:45', '19:00'])
+    eq(customWindow(t) && customWindow(t).id, 'c' + t.replace(':', ''), `valid ${t}`);
+  for (const t of ['06:45', '06:59', '19:15', '19:01', '23:00', '00:00', '14:10', '14:05', '14:59', '7:00', '14:5', '14:60', '24:00',
+    '1415', '14.15', ' 14:15', '14:15 ', 'ab:cd', '', null, undefined, 1415, '14:15:00'])
+    eq(customWindow(t), null, `invalid ${JSON.stringify(t)}`);
+  eq(slotWindow('c1415') && slotWindow('c1415').id, 'c1415', 'booking slot c1415');
+  eq(slotWindow('1330') && slotWindow('1330').id, '1330', 'a preset still resolves');
+  for (const s of ['c1410', 'c0645', 'c1915', 'c14:15', 'C1415', '1415', 'c141', 'c14150', 'x', '']) eq(slotWindow(s), null, `bad slot ${s}`);
+});
+
+test("a custom time overlapping LOGAN's coffee is open for Garrett and taken for Logan", () => {
+  const logan = [ev(`Coffee: Pat Doe ×${ZWSP} Logan (ProyTech)`, '14:00', '15:00', tagged('Logan'))];
+  const w = customWindow('14:15'), o = h => ({ tz: CHI, host: h });
+  ok(isWindowFree(DATE, logan, w, o('Garrett')), 'free for Garrett');
+  ok(!isWindowFree(DATE, logan, w, o('Logan')), 'taken for Logan');
+  const legacy = [ev(`Coffee: Pat Doe ×${ZWSP} Logan (ProyTech)`, '14:00', '15:00')];
+  ok(isWindowFree(DATE, legacy, w, o('Garrett')) && !isWindowFree(DATE, legacy, w, o('Logan')), 'the same for a coffee read from its title');
+  const garrett = [ev('Garrett: dentist', '14:30', '15:00')];
+  ok(!isWindowFree(DATE, garrett, w, o('Garrett')) && isWindowFree(DATE, garrett, w, o('Logan')), "Garrett's own event: the other way round");
+});
+
+test('an untagged event blocks a custom time for BOTH hosts (and with no host)', () => {
+  const board = [ev('Board meeting', '14:30', '15:00')], w = customWindow('14:15');
+  for (const h of ['Garrett', 'Logan', '', 'Dana']) ok(!isWindowFree(DATE, board, w, { tz: CHI, host: h }), `blocked for ${h || 'no host'}`);
+});
+
+test('custom times follow the preset rules: Banana, cancelled, back-to-back, the past', () => {
+  const w = customWindow('14:15'), o = { tz: CHI, host: 'Garrett' };
+  ok(isWindowFree(DATE, [ev('Board meeting', '14:00', '15:00', { colorId: BANANA })], w, o), 'Banana does not block');
+  ok(isWindowFree(DATE, [ev('Board meeting', '14:00', '15:00', { status: 'cancelled' })], w, o), 'cancelled does not block');
+  ok(isWindowFree(DATE, [ev('Board meeting', '13:15', '14:15'), ev('Board meeting', '15:15', '16:00')], w, o), 'back to back on both sides is free');
+  ok(!isWindowFree(DATE, [], w, { ...o, now: Date.parse(at('14:15')) }), 'a custom time that has started is not free');
+  ok(!isWindowFree(DATE, [], null, o), 'an invalid custom time is never free');
+  ok(isWindowFree(DATE, [], customWindow('19:00'), o) && !isWindowFree(DATE, [ev('Board meeting', '19:59', '20:30')], customWindow('19:00'), o), '7:00 PM runs to 8:00');
+});
+
+/* ---- the routes, end to end, against a fake Google / Supabase / Resend ---- */
+const BOOK_DATE = '2030-01-08';                  // a Tuesday, safely in the future
+const bat = h => `${BOOK_DATE}T${h}:00-06:00`;    // CST in January
+let CAL = [], calFail = false, posted = [], mails = [], leadWrites = [];
+const realFetch = globalThis.fetch;
+const fake = async (url, opts = {}) => {
+  const u = String(url), method = (opts.method || 'GET').toUpperCase();
+  const J = (d, s = 200) => ({ ok: s < 300, status: s, headers: new Headers({ 'content-type': 'application/json' }), json: async () => d, text: async () => JSON.stringify(d) });
+  if (u.includes('api_hits')) return { ok: true, status: 200, text: async () => '[]', json: async () => [] };
+  if (u.includes('/rest/v1/secrets')) return J({ data: { refresh_token: 'r' } });
+  if (u.includes('oauth2.googleapis.com/token')) return J({ access_token: 'g' });
+  if (u.includes('googleapis.com/calendar')) {
+    if (method === 'GET') return calFail ? J({}, 403) : J({ items: CAL });
+    posted.push(JSON.parse(opts.body)); return J({ id: 'ev1', htmlLink: 'https://cal/ev1' });
+  }
+  if (u.includes('/rest/v1/leads')) { if (method === 'GET') return J([]); leadWrites.push(JSON.parse(opts.body)); return J([], 201); }
+  if (u.includes('crm_users')) return J([{ email: 'logan@getproytech.com' }]);
+  if (u.includes('api.resend.com')) { mails.push(JSON.parse(opts.body)); return J({ id: 'm1' }); }
+  return J({}, 404);
+};
+const call = async (route, body) => {
+  const res = { code: 0, body: null }; res.status = c => { res.code = c; return res; }; res.json = b => { res.body = b; return res; }; res.setHeader = () => {}; res.end = () => res;
+  await route({ method: 'POST', headers: { 'x-forwarded-for': '8.8.8.8', origin: 'https://www.getproytech.com' }, socket: {}, body }, res);
+  return res;
+};
+const LOGAN_AT_2 = { summary: `Coffee: Pat ×${ZWSP} Logan (ProyTech)`, start: { dateTime: bat('14:00') }, end: { dateTime: bat('15:00') }, extendedProperties: { private: { coffeeHost: 'Logan' } } };
+const GUEST = { date: BOOK_DATE, shop: 'Mokas Coffee — Delano', name: 'Sam Guest', phone: '316-555-0101', email: 'sam@guest.example' };
+
+await testAsync('coffee-availability answers custom: true/false, per host, by the same rule', async () => {
+  globalThis.fetch = fake;
+  try {
+    CAL = [LOGAN_AT_2]; calFail = false;
+    let r = await call(availRoute, { date: BOOK_DATE, host: 'Garrett', custom: '14:15' });
+    eq([r.body.ok, r.body.custom], [true, true], 'Garrett at 2:15, beside Logan’s coffee');
+    ok(r.body.open.includes('1330') && r.body.open.includes('1830'), 'the presets come back too');
+    r = await call(availRoute, { date: BOOK_DATE, host: 'Logan', custom: '14:15' });
+    eq(r.body.custom, false, 'Logan at 2:15 is taken');
+    ok(!r.body.open.includes('1330'), 'and Logan’s 1:30 preset is taken too (it overlaps 2:00)');
+    CAL = [{ summary: 'Board meeting', start: { dateTime: bat('14:30') }, end: { dateTime: bat('15:00') } }];
+    for (const h of ['Garrett', 'Logan']) eq((await call(availRoute, { date: BOOK_DATE, host: h, custom: '14:15' })).body.custom, false, `untagged blocks ${h}`);
+    CAL = [];
+    for (const bad of ['14:10', '06:45', '19:15', '2:15', 'soon', '']) eq((await call(availRoute, { date: BOOK_DATE, host: 'Garrett', custom: bad })).body.custom, false, `invalid ${bad}`);
+    eq((await call(availRoute, { date: '2020-01-07', host: 'Garrett', custom: '14:15' })).body.custom, false, 'in the past');
+    r = await call(availRoute, { date: BOOK_DATE, host: 'Garrett' });
+    ok(!('custom' in r.body) && r.body.open.length === 7, 'no custom asked: the usual answer, all seven presets');
+    calFail = true;
+    r = await call(availRoute, { date: BOOK_DATE, host: 'Garrett', custom: '14:15' });
+    eq([r.body.custom, r.body.open.length, r.body.reason], [false, 0, 'calendar_read_failed'], 'an unread calendar: custom false, nothing open');
+  } finally { globalThis.fetch = realFetch; calFail = false; }
+});
+
+await testAsync('coffee-book: a custom slot is re-checked for that host and booked at that time', async () => {
+  globalThis.fetch = fake;
+  try {
+    CAL = [LOGAN_AT_2]; posted = []; mails = []; leadWrites = [];
+    let r = await call(bookRoute, { ...GUEST, host: 'Garrett', slot: 'c1415' });
+    eq(r.body && r.body.ok, true, 'Garrett books 2:15 beside Logan’s coffee: ' + JSON.stringify(r.body));
+    const e = posted[0] || {};
+    eq([e.start && e.start.dateTime, e.end && e.end.dateTime, e.start && e.start.timeZone], [`${BOOK_DATE}T14:15:00`, `${BOOK_DATE}T15:15:00`, 'America/Chicago'], 'the invite is 2:15–3:15 Chicago');
+    eq(e.extendedProperties && e.extendedProperties.private.coffeeHost, 'Garrett', 'tagged for Garrett');
+    ok(e.attendees && e.attendees[0].email === GUEST.email, 'the guest is invited');
+    ok(/^Coffee: Sam Guest ×.* Garrett \(ProyTech\)$/.test(e.summary || ''), 'the title still says whose coffee it is: ' + e.summary);
+    const lead = (leadWrites[0] && leadWrites[0].data) || {};
+    const m = (lead.meetings || [])[0] || {};
+    eq([m.mtype, m.start, m.end, m.host, m.status], ['Coffee', `${BOOK_DATE}T14:15:00`, `${BOOK_DATE}T15:15:00`, 'Garrett', ''], 'the CRM meeting');
+    ok((lead.activities || []).some(a => /2030-01-08 · 2:15–3:15 PM/.test(a.text || '')), 'the CRM note says 2:15–3:15 PM');
+    ok(mails.length === 1 && /<b>When:<\/b> Tue, Jan 8 · 2:15–3:15 PM</.test(mails[0].html), 'the owner email: "Tue, Jan 8 · 2:15–3:15 PM"');
+    eq(slotLabel('c1415'), '2:15–3:15 PM', 'slotLabel');
+
+    posted = [];
+    r = await call(bookRoute, { ...GUEST, host: 'Logan', slot: 'c1415' });
+    eq([r.body.ok, r.body.error, posted.length], [false, 'slot_taken', 0], 'Logan cannot: it overlaps his own coffee, nothing created');
+    CAL = [{ summary: 'Board meeting', start: { dateTime: bat('14:30') }, end: { dateTime: bat('15:00') } }];
+    for (const h of ['Garrett', 'Logan']) eq((await call(bookRoute, { ...GUEST, host: h, slot: 'c1415' })).body.error, 'slot_taken', `an untagged event blocks ${h}`);
+
+    CAL = []; posted = [];
+    for (const bad of ['c1410', 'c0645', 'c1915', 'c14:15', '1415', 'c', 'later'])
+      { const x = await call(bookRoute, { ...GUEST, host: 'Garrett', slot: bad }); eq([x.code, x.body.error], [400, 'bad date/slot'], `rejects ${bad}`); }
+    eq(posted.length, 0, 'and none of them touched the calendar');
+    r = await call(bookRoute, { ...GUEST, host: 'Logan', slot: '1830' });
+    ok(r.body.ok && posted[0].start.dateTime === `${BOOK_DATE}T18:30:00`, 'a new preset (6:30 PM) books too');
+    calFail = true; posted = [];
+    r = await call(bookRoute, { ...GUEST, host: 'Garrett', slot: 'c1415' });
+    eq([r.body.ok, r.body.error, posted.length], [false, 'calendar_read_failed', 0], 'an unread calendar books nothing');
+  } finally { globalThis.fetch = realFetch; calFail = false; }
+});
+
+test('the Race to 20 still counts these coffees once held', () => {
+  const lead = (leadWrites[0] && leadWrites[0].data) || {};
+  const held = { data: { ...lead, meetings: (lead.meetings || []).map(m => ({ ...m, status: 'held' })) } };
+  eq(countRace([held], '2030-01-01', '2030-01-31', CHI), { Garrett: 1, Logan: 0 }, 'a custom-time coffee is credited to its host');
+  const evening = { data: { meetings: [{ mtype: 'Coffee', status: 'held', host: 'Logan', start: '2026-10-10T18:30:00' }] } };
+  eq(countRace([evening], '2026-10-03', '2026-10-10', CHI), { Garrett: 0, Logan: 1 }, 'a 6:30 PM coffee on the last day counts');
 });
 
 report('coffee');
