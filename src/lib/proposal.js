@@ -85,9 +85,23 @@ export function readOffer(settings) {
         name: S(company.name, 120).trim(), people: S(company.people, 160).trim(),
         email: S(company.email, 160).trim(), website: S(company.website, 160).trim(),
         city: S(company.city, 120).trim(),
+        /* the brand on the cover and in the footer, per install (white-label):
+           the shipped offer points at ProyTech's files in public/, another
+           install points at its own. Unset falls back to the name as text. */
+        logo: safeAsset(company.logo), mark: safeAsset(company.mark),
       },
     },
   };
+}
+
+/* An image the proposal may load: an https URL, or a path on this site
+   ("/logo.png"). Nothing else — not http, not data:, not javascript:, not a
+   protocol-relative "//host" — because the offer is typed into Settings and
+   the result is rendered on a page a client opens. */
+export function safeAsset(u) {
+  const s = S(u, 500).trim();
+  if (/^\/(?!\/)[A-Za-z0-9._~\-\/]+$/.test(s) && !s.includes('..')) return s;
+  return safeHttps(s);
 }
 
 /* Only an https URL may become a link a client clicks, and only on accept. */

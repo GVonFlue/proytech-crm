@@ -44,19 +44,25 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
   const validLine = expiresAt ? `Valid until ${fmtDay(expiresAt)}` : `Valid ${body.validDays || 7} days from the date it is sent`;
 
   return (<div className="pdoc">
-    <div className="pd-plate">
-      <span className="pd-mark">{co.name || 'Proposal'}</span>
-      <span className="pd-plate-r">{(cl.company || cl.name || '').toUpperCase()} · {(c.headline || 'Proposal').toUpperCase()}</span>
+    {/* THE COVER. The brand plate and the client block share one light
+        .pd-hero; the summary sits below it, on white. The plate is the
+        company's LOGO when the offer has one (company.logo, per install),
+        and its name as text only when it does not. */}
+    <div className="pd-hero">
+      <div className="pd-plate">
+        {co.logo ? <img className="pd-logo" src={co.logo} alt={co.name || 'Logo'} />
+          : <span className="pd-mark">{co.name || 'Proposal'}</span>}
+        <span className="pd-plate-r">{(cl.company || cl.name || '').toUpperCase()} · {(c.headline || 'Proposal').toUpperCase()}</span>
+      </div>
+      <div className="pd-top">
+        <div className="pd-kicker">{co.name ? co.name + ' ' : ''}proposal · prepared {fmtDay(body.preparedOn)}</div>
+        <div className="pd-head"><Field edit={edit} value={c.headline} onChange={v => set(['headline'], v)} rows={1} /></div>
+        <h1 className="pd-client">{cl.company || cl.name}</h1>
+        <div className="pd-meta">Prepared for {[cl.name, cl.company, cl.city, cl.website].filter(Boolean).join(' · ')}</div>
+        {co.name && <div className="pd-meta">Prepared by {[co.name, co.people, co.website].filter(Boolean).join(' · ')}</div>}
+      </div>
     </div>
-
-    <div className="pd-top">
-      <div className="pd-kicker">{co.name ? co.name + ' ' : ''}proposal · prepared {fmtDay(body.preparedOn)}</div>
-      <div className="pd-head"><Field edit={edit} value={c.headline} onChange={v => set(['headline'], v)} rows={1} /></div>
-      <h1 className="pd-client">{cl.company || cl.name}</h1>
-      <div className="pd-meta">Prepared for {[cl.name, cl.company, cl.city, cl.website].filter(Boolean).join(' · ')}</div>
-      {co.name && <div className="pd-meta">Prepared by {[co.name, co.people, co.website].filter(Boolean).join(' · ')}</div>}
-      <p className="pd-summary"><Field edit={edit} value={c.summary} onChange={v => set(['summary'], v)} rows={5} /></p>
-    </div>
+    <p className="pd-summary"><Field edit={edit} value={c.summary} onChange={v => set(['summary'], v)} rows={5} /></p>
 
     {hasPlan && <section className="pd-sec">
       <div className="pd-label">Section {no()} — your plan</div>
@@ -145,48 +151,91 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
       {acceptSlot}
     </div>
 
-    <div className="pd-foot"><span>{[co.name, co.city].filter(Boolean).join(' · ')}</span><span>{validLine}</span></div>
+    <div className={'pd-foot' + (co.mark ? ' has-mark' : '')}>
+      {co.mark && <img className="pd-foot-mark" src={co.mark} alt="" />}
+      <span>{[co.name, co.city].filter(Boolean).join(' · ')}</span><span>{validLine}</span></div>
   </div>);
 }
 
+/* The brand's line art: circuit traces on the cover, and the small trace
+   mark in each section's corner. Inline SVG, under 1.5 KB together, so the
+   public page needs no extra request for them. */
+const HERO_ART = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMjAiIGhlaWdodD0iMjIwIiB2aWV3Qm94PSIwIDAgMzIwIDIyMCI+PGRlZnM+PGZpbHRlciBpZD0iZyI+PGZlR2F1c3NpYW5CbHVyIHN0ZERldmlhdGlvbj0iMiIgcmVzdWx0PSJiIi8+PGZlTWVyZ2U+PGZlTWVyZ2VOb2RlIGluPSJiIi8+PGZlTWVyZ2VOb2RlIGluPSJTb3VyY2VHcmFwaGljIi8+PC9mZU1lcmdlPjwvZmlsdGVyPjwvZGVmcz4KPGcgZmlsdGVyPSJ1cmwoI2cpIiBmaWxsPSJub25lIiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48cGF0aCBkPSJNNDAgNjAgSDE1MCBMMTgwIDMwIEgzMjAiIHN0cm9rZT0iIzJFOUJGRiIgc3Ryb2tlLW9wYWNpdHk9Ii44Ii8+PHBhdGggZD0iTTkwIDExMCBIMjAwIEwyMzAgMTQwIEgzMjAiIHN0cm9rZT0iI0ZCNjkyNiIgc3Ryb2tlLW9wYWNpdHk9Ii44Ii8+PHBhdGggZD0iTTEzMCAxNzUgSDIyMCBMMjQ1IDE1MCBIMzIwIiBzdHJva2U9IiMyRTlCRkYiIHN0cm9rZS1vcGFjaXR5PSIuNiIvPjxwb2x5Z29uIHBvaW50cz0iMzA5LDgwIDI5MiwxMDkgMjU4LDEwOSAyNDEsODAgMjU4LDUxIDI5Miw1MSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkI2OTI2IiBzdHJva2Utb3BhY2l0eT0iMC43IiBzdHJva2Utd2lkdGg9IjIiLz48cG9seWdvbiBwb2ludHM9IjI2NCwxOTUgMjUyLDIxNiAyMjgsMjE2IDIxNiwxOTUgMjI4LDE3NCAyNTIsMTc0IiBmaWxsPSJub25lIiBzdHJva2U9IiMyRTlCRkYiIHN0cm9rZS1vcGFjaXR5PSIwLjUiIHN0cm9rZS13aWR0aD0iMiIvPjwvZz4KPGcgZmlsdGVyPSJ1cmwoI2cpIj48Y2lyY2xlIGN4PSIxNTAiIGN5PSI2MCIgcj0iNCIgZmlsbD0iIzJFOUJGRiIvPjxjaXJjbGUgY3g9IjIwMCIgY3k9IjExMCIgcj0iNCIgZmlsbD0iI0ZCNjkyNiIvPjxjaXJjbGUgY3g9IjIyMCIgY3k9IjE3NSIgcj0iNCIgZmlsbD0iIzM4QkRGOCIvPjwvZz48L3N2Zz4=';
+const SEC_MARK = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI5MCIgaGVpZ2h0PSI0MCIgdmlld0JveD0iMCAwIDkwIDQwIj48ZyBmaWxsPSJub25lIiBzdHJva2Utd2lkdGg9IjEuNiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIj48cGF0aCBkPSJNMCA4IEg0NCBMNTggMjIgSDg4IiBzdHJva2U9IiMyRTlCRkYiIHN0cm9rZS1vcGFjaXR5PSIuNTUiLz48cGF0aCBkPSJNMzAgMzQgSDYyIEw3MCAyNiIgc3Ryb2tlPSIjRkI2OTI2IiBzdHJva2Utb3BhY2l0eT0iLjU1Ii8+PC9nPjxjaXJjbGUgY3g9IjU4IiBjeT0iMjIiIHI9IjIuNiIgZmlsbD0iIzM4QkRGOCIvPjxjaXJjbGUgY3g9IjcwIiBjeT0iMjYiIHI9IjIuNCIgZmlsbD0iI0ZCNjkyNiIvPjwvc3ZnPg==';
+
 /* Styles live with the component so the public page and the CRM render the
-   same document. Colours are tokens with defaults; nothing here names a
-   company. Print rules turn the page into the PDF. */
+   same document. Colours are tokens; nothing here names a company — the logo
+   and footer mark are images from the offer (company.logo, company.mark).
+   The approved design is Sample_Proposal_Reed_Realty_v5: a light cover
+   holding the brand plate and the client, the summary on white below it, and
+   each section an outlined card. Phones get their own block; print turns the
+   page into the PDF. */
 export const PROPOSAL_CSS = `
-.pdoc{--pd-ink:#14122B;--pd-mute:#5E5A7A;--pd-blue:#2B4DE0;--pd-navy:#05071A;--pd-hot:#FF6B2C;--pd-line:#E4E6F0;
-  background:#fff;color:var(--pd-ink);font-family:Inter,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:14px;line-height:1.55;
-  max-width:880px;margin:0 auto;padding:34px 40px 26px;border-radius:14px;box-shadow:0 20px 60px -30px rgba(5,7,26,.35)}
-.pd-plate{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--pd-navy);color:#fff;border-radius:14px;padding:16px 20px;margin-bottom:22px}
-.pd-mark{font-weight:800;font-size:19px;letter-spacing:-.01em}
-.pd-plate-r{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.12em;color:#C9CCE8;text-align:right}
+.pdoc{--pd-ink:#0B1633;--pd-mute:#56637F;--pd-blue:#1F6FEB;--pd-elec:#2E9BFF;--pd-ice:#38BDF8;--pd-navy:#061431;--pd-hot:#FB6926;--pd-line:#DCE5F4;
+  position:relative;color:var(--pd-ink);font-family:Inter,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;font-size:14px;line-height:1.55;
+  max-width:880px;margin:0 auto;padding:0 0 26px;overflow:hidden;
+  border:1.5px solid transparent;border-radius:22px;
+  background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,var(--pd-elec),var(--pd-ice) 45%,var(--pd-hot)) border-box;
+  box-shadow:0 30px 80px -30px rgba(6,20,49,.45)}
+.pdoc h2,.pd-client,.pd-num b,.pd-big{font-family:"Space Grotesk",Inter,Arial,sans-serif}
+
+/* the cover */
+.pd-hero{position:relative;overflow:hidden;border-radius:20px 20px 0 0;border-bottom:1px solid var(--pd-line);
+  background:radial-gradient(60% 120% at 100% 0%,rgba(56,189,248,.22),transparent 60%),linear-gradient(180deg,#FFFFFF,#EEF4FF)}
+.pd-hero:before{content:"";position:absolute;top:0;right:0;bottom:0;width:30%;
+  background:url("${HERO_ART}") right top/contain no-repeat;
+  -webkit-mask-image:linear-gradient(90deg,transparent 0%,#000 40%);mask-image:linear-gradient(90deg,transparent 0%,#000 40%)}
+.pd-hero:after{content:"";position:absolute;left:0;right:0;bottom:0;height:3px;background:linear-gradient(90deg,var(--pd-elec),var(--pd-ice) 60%,var(--pd-hot))}
+.pd-plate{position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:22px 40px 0;color:var(--pd-navy)}
+.pd-plate img.pd-logo{height:40px;width:auto;display:block}
+.pd-mark{font-weight:800;font-size:19px;letter-spacing:-.01em;color:var(--pd-navy)}
+.pd-plate-r{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.12em;color:var(--pd-mute);text-align:right}
+.pd-top{position:relative;z-index:1;padding:10px 40px 24px;color:var(--pd-ink)}
 .pd-kicker,.pd-label{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--pd-blue)}
-.pd-head{font-family:ui-monospace,Menlo,monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--pd-mute);margin-top:6px}
-.pd-client{font-size:38px;line-height:1.05;margin:8px 0 10px;letter-spacing:-.02em}
-.pd-meta{font-size:12.5px;color:var(--pd-mute)}
-.pd-summary{font-size:15px;margin:16px 0 4px}
-.pd-sec{margin-top:26px}
-.pd-sec h2{font-size:21px;margin:4px 0 12px;letter-spacing:-.01em}
-.pd-goal{font-size:16px;font-weight:600;margin:0 0 12px}
+.pd-head{font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--pd-hot);margin-top:6px}
+.pd-client{font-size:40px;line-height:1.05;margin:6px 0 8px;letter-spacing:-.02em;color:var(--pd-navy)}
+.pd-meta{font-size:12.5px;color:var(--pd-mute);max-width:660px}
+.pd-summary{font-size:15.5px;color:#1C2A4A;margin:24px 0 4px;padding:0 40px}
+
+/* sections: outlined cards, a trace mark in the corner */
+.pd-sec{position:relative;margin:34px 40px 0;padding:22px 24px 20px;background:#fff;border:1px solid #E2E9F5;border-radius:18px;box-shadow:0 1px 0 rgba(6,20,49,.02)}
+.pd-sec:after{content:"";position:absolute;top:10px;right:12px;width:90px;height:40px;background:url("${SEC_MARK}") no-repeat;opacity:.9;pointer-events:none}
+.pd-label{display:inline-flex;align-items:center;gap:8px;font-weight:700}
+.pd-label:before{content:"";width:22px;height:2px;background:linear-gradient(90deg,var(--pd-elec),var(--pd-hot));border-radius:2px}
+.pd-sec h2{font-size:25px;margin:6px 0 14px;padding-right:90px;letter-spacing:-.02em}
+
+/* your plan */
+.pd-goal{font-size:17px;font-weight:600;margin:0 0 12px;padding:14px 16px;border-radius:12px;background:#F5F8FD;border-left:4px solid var(--pd-elec)}
 .pd-nums{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-bottom:12px}
-.pd-num{border:1px solid var(--pd-line);border-radius:10px;padding:10px 12px}
-.pd-num b{display:block;font-size:20px}
+.pd-num{background:#fff;border:1px solid var(--pd-line);border-top:3px solid var(--pd-elec);border-radius:12px;padding:12px 14px;box-shadow:0 8px 20px -14px rgba(31,111,235,.45)}
+.pd-num b{display:block;font-size:24px;color:var(--pd-navy)}
 .pd-num span{font-size:12px;color:var(--pd-mute)}
 .pd-levers{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
-.pd-lever{background:#F4F6FF;border-radius:10px;padding:10px 12px}
-.pd-lever span{display:block;font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--pd-blue);margin-bottom:2px}
+.pd-lever{background:#fff;color:var(--pd-ink);border:1px solid var(--pd-line);border-left:4px solid var(--pd-hot);border-radius:12px;padding:12px 14px;box-shadow:0 8px 20px -16px rgba(6,20,49,.5)}
+.pd-lever span{display:block;font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--pd-hot);margin-bottom:2px}
+
+/* the gap */
 .pd-gaps{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px}
 .pd-gaps li{display:flex;gap:12px}
-.pd-gn{font-family:ui-monospace,Menlo,monospace;color:var(--pd-blue);font-weight:700;padding-top:1px}
+.pd-gn{display:inline-grid;place-items:center;min-width:28px;height:28px;padding:0;border-radius:50%;background:rgba(46,155,255,.12);
+  font-family:ui-monospace,Menlo,monospace;font-size:12px;font-weight:700;color:var(--pd-blue)}
+
+/* the build */
 .pd-build{display:grid;grid-template-columns:1fr 1fr;gap:12px 22px}
-.pd-bi em{font-style:normal;font-family:ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--pd-hot);margin-left:6px}
+.pd-bi{background:#fff;border:1px solid var(--pd-line);border-radius:12px;padding:12px 14px;box-shadow:0 8px 20px -16px rgba(31,111,235,.5)}
+.pd-bi em{font-style:normal;font-family:ui-monospace,Menlo,monospace;font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+  color:#fff;background:var(--pd-hot);padding:2px 7px;border-radius:99px;margin-left:6px}
+
+/* lists */
 .pd-arrows{list-style:none;padding:0;margin:0}
 .pd-arrows li{position:relative;padding-left:18px;margin:3px 0}
-.pd-arrows li:before{content:"→";position:absolute;left:0;color:var(--pd-blue)}
+.pd-arrows li:before{content:"→";position:absolute;left:0;color:var(--pd-elec)}
 .pd-arrows.two{columns:2;column-gap:28px}
 .pd-arrows.two li{break-inside:avoid}
-.pd-arrows.light li:before{color:#fff}
+
+/* the investment */
 .pd-inv{display:grid;grid-template-columns:1.05fr 1fr 1fr;gap:12px;margin-top:6px}
-.pd-price{background:var(--pd-hot);color:#fff;border-radius:16px;padding:16px 18px}
+.pd-price{color:#fff;border-radius:18px;padding:16px 18px;background:radial-gradient(90% 90% at 100% 0%,#FF8A4C,var(--pd-hot) 55%,#E2531A);box-shadow:0 18px 40px -16px rgba(251,105,38,.65)}
 .pd-pl{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;opacity:.9}
 .pd-big{font-size:40px;font-weight:800;line-height:1.05;letter-spacing:-.02em}
 .pd-big small{font-size:16px;font-weight:700}
@@ -198,38 +247,71 @@ export const PROPOSAL_CSS = `
 .pd-bh{font-weight:700;color:var(--pd-blue);margin-bottom:4px}
 .pd-box.muted .pd-bh{color:var(--pd-mute)}
 .pd-prepay{margin-top:10px;background:#F4F6FF;border-radius:10px;padding:8px 10px;font-size:12.5px}
-.pd-guar{margin-top:12px;border:2px solid var(--pd-blue);border-radius:12px;padding:10px 14px;font-size:14px}
-.pd-terms{margin-top:8px;font-size:12px;color:var(--pd-mute)}
+.pd-guar{margin-top:12px;border:1.5px solid var(--pd-elec);border-radius:14px;padding:10px 14px;font-size:14px;background:linear-gradient(90deg,rgba(46,155,255,.10),#fff)}
+.pd-terms{margin:8px 40px 0;font-size:12px;color:var(--pd-mute)}
+
+/* how it runs */
 .pd-steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px}
-.pd-step{border-top:3px solid var(--pd-blue);padding-top:8px}
+.pd-step{border-top:3px solid var(--pd-elec);padding-top:10px}
+.pd-step:nth-child(5){border-top-color:var(--pd-hot)}
 .pd-step span{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--pd-blue)}
 .pd-step b{display:block;margin:2px 0}
 .pd-step p{margin:0;font-size:12.5px;color:var(--pd-mute)}
-.pd-band{margin-top:22px;background:var(--pd-blue);color:#fff;border-radius:16px;padding:18px 20px;display:grid;grid-template-columns:1fr 1fr;gap:22px}
-.pd-bandh{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:#C9D4FF;margin-bottom:6px}
+
+/* what we need, why now */
+.pd-band{position:relative;overflow:hidden;margin:22px 40px 0;padding:18px 20px;display:grid;grid-template-columns:1fr 1fr;gap:22px;
+  background:#F5F8FD;color:var(--pd-ink);border:1px solid var(--pd-line);border-radius:18px}
+.pd-bandh{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--pd-blue);margin-bottom:6px}
 .pd-band p{margin:0 0 10px}
-.pd-accept{margin-top:18px;background:#F4F6FF;border-radius:16px;padding:16px 18px}
+
+/* accept, and the foot */
+.pd-accept{margin:18px 40px 0;background:#F4F6FF;border-radius:14px;padding:16px 18px}
 .pd-accept-h{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 .pd-accept-h b{display:block;font-size:16px}
 .pd-accept-h span{font-size:13px;color:var(--pd-mute)}
 .pd-sign{text-align:right;font-weight:700;color:var(--pd-blue);font-size:13px}
-.pd-foot{display:flex;justify-content:space-between;gap:12px;margin-top:16px;padding-top:10px;border-top:1px solid var(--pd-line);font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--pd-mute)}
+.pd-foot{position:relative;display:flex;justify-content:space-between;gap:12px;margin:22px 40px 0;padding-top:10px;min-height:40px;border-top:1px solid var(--pd-line);
+  font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--pd-mute)}
+.pd-foot.has-mark{padding-left:46px}
+.pd-foot-mark{position:absolute;left:0;top:50%;transform:translateY(-50%);width:36px;height:36px;object-fit:contain}
+
 .pd-edit{width:100%;box-sizing:border-box;font:inherit;color:inherit;background:#FFFBEA;border:1px dashed #E8B04A;border-radius:6px;padding:4px 6px;resize:vertical}
+
 @media (max-width:700px){
-  .pdoc{padding:20px 16px;border-radius:0;box-shadow:none}
-  .pd-client{font-size:30px}
   .pd-build,.pd-inv,.pd-band{grid-template-columns:1fr}
   .pd-arrows.two{columns:1}
   .pd-plate-r{display:none}
 }
+@media (max-width:600px){
+  .pd-hero:before{width:45%;height:150px;opacity:.6}
+  .pd-plate,.pd-top{padding-left:20px;padding-right:20px}
+  .pd-client{font-size:32px}
+  .pd-summary{padding-left:20px;padding-right:20px}
+  .pd-sec{margin:22px 14px 0;padding:18px 16px}
+  .pd-sec:after{width:70px;height:32px;background-size:contain}
+  /* On a phone the corner mark sits beside the label, not the title: give
+     the label room so the two never overlap, and let the title use the full
+     width instead of wrapping around a mark that is not beside it. */
+  .pd-sec .pd-label{display:flex;padding-right:66px}
+  .pd-sec h2{padding-right:0}
+  /* every block lines up with the section cards, edge to edge */
+  .pd-band,.pd-accept,.pd-foot{margin-left:14px;margin-right:14px}
+  .pd-foot{flex-direction:column;justify-content:center;gap:2px}
+  .pd-terms{margin-left:0;margin-right:0}
+  .pd-sign{text-align:left}
+}
 @media print{
   @page{size:letter;margin:0.45in}
-  .pdoc{box-shadow:none;border-radius:0;padding:0;max-width:none;font-size:11.5px}
-  .pd-client{font-size:30px}
+  .pdoc{max-width:none;font-size:11.5px}
   .pd-big{font-size:32px}
   .pd-sec,.pd-inv,.pd-band,.pd-accept,.pd-step,.pd-bi,.pd-gaps li{break-inside:avoid}
   .pd-break{break-before:page}
-  .pd-plate,.pd-price,.pd-band{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  /* the brand colours print whether or not "background graphics" is ticked */
+  .pdoc,.pdoc *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  /* shadows are a screen affordance; on paper they become grey slabs, and
+     Preview draws the rasterised ones as solid blocks behind every card */
+  .pdoc,.pd-sec,.pd-num,.pd-lever,.pd-bi,.pd-price{box-shadow:none}
+  .pd-sec h2,.pd-label{break-after:avoid}
   .pd-noprint{display:none!important}
 }
 `;

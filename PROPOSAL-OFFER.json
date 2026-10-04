@@ -4,7 +4,9 @@
     "people": "Garrett Von Flue & Logan Sell, Co-Founders",
     "email": "admin@getproytech.com",
     "website": "getproytech.com",
-    "city": "Wichita, KS"
+    "city": "Wichita, KS",
+    "logo": "/proytech-logo-dark.png",
+    "mark": "/proytech-nucleus.png"
   },
   "depositPct": 50,
   "validDays": 7,
