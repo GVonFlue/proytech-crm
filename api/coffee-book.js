@@ -29,7 +29,7 @@ import { createClient } from '@supabase/supabase-js';
 import { slotWallClock } from '../src/lib/availability.js';
 import { sendMail } from './_mail.js';
 import {
-  COFFEE_HOSTS, COFFEE_WINDOWS, knownHost, openWindows, readDayEvents, windowInterval,
+  COFFEE_HOSTS, COFFEE_WINDOWS, knownHost, readDayEvents, windowInterval, slotWindow, windowLabel, isWindowFree,
 } from './_coffee.js';
 
 const SHOPS = {
@@ -37,7 +37,11 @@ const SHOPS = {
   'Greater Grounds — Old Town': 'Greater Grounds, Old Town, Wichita, KS',
   'Starbucks — Downtown / Douglas': 'Starbucks, Downtown on Douglas, Wichita, KS',
 };
-export const WINDOW_LABEL = { '0730': '7:30–8:30 AM', '0900': '9:00–10:00 AM', '1030': '10:30–11:30 AM', '1200': '12:00–1:00 PM' };
+export const WINDOW_LABEL = { '0730': '7:30–8:30 AM', '0900': '9:00–10:00 AM', '1030': '10:30–11:30 AM', '1200': '12:00–1:00 PM',
+  '1330': '1:30–2:30 PM', '1700': '5:00–6:00 PM', '1830': '6:30–7:30 PM' };
+/* A slot's label: the preset's own, or the same rule for a custom time
+   ('c1415' → "2:15–3:15 PM"). One function, so the CRM note and the email agree. */
+export const slotLabel = slot => { const w = slotWindow(slot); return w ? (WINDOW_LABEL[w.id] || windowLabel(w)) : ''; };
 
 /* "Thu, Oct 8 · 7:30–8:30 AM" for the owners' email, instead of "2026-10-08".
    The date is read off the window's own start instant IN THE CALENDAR'S ZONE,
@@ -45,8 +49,8 @@ export const WINDOW_LABEL = { '0730': '7:30–8:30 AM', '0900': '9:00–10:00 AM
    YYYY-MM-DD parsed with new Date() would be UTC midnight, which is the
    previous evening in Chicago, and every email would name the day before. */
 export function emailWhen(date, slot, tz) {
-  const win = COFFEE_WINDOWS.find(w => w.id === slot);
-  const label = WINDOW_LABEL[slot];
+  const win = slotWindow(slot);
+  const label = slotLabel(slot);
   if (!win || !label) return `${date}${label ? ' · ' + label : ''}`;
   const day = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' })
     .format(new Date(windowInterval(date, win, tz).start));
@@ -103,7 +107,7 @@ export default async function handler(req, res) {
   const rawHost = String(b.host || '').trim();
   const host = rawHost ? knownHost(rawHost) : COFFEE_HOSTS[0];
   const date = String(b.date || '').slice(0, 10);
-  const slot = String(b.slot || '').trim();           // '0730' | '0900' | '1030' | '1200'
+  const slot = String(b.slot || '').trim();           // a preset ('0730' … '1830') or custom 'cHHMM'
   const shop = String(b.shop || '').trim();
   const name = String(b.name || '').trim();
   const phone = String(b.phone || '').trim();
@@ -112,7 +116,8 @@ export default async function handler(req, res) {
   const referrer = String(b.referrer || '').trim();
 
   // ---- validate ----
-  const win = COFFEE_WINDOWS.find(w => w.id === slot);
+  // a preset ('1330') or a custom time ('c1415': 15-minute steps, 07:00–19:00)
+  const win = slotWindow(slot);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !win) { res.status(400).json({ ok: false, error: 'bad date/slot' }); return; }
   if (!host) { res.status(400).json({ ok: false, error: 'unknown host' }); return; }
   if (!name || digits(phone).length < 10 || !EMAIL.test(email)) { res.status(400).json({ ok: false, error: 'name, phone and a valid email are required' }); return; }
@@ -129,7 +134,7 @@ export default async function handler(req, res) {
     // coffee at the same hour is not a clash. An unread calendar fails closed.
     const events = await readDayEvents(calendarIds(), token, date, tz);
     if (!events) { res.status(200).json({ ok: false, error: 'calendar_read_failed' }); return; }
-    if (!openWindows(date, events, { tz, now: Date.now(), host }).includes(win.id)) {
+    if (!isWindowFree(date, events, win, { tz, now: Date.now(), host })) {
       res.status(200).json({ ok: false, error: 'slot_taken' }); return;
     }
 
@@ -170,7 +175,7 @@ export default async function handler(req, res) {
     let crmResult = 'skipped';
     if (sb) {
       const nowISO = new Date().toISOString();
-      const whenLabel = `${date} · ${WINDOW_LABEL[slot]}`;
+      const whenLabel = `${date} · ${slotLabel(slot)}`;
       const srcLine = heard ? (heard === 'intro' && referrer ? `Intro from ${referrer}` : heard) : 'Coffee page';
       const meetingText = `Coffee booked — ${whenLabel} at ${SHOPS[shop]} (host: ${host})`;
       const detailNote =

@@ -1,8 +1,10 @@
 // api/coffee-availability.js — PUBLIC endpoint for the /coffee booking page on
 // getproytech.com. Given a date, and optionally a host, it reads every calendar
-// in CALENDAR_IDS and returns which of the four fixed coffee windows are open.
+// in CALENDAR_IDS and returns which of the preset coffee windows are open —
+// and, when asked, whether one custom start time ('HH:MM') is.
 //
-// Body: { date: 'YYYY-MM-DD', host?: 'Garrett' | 'Logan' }
+// Body: { date: 'YYYY-MM-DD', host?: 'Garrett' | 'Logan', custom?: 'HH:MM' }
+// Answer: { ok, open: ['0730', …], custom?: true|false }  (custom only when asked)
 //
 // The rule lives in ./_coffee.js (shared with /api/coffee-book, so the re-check
 // at booking time is the same rule as the offer):
@@ -19,7 +21,7 @@
 
 import { guard, sweep } from './_guard.js';
 import { getAccessToken, calendarIds, calendarTz } from './_google.js';
-import { COFFEE_WINDOWS, openWindows, readDayEvents } from './_coffee.js';
+import { COFFEE_WINDOWS, openWindows, readDayEvents, customWindow, isWindowFree } from './_coffee.js';
 
 // Re-exported for anything that imported the window list from here before it
 // moved to ./_coffee.js.
@@ -44,6 +46,11 @@ export default async function handler(req, res) {
   if (!gate.ok) return;
   sweep();
 
+  /* Was a custom time asked about? Decided once, before anything can fail, so
+     every answer — including the fail-closed ones — carries custom: false. */
+  let askedCustom = false;
+  const closed = reason => ({ ok: true, open: [], ...(askedCustom ? { custom: false } : {}), reason });
+
   try {
     let body = req.body;
     if (typeof body === 'string') { try { body = JSON.parse(body); } catch { body = {}; } }
@@ -55,20 +62,27 @@ export default async function handler(req, res) {
     // Optional. An unrecognised name is treated as no host (everything blocks),
     // which can only offer FEWER windows, never a double-booking.
     const host = String(body.host || '').trim();
+    /* Optional custom start time ('HH:MM'). When asked, the answer carries
+       custom: true/false — whether that 60-minute window is free for this host,
+       by the same rule as the presets. An invalid time is simply false. Every
+       fail-closed path below answers false too: an unread calendar is not free. */
+    askedCustom = Object.prototype.hasOwnProperty.call(body, 'custom');
+    const cw = askedCustom ? customWindow(body.custom) : null;
 
     const token = await getAccessToken();
-    if (!token) { res.status(200).json({ ok: true, open: [], reason: 'calendar_not_connected' }); return; }
+    if (!token) { res.status(200).json(closed('calendar_not_connected')); return; }
 
     const tz = calendarTz();
     const events = await readDayEvents(calendarIds(), token, date, tz);
     // One calendar failing to read must FAIL CLOSED, not silently offer busy
     // time as free. Safest is to offer nothing.
-    if (!events) { res.status(200).json({ ok: true, open: [], reason: 'calendar_read_failed' }); return; }
+    if (!events) { res.status(200).json(closed('calendar_read_failed')); return; }
 
-    const open = openWindows(date, events, { tz, now: Date.now(), host });
-    res.status(200).json({ ok: true, open });
+    const opts = { tz, now: Date.now(), host };
+    const open = openWindows(date, events, opts);
+    res.status(200).json({ ok: true, open, ...(askedCustom ? { custom: isWindowFree(date, events, cw, opts) } : {}) });
   } catch (e) {
     // Fail closed: on error, offer nothing rather than risk double-booking.
-    res.status(200).json({ ok: true, open: [], reason: 'error' });
+    res.status(200).json(closed('error'));
   }
 }
