@@ -346,6 +346,46 @@ export const db = {
     if (error) throw new Error(error.message || 'Could not delete that note.');
   },
 
+  /* ---- proposals ----------------------------------------------------------
+
+     OWNER ONLY IN POSTGRES (PROPOSALS-MIGRATION.sql): one policy, is_owner()
+     both ways, so a rep's login gets zero rows. The public page never comes
+     through here; it goes through api/proposal-public.js and a
+     security-definer function that returns named columns only.
+
+     Fails SOFT to null on read: an install that has not run the migration
+     shows "not set up" rather than crashing the tab. Writes throw, so a save
+     that did not land is never reported as saved. */
+  async listProposals() {
+    const { data, error } = await supabase.from('proposals')
+      .select('id,lead_id,token,status,body,notes,valid_days,email_to,created_at,updated_at,sent_at,expires_at,viewed_at,accepted_at,accepted_name,accepted_ip,accepted_plan,applied_at')
+      .order('updated_at', { ascending: false });
+    if (error) { console.warn('[proposals]', error.message); return null; }
+    return data || [];
+  },
+  async saveProposal(row) {
+    const rec = { lead_id: row.lead_id, body: row.body, notes: row.notes || '', valid_days: row.valid_days, updated_at: new Date().toISOString() };
+    if (row.id) {
+      /* drafts only: once sent, the body is what the client saw and must not
+         change under them. The status filter makes that a fact of the write. */
+      const { data, error } = await supabase.from('proposals').update(rec).eq('id', row.id).eq('status', 'draft').select('id');
+      if (error) throw new Error(error.message || 'Could not save the proposal.');
+      if (!data || !data.length) throw new Error('This proposal has been sent, so it can no longer be edited. Make a new one instead.');
+      return row.id;
+    }
+    const { data, error } = await supabase.from('proposals').insert({ ...rec, token: row.token, status: 'draft' }).select('id');
+    if (error) throw new Error(error.message || 'Could not save the proposal.');
+    return (data || [])[0] && data[0].id;
+  },
+  async markProposalApplied(id) {
+    const { error } = await supabase.from('proposals').update({ applied_at: new Date().toISOString() }).eq('id', id).is('applied_at', null);
+    if (error) console.warn('[proposals] applied_at', error.message);
+  },
+  async deleteProposal(id) {
+    const { error } = await supabase.from('proposals').delete().eq('id', id).eq('status', 'draft');
+    if (error) throw new Error(error.message || 'Could not delete that draft.');
+  },
+
   /* ---- who has read what, and when anyone last signed in ----------------
 
      kb_reads is APPEND-ONLY and has no write policy at all: every insert goes

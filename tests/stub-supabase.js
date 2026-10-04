@@ -123,6 +123,39 @@ export const db = {
   deleteRepNote: async (id) => {
     globalThis.__REP_NOTES__ = (globalThis.__REP_NOTES__ || []).filter(n => n.id !== id);
   },
+  /* proposals. OWNER-ONLY IN POSTGRES, modelled as the policy: a non-owner
+     gets [] whatever __PROPOSALS__ holds. Undefined means "migration not run"
+     and returns null, like the real helper. Writes are recorded so a suite can
+     assert on what reached the database, and saves of a sent proposal are
+     refused exactly as the status filter refuses them. */
+  listProposals: async () => {
+    if (globalThis.__PROPOSALS__ === undefined) return null;
+    const who = (globalThis.__WHOAMI__ && globalThis.__WHOAMI__.role)
+      || (((globalThis.__USERS__ || [])[0] || {}).role) || 'owner';
+    if (who !== 'owner') return [];
+    return JSON.parse(JSON.stringify(globalThis.__PROPOSALS__));
+  },
+  saveProposal: async (row) => {
+    (globalThis.__PROPOSAL_WRITES__ = globalThis.__PROPOSAL_WRITES__ || []).push(JSON.parse(JSON.stringify(row)));
+    globalThis.__PROPOSALS__ = globalThis.__PROPOSALS__ || [];
+    if (row.id) {
+      const p = globalThis.__PROPOSALS__.find(x => x.id === row.id);
+      if (!p || p.status !== 'draft') throw new Error('This proposal has been sent, so it can no longer be edited. Make a new one instead.');
+      Object.assign(p, { body: row.body, notes: row.notes || '', valid_days: row.valid_days, lead_id: row.lead_id });
+      return row.id;
+    }
+    const id = '00000000-0000-4000-8000-' + String(globalThis.__PROPOSALS__.length + 1).padStart(12, '0');
+    globalThis.__PROPOSALS__.push({ id, lead_id: row.lead_id, token: row.token, status: 'draft', body: row.body,
+      notes: row.notes || '', valid_days: row.valid_days, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+    return id;
+  },
+  markProposalApplied: async (id) => {
+    (globalThis.__PROPOSAL_APPLIED__ = globalThis.__PROPOSAL_APPLIED__ || []).push(id);
+    const p = (globalThis.__PROPOSALS__ || []).find(x => x.id === id); if (p && !p.applied_at) p.applied_at = new Date().toISOString();
+  },
+  deleteProposal: async (id) => {
+    globalThis.__PROPOSALS__ = (globalThis.__PROPOSALS__ || []).filter(p => !(p.id === id && p.status === 'draft'));
+  },
   /* MAPPED, exactly as the real db.lastSeen() maps it. The stub REPLACES the db
      module, so returning the raw column name here would let a screen read
      `lastSignInAt` off undefined and render "never signed in" for somebody who

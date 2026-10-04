@@ -27,6 +27,8 @@ const KNOWN_OPEN = {
   'coffee-availability.js': 'public booking page: returns open window ids only, never event details.',
   'coffee-book.js':         'public booking page: the booking IS the visitor. Fixed shops/windows/hosts, invite goes only to the email they typed.',
   'coffee-race.js':         'public scoreboard: GET, two integers and the race dates. No lead field leaves the server.',
+  /* A client opening their proposal has no CRM login. See API-AUDIT.md. */
+  'proposal-public.js':   'a client opening their proposal has no account. Gated by a 256-bit token; reads one proposal through a service-role-only definer function that returns named columns; rate-limited.',
 };
 
 const files = (await fs.readdir(path.join(root, 'api')))

@@ -1049,6 +1049,103 @@ arrive. The app is not the boundary.
 
 ---
 
+## 12. Proposals (after PROPOSALS-MIGRATION.sql)
+
+`proposals` holds prices, a client's plan in their own words, the owner's raw
+meeting notes and, once accepted, a typed signature and an IP address. It is
+also the first boundary in this system with an **anonymous** actor: the client
+opening their proposal has no account.
+
+**The shape of the boundary.** The table is owner-only under RLS (one policy,
+`is_owner()` both ways) and `anon` has no table privileges at all. The public
+page never reads the table. It calls `api/proposal-public.js`, which calls three
+`security definer` functions with the service-role key; those functions are
+**not executable** by `anon` or `authenticated`. `proposal_public()` returns six
+named columns and refuses drafts, so `notes`, `email_to`, `lead_id` and
+`accepted_ip` cannot leave by any path, including a hand-made request to
+PostgREST with the anon key.
+
+### Status: NOT YET RUN against a real database
+
+The route half is proven in `tests/proposalroutes.mjs` (43 checks) and
+`tests/proposalpage.mjs`. **This section is the database half and it has not
+been run.** Run it once after the migration, paste the results into the table
+below, and only then call this boundary proven.
+
+### Run it
+
+In the Supabase SQL editor, each block inside `begin; ... rollback;` so nothing
+persists. Sentinel tokens are 43 characters.
+
+**1. Read every policy, and every grant** (the migration prints these):
+```sql
+select polname, polcmd, pg_get_expr(polqual, polrelid) as using_expr,
+       pg_get_expr(polwithcheck, polrelid) as check_expr
+  from pg_policy where polrelid = 'public.proposals'::regclass;
+select p.proname, has_function_privilege('anon', p.oid, 'execute') as anon_can,
+       has_function_privilege('authenticated', p.oid, 'execute') as authed_can
+  from pg_proc p where p.proname in ('proposal_public','proposal_mark_viewed','proposal_accept');
+select has_table_privilege('anon', 'public.proposals', 'select') as anon_select;
+```
+
+**2. Sentinels, as the owner (or the SQL editor's postgres role):**
+```sql
+begin;
+insert into proposals (lead_id, token, status, body, notes, expires_at) values
+ ('sentinel', 'DRAFTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'draft', '{"x":1}', 'SENTINEL NOTES', null),
+ ('sentinel', 'SENTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'sent',  '{"x":1}', 'SENTINEL NOTES', now() + interval '7 days'),
+ ('sentinel', 'OLDxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'sent',  '{"x":1}', 'SENTINEL NOTES', now() - interval '1 day');
+```
+
+**3. As anon, then as a rep** (same transaction; lend claims the way §11 does):
+```sql
+set local role anon;
+select * from proposals;                                   -- expect: permission denied
+select * from proposal_public('SENTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');  -- expect: permission denied
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', json_build_object('sub','<a rep''s auth uid>','role','authenticated')::text, true);
+select count(*) from proposals;                            -- expect: 0
+insert into proposals (lead_id, token) values ('x','REPxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'); -- expect: ERROR, row-level security
+select * from proposal_accept('SENTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Rep','1.1.1.1','monthly'); -- expect: permission denied
+reset role;
+```
+
+**4. As the server (service_role), the functions' own rules:**
+```sql
+set local role service_role;
+select * from proposal_public('DRAFTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'); -- expect: 0 rows (drafts are not public)
+select * from proposal_public('SENTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');  -- expect: 1 row, 6 columns, no notes
+select proposal_accept('OLDxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Dee','1.1.1.1','monthly'); -- expect: expired
+select proposal_accept('DRAFTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Dee','1.1.1.1','monthly'); -- expect: not_found
+select proposal_accept('SENTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',' ','1.1.1.1','monthly');  -- expect: bad_name
+select proposal_accept('SENTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Dee','1.1.1.1','weekly');  -- expect: bad_plan
+select proposal_accept('SENTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Dee','1.1.1.1','annual');  -- expect: accepted
+select proposal_accept('SENTxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Eve','2.2.2.2','monthly'); -- expect: already
+reset role;
+select accepted_name, accepted_plan, accepted_ip from proposals where token like 'SENT%'; -- expect: Dee, annual, 1.1.1.1
+rollback;
+```
+
+### Results (fill in when run)
+
+| check | expected | result |
+|---|---|---|
+| policies on `proposals` | exactly one: `proposals_owner`, `is_owner()` / `is_owner()` | |
+| `anon_can` / `authed_can` on all three functions | false / false | |
+| `anon` select on the table | permission denied | |
+| rep: `select count(*)` | 0 | |
+| rep: insert | RLS error | |
+| rep: call `proposal_accept` | permission denied | |
+| server: draft via `proposal_public` | 0 rows | |
+| server: sent via `proposal_public` | 1 row, no `notes` column | |
+| accept: expired / draft / blank name / bad plan | expired / not_found / bad_name / bad_plan | |
+| accept: valid, then again | accepted, then already | |
+
+A wide-open second permissive policy would make the rep's count non-zero; a
+missing `revoke` would make `anon_can` true. Those are the two ways this goes
+wrong quietly, and the first two rows catch both.
+
 ## Coverage, honestly
 
 Two tables were added in Aug 2026 and **neither is fully verified.** The gap is

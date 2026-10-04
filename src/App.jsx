@@ -24,6 +24,8 @@ import Jarvis from './Jarvis';
 import MassOutreach from './MassOutreach';
 import ClientView from './ClientView';
 import ServiceAssign from './ServiceAssign';
+import Proposals, { OfferEditor } from './Proposals';
+import { proposalEventsPatch } from './lib/proposal';
 import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, collectedByService, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
@@ -223,7 +225,7 @@ function ScopeSeg({view,setView,counts,canAll}){
    board degraded as the business succeeded. Switched off rather than deleted:
    every lead, stage and value is untouched, and putting it back is one entry in
    this array plus a modulesV bump. */
-const ALL_MODULES=[['jarvis',AI_NAME],['build','Build Console'],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money'],['outreach','Mass Outreach']];
+const ALL_MODULES=[['jarvis',AI_NAME],['build','Build Console'],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['proposals','Proposals'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money'],['outreach','Mass Outreach']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -262,7 +264,7 @@ const MONEY_TABS=['invoices','books','money','huddle','mlog'];
    records a rep cannot see, and api/outreach-draft.js proves ownership through
    Postgres before it will draft anything. A tab a rep could open but whose
    route would refuse them is worse than no tab — it is a broken screen. */
-const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients'&&k!=='outreach').concat(['dash']);
+const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients'&&k!=='outreach'&&k!=='proposals').concat(['dash']);
 const tabsOf=u=>{ if(!u) return REP_DEFAULT_TABS; const t=Array.isArray(u.tabs)?u.tabs:[]; return t.length?t:REP_DEFAULT_TABS; };
 /* Sidebar order is a PERSONAL preference, not an account one — two people on the
    same install work differently and neither should be able to rearrange the
@@ -324,6 +326,10 @@ const canOpen=(settings,user,k,gated)=>{
      Settings would get a screen whose Generate button always fails — the gate
      and the route have to agree, and the route is the one that is real. */
   if(k==='outreach') return modOn(settings,'outreach')&&!isRep(user);
+  /* Proposals are owner-only for the same reason: prices, client plans and the
+     owner's notes. The table is owner-only in Postgres and both server routes
+     run requireOwner, so the gate and the routes agree. */
+  if(k==='proposals') return modOn(settings,'proposals')&&!isRep(user);
   if(!modOn(settings,k)) return false;
   if(!isRep(user)) return true;
   if(k==='dash') return true;
@@ -4464,6 +4470,12 @@ export default function App(){
         st={...st,modules:st.modules.includes('outreach')?st.modules:[...st.modules,'outreach'],modulesV:10};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
+      /* v11: Proposals. Same trap as every module before it: an install with a
+         saved module list would ship the tab invisible. Owner-only in canOpen. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<11){
+        st={...st,modules:st.modules.includes('proposals')?st.modules:[...st.modules,'proposals'],modulesV:11};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
@@ -4495,6 +4507,53 @@ export default function App(){
   /* "nobody has been set up yet" is a DB fact, not a guess from what I can see */
   const noUsers=who?!who.setup:users.length===0;
   const isOwner=who?(who.role==='owner'||!who.setup):(users.length===0||(!!myUser&&myUser.role==='owner'));
+  /* PROPOSALS: the list, and applying what clients did to their leads.
+     The public page never writes a lead (api/proposal-public.js). Instead the
+     owner's CRM polls the owner-only proposals table and applies sent, viewed
+     and accepted to the lead through updateLead, which reads leadsRef.current,
+     so a poll can never write a stale copy over an edit (ENGINEERING §3).
+     proposalEventsPatch is idempotent by activity id, so a poll that fires
+     twice changes nothing the second time. Owners only; reps never poll.
+     undefined = not loaded yet, null = migration not run. */
+  const [proposals,setProposals]=useState(undefined);
+  const proposalsOn=isOwner&&modOn(settings,'proposals');
+  const refreshProposals=async()=>{
+    const list=await db.listProposals(); setProposals(list);
+    if(!Array.isArray(list)) return list;
+    const cur=leadsRef.current||[]; const today=new Date().toISOString().slice(0,10);
+    for(const p of list){
+      if(!p||!(p.sent_at||p.viewed_at||p.status==='accepted')) continue;
+      const l=cur.find(x=>x&&x.id===p.lead_id); if(!l) continue;
+      const patch=proposalEventsPatch(l,p,settings.stages||DEFAULT_STAGES,today);
+      if(patch) updateLead(l.id,patch);
+      const done=(patch&&(patch.activities||[]).some(a=>a&&a.id==='prop-acc-'+p.id))||(l.activities||[]).some(a=>a&&a.id==='prop-acc-'+p.id);
+      if(p.status==='accepted'&&!p.applied_at&&done) db.markProposalApplied(p.id);
+    }
+    return list;
+  };
+  /* The timer must call THIS render's refreshProposals, not the first one's:
+     the first render runs before saved settings (custom stages) have loaded,
+     and a stale closure would look the won stage up in the defaults. */
+  const refreshRef=React.useRef(null); refreshRef.current=refreshProposals;
+  /* Poll ONLY while a proposal is waiting on a client: sent or viewed and
+     still open, or accepted but not yet applied. With nothing outstanding no
+     timer runs at all (a permanent interval polled all day for nothing, and
+     kept any test that never unmounts the app from exiting). Switching back
+     to the CRM window always checks once. */
+  useEffect(()=>{
+    if(!proposalsOn) return;
+    let alive=true, timer=null;
+    const waiting=list=>Array.isArray(list)&&list.some(p=>p&&(((p.status==='sent'||p.status==='viewed')&&Date.parse(p.expires_at)>Date.now())||(p.status==='accepted'&&!p.applied_at)));
+    const tick=async()=>{
+      if(!alive||!refreshRef.current) return;
+      clearTimeout(timer); timer=null;
+      let list=null; try{ list=await refreshRef.current(); }catch(err){ console.warn('[proposals]',err); }
+      if(alive&&waiting(list)) timer=setTimeout(tick,30000);
+    };
+    tick(); window.addEventListener('focus',tick);
+    return ()=>{ alive=false; clearTimeout(timer); window.removeEventListener('focus',tick); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[proposalsOn]);
   const rep=!isOwner;
   const blocked=(who&&who.active===false)||(!!myUser&&myUser.active===false);
   /* SIGNED IN, NOT SET UP.
@@ -5264,7 +5323,7 @@ export default function App(){
     try{ await db.saveInstalls(list); }catch(err){ console.error('installs save failed',err); }
   };
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['build','Build Console',<Server size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['outreach','Mass Outreach',<MessageSquare size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],...(CONTENT_STUDIO_ON?[['content','Content Studio',<Megaphone size={18}/>]]:[]),['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['build','Build Console',<Server size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['outreach','Mass Outreach',<MessageSquare size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['proposals','Proposals',<FileText size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],...(CONTENT_STUDIO_ON?[['content','Content Studio',<Megaphone size={18}/>]]:[]),['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -5330,7 +5389,7 @@ export default function App(){
     const others=tasks.filter(t=>t.owner!==me);
     saveTasks([...(next||[]).filter(t=>t.owner===me),...others]);
   };
-  const titles={dash:['Dashboard','The whole board at a glance'],jarvis:[AI_NAME,'Ask the CRM anything'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],outreach:['Mass Outreach','Pick people, write one line, send a personal text to each'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],mlog:['Meeting Log','Paste a transcript · Claude pulls out what matters'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const titles={dash:['Dashboard','The whole board at a glance'],jarvis:[AI_NAME,'Ask the CRM anything'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],outreach:['Mass Outreach','Pick people, write one line, send a personal text to each'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],proposals:['Proposals','Build, review and send in minutes'],mlog:['Meeting Log','Paste a transcript · Claude pulls out what matters'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
   if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; titles.jarvis=[AI_NAME,'Ask about your leads · flag anything to the owner']; }
   /* the leaderboard the DB gave us; pre-migration an owner can still see one
      computed locally (an owner can read every lead, a rep never could). */
@@ -5414,6 +5473,7 @@ export default function App(){
             saveSettings={saveSettings} me={me} updateLead={updateLead} rep={rep} myPools={myPools}
             users={users} addActivity={addActivity} LeadTable={Leads}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
+          view==='proposals'?<Proposals leads={leads} settings={settings} apiPost={apiPost} me={me} openLead={openLead} proposals={proposals} reload={refreshProposals} onSaved={refreshProposals}/>:
           view==='clients'?<Clients labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
@@ -9780,6 +9840,14 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <div className="sec-title"><DollarSign size={15}/>Services &amp; pricing</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>What you sell. The price here is optional and only a guide: it shows as a hint when you add a deal, and you type the real price for each client on the deal itself. Nothing here ever changes a deal's value.</div>
       <ServiceCatalogEditor services={servicesOf(settings)} onChange={a=>saveSettings({...settings,services:a})}/>
+    </div>
+
+    {/* PROPOSALS: the offer the proposal builder prices from. JSON, validated
+        by the same reader the builder uses. PROPOSAL-OFFER.json is an example. */}
+    <div className="card" style={{marginBottom:18}}>
+      <div className="sec-title"><FileText size={15}/>Proposals</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Your packages, add-ons, prices, terms and the standard sections every proposal uses. Prices here are the starting point; you set what you quoted on each proposal.</div>
+      <OfferEditor settings={settings} saveSettings={saveSettings}/>
     </div>
 
     {/* dropdown options */}
