@@ -49,6 +49,10 @@ const HELPERS = new Set([
   'writefingerprint.mjs', // a TOOL, not a test: prints what the app writes so two
                           // commits can be diffed. Always exits 0, so running it
                           // here would only ever add noise.
+  'rlsdb.mjs',            // a TOOL, not a test: runs RLS-TIGHTEN-2026-10 against
+                          // real Postgres (PGlite), which is deliberately not a
+                          // dependency. npm i --no-save @electric-sql/pglite first.
+                          // tests/rlstighten.mjs is the half CI always runs.
   'clockwarp.mjs',        // a TOOL, not a test: runs another suite with the clock
                           // pinned to a chosen day, to find fixtures that only
                           // pass in the month they were written. Asserts nothing

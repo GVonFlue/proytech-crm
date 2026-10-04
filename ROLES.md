@@ -26,7 +26,10 @@ own commission, and a leaderboard. No company money, anywhere.
 | Their own commission | Yes — the amount and whether it's Pending, Earned or Voided |
 | Meetings | **Their own appointments in one place** — the same list the leads carry, scoped to leads they can see. No deal value, no totals |
 | Playbook | **Published notes only.** Never a draft — a draft returns them zero rows from Postgres, same as a meeting log |
-| Settings, Clients, Invoices, The Books, Money, Relationships, Monday Huddle | Off. You can switch individual tabs on per rep; the money ones are flagged ⚠ |
+| Settings, Clients, Invoices, Money (The Books), Monday Huddle, Build Console, Events, Sponsors | **Never**, and they **cannot** be switched on per rep — not even by editing a rep's tab list. Each one writes settings, invoices, the books or events, which only an owner may write in Postgres (RLS-TIGHTEN-2026-10), so a rep given one would get a screen whose saves fail silently. Events and Sponsors carry sponsor amounts, which a rep does not read at all. |
+| Relationships | Off by default. You can switch it on per rep. |
+| Dropdown lists and lead columns | A rep **picks from your lists** — Next Action, Service Interest, key-date labels, labels — and cannot add new entries; adding one changes the list for everyone. The Leads **Columns** menu is yours alone for the same reason: the layout is shared by the whole team. |
+| Tasks | Yes — the one shared setting a rep writes. See *The honest limits*. |
 | Proposals | **Never**, and it cannot be switched on per rep. Proposals carry prices, a client's plan and your raw meeting notes, so the table is owner-only in Postgres (VERIFY-RLS.md §12) and both proposal routes require an owner. A rep's login reads zero rows |
 
 A rep can never see a tab you've turned off for the whole install in
@@ -266,7 +269,7 @@ leaderboard, and keeps every lead, note and commission they ever made.
 
 ## The honest limits
 
-Two things are **not** enforced by the database, only by the screen:
+These are **not** fully enforced by the database — some only by the screen:
 
 1. **Aggregate money.** Deal value on a lead is intentionally visible (above),
    but the *company-wide* figures are kept off a rep's screen by never rendering
@@ -274,9 +277,16 @@ Two things are **not** enforced by the database, only by the screen:
    numbers those totals are made of, so a determined rep with the browser
    console could add them up. Scope is the real control; the missing tiles are
    a UI decision.
-2. **Tasks / invoices / transactions / the huddle.** These are stored as one
-   shared blob, so they can't be split per person. Reps don't get those tabs,
-   which is why it doesn't bite — but a hidden tab is not a locked door.
+2. **Settings, tasks, invoices, transactions, the Build Console.** These live
+   in `app_settings`, one shared row per kind, so they cannot be split per
+   person. Since RLS-TIGHTEN-2026-10, **writing** them is enforced in
+   Postgres: only an owner may write any row except `tasks`, which every listed
+   user saves because Tasks is a rep tab. What is still screen-only:
+   - **Reading.** Any listed user can *read* every row — the app loads settings
+     for everyone. A determined rep with the browser console could read the
+     invoices and the books, though not change them.
+   - **Tasks.** The task list is one row, so a rep who saves it writes the
+     whole list, everyone's tasks included. The app only edits their own.
 
 3. **Your own Playbook drafts, in your own assistant.** A rep can never be
    given a draft: their browser cannot obtain the text at all, so it does not

@@ -264,7 +264,9 @@ const MONEY_TABS=['invoices','books','money','huddle','mlog'];
    records a rep cannot see, and api/outreach-draft.js proves ownership through
    Postgres before it will draft anything. A tab a rep could open but whose
    route would refuse them is worse than no tab — it is a broken screen. */
-const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients'&&k!=='outreach'&&k!=='proposals').concat(['dash']);
+/* tabs no rep can ever have, whatever their tab list says (canOpen) */
+const OWNER_ONLY_TABS=new Set(['settings','clients','huddle','invoices','money','events','sponsors']);
+const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients'&&k!=='outreach'&&k!=='proposals'&&!OWNER_ONLY_TABS.has(k)).concat(['dash']);
 const tabsOf=u=>{ if(!u) return REP_DEFAULT_TABS; const t=Array.isArray(u.tabs)?u.tabs:[]; return t.length?t:REP_DEFAULT_TABS; };
 /* Sidebar order is a PERSONAL preference, not an account one — two people on the
    same install work differently and neither should be able to rearrange the
@@ -333,7 +335,12 @@ const canOpen=(settings,user,k,gated)=>{
   if(!modOn(settings,k)) return false;
   if(!isRep(user)) return true;
   if(k==='dash') return true;
-  if(k==='settings'||k==='clients') return false;
+  /* OWNER ONLY, and not switchable per rep. Each of these screens writes
+     app_settings (settings, invoices, txns) or events, which are owner-only to
+     write since RLS-TIGHTEN-2026-10 — a rep given one would get a screen whose
+     saves fail silently. Events and Sponsors are owner-only to READ as well:
+     they carry sponsor amounts, company money a rep does not see (ROLES.md). */
+  if(OWNER_ONLY_TABS.has(k)) return false;
   return tabsOf(user).includes(k);
 };
 
@@ -7789,8 +7796,9 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
       <select className="selctl" value={spon} onChange={e=>setSpon(e.target.value)}><option value="all">All leads</option><option value="potential">Potential sponsors</option><option value="past">Past sponsors</option><option value="any">Any sponsor</option></select>
       <button className="selctl" onClick={()=>setDir(d=>d==='asc'?'desc':'asc')} title="Toggle direction"><ArrowUpDown size={15}/></button>
       <div className="colmenu-wrap">
-        <button className="selctl" onClick={()=>setColOpen(o=>!o)}><SlidersHorizontal size={15}/>Columns</button>
-        {colOpen&&<><div className="cm-back" onClick={()=>setColOpen(false)}/><div className="colmenu">
+        {/* the column layout is install-wide (app_settings, owner-only to write) */}
+        {!rep&&<button className="selctl" onClick={()=>setColOpen(o=>!o)}><SlidersHorizontal size={15}/>Columns</button>}
+        {!rep&&colOpen&&<><div className="cm-back" onClick={()=>setColOpen(false)}/><div className="colmenu">
           <div className="cm-row"><span className="cm-name" style={{fontWeight:600,color:INK}}>Name</span><span className="cm-lock">always on</span></div>
           {cols.map((c,i)=>(<div className="cm-row" key={c.key}><input type="checkbox" checked={c.visible} onChange={()=>toggleCol(c.key)}/><span className="cm-name">{defs[c.key]?.label||c.key}</span><button className="iconbtn" style={{width:24,height:24}} onClick={()=>moveCol(i,-1)} disabled={i===0}><ChevronUp size={13}/></button><button className="iconbtn" style={{width:24,height:24}} onClick={()=>moveCol(i,1)} disabled={i===cols.length-1}><ChevronDown size={13}/></button></div>))}
         </div></>}

@@ -1146,6 +1146,108 @@ A wide-open second permissive policy would make the rep's count non-zero; a
 missing `revoke` would make `anon_can` true. Those are the two ways this goes
 wrong quietly, and the first two rows catch both.
 
+## 13. Settings, events and the site tables (after RLS-TIGHTEN-2026-10.sql)
+
+### What was found
+
+`RLS-AUDIT.sql`, run against production on 4 Oct 2026, failed on four
+permissive policies:
+
+| table | policy | what it allowed |
+|---|---|---|
+| `app_settings` | `settings_all_authenticated` (ALL, to authenticated, `true`) | **any** signed-in account — a rep, or a stray sign-up with no `crm_users` row — could read and rewrite the offer and its prices, invoices, the books and the Build Console. In no migration in this repo: added by hand, the same shape as `leads_all_authenticated` in §3. |
+| `events` | `events_all` (ALL, to authenticated, `true`) | any signed-in account could read and rewrite every event, sponsor amounts included. **Created by MIGRATION.sql itself**, so every re-run of that file put it back. |
+| `site_events` | `site_events_read` (SELECT, to PUBLIC, `true`) | anyone on the internet could read the table. |
+| `site_settings` | `site_settings_read` (SELECT, to PUBLIC, `true`) | the same. |
+
+Nothing reads `site_events` or `site_settings`: not this repo, not the
+getproytech.com repo or live site, and the Supabase API logs show no requests.
+
+### The end state
+
+| table | read | write |
+|---|---|---|
+| `app_settings` | listed users (`no_users() OR crm_listed()`) | **owners** (`no_users() OR (crm_active() AND is_owner())`), except the `tasks` row: listed users may insert and update it (`crm_listed() AND id = 'tasks'`) |
+| `events` | **owners** | **owners** |
+| `site_events`, `site_settings` | **owners**; `anon` holds no privilege at all | **owners** |
+
+`RLS-TIGHTEN-2026-10.sql` drops **every** policy on the four tables, not only
+the four named — a leftover nobody listed is exactly what §3 records — creates
+the nine above, and refuses to commit (one transaction) unless the end state is
+exactly that. `MIGRATION.sql` now creates the same policies, so re-running it
+cannot reopen them.
+
+### Proved locally, against real Postgres — not yet against production
+
+`tests/rlsdb.mjs` runs the migration, the audit and the rollback on PGlite (real
+Postgres 18, compiled to WebAssembly), on a database built the way production
+is: Supabase's roles and `auth.uid()`, MIGRATION.sql as it stood, plus the four
+leftovers. 48 checks pass, including the audit failing on exactly the four
+names first. It is **not** this section: PGlite is Postgres but not Supabase.
+
+### Status: NOT YET RUN against the real install
+
+Run the migration (after the code deploys), then `RLS-AUDIT.sql`, then these.
+Each block runs inside `begin … rollback`, so nothing persists. Lend claims the
+way §10 describes.
+
+**1. Read every expression** — the migration prints this grid at the end:
+```sql
+select c.relname, p.polname, p.polcmd, pg_get_expr(p.polqual, p.polrelid) as using_expr,
+       pg_get_expr(p.polwithcheck, p.polrelid) as check_expr
+  from pg_policy p join pg_class c on c.oid = p.polrelid
+ where c.relname in ('app_settings','events','site_events','site_settings') order by 1, 2;
+select has_table_privilege('anon','public.site_events','select')   as anon_site_events,
+       has_table_privilege('anon','public.site_settings','select') as anon_site_settings;
+```
+
+**2. As a rep** (`select id, name from crm_users where role='rep';`):
+```sql
+begin;
+  select set_config('request.jwt.claims', json_build_object('sub','<REP-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  select count(*) as settings_rows from app_settings;                         -- the rows exist: > 0
+  update app_settings set data = data where id = 'main';                      -- expect UPDATE 0
+  insert into app_settings (id, data) values ('main','{}')
+    on conflict (id) do update set data = excluded.data;                      -- expect: ERROR, row-level security
+rollback;
+begin;
+  select set_config('request.jwt.claims', json_build_object('sub','<REP-UUID>','role','authenticated')::text, true);
+  set local role authenticated;
+  update app_settings set data = data where id = 'tasks';                     -- expect UPDATE 1 (tasks is shared)
+  select count(*) as events_visible from events;                             -- expect 0
+  select count(*) as site_visible from site_settings;                        -- expect 0
+rollback;
+```
+
+**3. As anon:**
+```sql
+begin; set local role anon;
+  select count(*) from site_settings;                                         -- expect: permission denied
+rollback;
+```
+
+**4. As an owner:** the same `update ... where id = 'main'` reports **UPDATE 1**,
+and `select count(*) from events` returns every event.
+
+### Results (fill in when run)
+
+| check | expected | result |
+|---|---|---|
+| policies on the four tables | exactly 9, none `true`, owner policies `(no_users() OR (crm_active() AND is_owner()))` | |
+| `anon_site_events` / `anon_site_settings` | false / false | |
+| rep: `settings_rows` | > 0 | |
+| rep: update `main` | UPDATE 0 | |
+| rep: upsert `main` | RLS error | |
+| rep: update `tasks` | UPDATE 1 | |
+| rep: `events_visible` | 0 | |
+| rep: `site_visible` | 0 | |
+| anon: `site_settings` | permission denied | |
+| owner: update `main` | UPDATE 1 | |
+
+`RLS-TIGHTEN-2026-10-ROLLBACK.sql` restores the four policies above. It
+re-opens the holes; the audit fails again after it, by design.
+
 ## Coverage, honestly
 
 Two tables were added in Aug 2026 and **neither is fully verified.** The gap is

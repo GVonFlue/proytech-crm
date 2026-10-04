@@ -855,8 +855,13 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
     set({meetings:next,activities:[act,...(draft.activities||[])]}); };
   const setCustom=(id,v)=>set({custom:{...(draft.custom||{}),[id]:v}});
   const toggleSvc=s=>{const cur=draft.serviceInterest||[];set({serviceInterest:cur.includes(s)?cur.filter(x=>x!==s):[...cur,s]});};
-  const addCustomAction=()=>{const v=window.prompt('New Next Action:');if(v&&v.trim()){addOption('nextAction',v.trim());set({nextAction:v.trim()});}};
-  const addCustomSvc=()=>{const v=window.prompt('New Service Interest:');if(v&&v.trim()){addOption('service',v.trim());toggleSvc(v.trim());}};
+  /* Adding a custom option ALSO adds it to the install's vocabulary, which
+     lives in app_settings — owner-only to write (RLS-TIGHTEN-2026-10). A rep
+     picks from the owner's lists; without this the rep's save would fail
+     silently and the new option would vanish on reload. */
+  const canVocab=!rep&&typeof addOption==='function';
+  const addCustomAction=()=>{if(!canVocab)return;const v=window.prompt('New Next Action:');if(v&&v.trim()){addOption('nextAction',v.trim());set({nextAction:v.trim()});}};
+  const addCustomSvc=()=>{if(!canVocab)return;const v=window.prompt('New Service Interest:');if(v&&v.trim()){addOption('service',v.trim());toggleSvc(v.trim());}};
   /* THE FOLLOW-UP BLOCK, DEFINED ONCE.
      It used to exist twice — "Follow-up date" here and "Follow-up Date" in the
      create form's extra details — the same field, the same write path, two
@@ -2009,7 +2014,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               <div className="kd-add">
                 <select value={kdLabel} onChange={e=>setKdLabel(e.target.value)}>
                   {dateVocab(settings).map(x=><option key={x} value={x}>{x}</option>)}
-                  <option value="__new">Something else…</option>
+                  {canVocab&&<option value="__new">Something else…</option>}
                 </select>
                 <input type="date" value={kdDate} onChange={e=>setKdDate(e.target.value)}/>
                 <button className="btn btn-p btn-sm" disabled={!kdDate} onClick={()=>{
@@ -2030,12 +2035,12 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 {labelVocab(settings).map(x=>{ const on=labelsOf(draft).includes(x);
                   return (<button key={x} type="button" className={'lblchip'+(on?' on':'')}
                     onClick={()=>set({labels:on?labelsOf(draft).filter(v=>v!==x):[...labelsOf(draft),x]})}>{x}</button>); })}
-                <button type="button" className="lblchip add" onClick={()=>{
+                {canVocab&&<button type="button" className="lblchip add" onClick={()=>{
                   const v=(window.prompt('New label (saved for everyone)','')||'').trim();
                   if(!v) return;
                   addOption&&addOption('labels',v);
                   set({labels:[...labelsOf(draft),v]});
-                }}><Plus size={11}/>New</button>
+                }}><Plus size={11}/>New</button>}
               </div>
             </div>
           </div>
@@ -2115,12 +2120,12 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 {F({label:'Expected Close',k:'expectedClose',type:'date'})}
                 {!rep&&<div className="field"><label>Lead pool</label><select value={draft.pool||''} onChange={e=>set({pool:e.target.value||null})}>
                   <option value="">— none —</option>{poolList(settings).map(p=><option key={p} value={p}>{p}</option>)}</select></div>}
-                <div className="field full"><button className="chip add" onClick={addCustomAction}><Plus size={12}/>Add custom Next Action</button></div>
+                {canVocab&&<div className="field full"><button className="chip add" onClick={addCustomAction}><Plus size={12}/>Add custom Next Action</button></div>}
               </div>)}
 
             {Sec('svc',<Target size={13}/>,'Service Interest',
               (draft.serviceInterest||[]).length?`${(draft.serviceInterest||[]).length} selected`:'none',
-              <div className="chips">{[...new Set([...opt.service,...servicesOf(settings).map(x=>x.name)])].map(s=><span key={s} className={'chip '+((draft.serviceInterest||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(s)}>{s}</span>)}<span className="chip add" onClick={addCustomSvc}><Plus size={12}/>Custom</span></div>)}
+              <div className="chips">{[...new Set([...opt.service,...servicesOf(settings).map(x=>x.name)])].map(s=><span key={s} className={'chip '+((draft.serviceInterest||[]).includes(s)?'on':'')} onClick={()=>toggleSvc(s)}>{s}</span>)}{canVocab&&<span className="chip add" onClick={addCustomSvc}><Plus size={12}/>Custom</span>}</div>)}
 
           {!draft.isRelationship&&typeSection}
 
