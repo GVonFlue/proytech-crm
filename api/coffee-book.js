@@ -169,7 +169,9 @@ export default async function handler(req, res) {
       const meeting = {
         id: uid(), mtype: 'Coffee', title: `Coffee with ${name}`,
         start: wc.start, end: wc.end, location: SHOPS[shop],
-        status: 'scheduled', eventId, host, createdAt: nowISO,
+        // '' = not happened yet, the CRM's own vocabulary (src/lib/lead.js
+        // MEETING_STATUSES). 'scheduled' put these in no Meetings bucket.
+        status: '', eventId, host, createdAt: nowISO,
       };
       const keyDate = { id: uid(), label: `Coffee with ${name}`, date, lead: 2, annual: false };
       const bookedAct = { id: uid(), ts: nowISO, type: 'Meeting', meetingId: meeting.id, text: meetingText };

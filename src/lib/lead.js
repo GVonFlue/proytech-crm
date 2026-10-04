@@ -461,17 +461,29 @@ export const CMSN_STATE={pending:{label:'Pending',color:'#C8A24A'},earned:{label
    later. Backfill is a heuristic on existing rows (logged, and start never
    moved off createdAt) and is written down for real the first time a date is
    set, so it can never flip back. */
+/* MEETING STATUS — the vocabulary, defined once. '' = not happened yet
+   (upcoming, or past and waiting to be marked), 'held', 'noshow'. Nothing else.
+
+   Every reader goes through meetingStatus(), never m.status directly, because a
+   value outside the vocabulary is in NO bucket: api/coffee-book.js once saved
+   status:'scheduled', and those coffees were neither Upcoming nor Needs status,
+   so nobody was ever asked to mark them held and the Race to 20 never counted
+   them. Mapping unknown values to '' on read puts them back in front of a
+   person without a data migration. The failure this chooses is "something odd
+   shows as not-yet-marked", never "something odd disappears". */
+export const MEETING_STATUSES=['','held','noshow'];
+export const meetingStatus=m=>{ const s=m&&m.status; return s==='held'||s==='noshow'?s:''; };
 export const datelessOf=m=>m.dateUnknown!==undefined&&m.dateUnknown!==null
   ? !!m.dateUnknown
   : (!!m.logged&&!!m.start&&m.start===m.createdAt);
 export const meetingsOf=l=>{
-  const existing=(l.meetings||[]).map(m=>({...m,status:m.status||'',dateUnknown:datelessOf(m)}));
+  const existing=(l.meetings||[]).map(m=>({...m,status:meetingStatus(m),dateUnknown:datelessOf(m)}));
   const haveIds=new Set(existing.map(m=>m.id));
   const linked=new Set(existing.map(m=>m.meetingId).filter(Boolean));
   const fromActs=(l.activities||[])
     .filter(a=>a&&a.type==='Booked'&&a.ts&&!a.meetingId&&!linked.has(a.id))
     .map(a=>({ id:'m_'+a.id, fromActivity:a.id, title:(a.text||'Meeting').replace(/ booked:.*/i,'').replace(/ booked\.?$/i,'')||'Meeting',
-      mtype:a.mtype||'Other', start:a.ts, end:a.ts, status:a.status||'', who:a.who, createdAt:a.ts, logged:true, dateUnknown:true }))
+      mtype:a.mtype||'Other', start:a.ts, end:a.ts, status:meetingStatus(a), who:a.who, createdAt:a.ts, logged:true, dateUnknown:true }))
     .filter(m=>!haveIds.has(m.id));
   return [...existing,...fromActs];
 };
@@ -1079,7 +1091,11 @@ export const MEETING_TYPES=['Coffee','Discovery Call','Proposal / Pitch','Onboar
 
 export const isDateless=m=>!!m&&!!m.dateUnknown;
 
-export const needsDate=m=>!m.status&&isDateless(m);
+export const needsDate=m=>!meetingStatus(m)&&isDateless(m);
+/* The two time buckets for a dated, unmarked meeting. `now` is passed so the
+   boundary is testable; it defaults to the clock for the app's own callers. */
+export const isUpcoming=(m,now=Date.now())=>!meetingStatus(m)&&!isDateless(m)&&new Date(m.end||m.start).getTime()>=now;
+export const needsStatus=(m,now=Date.now())=>!meetingStatus(m)&&!isDateless(m)&&new Date(m.end||m.start).getTime()<now;
 
 /* GMAIL COMPOSE.
 
