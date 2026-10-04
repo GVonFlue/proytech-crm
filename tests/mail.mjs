@@ -194,6 +194,9 @@ const BOOKING = {
   ok('  to the owners only', JSON.stringify([...to].sort()) === JSON.stringify(['garrett@getproytech.com', 'logan@getproytech.com']), JSON.stringify(to));
   ok('  and NOT to the guest address from the form', !to.includes(BOOKING.email));
   ok('  carrying the coffee details, not a generic notice', /Coffee booked/.test(sent[0] && sent[0].subject) && /7:30–8:30 AM/.test(sent[0] && sent[0].html));
+  ok('  with a readable date: "Tue, Jan 8 · 7:30–8:30 AM", not "2030-01-08"',
+     /<b>When:<\/b> Tue, Jan 8 · 7:30–8:30 AM</.test(sent[0] && sent[0].html) && !/<b>When:<\/b> 2030-01-08/.test(sent[0] && sent[0].html),
+     ((sent[0] && sent[0].html) || '').match(/When:<\/b>[^<]*/));
   const ev = calendarPosts[0] || {};
   ok('the calendar event is tagged with its host', ev.extendedProperties && ev.extendedProperties.private && ev.extendedProperties.private.coffeeHost === 'Logan');
   ok('  and starts at 7:30 wall clock', ev.start && ev.start.dateTime === '2030-01-08T07:30:00', JSON.stringify(ev.start));

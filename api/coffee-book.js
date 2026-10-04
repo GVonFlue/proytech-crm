@@ -38,6 +38,20 @@ const SHOPS = {
   'Starbucks — Downtown / Douglas': 'Starbucks, Downtown on Douglas, Wichita, KS',
 };
 export const WINDOW_LABEL = { '0730': '7:30–8:30 AM', '0900': '9:00–10:00 AM', '1030': '10:30–11:30 AM', '1200': '12:00–1:00 PM' };
+
+/* "Thu, Oct 8 · 7:30–8:30 AM" for the owners' email, instead of "2026-10-08".
+   The date is read off the window's own start instant IN THE CALENDAR'S ZONE,
+   so the weekday is Chicago's even when the server runs in UTC. A bare
+   YYYY-MM-DD parsed with new Date() would be UTC midnight, which is the
+   previous evening in Chicago, and every email would name the day before. */
+export function emailWhen(date, slot, tz) {
+  const win = COFFEE_WINDOWS.find(w => w.id === slot);
+  const label = WINDOW_LABEL[slot];
+  if (!win || !label) return `${date}${label ? ' · ' + label : ''}`;
+  const day = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' })
+    .format(new Date(windowInterval(date, win, tz).start));
+  return `${day} · ${label}`;
+}
 const POOL = process.env.VITE_POOL_NAME || process.env.VITE_BRAND_NAME || 'ProyTech';
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -231,7 +245,7 @@ export default async function handler(req, res) {
       `<h2>New coffee booked ☕</h2>`
       + `<p><b>${esc(name)}</b> booked a coffee with <b>${esc(host)}</b>.</p>`
       + `<ul>`
-      + `<li><b>When:</b> ${esc(date)} · ${esc(WINDOW_LABEL[slot])}</li>`
+      + `<li><b>When:</b> ${esc(emailWhen(date, slot, tz))}</li>`
       + `<li><b>Where:</b> ${esc(SHOPS[shop])}</li>`
       + `<li><b>Phone:</b> ${esc(phone)}</li>`
       + `<li><b>Email:</b> ${esc(email)}</li>`
