@@ -48,6 +48,8 @@ const BREAK = {
   gaps: b => { b.copy.gaps = b.copy.gaps.slice(0, 2); },
   build: b => { b.copy.build[0].item = ''; },
 };
+/* the same rule from the other side: nothing to build at all (server too) */
+const BREAK_EMPTY_BUILD = b => { b.copy.build = []; };
 
 console.log('\nreadiness(): every rule');
 {
@@ -68,6 +70,13 @@ console.log('\nreadiness(): every rule');
   ok('gaps: 3, 4 and 5 pass', [3, 4, 5].every(n => R(gapsOf(n)).ok));
   ok('gaps: 2 and 6 fail', [2, 6].every(n => failing(R(gapsOf(n))).join() === 'gaps'));
   ok('build: an item linked to something NOT bought fails', failing(R({ ...clone(READY), copy: { ...READY.copy, build: [{ title: 'SEO', item: 'seo' }] } })).join() === 'build');
+  {
+    const none = R({ ...clone(READY), copy: { ...READY.copy, build: [] } });
+    ok('build: NO build items fails ("Add at least one build item")', failing(none).join() === 'build' && none.checks.find(c => c.key === 'build').detail === 'Add at least one build item', JSON.stringify(none.checks.find(c => c.key === 'build')));
+    ok('build: a missing build list fails the same way', failing(R({ ...clone(READY), copy: { ...READY.copy, build: undefined } })).join() === 'build');
+    ok('build: an entry with no title does not count as one', failing(R({ ...clone(READY), copy: { ...READY.copy, build: [{ title: '  ', item: 'growth-os' }] } })).includes('build'));
+    ok('build: one linked item is enough', R({ ...clone(READY), copy: { ...READY.copy, build: [READY.copy.build[0]] } }).ok);
+  }
   ok('build: the failing item is named', /Not linked: A custom website/.test(R((() => { const b = clone(READY); b.copy.build[0].item = ''; return b; })()).checks.find(c => c.key === 'build').detail));
   ok('email: applies to email only', R(READY, { leadEmail: '' }).ok === false && R(READY, { mode: 'link', leadEmail: '' }).ok === true);
   ok('email: an invalid address fails', failing(R(READY, { leadEmail: 'not an email' })).join() === 'email');
@@ -126,6 +135,12 @@ console.log('\nproposal-send refuses a proposal that fails ANY rule');
         r.ok === false && r.notReady === true && (r.missing || []).includes(key) && patches.length === 0 && sent.length === 0 && DB.status === 'draft' && !DB.expires_at,
         JSON.stringify({ r, patches: patches.length, sent: sent.length }));
     }
+  }
+  for (const mode of ['email', 'link']) {
+    const b = clone(READY); BREAK_EMPTY_BUILD(b); reset(b);
+    r = await hit({ id: DB.id, reviewed: true, ...(mode === 'email' ? EMAIL : { mode: 'link' }) });
+    ok(`no build items (${mode}): refused, nothing published, nothing sent`,
+      r.ok === false && (r.missing || []).includes('build') && /Add at least one build item/.test(r.error) && patches.length === 0 && sent.length === 0, JSON.stringify(r));
   }
   reset(clone(READY));
   r = await hit({ id: DB.id, ...EMAIL });

@@ -362,6 +362,7 @@ export function readiness(body, { mode = 'link', leadEmail = '', reviewed = fals
   const nums = A(plan.numbers).filter(n => n && filled(n.label) && filled(n.value));
   const levers = A(plan.levers).filter(filled);
   const gaps = A(c.gaps).filter(g => g && filled(g.title));
+  const buildItems = A(c.build).filter(x => x && S(x.title).trim());
   const unlinked = A(c.build).filter(x => !x || !ids.has(x.item));
   const pkg = items.find(i => i.id === q.packageId && i.kind !== 'addon');
   const checks = [
@@ -370,8 +371,10 @@ export function readiness(body, { mode = 'link', leadEmail = '', reviewed = fals
     { key: 'numbers', label: 'At least 3 of their numbers', ok: nums.length >= 3, detail: nums.length >= 3 ? `${nums.length} numbers` : `${nums.length} of 3` },
     { key: 'levers', label: 'Exactly 3 levers', ok: levers.length === 3, detail: `${levers.length} of 3` },
     { key: 'gaps', label: '3 to 5 gaps', ok: gaps.length >= 3 && gaps.length <= 5, detail: `${gaps.length} gap${gaps.length === 1 ? '' : 's'}` },
-    { key: 'build', label: 'Every build item is part of what they are buying', ok: unlinked.length === 0,
-      detail: unlinked.length ? `Not linked: ${unlinked.map(x => (x && x.title) || 'untitled').join(', ')}` : '' },
+    /* at least one, and every one tied to something bought: a proposal with
+       no build section never says what the client is getting */
+    { key: 'build', label: 'Every build item is part of what they are buying', ok: buildItems.length > 0 && unlinked.length === 0,
+      detail: !buildItems.length ? 'Add at least one build item' : unlinked.length ? `Not linked: ${unlinked.map(x => (x && x.title) || 'untitled').join(', ')}` : '' },
   ];
   if (mode === 'email') checks.push({ key: 'email', label: 'The lead has a valid email', ok: isEmail(leadEmail), detail: isEmail(leadEmail) ? S(leadEmail, 160).trim() : 'Add an email to the lead.' });
   checks.push({ key: 'reviewed', label: "You've read every section", ok: reviewed === true, detail: reviewed === true ? '' : 'Tick the box once you have.' });
