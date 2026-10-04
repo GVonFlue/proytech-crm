@@ -4,5 +4,24 @@
       "path": "/api/content-slate",
       "schedule": "0 1 * * 1"
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/p/:slug",
+      "destination": "/proposal.html"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/((?!p/[^/]+$|proposal\\.html$|assets/|api/proposal-public$|[^/]+\\.(?:png|jpe?g|svg|webp|ico|gif)$).*)",
+      "has": [
+        {
+          "type": "host",
+          "value": "proposals.getproytech.com"
+        }
+      ],
+      "destination": "https://getproytech.com",
+      "permanent": false
+    }
   ]
 }

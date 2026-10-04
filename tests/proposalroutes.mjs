@@ -174,7 +174,8 @@ console.log('\nproposal-send — owner only, and the recipient is not a paramete
   ok('  never to an address named in the request', !JSON.stringify(sent).includes('evil.test'));
   ok('replies go to the owner who sent it', sent[0].reply_to === 'me@agency.test');
   ok('it publishes BEFORE it sends', calls.indexOf('publish') > -1 && DB[1].status === 'sent' && !!DB[1].expires_at);
-  ok('the link is the app origin plus the token in the fragment', r.body.link === proposalLink('https://crm.test', DB[1].token) && /^https:\/\/crm\.test\/proposal\.html#t=/.test(r.body.link));
+  /* /p/<client-slug>#t=<token>: the slug is cosmetic, the token is the key */
+  ok('the link is the app origin, the client slug, and the token in the fragment', r.body.link === proposalLink('https://crm.test', DB[1].token, BODY.client) && /^https:\/\/crm\.test\/p\/dee-co#t=[A-Za-z0-9_-]{43}$/.test(r.body.link), r.body.link);
   ok('the email carries the link and the good-until date', sent[0].html.includes(r.body.link) && /good until/.test(sent[0].html));
   ok('the owner\'s message is escaped, not injected', (await (async () => { reset(); await hit(send, { id: DB[1].id, reviewed: true, mode: 'email', subject: 's', message: 'Hello <script>alert(1)</script> there friend' }, 'good-owner'); return !sent[0].html.includes('<script>'); })()));
   reset(); DB[1].lead_id = 'L2'; sent = [];

@@ -202,6 +202,22 @@ console.log('\nthe editor, mounted');
   await click(byText('button', /Back to the form/));
   ok('  broken JSON is not taken back into the form', /Fix the JSON before going back/.test(document.body.textContent) && !!document.querySelector('textarea[aria-label="Offer JSON"]'));
 
+  console.log('\n"applies to": limit a standard line to some purchases');
+  await mount({});
+  const tl = () => [...document.querySelectorAll('[data-path="underneath"] .oe-tl')];
+  const ownIdx = tl().findIndex(r => /You own all of it/.test(r.querySelector('input').value));
+  const autoIdx = tl().findIndex(r => /Automations know when to stop/.test(r.querySelector('input').value));
+  ok('each line shows one checkbox per package and add-on', tl()[0] && tl()[0].querySelectorAll('.oe-applies input').length === 4);
+  ok('an untagged line says "every proposal"', /every proposal/.test(tl()[ownIdx].textContent));
+  ok('a tagged line shows its tag ticked', [...tl()[autoIdx].querySelectorAll('.oe-applies label.on')].map(l => l.textContent.trim()).join() === 'Automations');
+  await click(tl()[ownIdx].querySelector('input[aria-label$="applies to Business Suite"]'));
+  await click(tl()[autoIdx].querySelector('input[aria-label$="applies to Automations"]'));
+  await click(byText('button', /^Save offer$/));
+  const u = saves[0] && saves[0].offer.underneath;
+  ok('ticking saves the id', u && JSON.stringify(u[ownIdx]) === JSON.stringify({ text: OFFER.underneath[ownIdx].text, appliesTo: ['suite'] }), JSON.stringify(u && u[ownIdx]));
+  ok('unticking the last one makes it apply to every proposal again', u && JSON.stringify(u[autoIdx].appliesTo) === '[]', JSON.stringify(u && u[autoIdx]));
+  ok('"what we need from you" has the same picker', document.querySelectorAll('[data-path="needFromYou"] .oe-applies').length === OFFER.needFromYou.length);
+
   await mount({ settings: { stages: [] } });
   ok('no offer yet: offers the default or a blank start', !!byText('button', /Load default offer/) && !!byText('button', /Start from scratch/));
   await click(byText('button', /Load default offer/));
