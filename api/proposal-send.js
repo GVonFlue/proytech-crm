@@ -7,7 +7,7 @@ import { appUrl } from './_google.js';
 import { sendClientMail, clientRecipientFor, esc } from './_mail.js';
 // THE PROPOSAL STANDARD: the same function the review screen calls. The
 // screen disables Send; this refuses it. One rule, two callers.
-import { readiness } from '../src/lib/proposal.js';
+import { readiness, proposalUrl } from '../src/lib/proposal.js';
 
 // api/proposal-send.js — publish a proposal, and optionally email it.
 //
@@ -33,8 +33,18 @@ import { readiness } from '../src/lib/proposal.js';
 const H = () => ({ apikey: SUPA_KEY, authorization: `Bearer ${SUPA_KEY}`, 'content-type': 'application/json' });
 const DAY = 864e5;
 
-export function proposalLink(app, token) {
-  return `${String(app || '').replace(/\/+$/, '')}/proposal.html#t=${encodeURIComponent(token)}`;
+/* Where client links point. PROPOSAL_URL is the proposals domain (for example
+   https://proposals.getproytech.com), which vercel.json locks to the proposal
+   paths; unset, links stay on the app's own URL. Only an https URL is taken:
+   a typo here would otherwise be emailed to every client. */
+export function proposalBase() {
+  const p = String(process.env.PROPOSAL_URL || '').trim().replace(/\/+$/, '');
+  return /^https:\/\/[a-z0-9.-]+(:\d+)?$/i.test(p) ? p : appUrl();
+}
+/* ONE place builds the client link: here. The CRM asks for it (mode 'peek')
+   rather than building its own from window.location, which could disagree. */
+export function proposalLink(base, token, client) {
+  return proposalUrl(base, client, token);
 }
 
 /** Plain text from the owner's edited email -> safe HTML paragraphs. */
@@ -59,13 +69,20 @@ export default async function handler(req, res) {
 
   const b = req.body || {};
   const id = String(b.id || '');
-  const mode = b.mode === 'email' ? 'email' : 'link';
+  const mode = b.mode === 'email' ? 'email' : b.mode === 'peek' ? 'peek' : 'link';
   if (!/^[0-9a-f-]{36}$/i.test(id)) { res.status(400).json({ ok: false, error: 'Save the proposal first.' }); return; }
 
-  const pr = await fetch(`${SUPA_URL}/rest/v1/proposals?id=eq.${id}&select=id,lead_id,token,status,valid_days,body`, { headers: H() })
+  const pr = await fetch(`${SUPA_URL}/rest/v1/proposals?id=eq.${id}&select=id,lead_id,token,status,valid_days,body,expires_at`, { headers: H() })
     .then(r => (r.ok ? r.json() : null)).catch(() => null);
   const p = Array.isArray(pr) ? pr[0] : null;
   if (!p) { res.status(404).json({ ok: false, error: 'That proposal no longer exists.' }); return; }
+  /* PEEK: the link of a proposal already published, changing nothing — no
+     re-publish, no new validity window, no email. */
+  if (mode === 'peek') {
+    if (p.status === 'draft') { res.status(200).json({ ok: false, error: 'This proposal has not been published yet.' }); return; }
+    res.status(200).json({ ok: true, link: proposalLink(proposalBase(), p.token, (p.body || {}).client), expiresAt: p.expires_at || null });
+    return;
+  }
   if (p.status === 'accepted') { res.status(200).json({ ok: false, error: 'This proposal is already accepted. Make a new one for a new offer.' }); return; }
 
   // the recipient: from the record, never from the request. Checked here so a
@@ -101,7 +118,7 @@ export default async function handler(req, res) {
   }).catch(() => null);
   if (!up || !up.ok) { res.status(200).json({ ok: false, error: 'Could not publish the proposal. Nothing was sent.' }); return; }
 
-  const link = proposalLink(appUrl(), p.token);
+  const link = proposalLink(proposalBase(), p.token, (p.body || {}).client);
   if (mode === 'link') { res.status(200).json({ ok: true, link, expiresAt }); return; }
 
   const until = new Date(expiresAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });

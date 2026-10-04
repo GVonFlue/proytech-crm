@@ -66,11 +66,11 @@
     }
   ],
   "underneath": [
-    "Automations know when to stop. The moment a customer replies or books, the sequence shuts off.",
-    "Review requests only go to customers whose job is finished, so you are asking people who are happy.",
-    "Opt outs are handled automatically on every text and email.",
-    "Hosting, SSL, backups and uptime monitoring are handled for you.",
-    "You own all of it. Domain, site, customer list, review history. Nothing is held hostage."
+    { "text": "Automations know when to stop. The moment a customer replies or books, the sequence shuts off.", "appliesTo": ["automations"] },
+    { "text": "Review requests only go to customers whose job is finished, so you are asking people who are happy.", "appliesTo": ["automations"] },
+    { "text": "Opt outs are handled automatically on every text and email.", "appliesTo": ["automations"] },
+    { "text": "Hosting, SSL, backups and uptime monitoring are handled for you.", "appliesTo": ["growth-os", "website"] },
+    { "text": "You own all of it. Domain, site, customer list, review history. Nothing is held hostage.", "appliesTo": [] }
   ],
   "quotedSeparately": [
     "Paid ad management",
@@ -86,9 +86,9 @@
     { "title": "Go live", "text": "Everything switched on, and we walk you through it." }
   ],
   "needFromYou": [
-    "The onboarding form, completed",
-    "Your customer list in any shape",
-    "Real photos of your work, at the largest size you have them",
-    "Access to your domain, Google Business Profile and phone line where needed"
+    { "text": "The onboarding form, completed", "appliesTo": [] },
+    { "text": "Your customer list in any shape", "appliesTo": [] },
+    { "text": "Real photos of your work, at the largest size you have them", "appliesTo": [] },
+    { "text": "Access to your domain, Google Business Profile and phone line where needed", "appliesTo": ["growth-os", "website"] }
   ]
 }

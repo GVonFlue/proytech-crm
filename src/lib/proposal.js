@@ -17,6 +17,19 @@ const num = v => { const n = Number(v); return Number.isFinite(n) ? n : NaN; };
 const S = (v, cap = 2000) => String(v == null ? '' : v).slice(0, cap);
 const A = v => (Array.isArray(v) ? v : []);
 const lines = v => A(v).map(x => S(x, 400).trim()).filter(Boolean);
+/* A STANDARD-SECTION LINE THAT ONLY APPLIES TO SOME PURCHASES.
+   "What you do not see" and "What we need from you" are offer-wide lists, so
+   a Growth OS proposal without Automations used to promise "automations know
+   when to stop". Each entry may now carry appliesTo: the package / add-on ids
+   it is about. An empty list — or a plain string, which is what every offer
+   saved before this was — means it applies to every proposal. */
+const tagged = v => A(v).map(x => (typeof x === 'string'
+  ? { text: S(x, 400).trim(), appliesTo: [] }
+  : { text: S(x && x.text, 400).trim(), appliesTo: A(x && x.appliesTo).map(id => S(id, 60).trim()).filter(Boolean) }))
+  .filter(x => x.text);
+/* ONE rule for "does this line belong on this proposal" */
+export const appliesTo = (entry, ids) => !entry || !A(entry.appliesTo).length || A(entry.appliesTo).some(id => A(ids).includes(id));
+export const linesFor = (list, ids) => tagged(list).filter(e => appliesTo(e, ids)).map(e => e.text);
 
 /* ---------- vocabulary, defined once ---------- */
 export const PROPOSAL_STATUSES = ['draft', 'sent', 'viewed', 'accepted'];
@@ -79,11 +92,11 @@ export function readOffer(settings) {
       guarantee: S(raw.guarantee, 300).trim(),
       terms: S(raw.terms, 600).trim(),
       cancel: S(raw.cancel, 400).trim(),
-      underneath: lines(raw.underneath),
+      underneath: tagged(raw.underneath),
       covers: lines(raw.covers),
       quotedSeparately: lines(raw.quotedSeparately),
       steps: A(raw.steps).map(s => ({ title: S(s && s.title, 60).trim(), text: S(s && s.text, 300).trim() })).filter(s => s.title),
-      needFromYou: lines(raw.needFromYou),
+      needFromYou: tagged(raw.needFromYou),
       company: {
         name: S(company.name, 120).trim(), people: S(company.people, 160).trim(),
         email: S(company.email, 160).trim(), website: S(company.website, 160).trim(),
@@ -95,6 +108,23 @@ export function readOffer(settings) {
       },
     },
   };
+}
+
+/* THE CLIENT LINK: {base}/p/{client-slug}#t={token}.
+   The slug is COSMETIC. Nothing on the server reads it — the token in the
+   fragment is still the only key (api/proposal-public.js), so a wrong, stale
+   or hand-edited slug opens the same proposal and access rules do not change.
+   It exists so the link a client sees names them, not "proposal.html". */
+export function clientSlug(client) {
+  const c = client && typeof client === 'object' ? client : {};
+  const raw = S(c.company, 300).trim() || S(c.name, 300).trim();
+  let s = raw.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  if (s.length > 60) { const cut = s.slice(0, 61); const at = cut.lastIndexOf('-'); s = (at >= 20 ? cut.slice(0, at) : s.slice(0, 60)).replace(/-+$/g, ''); }
+  return s || 'proposal';
+}
+export function proposalUrl(base, client, token) {
+  return `${String(base || '').replace(/\/+$/, '')}/p/${clientSlug(client)}#t=${encodeURIComponent(String(token || ''))}`;
 }
 
 /* An image the proposal may load: an https URL, or a path on this site
@@ -224,6 +254,7 @@ export function buildBody({ offer, q, copy, client, preparedOn, validDays }) {
   const pkg = offer.packages.find(p => p.id === q.packageId) || {};
   const chosen = q.items.map(it => offer.packages.concat(offer.addons).find(x => x.id === it.id) || {});
   const uniq = arr => [...new Set(arr)];
+  const ids = q.items.map(it => it.id);
   /* A SNAPSHOT, not a view: deep-copied so nothing this returns shares an
      object with the offer in Settings. Editing prices, terms or the company
      block afterwards cannot reach a body already built, saved or sent. */
@@ -239,11 +270,13 @@ export function buildBody({ offer, q, copy, client, preparedOn, validDays }) {
     copy,
     quote: q,
     standard: {
-      underneath: uniq(chosen.flatMap(c => c.underneath || [])).length ? uniq(chosen.flatMap(c => c.underneath || [])) : offer.underneath,
+      /* only the lines that apply to what is being bought: an item's own
+         lines, plus the offer-wide lines tagged for it or for everything */
+      underneath: uniq([...chosen.flatMap(c => c.underneath || []), ...linesFor(offer.underneath, ids)]),
       covers: uniq(chosen.flatMap(c => c.covers || [])).length ? uniq(chosen.flatMap(c => c.covers || [])) : offer.covers,
       quotedSeparately: offer.quotedSeparately,
       steps: offer.steps,
-      needFromYou: offer.needFromYou,
+      needFromYou: linesFor(offer.needFromYou, ids),
       guarantee: offer.guarantee, terms: offer.terms, cancel: offer.cancel,
     },
     onboardingUrl: pkg.onboardingUrl || '',
@@ -430,7 +463,13 @@ export function validateOffer(raw) {
     if (blank(st && st.title)) err(`steps.${i}.title`, 'Step title is required.');
     if (blank(st && st.text)) err(`steps.${i}.text`, 'Say what happens in this step.');
   });
-  for (const k of ['underneath', 'quotedSeparately', 'needFromYou']) A(raw[k]).forEach((v, j) => { if (blank(v)) err(`${k}.${j}`, 'This line is empty.'); });
+  const itemIds = new Set([...A(raw.packages), ...A(raw.addons)].map(x => x && x.id).filter(Boolean));
+  const textOf = v => (v && typeof v === 'object' ? v.text : v);
+  for (const k of ['underneath', 'quotedSeparately', 'needFromYou']) A(raw[k]).forEach((v, j) => {
+    if (blank(textOf(v))) err(`${k}.${j}`, 'This line is empty.');
+    const unknown = A(v && typeof v === 'object' ? v.appliesTo : []).filter(id => !itemIds.has(id));
+    if (unknown.length) err(`${k}.${j}.appliesTo`, `Applies to an item that is not in the offer: ${unknown.join(', ')}.`);
+  });
   // and whatever readOffer itself would report missing, by its own name
   const r = readOffer({ offer: raw });
   for (const m of r.missing) if (!errors.some(e => e.path === m || e.path.startsWith(m + '.'))) err(m, `Missing: ${m}.`);

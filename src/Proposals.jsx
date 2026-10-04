@@ -32,7 +32,6 @@ const fmtAt = iso => { const t = Date.parse(iso); return Number.isFinite(t) ? `$
    folded in. A quote with no number shows a dash, not a plausible $0. */
 const valueOf = p => { const q = (p && p.body && p.body.quote) || {}; const s = Number(q.setup), m = Number(q.monthly);
   return { setup: Number.isFinite(s) ? s : null, monthly: Number.isFinite(m) ? m : null }; };
-const linkFor = token => `${window.location.origin}/proposal.html#t=${encodeURIComponent(token)}`;
 
 export function statusOf(p, now = Date.now()) {
   if (!p) return 'draft';
@@ -234,7 +233,9 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
 
   const copyLink = async () => {
     if (pub.status === 'accepted') return;
-    const j = frozen && !isExpired(pub.expires_at) ? { ok: true, link: linkFor(token) } : await publish('link');
+    /* an open proposal: ask the server for its link (peek changes nothing);
+       otherwise publish. The server is the only place a client link is built. */
+    const j = await publish(frozen && !isExpired(pub.expires_at) ? 'peek' : 'link');
     if (!j || !j.ok) return;
     try { await navigator.clipboard.writeText(j.link); say('ok', 'Link copied. It is good for ' + validDays + ' days from now.'); }
     catch { say('ok', 'Link: ' + j.link); }
@@ -444,6 +445,34 @@ function ListEdit({ label, items, onChange, path, errs, placeholder, add = 'Add 
   </div>);
 }
 
+/* A standard-section list whose lines can be limited to some purchases
+   (lib/proposal appliesTo). Each line: its text, and one checkbox per package
+   and add-on. None ticked = every proposal. A plain string from an offer saved
+   before tags existed is shown as untagged and saved back as {text, appliesTo}. */
+function TaggedListEdit({ label, items, onChange, path, errs, options }) {
+  const list = (Array.isArray(items) ? items : []).map(x => (typeof x === 'string' ? { text: x, appliesTo: [] } : { text: (x && x.text) || '', appliesTo: Array.isArray(x && x.appliesTo) ? x.appliesTo : [] }));
+  const put = n => onChange(n);
+  const move = (i, d) => { const n = list.slice(); const j = i + d; if (j < 0 || j >= n.length) return; [n[i], n[j]] = [n[j], n[i]]; put(n); };
+  return (<div className="oe-list oe-tagged" data-path={path}><div className="oe-ll">{label}</div>
+    {list.map((v, i) => (<div className={'oe-tl' + (errs[`${path}.${i}`] || errs[`${path}.${i}.appliesTo`] ? ' bad' : '')} key={i} data-line={i}>
+      <div className="oe-li">
+        <input value={v.text} onChange={e => { const n = list.slice(); n[i] = { ...v, text: e.target.value }; put(n); }} aria-label={`${label} ${i + 1}`} />
+        <button type="button" title="Move up" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp size={13} /></button>
+        <button type="button" title="Move down" disabled={i === list.length - 1} onClick={() => move(i, 1)}><ArrowDown size={13} /></button>
+        <button type="button" title="Remove" onClick={() => put(list.filter((_, j) => j !== i))}><X size={13} /></button>
+      </div>
+      <div className="oe-applies"><span>Applies to:</span>
+        {options.map(o => (<label key={o.id} className={v.appliesTo.includes(o.id) ? 'on' : ''}>
+          <input type="checkbox" checked={v.appliesTo.includes(o.id)} aria-label={`${label} ${i + 1} applies to ${o.name}`}
+            onChange={e => { const n = list.slice(); n[i] = { ...v, appliesTo: e.target.checked ? [...v.appliesTo, o.id] : v.appliesTo.filter(id => id !== o.id) }; put(n); }} />{o.name}</label>))}
+        {!v.appliesTo.length && <em>every proposal</em>}
+      </div>
+      {errs[`${path}.${i}.appliesTo`] && <em className="oe-err">{errs[`${path}.${i}.appliesTo`]}</em>}
+    </div>))}
+    <button type="button" className="oe-addl" onClick={() => put([...list, { text: '', appliesTo: [] }])}>+ Add a line</button>
+  </div>);
+}
+
 export function OfferEditor({ settings, saveSettings, isOwner = true, defaultOffer = DEFAULT_OFFER }) {
   const [draft, setDraft] = useState(() => (settings && settings.offer ? clone(settings.offer) : null));
   const [json, setJson] = useState(null);           // text while "Advanced: edit JSON" is open
@@ -485,6 +514,8 @@ export function OfferEditor({ settings, saveSettings, isOwner = true, defaultOff
 
   const errCount = ((v && v.errors) || []).length;
   const co = draft.company || {};
+  /* what a standard-section line can be limited to */
+  const itemOptions = [...(draft.packages || []), ...(draft.addons || [])].filter(x => x && x.id).map(x => ({ id: x.id, name: x.name || x.id }));
   const card = (group, it, i) => {
     const p = `${group}.${i}`; const kind = group === 'packages' ? 'package' : 'addon';
     const setIt = (k, val) => edit(d => { const x = d[group][i]; const autoId = !x.id || x.id === slug(x.name); x[k] = val; if (k === 'name' && autoId) x.id = slug(val); });
@@ -565,8 +596,8 @@ export function OfferEditor({ settings, saveSettings, isOwner = true, defaultOff
 
       <div className="oe-sec"><div className="oe-sh">Standard sections</div>
         <div className="oe-card oe-lists">
-          <ListEdit label="What we need from you" items={draft.needFromYou} onChange={n => setAt(['needFromYou'], n)} path="needFromYou" errs={errs} />
-          <ListEdit label="Underneath it" items={draft.underneath} onChange={n => setAt(['underneath'], n)} path="underneath" errs={errs} />
+          <TaggedListEdit label="What we need from you" items={draft.needFromYou} onChange={n => setAt(['needFromYou'], n)} path="needFromYou" errs={errs} options={itemOptions} />
+          <TaggedListEdit label="Underneath it" items={draft.underneath} onChange={n => setAt(['underneath'], n)} path="underneath" errs={errs} options={itemOptions} />
           <ListEdit label="Quoted separately" items={draft.quotedSeparately} onChange={n => setAt(['quotedSeparately'], n)} path="quotedSeparately" errs={errs} />
         </div>
       </div>
@@ -759,6 +790,16 @@ export const PROPOSALS_CSS = `
 .oe-li button:disabled,.oe-step button:disabled{opacity:.35;cursor:default}
 .oe-step input:first-of-type{flex:0 0 160px}
 .oe-n{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--oe-blue);width:22px;flex:none}
+.oe-tagged{grid-column:1/-1}
+.oe-tl{border:1px solid #EEF1F7;border-radius:10px;padding:6px 8px 8px;margin-bottom:6px;background:#FCFDFF}
+.oe-tl.bad{border-color:#E9A09B;background:#FFF7F6}
+.oe-tl .oe-li{margin-bottom:4px}
+.oe-applies{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:12px;color:#56637F}
+.oe-applies>span{font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:10.5px;color:#8B93A7}
+.oe-applies label{display:inline-flex;align-items:center;gap:5px;border:1px solid #E1E6F0;border-radius:99px;padding:3px 9px;background:#fff;cursor:pointer}
+.oe-applies label.on{border-color:#1F6FEB;background:#F4F7FF;color:#0B1633;font-weight:600}
+.oe-applies input{width:13px;height:13px;margin:0}
+.oe-applies em{font-style:normal;color:#8B93A7}
 .oe-addl{font:inherit;font-size:12.5px;font-weight:600;color:var(--oe-blue);background:none;border:none;padding:4px 0;cursor:pointer}
 .oe-add{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:700;color:var(--oe-blue);background:#F4F7FF;border:1px dashed #B7C8F3;border-radius:12px;padding:10px 14px;cursor:pointer;width:100%;justify-content:center}
 .oe-line{margin-top:12px;font-size:13px;color:#0B1633;background:#F5F8FD;border:1px solid #E2E9F5;border-radius:10px;padding:9px 12px}

@@ -64,7 +64,7 @@ same reason as the 20 Aug pass. **25 route files, 22 of them described below.**
 | `coffee-book.js` | ❌ none — public by design | rate-limited; writes a calendar event and a lead, mails the owners in-process via `_mail.js` — see below |
 | `coffee-race.js` | ❌ none — public by design | rate-limited GET; returns two integers — see below |
 | `proposal-draft.js` | ✅ `guard({requireOwner})` | + dollar ceiling, shared with `jarvis.js`. Writes nothing; returns words only, no prices |
-| `proposal-send.js` | ✅ `guard({requireOwner})` | mails through `sendClientMail()`, which takes a proposal id, **not an address**, and reads the recipient from the lead server-side. Link pinned to `APP_URL` — see below |
+| `proposal-send.js` | ✅ `guard({requireOwner})` | mails through `sendClientMail()`, which takes a proposal id, **not an address**, and reads the recipient from the lead server-side. The **only** place a client link is built: `{PROPOSAL_URL or APP_URL}/p/<client-slug>#t=<token>` (an https `PROPOSAL_URL` only; anything else falls back). Mode `peek` returns a published proposal's link and changes nothing. The slug is cosmetic: no route reads it — see below |
 | `proposal-public.js` | ❌ none — by design, token-gated | the client has no account. See below |
 
 `_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js`, `_coffee.js`,
@@ -97,6 +97,14 @@ rule `notify.js` and `coffee-book.js` use.
 
 Proven by `tests/proposalroutes.mjs`, and by `VERIFY-RLS.md` §12 against a real
 database.
+
+**The proposals domain.** When `PROPOSAL_URL` points at
+`proposals.getproytech.com`, `vercel.json` serves only the proposal page
+(`/p/<slug>`, `/proposal.html`), its `/assets/`, root-level images and
+`/api/proposal-public` on that host; every other path — the CRM, and every
+other `/api/` route — redirects to `https://getproytech.com`. The rule is
+host-scoped, so the CRM's own domain is unaffected. `tests/proposallink.mjs`
+checks it path by path.
 
 ### `outreach-draft.js` — why owner, and why it shares JARVIS's budget
 
