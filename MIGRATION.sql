@@ -50,8 +50,11 @@ create table if not exists events (
   updated_at timestamptz not null default now()
 );
 alter table events enable row level security;
+-- Its policy is created below, in section 4, once is_owner() and friends
+-- exist. It used to be `events_all ... using (true) with check (true)` HERE,
+-- which RLS-AUDIT.sql fails on — and because this file is re-runnable, every
+-- re-run put that hole back. See RLS-TIGHTEN-2026-10.sql.
 drop policy if exists events_all on events;
-create policy events_all on events for all to authenticated using (true) with check (true);
 
 -- ----------------------------------------------------------------- 2. leads
 alter table leads add column if not exists owner_id uuid references auth.users(id);
@@ -116,9 +119,34 @@ create or replace function crm_listed() returns boolean language sql security de
 alter table app_settings enable row level security;
 drop policy if exists settings_read on app_settings;
 create policy settings_read on app_settings for select using (no_users() or crm_listed());
+-- WRITES ARE OWNER-ONLY (RLS-TIGHTEN-2026-10): app_settings holds the offer and
+-- its prices, invoices, the books and the Build Console. The one exception is
+-- the shared `tasks` row, which listed users save because Tasks is a rep tab.
+-- The old `settings_write` let any listed user (a rep) write every row.
 drop policy if exists settings_write on app_settings;
-create policy settings_write on app_settings for all
-  using (no_users() or crm_listed()) with check (no_users() or crm_listed());
+drop policy if exists settings_owner_insert on app_settings;
+create policy settings_owner_insert on app_settings for insert
+  with check (no_users() or (crm_active() and is_owner()));
+drop policy if exists settings_owner_update on app_settings;
+create policy settings_owner_update on app_settings for update
+  using (no_users() or (crm_active() and is_owner())) with check (no_users() or (crm_active() and is_owner()));
+drop policy if exists settings_owner_delete on app_settings;
+create policy settings_owner_delete on app_settings for delete
+  using (no_users() or (crm_active() and is_owner()));
+drop policy if exists settings_tasks_insert on app_settings;
+create policy settings_tasks_insert on app_settings for insert
+  with check (crm_listed() and id = 'tasks');
+drop policy if exists settings_tasks_update on app_settings;
+create policy settings_tasks_update on app_settings for update
+  using (crm_listed() and id = 'tasks') with check (crm_listed() and id = 'tasks');
+
+-- events: OWNERS ONLY, read and write. They carry sponsor amounts, which
+-- ROLES.md keeps off a rep's screen. (Moved here from section 1b: a policy
+-- cannot call is_owner() before the function exists.)
+drop policy if exists events_all on events;
+drop policy if exists events_owner on events;
+create policy events_owner on events for all
+  using (no_users() or (crm_active() and is_owner())) with check (no_users() or (crm_active() and is_owner()));
 
 -- ------------------------------------------------------------- 4b. whoami
 -- The client cannot work its own role out from crm_users, because a rep can

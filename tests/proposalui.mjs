@@ -209,7 +209,7 @@ ok('the next poll changes nothing', !globalThis.__WRITES__.slice(before).some(x=
 console.log('\nreps');
 const appSrc=fs.readFileSync('src/App.jsx','utf8');
 ok('the tab is owner-only in the gate', /if\(k==='proposals'\) return modOn\(settings,'proposals'\)&&!isRep\(user\);/.test(appSrc));
-ok('and never on a rep\'s tab list', /k!=='proposals'\)\.concat\(\['dash'\]\)/.test(appSrc));
+ok('and never on a rep\'s tab list', /const REP_TABS=[^\n]*k!=='proposals'[^\n]*\.concat\(\['dash'\]\)/.test(appSrc));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 root.unmount(); try{fs.unlinkSync('tests/.bpui.mjs');}catch{} process.exit(fail?1:0);
