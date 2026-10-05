@@ -105,9 +105,11 @@ Proven by `tests/proposalroutes.mjs`, and by `VERIFY-RLS.md` §12 against a real
 database.
 
 **The proposals domain.** When `PROPOSAL_URL` points at
-`proposals.getproytech.com`, `vercel.json` serves only the proposal page
-(`/p/<slug>`, `/proposal.html`), its `/assets/`, root-level images and
-`/api/proposal-public` on that host; every other path — the CRM, and every
+`proposals.getproytech.com`, `vercel.json` serves only the client pages on
+that host: the proposal page (`/p/<slug>`, `/proposal.html`), the onboarding
+portal (`/onboarding/<slug>`, `/onboarding.html`), their `/assets/`, root-level
+images, the build-crew photos (`/team/<name>.jpg|png|webp`) and the two public
+routes `/api/proposal-public` and `/api/onboarding-public`; every other path — the CRM, and every
 other `/api/` route — redirects to `https://getproytech.com`. The rule is
 host-scoped, so the CRM's own domain is unaffected. `tests/proposallink.mjs`
 checks it path by path.

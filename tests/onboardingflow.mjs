@@ -271,6 +271,31 @@ test('access guides name the agency email and the registrar', () => {
   ok(L.accessGuide('domain', {}).join(' ').includes('DNS records'), 'the not-sure guide offers the DNS route');
 });
 
+test('paletteFrom: the most common colours, background and transparency skipped, near-duplicates merged', () => {
+  const px = [];
+  const add = (r, g, b, a, n) => { for (let i = 0; i < n; i++) px.push(r, g, b, a); };
+  add(255, 255, 255, 255, 900); add(0, 0, 0, 0, 900);          // white background, transparent margin
+  add(14, 42, 71, 255, 300); add(16, 44, 70, 255, 100);         // navy, plus anti-aliasing of it
+  add(200, 162, 74, 255, 150); add(244, 241, 234, 255, 20);     // gold, a cream that is not white
+  const got = L.paletteFrom(px, 3);
+  eq(got.length, 3, got.join());
+  ok(got[0].startsWith('#0') && /^#C/.test(got[1]), got.join());
+  eq(L.paletteFrom([], 3), []);
+});
+test('withDefaults: pre-checked pages are WRITTEN once, never over an answer', () => {
+  const site = L.SECTIONS.find(x => x.id === 'site');
+  const ctx = { industry: 'service', products: ['website'] };
+  eq(L.withDefaults({}, site, ctx)['site.pages'], ['home', 'about', 'services', 'reviews', 'contact', 'areas', 'gallery']);
+  const mine = { 'site.pages': ['home'] };
+  ok(L.withDefaults(mine, site, ctx) === mine, 'unchanged object when nothing to add');
+  eq(L.withDefaults({}, L.SECTIONS.find(x => x.id === 'text'), { products: ['automations'] })['tx.which'].length, 5);
+});
+test('checklistState reads its own output unchanged (the portal receives that shape)', () => {
+  const once = L.checklistState({ deposit_paid: '2026-10-04', access_dns: { done: '2026-10-05' } });
+  eq(L.checklistState(once), once);
+  eq(L.stillNeeded({ products: [] }, {}, [], once).find(x => x.key === 'deposit').ok, true);
+});
+
 test('offer contacts carry an optional role and a SAFE photo (the build crew card)', () => {
   const { offer } = P.readOffer({ offer: { packages: [{ id: 'a', name: 'A' }], company: { name: 'X', contacts: [
     { name: 'Al', phone: '3165550100', role: 'Build', photo: '/team/al.jpg' }, { name: 'Bo', email: 'b@b.test', photo: 'javascript:alert(1)' }] } } });

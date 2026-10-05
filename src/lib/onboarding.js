@@ -442,6 +442,23 @@ export const SECTIONS = [
   },
 ];
 export const REVIEW = { id: 'review', title: 'Review & submit', icon: '🚀' };
+/* the big line at the top of each section screen */
+const HEADLINES = {
+  biz: 'Let\'s start with the basics.', web: 'Where people find you today.', brand: 'Let\'s get the look right.',
+  site: 'Your website\'s one job.', suite: 'Your numbers. Your pipeline.', text: 'Get your texts delivered.',
+  access: 'Invite us in. Never a password.', files: 'Bring the real stuff.',
+};
+export const sectionHeadline = (s, ctx) => (s.id === 'ind'
+  ? ({ realtor: 'Keep your marketing broker-approved.', lender: 'Keep your marketing compliant.', service: 'Show what you do best.' }[ctx && ctx.industry] || 'Tell us what you do.')
+  : HEADLINES[s.id] || s.title);
+/** Multi-selects that start pre-checked (pages, automations) get their
+ *  defaults WRITTEN into the answers the first time the section opens, so
+ *  what the screen shows checked is what gets saved and built. */
+export function withDefaults(answers, s, ctx) {
+  let a = answers;
+  for (const f of s.fields) if (f.defaultFor && (answers || {})[f.id] === undefined && fieldShown(f, ctx, answers)) { a = a === answers ? { ...answers } : a; a[f.id] = f.defaultFor(ctx); }
+  return a;
+}
 
 /* the access guides: short, plain steps. `agency` is who to invite. */
 export function accessGuide(key, { agency = 'us', agencyEmail = '', registrar = '' } = {}) {
@@ -550,6 +567,7 @@ const doneOf = v => (!v ? null : typeof v === 'string' ? v : v.done || null);
  *  plus `onbSkip`. */
 export function checklistState(checklist) {
   const c = checklist || {};
+  if ('depositAt' in c && 'access' in c) return c;     // already normalised (the portal gets this shape)
   const skip = A(c.onbSkip);
   return {
     depositAt: skip.includes('deposit_paid') ? null : doneOf(c.deposit_paid),
@@ -801,4 +819,29 @@ export function answerText(f, v, ctx, cfg) {
     case 'list': return A(v).map(r => f.fields.map(sf => { const x = r[sf.id]; return x == null || x === '' || x === false ? '' : sf.type === 'check' ? sf.label : sf.type === 'select' ? (A(sf.options).find(q => q.v === x) || {}).l || x : String(x); }).filter(Boolean).join(' · ')).join('; ');
     default: return String(v);
   }
+}
+
+/** "Pull from my logo": the n most common distinct colours in an image, from
+ *  its RGBA pixel data (a canvas getImageData().data). Transparent and
+ *  near-white pixels are background, not brand, and are skipped; colours are
+ *  bucketed so anti-aliasing does not split one colour into fifty, and two
+ *  picks closer than `minDist` count as one. Pure, so it is tested without a
+ *  canvas. -> ['#0E2A47', ...] */
+export function paletteFrom(data, n = 3, minDist = 48) {
+  const px = data || [];
+  const counts = new Map();
+  for (let i = 0; i + 3 < px.length; i += 4) {
+    const r = px[i], g = px[i + 1], b = px[i + 2], a = px[i + 3];
+    if (a < 128) continue;
+    if (r > 240 && g > 240 && b > 240) continue;
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  const ranked = [...counts.entries()].sort((x, y) => y[1] - x[1]).map(([k]) => [((k >> 8) & 15) * 16 + 8, ((k >> 4) & 15) * 16 + 8, (k & 15) * 16 + 8]);
+  const picked = [];
+  for (const c of ranked) {
+    if (picked.every(p => Math.hypot(p[0] - c[0], p[1] - c[1], p[2] - c[2]) >= minDist)) picked.push(c);
+    if (picked.length >= n) break;
+  }
+  return picked.map(c => '#' + c.map(x => Math.min(255, x).toString(16).padStart(2, '0')).join('').toUpperCase());
 }
