@@ -97,8 +97,27 @@ ok('the new order held', tabs()[0]==='Dashboard'&&tabs()[1]==='Tasks', tabs().sl
 await click(btn(/^Reorder tabs$/)); await settle();
 await click(btn(/Reset to default/)); await settle();
 const w2=globalThis.__USER_WRITES__.at(-1);
-ok('reset writes the default order', w2 && w2.nav_order[0]==='dash' && w2.nav_order[1]==='jarvis' && w2.nav_order[2]==='board',
-   JSON.stringify(w2&&w2.nav_order.slice(0,3)));
+/* THE DEFAULT IS THE NAV DECLARATION, read from App.jsx, not a list copied
+   here: this assertion hardcoded dash/jarvis/board and went red the day the
+   Build Console tab was added third, which broke nothing. What reset must do
+   is write exactly the declared order, and the screen must then show it. */
+const navSrc=fs.readFileSync(path.resolve('src/App.jsx'),'utf8');
+const navDecl=navSrc.slice(navSrc.indexOf('const NAV=['), navSrc.indexOf('\n', navSrc.indexOf('const NAV=[')));
+const DECLARED=[...navDecl.matchAll(/\[\s*'([a-z]+)'\s*,/g)].map(m=>m[1]);
+ok('the NAV declaration was found and parsed', DECLARED.length>=10 && DECLARED[0]==='dash', DECLARED.join(','));
+/* entries spread in conditionally (...(FLAG?[[...]]:[])) may be absent when
+   their flag is off; every other entry must be there, in declared order */
+const CONDITIONAL=new Set([...navDecl.matchAll(/\.\.\.\([A-Z_]+\?\[\[\s*'([a-z]+)'/g)].map(m=>m[1]));
+const written=w2?w2.nav_order:[];
+ok('reset writes exactly the declared default order', JSON.stringify(written.filter(k=>!CONDITIONAL.has(k)))===JSON.stringify(DECLARED.filter(k=>!CONDITIONAL.has(k)))
+   && written.every(k=>DECLARED.includes(k)),
+   JSON.stringify(written)+' vs '+JSON.stringify(DECLARED)+' (conditional: '+[...CONDITIONAL].join(',')+')');
+await settle();
+const LABEL=Object.fromEntries([...navDecl.matchAll(/\[\s*'([a-z]+)'\s*,\s*'([^']+)'/g)].map(m=>[m[1],m[2]]));
+const shownNow=tabs();
+const expectShown=DECLARED.map(k=>LABEL[k]).filter(l=>l&&shownNow.includes(l));
+ok('  and the sidebar then shows them in that order', JSON.stringify(shownNow.filter(t=>expectShown.includes(t)))===JSON.stringify(expectShown),
+   shownNow.slice(0,6).join(' | '));
 
 console.log('\nit degrades if the column was never added');
 globalThis.__USER_SAVE_FAILS__=true;
