@@ -1,6 +1,6 @@
 import {normLog,sortLogs,openLoops,meetingDigest,pendingActions,taskFromAction,newMeetingLog,
   meetingLogsOf,internalLogs,clientLogs} from '../src/lib/meetinglog.js';
-let f=0; const ok=(c,m)=>{if(!c){console.log('FAIL '+m);f++;}else console.log('ok   '+m)};
+let f=0, p=0; const ok=(c,m)=>{if(!c){console.log('FAIL '+m);f++;}else{p++;console.log('ok   '+m)}};
 
 // normLog defends against a junk row
 const n=normLog({id:'a',source:'Nope',extraction:{title:'T'}});
@@ -110,4 +110,7 @@ ok(pub[0].published===true&&pub[0].sharedText==='Wants a quote by Friday.','publ
 ok(meetingLogsOf(lead,[cl('c7','l1')])[0].published===false,'nothing published by default');
 
 console.log(f?('\n'+f+' FAILED'):'\nall passed');
+/* a tally, like every suite: tests/all.mjs treats a file that prints none as
+   NO RESULT, because a silent exit 0 once passed for files that checked nothing */
+console.log(`\nmeetinglog: ${p} passed, ${f} failed`);
 process.exit(f?1:0);
