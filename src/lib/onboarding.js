@@ -437,7 +437,7 @@ export const SECTIONS = [
       { id: 'fl.videos', type: 'file', slot: 'videos', label: 'Videos' },
       { id: 'fl.contacts', type: 'file', slot: 'contacts', label: 'Contact list for your Business Suite', hint: 'CSV, XLS or XLSX, any shape. Kept private.', when: ctx => has(ctx, 'suite') },
       { id: 'fl.documents', type: 'file', slot: 'documents', label: 'Other documents', hint: 'Insurance certificate, EIN letter, anything else. Kept private.' },
-      { id: 'fl.rights', type: 'check', label: 'I own or have permission to use everything I upload.', req: (c, a, files) => A(files).length > 0 },
+      { id: 'fl.rights', type: 'check', label: 'I own or have permission to use everything I upload.', short: 'Permission for your uploads', req: (c, a, files) => A(files).length > 0 },
     ],
   },
 ];
@@ -532,7 +532,7 @@ export function answered(f, answers, files, ctx, cfg) {
 export function missingRequired(ctx, answers, files, cfg) {
   const out = [];
   for (const s of visibleSections(ctx)) for (const f of shownFields(s, ctx, answers)) {
-    if (isRequired(f, ctx, answers, files) && !answered(f, answers, files, ctx, cfg)) out.push({ id: f.id, label: fieldLabel(f, ctx), section: s.id, sectionTitle: sectionTitle(s, ctx) });
+    if (isRequired(f, ctx, answers, files) && !answered(f, answers, files, ctx, cfg)) out.push({ id: f.id, label: f.short || fieldLabel(f, ctx), section: s.id, sectionTitle: sectionTitle(s, ctx) });
   }
   return out;
 }
@@ -551,7 +551,7 @@ export function stillNeeded(ctx, answers, files, checklist, cfg) {
     const need = needLabel(f, ctx, answers);
     const req = isRequired(f, ctx, answers, files);
     if (!need && !req) continue;
-    const label = need || fieldLabel(f, ctx);
+    const label = need || f.short || fieldLabel(f, ctx);
     if (seen.has(label)) continue; seen.add(label);
     const okk = answered(f, answers, files, ctx, cfg);
     if (!need && okk) continue;                 // a filled required field is not news
@@ -844,4 +844,39 @@ export function paletteFrom(data, n = 3, minDist = 48) {
     if (picked.length >= n) break;
   }
   return picked.map(c => '#' + c.map(x => Math.min(255, x).toString(16).padStart(2, '0')).join('').toUpperCase());
+}
+
+/* ---------- what the CRM does when an onboarding comes back submitted ----------
+   ONE patch for the lead (ENGINEERING §3: one event, one patch), or null when
+   there is nothing to do. The portal's route never writes a lead; the owner's
+   CRM applies this through updateLead, exactly like a proposal acceptance.
+
+   It ticks the lead's EXISTING checklist items, never a parallel copy
+   (ENGINEERING §5): intake_form always, logo_received and headshot_received
+   when those files came in. An item already ticked keeps its date; its due
+   date, assignee and linked task are untouched. Idempotent by activity id,
+   one per submit (a reopened and resubmitted onboarding logs again). */
+export function onboardingAppliedPatch(lead, o, today) {
+  if (!lead || !o || o.status !== 'submitted' || !o.submitted_at) return null;
+  const actId = `onb-sub-${o.id}-${String(o.submitted_at).slice(0, 19)}`;
+  const acts = A(lead.activities);
+  if (acts.some(a => a && a.id === actId)) return null;
+  const files = A(o.files || o.onboarding_files).filter(f => f && (f.state === undefined || f.state === 'ok'));
+  const day = S(today, 10) || String(o.submitted_at).slice(0, 10);
+  const ob = { ...(lead.onboarding || {}) };
+  const tick = key => {
+    const cur = ob[key];
+    const entry = !cur ? {} : typeof cur === 'string' ? { done: cur } : { ...cur };
+    if (!entry.done) entry.done = day;
+    ob[key] = { done: entry.done, due: entry.due || null, assignee: entry.assignee || null, taskId: entry.taskId || null };
+  };
+  const ticked = ['Intake form completed'];
+  tick('intake_form');
+  if (files.some(f => f.slot === 'logos')) { tick('logo_received'); ticked.push('logo received'); }
+  if (files.some(f => f.slot === 'headshot')) { tick('headshot_received'); ticked.push('headshot received'); }
+  return {
+    onboarding: ob,
+    activities: [{ id: actId, ts: o.submitted_at, type: 'Note', who: 'Onboarding',
+      text: `Onboarding submitted. Ticked: ${ticked.join(', ')}. ${files.length} file${files.length === 1 ? '' : 's'} uploaded. The answers PDF and build prompts are on the Onboarding tab.` }, ...acts],
+  };
 }

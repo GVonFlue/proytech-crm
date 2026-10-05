@@ -43,7 +43,8 @@ export const PORTAL_CSS = `
   background:radial-gradient(60% 40% at 100% 0%,color-mix(in srgb,var(--o-ice) 16%,transparent),transparent 60%),linear-gradient(180deg,var(--o-bg1),var(--o-bg2))}
 .ob h1,.ob h2,.ob h3,.ob h4,.ob .sg{font-family:"Space Grotesk",Inter,sans-serif;letter-spacing:-.02em;margin:0}
 .ob p{margin:0}
-.ob button{font:inherit;cursor:pointer}
+.ob button{font-family:inherit;cursor:pointer}
+.ob [tabindex="-1"]:focus{outline:none}
 .ob :focus-visible{outline:3px solid var(--o-blue);outline-offset:2px}
 .ob .sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .ob-top{position:sticky;top:0;z-index:5;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 34px;border-bottom:1px solid var(--o-line);background:color-mix(in srgb,#fff 82%,transparent);backdrop-filter:blur(6px)}
@@ -121,7 +122,7 @@ export const PORTAL_CSS = `
 .ob-note{display:flex;gap:10px;align-items:center;background:#F5F8FD;border:1px solid var(--o-line);border-radius:14px;padding:12px 14px;font-size:13px;color:var(--o-mute)}
 .ob-note b{color:var(--o-ink)}
 .ob-note a{color:var(--o-blue);font-weight:600}
-.ob-link{background:none;border:0;padding:0;color:var(--o-blue);font-weight:600;text-decoration:underline;text-align:left}
+.ob-link{background:none;border:0;padding:0;color:var(--o-blue);font-weight:600;font-size:inherit;text-decoration:underline;text-align:left}
 .ob-steps{display:flex;gap:6px;margin:4px 0 18px}
 .ob-steps span{flex:1;height:6px;border-radius:6px;background:#E3EAF5}
 .ob-steps span.d{background:var(--o-ok)}
@@ -130,7 +131,7 @@ export const PORTAL_CSS = `
 .ob-form h2{font-size:26px;margin:8px 0 4px}
 .ob-form .lead{color:var(--o-mute);font-size:14px;margin-bottom:18px}
 .ob-q{border-top:1px solid #EEF2F8;padding:18px 0}
-.ob-q > label,.ob-q > .lbl,.ob-q legend{display:block;font:700 15px "Space Grotesk",sans-serif;margin-bottom:4px;padding:0}
+.ob-q > label,.ob-q .lbl,.ob-q legend{display:block;font:700 15px "Space Grotesk",sans-serif;margin-bottom:4px;padding:0}
 .ob-q fieldset{border:0;margin:0;padding:0;min-width:0}
 .ob-q .req{color:var(--o-cta);margin-left:3px}
 .ob-q small.h{display:block;color:var(--o-mute);font-size:12.5px;margin-bottom:10px}
@@ -160,9 +161,9 @@ textarea.ob-in{min-height:84px;resize:vertical}
 .ob-swatch{position:relative;width:44px;height:44px;border-radius:12px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.08);overflow:hidden}
 .ob-swatch input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
 .ob-swatch button{position:absolute;top:-2px;right:-2px;width:18px;height:18px;border-radius:50%;border:0;background:#fff;color:var(--o-ink);font-size:11px;line-height:18px;box-shadow:0 1px 3px rgba(0,0,0,.2)}
-.ob-row{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));align-items:center;padding:10px;border:1px solid var(--o-line);border-radius:12px;margin-bottom:8px;background:var(--o-bg1)}
+.ob-row{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));align-items:center;padding:10px;border:1px solid var(--o-line);border-radius:12px;margin-bottom:8px;background:var(--o-bg1)}
 .ob-row .x{justify-self:end;border:0;background:none;color:var(--o-mute);font-size:13px;text-decoration:underline}
-.ob-add{border:1px dashed #A9C5EE;background:#FAFCFF;color:var(--o-blue);font-weight:600;border-radius:11px;padding:10px 14px}
+.ob-add{border:1px dashed var(--o-line);background:var(--o-bg1);color:var(--o-blue);font-weight:600;font-size:14px;border-radius:11px;padding:10px 14px}
 .ob-hours{display:grid;gap:6px}
 .ob-hours .d{display:grid;grid-template-columns:90px 1fr 1fr;gap:8px;align-items:center;font-size:14px}
 .ob-pipe{display:grid;gap:6px}
@@ -186,7 +187,7 @@ textarea.ob-in{min-height:84px;resize:vertical}
 .ob-dz input{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
 .ob-dz .ph{display:none}
 .ob-nav{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:8px;padding-top:18px;border-top:1px solid #EEF2F8;flex-wrap:wrap}
-.ob-ghost{padding:12px 18px;border-radius:12px;border:1px solid var(--o-line);font-weight:600;background:#fff;color:var(--o-ink)}
+.ob-ghost{padding:12px 18px;border-radius:12px;border:1px solid var(--o-line);font-weight:600;font-size:15px;background:#fff;color:var(--o-ink)}
 .ob-side .why{font-size:13px;color:var(--o-mute);line-height:1.5}
 .ob-rev h3{font-size:16px;display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .ob-rev dl{display:grid;grid-template-columns:minmax(120px,38%) 1fr;gap:6px 14px;margin:10px 0 0;font-size:13.5px}

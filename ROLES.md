@@ -31,6 +31,7 @@ own commission, and a leaderboard. No company money, anywhere.
 | Dropdown lists and lead columns | A rep **picks from your lists** — Next Action, Service Interest, key-date labels, labels — and cannot add new entries; adding one changes the list for everyone. The Leads **Columns** menu is yours alone for the same reason: the layout is shared by the whole team. |
 | Tasks | Yes — the one shared setting a rep writes. See *The honest limits*. |
 | Proposals | **Never**, and it cannot be switched on per rep. Proposals carry prices, a client's plan and your raw meeting notes, so the table is owner-only in Postgres (VERIFY-RLS.md §12) and both proposal routes require an owner. A rep's login reads zero rows |
+| Onboarding | **Never**, and it cannot be switched on per rep, not even by editing a rep's tab list. A client's onboarding holds their answers, license and NMLS numbers, an EIN for texting registration, their team and their uploaded files (EIN letters, insurance, contact lists). Both tables are owner-only in Postgres (VERIFY-RLS.md §14), the files sit in a private bucket only the server can reach, and the one owner route runs requireOwner. A rep's login reads zero rows; the client record's Onboarding tab is not rendered for a rep |
 
 A rep can never see a tab you've turned off for the whole install in
 **Settings → Sections**. Per-rep tabs narrow what the install has; they can't
@@ -260,6 +261,29 @@ publish on a client log, and publishing a Playbook draft through its preview.
 
 If Pocket deletes a recording their end, we mark ours and take it out of the
 queue — we do not delete your copy. That is your button, on the recording.
+
+## The onboarding portal — the one thing a CLIENT fills in
+
+When a client accepts a proposal, an onboarding is created for them and the
+"You're in" screen's **Start my onboarding** button opens it. You can also make
+one by hand from the **Onboarding** tab for a client with no proposal.
+
+- **The client has a link, not a login.** Like a proposal: 256 random bits in
+  the link's `#`. Anyone with the link can see and edit that client's answers
+  until they submit, so it is emailed only to the address on the lead.
+- **They never type a password, card number or Social Security number.** The
+  portal says so, and the server refuses to save anything shaped like an SSN
+  or a card number, naming the field.
+- **Deposit paid and access received are the client's checklist on the
+  Clients page.** The Onboarding tab's toggles tick the same items; there is
+  no second copy. The launch clock starts on the latest of: submitted,
+  deposit, and each required access item, and counts the offer's launch days
+  in business days.
+- **On submit** you get an email (owners only), and the next time the CRM is
+  open it ticks the client's checklist (intake form, logo, headshot) and
+  notes what came in. The answers PDF, both build prompts and the files are
+  on the Onboarding tab and on the client record.
+- **A rep sees none of it.** See the table above.
 
 ## Turning someone off
 

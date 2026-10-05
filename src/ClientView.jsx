@@ -57,6 +57,9 @@ export default function ClientView({
   lead, settings, stages, tracks, invoices, team,
   onClose, openRecord, updateLead, setClientPhase, phaseInfo, onInvoice,
   toggleMilestone, setMilestoneDue, toggleProjectMilestone,
+  /* the Onboarding tab: rendered by App (owner-only, null otherwise) so this
+     screen never imports the portal or its database calls */
+  renderOnboarding,
 }) {
   const [tab, setTab] = useState('delivery');
   if (!lead) return null;
@@ -233,6 +236,7 @@ export default function ClientView({
               Meetings{noOutcome > 0 ? ` · ${noOutcome} unrecorded` : ''}
             </button>
             <button className={'seg-b ' + (tab === 'activity' ? 'on' : '')} onClick={() => setTab('activity')}>Activity</button>
+            {renderOnboarding && <button className={'seg-b ' + (tab === 'onboarding' ? 'on' : '')} onClick={() => setTab('onboarding')}>Onboarding</button>}
           </div>
 
           {/* --------------------------------------------------- delivery */}
@@ -350,6 +354,7 @@ export default function ClientView({
           )}
 
           {/* --------------------------------------------------- activity */}
+          {tab === 'onboarding' && renderOnboarding && renderOnboarding(l)}
           {tab === 'activity' && (
             <div className="cv-card">
               {!acts.length ? <div className="empty">Nothing logged yet.</div>

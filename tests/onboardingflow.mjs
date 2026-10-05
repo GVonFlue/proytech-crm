@@ -296,6 +296,19 @@ test('checklistState reads its own output unchanged (the portal receives that sh
   eq(L.stillNeeded({ products: [] }, {}, [], once).find(x => x.key === 'deposit').ok, true);
 });
 
+test('onboardingAppliedPatch: ticks the lead\'s own checklist, once per submit, keeping earlier dates', () => {
+  const o = { id: 'o1', status: 'submitted', submitted_at: '2026-10-05T15:00:00Z', onboarding_files: [{ slot: 'logos', state: 'ok' }, { slot: 'headshot', state: 'pending' }] };
+  const lead = { activities: [], onboarding: { intake_form: '2026-10-01', deposit_paid: { done: '2026-10-02', due: '2026-10-03' } } };
+  const p = L.onboardingAppliedPatch(lead, o, '2026-10-05');
+  eq(p.onboarding.intake_form.done, '2026-10-01', 'a legacy string tick keeps its date');
+  eq(p.onboarding.logo_received.done, '2026-10-05');
+  ok(!p.onboarding.headshot_received, 'a pending upload is not a received headshot');
+  eq(p.onboarding.deposit_paid, { done: '2026-10-02', due: '2026-10-03' }, 'untouched items are not rewritten');
+  eq(L.onboardingAppliedPatch({ ...lead, activities: p.activities }, o, '2026-10-05'), null, 'second run: nothing');
+  ok(L.onboardingAppliedPatch({ ...lead, activities: p.activities }, { ...o, submitted_at: '2026-10-09T10:00:00Z' }, '2026-10-09'), 'a resubmit applies again');
+  eq(L.onboardingAppliedPatch(lead, { ...o, status: 'in_progress' }, '2026-10-05'), null);
+});
+
 test('offer contacts carry an optional role and a SAFE photo (the build crew card)', () => {
   const { offer } = P.readOffer({ offer: { packages: [{ id: 'a', name: 'A' }], company: { name: 'X', contacts: [
     { name: 'Al', phone: '3165550100', role: 'Build', photo: '/team/al.jpg' }, { name: 'Bo', email: 'b@b.test', photo: 'javascript:alert(1)' }] } } });

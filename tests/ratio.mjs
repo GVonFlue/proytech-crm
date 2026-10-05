@@ -97,7 +97,10 @@ ok('show rate admits nothing is unmarked here', show && !/unmarked/.test(show.d)
 
 console.log('\nSettings toggle');
 await nav('Settings');
-const rows=[...document.querySelectorAll('.mod-row')].filter(r=>/^(Coffee|Discovery Call|Proposal \/ Pitch|Onboarding|Check-in|Other)$/.test((r.querySelector('span')||{}).textContent||''));
+/* scoped to the meeting-types card: "Onboarding" is both a meeting type and,
+   since the onboarding portal, a module in Settings → Sections */
+const mtCard=[...document.querySelectorAll('.card')].find(c=>/What counts as a sales meeting/.test(c.textContent));
+const rows=[...(mtCard||document).querySelectorAll('.mod-row')].filter(r=>/^(Coffee|Discovery Call|Proposal \/ Pitch|Onboarding|Check-in|Other)$/.test((r.querySelector('span')||{}).textContent||''));
 ok('a card lists every meeting type', rows.length===6, 'rows='+rows.length);
 const coffeeRow=rows.find(r=>((r.querySelector('span')||{}).textContent||'')==='Coffee');
 ok('Coffee is off by default', coffeeRow && !coffeeRow.querySelector('input').checked);

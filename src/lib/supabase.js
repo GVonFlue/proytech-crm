@@ -377,6 +377,40 @@ export const db = {
     if (error) throw new Error(error.message || 'Could not save the proposal.');
     return (data || [])[0] && data[0].id;
   },
+  /* ---- onboardings: the client portal's rows -------------------------------
+
+     OWNER ONLY IN POSTGRES (ONBOARDING-MIGRATION.sql), the proposals shape: a
+     rep's login reads zero rows. The portal never comes through here; it goes
+     through api/onboarding-public.js. Signed file links and delete need the
+     service key, so those go through api/onboarding-admin.js, not here.
+     Fails SOFT to null on read (migration not run -> "not set up"); writes
+     throw, so a save that did not land is never reported as saved. */
+  async listOnboardings() {
+    const { data, error } = await supabase.from('onboardings')
+      .select('id,lead_id,proposal_id,token,status,industry,lender_kind,products,package_name,answers,sections,outputs,created_at,updated_at,last_activity_at,submitted_at,applied_at,onboarding_files(id,slot,original_name,mime,bytes,sensitive,state,path,created_at)')
+      .order('updated_at', { ascending: false });
+    if (error) { console.warn('[onboardings]', error.message); return null; }
+    return data || [];
+  },
+  async createOnboarding(row) {
+    const { data, error } = await supabase.from('onboardings').insert({
+      lead_id: row.lead_id, token: row.token, products: row.products || [], industry: row.industry || null,
+      lender_kind: row.lender_kind || null, proposal_id: row.proposal_id || null, package_name: row.package_name || '',
+    }).select('id');
+    if (error) throw new Error(/duplicate|unique/i.test(error.message || '') ? 'That proposal already has an onboarding.' : (error.message || 'Could not create the onboarding.'));
+    return (data || [])[0] && data[0].id;
+  },
+  async updateOnboarding(id, patch) {
+    const { data, error } = await supabase.from('onboardings').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id).select('id');
+    if (error) throw new Error(error.message || 'Could not save the onboarding.');
+    if (!data || !data.length) throw new Error('That onboarding no longer exists.');
+  },
+  async markOnboardingApplied(id, submittedAt) {
+    /* only the submit it was applied for: a resubmit after "needs info" has a
+       newer submitted_at and must be applied again */
+    const { error } = await supabase.from('onboardings').update({ applied_at: new Date().toISOString() }).eq('id', id).eq('submitted_at', submittedAt).is('applied_at', null);
+    if (error) console.warn('[onboardings] applied_at', error.message);
+  },
   async markProposalApplied(id) {
     const { error } = await supabase.from('proposals').update({ applied_at: new Date().toISOString() }).eq('id', id).is('applied_at', null);
     if (error) console.warn('[proposals] applied_at', error.message);
