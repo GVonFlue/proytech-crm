@@ -9,6 +9,14 @@
 import fs from 'fs'; import path from 'path';
 import { fileURLToPath } from 'node:url';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
+/* FROZEN CLOCK (tests/clock.mjs): this suite's answers depend on today; the
+   sweep under several timezones and hours showed it was not independent. */
+import { freezeClock, localISO, daysAgo } from './clock.mjs';
+freezeClock();
+/* bundles are named per process (tests/clockguard.mjs runs this suite in
+   parallel, and a shared name let one run import another's half-written
+   file); delete ours on the way out */
+process.on('exit', () => { for (const f of fs.readdirSync('tests')) if (f.endsWith(`-${process.pid}.mjs`)) { try { fs.unlinkSync('tests/' + f); } catch {} } });
 
 /* THE APP'S SOURCE, ALL OF IT.
    These assertions are about code, not behaviour — "the cutoff is a named
@@ -47,7 +55,7 @@ const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); } els
 {
   const c = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true, write:false,
     format:'esm', platform:'neutral', external:['lucide-react','react'], define:{'import.meta.env':'{}'} });
-  fs.writeFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '.bmc.mjs'), c.outputFiles[0].text);
+  fs.writeFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), `.bmc-${process.pid}.mjs`), c.outputFiles[0].text);
 }
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://crm.test/', pretendToBeVisual: true });
@@ -86,9 +94,9 @@ dom.window.confirm = () => true;
    Deriving the second kind from the constant means moving PAYMENTS_FROM (which
    lib/lead.js explicitly contemplates) moves the fixture with it, instead of
    silently reclassifying half the cast.                                     */
-const { CASH_RULE_FROM, PAYMENTS_FROM } = await import('./.bmc.mjs?v=' + Date.now());
+const { CASH_RULE_FROM, PAYMENTS_FROM } = await import(`./.bmc-${process.pid}.mjs`);
 
-const MONTH = new Date().toISOString().slice(0, 7);           // the app's "this month"
+const MONTH = localISO().slice(0, 7);   // the app's "this month" is the LOCAL month (it was a UTC one, wrong on the 1st east of UTC)
 const D = d => `${MONTH}-${d}`;
 
 /* The older of the two rule dates, so LEGACY() clears BOTH boundaries. */
@@ -295,8 +303,8 @@ const out = await esbuild.build({ entryPoints:[path.join(root,'src/App.jsx')], b
  define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{ name:'stub', setup(b){ b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.join(here,'stub-supabase.js')})); } }],
  logLevel:'silent' });
-fs.writeFileSync(path.join(here,'.bma.mjs'), out.outputFiles[0].text);
-const mod = await import('./.bma.mjs?v=' + Date.now());
+fs.writeFileSync(path.join(here,`.bma-${process.pid}.mjs`), out.outputFiles[0].text);
+const mod = await import(`./.bma-${process.pid}.mjs`);
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
 const { act } = await import('react');

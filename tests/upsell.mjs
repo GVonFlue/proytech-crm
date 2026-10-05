@@ -1,5 +1,13 @@
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
+/* FROZEN CLOCK (tests/clock.mjs): this suite's answers depend on today; the
+   sweep under several timezones and hours showed it was not independent. */
+import { freezeClock, localISO } from './clock.mjs';
+freezeClock();
+/* bundles are named per process (tests/clockguard.mjs runs this suite in
+   parallel, and a shared name let one run import another's half-written
+   file); delete ours on the way out */
+process.on('exit', () => { for (const f of fs.readdirSync('tests')) if (f.endsWith(`-${process.pid}.mjs`)) { try { fs.unlinkSync('tests/' + f); } catch {} } });
 const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://crm.test/',pretendToBeVisual:true});
 for(const k of ['window','document','HTMLElement','Element','Node','Event','CustomEvent','getComputedStyle',
  'requestAnimationFrame','cancelAnimationFrame','localStorage','sessionStorage','history','location','navigator','MutationObserver']){
@@ -39,8 +47,8 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.b7.mjs',out.outputFiles[0].text);
-const mod=await import('./.b7.mjs?v='+Date.now());
+fs.writeFileSync(`tests/.b7-${process.pid}.mjs`,out.outputFiles[0].text);
+const mod=await import(`./.b7-${process.pid}.mjs`);
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');
@@ -120,7 +128,7 @@ ok('history survived', w && (w.activities||[]).some(a=>a.text==='Existing note')
 ok('dealValue back to zero', w && num0(w.dealValue)===0, 'dealValue='+(w&&w.dealValue));
 function num0(v){const n=Number(v);return isNaN(n)?0:n;}
 
-const isoNow=new Date().toISOString().slice(0,10);
+const isoNow=localISO();   // the app dates the archive with the LOCAL day
 console.log('\nnow it IS revenue');
 await nav('Dashboard');
 /* Assert on the DATA, not a dashboard tile. Revenue Collected is cash-gated

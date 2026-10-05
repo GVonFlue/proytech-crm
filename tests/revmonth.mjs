@@ -21,12 +21,20 @@
    drift back: quoted work is out, won work is in, an invoice changes only how
    the AGE is described and never the amount.                                 */
 import esbuild from 'esbuild';
+/* FROZEN CLOCK (tests/clock.mjs): this suite's answers depend on today, and
+   it went red every evening in Kansas because its fixtures were UTC dates. */
+import { freezeClock, daysAgo } from './clock.mjs';
+freezeClock();
 const out = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true, write:false,
   format:'esm', platform:'neutral', external:['lucide-react','react'], define:{'import.meta.env':'{}'} });
 const { writeFile } = await import('node:fs/promises');
-await writeFile('tests/.brm.mjs', out.outputFiles[0].text);
+/* one bundle file PER PROCESS: tests/clockguard.mjs runs this suite in
+   parallel, and a shared name let one run import another's half-written file */
+const BUNDLE = `.brm-${process.pid}.mjs`;
+await writeFile('tests/' + BUNDLE, out.outputFiles[0].text);
 const { revenueForMonth, owedRows, owedFromMonth, owedSince, daysOld, owedBy, todayISO }
-  = await import('./.brm.mjs?v=' + Date.now());
+  = await import('./' + BUNDLE);
+await (await import('node:fs/promises')).unlink('tests/' + BUNDLE).catch(() => {});
 
 let p = 0, f = 0;
 const ok = (n, c, x = '') => { c ? (p++, console.log('  ok  ' + n))
@@ -37,7 +45,7 @@ const now = new Date();
 const THIS = `${now.getFullYear()}-${pad(now.getMonth() + 1)}`;
 const prev = new Date(now.getFullYear(), now.getMonth() - 1, 15);
 const PREV = `${prev.getFullYear()}-${pad(prev.getMonth() + 1)}`;
-const daysAgoISO = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
+const daysAgoISO = n => daysAgo(n);   // the LOCAL calendar date, as the app reads it
 
 const STAGES = [
   { key:'discovery', label:'Discovery', open:true },

@@ -16,6 +16,9 @@
    - the CRM list shows status, viewed time and value, and a missing number
      is a dash, never $0.                                                    */
 import fs from 'node:fs'; import path from 'node:path'; import esbuild from 'esbuild';
+/* bundles are named per process (tests/clockguard.mjs runs this suite in
+   parallel); delete ours on the way out */
+process.on('exit', () => { for (const f of fs.readdirSync('tests')) if (f.endsWith(`-${process.pid}.mjs`)) { try { fs.unlinkSync('tests/' + f); } catch {} } });
 import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -23,7 +26,7 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { c ? (pass++, console.log('  ok  ' + n)) : (fail++, console.log('  FAIL ' + n + (x ? ' — ' + String(x).slice(0, 300) : ''))); };
 
 /* render the REAL components to static markup */
-const entry = path.join(ROOT, 'tests/.bpdesign-entry.jsx');
+const entry = path.join(ROOT, `tests/.bpdesign-entry-${process.pid}.jsx`);
 fs.writeFileSync(entry, `import React from 'react'; import { renderToStaticMarkup } from 'react-dom/server';
 import ProposalDoc, { PROPOSAL_CSS } from '../src/ProposalDoc.jsx';
 import Proposals from '../src/Proposals.jsx';
@@ -35,8 +38,8 @@ const built = await esbuild.build({ entryPoints: [entry], bundle: true, write: f
   loader: { '.js': 'jsx' }, external: ['react', 'react-dom', 'react-dom/server', 'react/jsx-runtime', 'lucide-react'],
   define: { 'import.meta.env': '{}' }, logLevel: 'error',
   plugins: [{ name: 'stub', setup(b) { b.onResolve({ filter: /(^|\/)lib\/supabase$/ }, () => ({ path: path.join(ROOT, 'tests/stub-supabase.js') })); } }] });
-const out = path.join(ROOT, 'tests/.bpdesign.mjs'); fs.writeFileSync(out, built.outputFiles[0].text);
-const { doc, list, PROPOSAL_CSS, P } = await import(out + '?' + Date.now());
+const out = path.join(ROOT, `tests/.bpdesign-${process.pid}.mjs`); fs.writeFileSync(out, built.outputFiles[0].text);
+const { doc, list, PROPOSAL_CSS, P } = await import(out);
 fs.unlinkSync(entry); fs.unlinkSync(out);
 
 const OFFER = JSON.parse(fs.readFileSync(path.join(ROOT, 'PROPOSAL-OFFER.json'), 'utf8'));
@@ -101,11 +104,18 @@ console.log('\nthe client page loads the faces');
 
 console.log('\nthe Proposals tab');
 {
-  const d = n => new Date(Date.parse('2026-10-03T12:00:00Z') + n * 864e5).toISOString();
+  /* RELATIVE TO NOW, not to a fixed day: these were anchored on 3 Oct 2026, so
+     on 2 Nov 2026 every "open" proposal below would have expired in real time
+     and this suite gone red with nothing broken. The one absolute instant
+     left is the view time, built as LOCAL wall-clock time (3 Oct, 2:16 pm) so
+     it reads "Oct 3 · 2:16 PM" in every timezone; it was 19:16 UTC, which is
+     already 4 Oct east of +04:44. */
+  const d = n => new Date(Date.now() + n * 864e5).toISOString();
+  const VIEWED_AT = new Date(2026, 9, 3, 14, 16).toISOString();
   const mk = (id, lead, status, extra, quote) => ({ id, lead_id: lead, status, token: 'x', updated_at: d(-1), body: { ...BODY, quote: { ...BODY.quote, ...(quote || {}) } }, ...extra });
   const leads = [{ id: 'L1', name: 'Jordan Reed', company: 'Reed Realty Group' }, { id: 'L2', name: 'Dee', company: 'Dee Co' }, { id: 'L3', name: 'Sam', company: 'Ortiz Roofing' }, { id: 'L4', name: 'Pat', company: 'Lee Dental' }];
   const proposals = [
-    mk('p1', 'L1', 'viewed', { sent_at: d(-1), viewed_at: '2026-10-03T19:16:00Z', expires_at: d(30) }),
+    mk('p1', 'L1', 'viewed', { sent_at: d(-1), viewed_at: VIEWED_AT, expires_at: d(30) }),
     mk('p2', 'L2', 'sent', { sent_at: d(-2), expires_at: d(30) }, { setup: 1500, monthly: 149 }),
     mk('p3', 'L3', 'accepted', { sent_at: d(-6), viewed_at: d(-5), accepted_at: d(-4), accepted_name: 'Sam Ortiz', expires_at: d(1) }, { setup: 1999, monthly: 199 }),
     mk('p4', 'L4', 'draft', {}, { setup: undefined }),
@@ -117,7 +127,7 @@ console.log('\nthe Proposals tab');
     ok(`status chip "${k}" with its count (${n})`, new RegExp(`class="pp-chip ${k}[^"]*"[^>]*>.*?<span>${n}</span>`).test(h));
   ok('no Expired chip when nothing has expired', !/pp-chip expired/.test(h));
   ok('every row carries its status chip', ['viewed', 'sent', 'accepted', 'draft'].every(s => new RegExp(`class="pp-pill ${s}"`).test(h)));
-  ok('when it was viewed, to the minute', /Viewed Oct 3 · \d{1,2}:16 [AP]M/.test(txt), (txt.match(/Viewed [^·]+·[^ ]+ [AP]M/) || [''])[0]);
+  ok('when it was viewed, to the minute', /Viewed Oct 3 · 2:16 PM/.test(txt), (txt.match(/Viewed [^·]+·[^ ]+ [AP]M/) || [''])[0]);
   ok('a sent proposal not yet opened says so', /Not opened yet/.test(txt));
   ok('the accepted row says who accepted', /Accepted [^·]+·[^b]+by Sam Ortiz/.test(txt));
   ok('each row shows its value: setup, and the monthly beside it', /\$4,499 \$548\/mo/.test(txt) && /\$1,999 \$199\/mo/.test(txt));
