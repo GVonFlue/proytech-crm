@@ -136,6 +136,8 @@ declare
   open_tables text;
   rls_off     text;
   no_policy   text;
+  open_storage text;
+  public_buckets text;
 begin
   ------------------------------------------------- 2a. permissive `true` anywhere
   -- The shape found twice on 23 Aug 2026. ONE of these on a table overrides
@@ -184,6 +186,44 @@ begin
     raise notice 'RLS-AUDIT note: RLS on with no policy (denies all, probably unfinished): %', no_policy;
   end if;
 
+  ---------------------------------------------------- 2d. STORAGE (Oct 2026)
+  -- Files are rows too. storage.objects holds EVERY bucket's files and its
+  -- policies are ORed across buckets exactly like a table's, so one policy
+  -- that does not name a bucket (or is `true`) opens every bucket at once,
+  -- the private onboarding bucket included. This file used to sweep `public`
+  -- only, which is how two buckets stayed open while it passed.
+  --   RAISES on: a permissive storage policy that is `true`, or that does not
+  --              mention bucket_id at all (so it is not scoped to a bucket).
+  --   NOTES:     every public bucket (served by URL with no policy checked).
+  -- An install with no storage schema (a plain Postgres) is skipped, said so.
+  if to_regclass('storage.objects') is null then
+    raise notice 'RLS-AUDIT note: no storage.objects here, so the storage sweep was skipped.';
+  else
+    select string_agg(format('storage.objects.%s (%s): using=%s check=%s', polname,
+                             case polcmd when 'r' then 'SELECT' when 'a' then 'INSERT' when 'w' then 'UPDATE'
+                                         when 'd' then 'DELETE' else 'ALL' end,
+                             coalesce(pg_get_expr(polqual, polrelid), '(none)'),
+                             coalesce(pg_get_expr(polwithcheck, polrelid), '(none)')), E'\n  ' order by polname)
+      into open_storage
+      from pg_policy
+     where polrelid = to_regclass('storage.objects')
+       and polpermissive
+       and (
+            (polcmd <> 'a' and coalesce(pg_get_expr(polqual, polrelid), 'true') = 'true')
+         or (pg_get_expr(polwithcheck, polrelid) = 'true')
+         or coalesce(pg_get_expr(polqual, polrelid), '') || coalesce(pg_get_expr(polwithcheck, polrelid), '') !~ 'bucket_id'
+       );
+    if to_regclass('storage.buckets') is not null then
+      execute 'select string_agg(id, '', '' order by id) from storage.buckets where public' into public_buckets;
+      if public_buckets is not null then
+        raise notice 'RLS-AUDIT note: PUBLIC storage buckets (anyone with a file URL reads it, no policy checked): %', public_buckets;
+      end if;
+    end if;
+    if open_storage is not null then
+      raise exception E'RLS-AUDIT FAILED: storage policies that are `true` or not scoped to a bucket:\n  %\nstorage.objects holds every bucket''s files, so each of these opens EVERY bucket.', open_storage;
+    end if;
+  end if;
+
   if rls_off is not null then
     raise exception E'RLS-AUDIT FAILED: row level security is OFF on:\n  %\nThese are governed only by GRANTs, and Supabase grants anon and authenticated by default.', rls_off;
   end if;
@@ -193,8 +233,9 @@ begin
   end if;
 
   raise notice '----------------------------------------------------------------';
-  raise notice 'RLS-AUDIT OK: every table in public has RLS on, and no permissive';
-  raise notice 'policy anywhere evaluates to true. Read section 1 anyway — this';
+  raise notice 'RLS-AUDIT OK: every table in public has RLS on, no permissive policy';
+  raise notice 'anywhere evaluates to true, and every storage policy names a bucket.';
+  raise notice 'Read section 1 anyway — this';
   raise notice 'proves nothing is WIDE open, not that every expression is RIGHT.';
   raise notice '----------------------------------------------------------------';
 end $$;
