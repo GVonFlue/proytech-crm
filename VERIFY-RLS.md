@@ -1434,6 +1434,37 @@ A second permissive policy would make the rep's count non-zero; a missing
 would make step 4 list folders. Those are the three ways this goes wrong
 quietly.
 
+### 14b. The asset ticks (after LIFECYCLE-MIGRATION.sql)
+
+`LIFECYCLE-MIGRATION.sql` replaces one function, `onboarding_public()`, so the
+checklist it returns also carries the lead's `logo_received` and
+`headshot_received` ticks (Terms 6.2: the clock waits on them). No table,
+column or policy changes. What could go wrong is the replacement losing its
+grants or its definer status, so that is what this checks.
+
+**Status: NOT YET RUN against the real install.** Proven locally by
+`tests/onbrlsdb.mjs` (PGlite: applied over the pre-lifecycle function, re-run,
+RLS-AUDIT passes, anon and authenticated refused, the ticks come from the
+lead).
+
+The migration's own read-back is the check:
+```sql
+select p.proname, p.prosecdef as security_definer,
+       has_function_privilege('anon', p.oid, 'execute')          as anon_can,
+       has_function_privilege('authenticated', p.oid, 'execute') as authed_can,
+       has_function_privilege('service_role', p.oid, 'execute')  as server_can,
+       position('logo_received' in p.prosrc) > 0 and position('headshot_received' in p.prosrc) > 0 as returns_assets
+  from pg_proc p where p.proname = 'onboarding_public';
+```
+
+| check | expected | result |
+|---|---|---|
+| security_definer | true | |
+| anon_can / authed_can | false / false | |
+| server_can | true | |
+| returns_assets | true | |
+| RLS-AUDIT.sql | RLS-AUDIT OK | |
+
 ## Coverage, honestly
 
 Two tables were added in Aug 2026 and **neither is fully verified.** The gap is

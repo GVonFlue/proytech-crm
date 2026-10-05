@@ -26,8 +26,10 @@ import ClientView from './ClientView';
 import ServiceAssign from './ServiceAssign';
 import Proposals, { OfferEditor } from './Proposals';
 import Onboarding, { ClientOnboarding } from './Onboarding';
-import { onboardingAppliedPatch } from './lib/onboarding';
-import { proposalEventsPatch } from './lib/proposal';
+import { onboardingAppliedPatch, readOnbConfig } from './lib/onboarding';
+import { proposalEventsPatch, readOffer } from './lib/proposal';
+import { readLifecycle, productsOf, clockOf, dueItems, lifecyclePatch, waitingOn } from './lib/lifecycle';
+import { LifecycleStrip, WhatsDue, LifecycleSettings, LIFECYCLE_CSS } from './Lifecycle';
 import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, collectedByService, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
@@ -134,6 +136,14 @@ const onboardingStat=lead=>{ const ob=lead.onboarding||{}; let done=0,overdue=0,
   const items=onbItemsFor(lead);
   items.forEach(i=>{ const e=normEntry(ob[i.key]); if(e.done) done++; else { if(!next) next=i; if(e.due){ if(daysUntil(e.due)<0) overdue++; if(!nextDue||e.due<nextDue) nextDue=e.due; } } });
   return {done,total:items.length,pct:items.length?done/items.length:0,overdue,nextDue,next}; };
+/* ONE overdue count for a client card, its column and the Clients KPI, so the
+   board and "What's due" agree: the lifecycle's items (derived dates, or a
+   typed one), plus any other checklist item someone dated by hand. Without a
+   lifecycle row (a rep, or before it loads) it is the checklist count. */
+const clientOverdue=(lead,row)=>{ if(!row) return onboardingStat(lead).overdue;
+  const homes=new Set(row.items.filter(i=>i.home.kind==='onb').map(i=>i.home.key)); const ob=lead.onboarding||{};
+  const extra=onbItemsFor(lead).filter(i=>!homes.has(i.key)).filter(i=>{ const e=normEntry(ob[i.key]); return !e.done&&e.due&&daysUntil(e.due)<0; }).length;
+  return row.items.filter(i=>i.overdue).length+extra; };
 /* one-time, idempotent pipeline migration: pre-migration installs (empty or the
    old 6-key default) get the new 5 stages, and every lead's stage key is remapped.
    Safe to run on every load — a no-op once migrated. */
@@ -5328,8 +5338,55 @@ export default function App(){
     const mk=(title,cadence,days)=>({...newTask(owner),title,leadId:id,seededActive:true,notes:`Recurring ${cadence} — recreate when done.`,due:addDays(todayISO(),days)});
     saveTasks([mk('Monthly results text/email','monthly',30),mk('Quarterly system check + upsell scan','quarterly',90),...tasks]); };
   /* set/advance a client's phase + log it; entering Active seeds handoff tasks */
+  /* CLIENT LIFECYCLE (lib/lifecycle). One row per client: the clock (#90's
+     launchState, the portal's own function), the due items and what they
+     wait on. Owners only: a rep's dashboard and board never get it.
+     `lcReady` waits for the proposals and onboardings lists, because without
+     an onboarding's answers the clock would read fewer required items and
+     could move a client to Build early. */
+  const lcCfg=useMemo(()=>readLifecycle(settings),[settings]);
+  const lcRows=useMemo(()=>{ if(!isOwner) return [];
+    /* no offer saved yet: no launch days from it (null), never a crash */
+    const offer=readOffer(settings).offer||{}; const onbCfg=readOnbConfig(settings,offer); const tracks=settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS; const today=todayISO();
+    const newest=(list,f)=>Array.isArray(list)?list.filter(f).sort((a,b)=>String(b.accepted_at||b.created_at||'').localeCompare(String(a.accepted_at||a.created_at||'')))[0]||null:null;
+    return leads.filter(l=>l&&l.isClient&&(l.clientPhase||'intake')!=='churned').map(l=>{
+      const onb=newest(onboardings,o=>o&&o.lead_id===l.id);
+      const prop=newest(proposals,p=>p&&p.lead_id===l.id&&p.status==='accepted');
+      const body=(prop&&prop.body)||{};
+      const products=productsOf({onboarding:onb,proposal:prop,productMap:onbCfg.productMap,trackKeys:activeTracks(l,tracks).map(t=>t.key)});
+      /* the days the proposal promised, else the offer's; null, never a guessed 14 */
+      const launchDays=Number.isInteger(body.launchDays)?body.launchDays:(Number.isInteger(offer.launchDays)?offer.launchDays:null);
+      const contact=(Array.isArray(body.contacts)&&body.contacts[0]&&body.contacts[0].name)||l.owner||'';
+      const c={onboarding:onb,proposal:prop,products,launchDays,contact,cfg:lcCfg,tracks,today};
+      const clock=clockOf(l,c); const items=dueItems(l,c);
+      return {lead:l,ctx:c,clock,items,waiting:waitingOn(l,clock,items)}; });
+  },[isOwner,leads,onboardings,proposals,settings,lcCfg]);
+  const lcReady=loaded&&isOwner&&(!proposalsOn||proposals!==undefined)&&(!onboardingOn||onboardings!==undefined);
+  /* the automatic moves, pauses and due dates: one patch per client through
+     updateLead (ENGINEERING §3). lifecyclePatch is idempotent, so applying
+     it re-renders to null. The ref is a fuse: the same patch twice for one
+     client means it is not converging, and it is logged, not looped. */
+  const lcLast=React.useRef({});
+  useEffect(()=>{ if(!lcReady) return;
+    for(const r of lcRows){
+      const patch=lifecyclePatch(r.lead,{...r.ctx,lastContact:lastTouch(r.lead),label:k=>phaseInfo(k,settings,r.lead).label});
+      if(!patch) continue;
+      const sig=JSON.stringify(patch); if(lcLast.current[r.lead.id]===sig){ console.warn('[lifecycle] patch did not converge for',r.lead.id); continue; }
+      lcLast.current[r.lead.id]=sig; updateLead(r.lead.id,patch);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[lcReady,lcRows]);
+  /* one-click done from "What's due": the item's own home, so the checklist,
+     the track and the dashboard tick together */
+  const markDue=(leadId,it)=>{ const h=it&&it.home; if(!h) return;
+    if(h.kind==='onb') return toggleOnboarding(leadId,h.key);
+    if(h.kind==='track') return toggleMilestone(leadId,h.track,h.milestone);
+    const l=leadsRef.current.find(x=>x.id===leadId); if(!l) return; const lc=l.lifecycle||{}; const items={...(lc.items||{})};
+    items[h.key]={...(items[h.key]||{}),done:todayISO()};
+    updateLead(leadId,{lifecycle:{...lc,items},activities:[{id:uid(),ts:new Date().toISOString(),type:'Task',text:'✓ '+it.label,who:me},...(l.activities||[])]}); };
   const setClientPhase=(id,phase)=>{ const l=leads.find(x=>x.id===id); if(!l)return; let updated=null; setLeads(leads.map(x=>{ if(x.id!==id)return x;
-    updated={...x,isClient:true,clientPhase:phase,activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Phase → '+phaseInfo(phase,settings,l).label,who:me},...x.activities]}; return updated; }));
+    /* phaseSince drives "days in stage"; launchedAt starts the 30 days to Active */
+    updated={...x,isClient:true,clientPhase:phase,phaseSince:x.clientPhase===phase?(x.phaseSince||todayISO()):todayISO(),...(phase==='launch'&&!x.launchedAt?{launchedAt:todayISO()}:{}),activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:'Phase → '+phaseInfo(phase,settings,l).label,who:me},...x.activities]}; return updated; }));
     if(updated){ putLead(updated); if(phase==='active') seedActiveTasks(id,l.owner); } };
   /* PROJECTS. A client's next purchase, tracked beside the first build rather
      than on top of it (lib/lead.js, "projects"). One writer for every project
@@ -5493,7 +5550,7 @@ export default function App(){
     moveNav(navOrder.indexOf(navDrag),navOrder.indexOf(key)); setNavDrag(null); };
   const navItems=navOrder.map(k=>NAV.find(([kk])=>kk===k)).filter(Boolean).filter(([k])=>canSee(k));
 
-  return (<><style>{CSS}</style><div className="pt">
+  return (<><style>{CSS+LIFECYCLE_CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <SidebarArt/>
@@ -5545,7 +5602,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedMoney} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard labelServices={isOwner?()=>setSvcAssign(true):null} pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null}/>:
+          view==='dash'?<Dashboard labelServices={isOwner?()=>setSvcAssign(true):null} pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null} lcRows={lcRows} markDue={markDue}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -5558,7 +5615,7 @@ export default function App(){
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
           view==='onboarding'?<Onboarding leads={leads} settings={settings} saveSettings={saveSettings} apiPost={apiPost} onboardings={onboardings} proposals={proposals} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openLead={openLead} selected={onbSel} setSelected={setOnbSel}/>:
           view==='proposals'?<Proposals leads={leads} settings={settings} apiPost={apiPost} me={me} openLead={openLead} proposals={proposals} reload={refreshProposals} onSaved={refreshProposals}/>:
-          view==='clients'?<Clients labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
+          view==='clients'?<Clients lcRows={lcRows} labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
             renderOnboarding={onboardingOn?(c=><ClientOnboarding lead={c} onboardings={onboardings} settings={settings} apiPost={apiPost} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openOnboarding={id=>{setOnbSel(id);setPage('onboarding');}}/>):null}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
@@ -5901,7 +5958,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({labelServices,leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep,invoices}){
+function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep,invoices}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings,txns);
   const [drill,setDrill]=useState(null);
@@ -6224,6 +6281,8 @@ function Dashboard({labelServices,leads,stages,open,tagBooked,setMeetingStatus,s
     ? dashHidden.filter(k=>k!==key) : [...dashHidden,key]);
 
   const BLOCKS={
+    /* owner only: client delivery is not a rep screen (ROLES.md) */
+    due:rep||!Array.isArray(lcRows)||!lcRows.length?null:<WhatsDue rows={lcRows} me={me} today={todayISO()} label={k=>phaseInfo(k,settings).label} onDone={markDue} openLead={open}/>,
     /* What came in, and when. Defaults to today; the range buttons widen it.
        Counts come from countAdded so this tile and anything that counts intake
        later cannot drift apart. */
@@ -6853,6 +6912,7 @@ function Dashboard({labelServices,leads,stages,open,tagBooked,setMeetingStatus,s
     </div>
 
     {dashOrder.map((k,i)=>{
+      if(k==='due'&&rep) return null;
       const hidden=dashHidden.includes(k);
       if(hidden&&!arrange) return null;
       if(!arrange) return <React.Fragment key={k}>{BLOCKS[k]}</React.Fragment>;
@@ -6911,6 +6971,7 @@ const countAdded=(rows,days)=>addedWithin(rows,days).length;
 
 const DASH_SECTIONS=[
   ['today',    'Your day'],
+  ['due',      "What's due"],
   ['intake',   'New leads & relationships'],
   ['scorecard','Team scorecard'],
   ['revenue',  'Pipeline & revenue'],
@@ -8440,7 +8501,8 @@ function ClientRoadmap({clients,tracks,open}){
    column at all. */
 const projFlowOf=settings=>stdPhases(settings).filter(p=>p.flow).map(p=>p.key);
 const projPhaseOf=(pj,settings)=>{ const f=projFlowOf(settings); return f.includes(pj&&pj.phase)?pj.phase:(f[0]||'intake'); };
-function ClientBoard({clients,settings,onCard,setClientPhase,stages,projects,setProjectPhase,tracks}){
+function ClientBoard({lcRows,clients,settings,onCard,setClientPhase,stages,projects,setProjectPhase,tracks}){
+  const lcBy=new Map((lcRows||[]).map(r=>[r.lead.id,r])); const lcToday=todayISO();
   const [dragId,setDragId]=useState(null);const [over,setOver]=useState(null);
   const cols=boardCols(clients,settings);
   const flow=projFlowOf(settings);
@@ -8461,10 +8523,11 @@ function ClientBoard({clients,settings,onCard,setClientPhase,stages,projects,set
     </div>);
   };
   const step=(l,dir)=>{ const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake'); const j=i+dir; if(i<0){ if(dir>0)setClientPhase(l.id,order[0]); return;} if(j<0||j>=order.length)return; setClientPhase(l.id,order[j]); };
-  const Card=({l})=>{ const st=onboardingStat(l); const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake');
+  const Card=({l})=>{ const st={...onboardingStat(l),overdue:clientOverdue(l,lcBy.get(l.id))}; const order=flowOrder(settings,l); const i=order.indexOf(l.clientPhase||'intake');
     return (<div className={'kcard'+(st.overdue>0?' od':'')+(dragId===l.id?' dragging':'')} draggable onDragStart={()=>setDragId(l.id)} onDragEnd={()=>{setDragId(null);setOver(null);}} onClick={()=>onCard&&onCard(l.id)}>
       <div className="kcard-top"><div className="kn"><span className="dot" style={{background:phaseInfo(l.clientPhase||'intake',settings,l).color}}/>{personLabel(l)}</div>{l.owner&&<span className="kown">{l.owner[0].toUpperCase()}</span>}</div>
       <div className="kco">{l.company&&l.company!==l.name?l.company:l.businessType||''}</div>
+      <LifecycleStrip row={lcBy.get(l.id)} today={lcToday} label={k=>phaseInfo(k,settings,l).label} onMove={setClientPhase}/>
       {(()=>{ const ds=dealsOf(l).filter(d=>d.label); if(!ds.length) return null;
         return (<div className="kdeals">{ds.map(d=>(<span className="kdeal" key={d.id} title={d.label}>{d.label}{dealBits(d)>0?` · ${usdK?usdK(dealBits(d)):usd(dealBits(d))}`:''}</span>))}</div>); })()}
       <div className="kmeta"><span className="kvals">{(()=>{ /* AUDIT #2. This used to be `dealValue + retainer - every payment ever`.
@@ -8474,7 +8537,7 @@ function ClientBoard({clients,settings,onCard,setClientPhase,stages,projects,set
        vanished, while the Money page correctly said $3,000 owed. owedBy() is the
        one function that answers this, and it already encodes the won-or-client
        rule. A hidden wrong number is worse than a visible one. */
-      const rem=owedBy(l,stages); return rem>0?<span className="kbal" title="Remaining balance — contracted minus paid">{usdc(rem)} due</span>:null; })()}{(l.closedDeals||[]).length>0&&<span className="kltv" title="Closed deals only — money already won, not deals still open">{usd(closedDealsTotal(l))} closed</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
+      const rem=owedBy(l,stages); return rem>0?<span className="kbal" title="Remaining balance — contracted minus paid">{usdc(rem)} due</span>:null; })()}{(l.closedDeals||[]).length>0&&<span className="kltv" title="Closed deals only — money already won, not deals still open">{usd(closedDealsTotal(l))} closed</span>}{l.retainerActive&&num(l.retainer)>0&&<span className="kmrr">{usd(l.retainer)}/mo</span>}</span>{st.overdue>0?<span className="badge over" style={{padding:'1px 7px'}}>{st.overdue} overdue</span>:lcBy.get(l.id)?null:st.next?<span className="subcell" style={{fontSize:11}}>next: {st.next.label.slice(0,22)}</span>:<span className="badge done" style={{padding:'1px 7px'}}>done</span>}</div>
       <div className="kmove" onClick={e=>e.stopPropagation()}>
         <button className="kmv" disabled={i<=0} onClick={()=>step(l,-1)} title="Back a phase"><ChevronLeft size={16}/></button>
         <span className="kmv-s">{phaseInfo(l.clientPhase||'intake',settings,l).label}</span>
@@ -8482,7 +8545,7 @@ function ClientBoard({clients,settings,onCard,setClientPhase,stages,projects,set
       </div>
     </div>);
   };
-  return (<div className="kanban">{cols.map(col=>{ const items=clients.filter(l=>(l.clientPhase||'intake')===col.key); const projs=(projects||[]).filter(x=>projPhaseOf(x.project,settings)===col.key); const mrr=items.reduce((a,l)=>a+(l.retainerActive?num(l.retainer):0),0); const od=items.reduce((a,l)=>a+onboardingStat(l).overdue,0);
+  return (<div className="kanban">{cols.map(col=>{ const items=clients.filter(l=>(l.clientPhase||'intake')===col.key); const projs=(projects||[]).filter(x=>projPhaseOf(x.project,settings)===col.key); const mrr=items.reduce((a,l)=>a+(l.retainerActive?num(l.retainer):0),0); const od=items.reduce((a,l)=>a+clientOverdue(l,lcBy.get(l.id)),0);
     return (<div key={col.key} className={'kcol '+(over===col.key?'drag':'')} onDragOver={e=>{e.preventDefault();setOver(col.key);}} onDragLeave={()=>setOver(c=>c===col.key?null:c)} onDrop={()=>drop(col)}>
       <div className="kbar" style={{background:col.color}}/>
       <div className="kcol-h"><span className="kt">{col.label}{col.custom&&<span className="cp-tag">custom</span>}</span><span className="kc">{items.length+projs.length}</span></div>
@@ -8496,7 +8559,7 @@ function ClientBoard({clients,settings,onCard,setClientPhase,stages,projects,set
     </div>);})}</div>);
 }
 
-function Clients({labelServices,leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue,renderOnboarding}){
+function Clients({lcRows,labelServices,leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue,renderOnboarding}){
   /* off by default: hidden items should stay out of the way, but you need a way
      back to them or switching one off would be one-directional */
   const [showSkipped,setShowSkipped]=useState(false);
@@ -8513,7 +8576,8 @@ function Clients({labelServices,leads,stages,settings,open,toggleOnboarding,setO
       const ad=a.st.nextDue||'9999',bd=b.st.nextDue||'9999'; return ad.localeCompare(bd); });
   const byPhase=k=>clients.filter(l=>(l.clientPhase||'intake')===k).length;
   const retainerClients=clients.filter(l=>l.retainerActive); const mrr=retainerClients.reduce((a,l)=>a+num(l.retainer),0);
-  const totalOverdue=clients.reduce((a,l)=>a+onboardingStat(l).overdue,0);
+  const lcByC=new Map((lcRows||[]).map(r=>[r.lead.id,r]));
+  const totalOverdue=clients.reduce((a,l)=>a+clientOverdue(l,lcByC.get(l.id)),0);
   const advance=l=>{ const order=flowOrder(settings,l); const cur=l.clientPhase||'intake'; const i=order.indexOf(cur); if(i<0||i>=order.length-1)return; const nextKey=order[i+1];
     const isStd=stdPhases(settings).some(p=>p.key===cur&&p.flow); const pp=isStd?phaseProgress(l,cur):{total:0,done:0}; const left=pp.total-pp.done;
     if(left>0 && !window.confirm(`${left} item${left>1?'s':''} still unchecked in ${phaseInfo(cur,settings,l).label} — advance to ${phaseInfo(nextKey,settings,l).label} anyway?`)) return;
@@ -8542,9 +8606,9 @@ function Clients({labelServices,leads,stages,settings,open,toggleOnboarding,setO
       <label className="chip-toggle" style={{marginLeft:'auto'}}><input type="checkbox" checked={showChurned} onChange={e=>setShowChurned(e.target.checked)}/>Show churned</label>
     </div>
     {!visible.length?<div className="empty">No clients yet. Move a lead to <b>Signed</b> (or hit Convert to Client) to start onboarding.</div>
-    :<><ClientBoard clients={visible} settings={settings} stages={stages} setClientPhase={setClientPhase} onCard={id=>setExpand(id===expand?null:id)} projects={onBoard} setProjectPhase={setProjectPhase} tracks={tracks}/>
+    :<><ClientBoard lcRows={lcRows} clients={visible} settings={settings} stages={stages} setClientPhase={setClientPhase} onCard={id=>setExpand(id===expand?null:id)} projects={onBoard} setProjectPhase={setProjectPhase} tracks={tracks}/>
       {(()=>{ const c = selProj ? selProj.lead : sel; if(!c) return null;
-        return <ClientView lead={c} settings={settings} stages={stages} tracks={tracks}
+        return <ClientView lead={c} lcRow={lcByC.get(c.id)} settings={settings} stages={stages} tracks={tracks}
                  invoices={invoices} team={team} phaseInfo={phaseInfo}
                  onClose={()=>setExpand(null)} openRecord={open}
                  updateLead={updateLead} setClientPhase={setClientPhase}
@@ -9862,7 +9926,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       const move=(i,dir)=>{const j=i+dir;if(j<0||j>=phases.length)return;const n=phases.slice();[n[i],n[j]]=[n[j],n[i]];savePhases(n);};
       return (<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><KanbanSquare size={15}/>Client phases</div>
-      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>These are the columns on the Client Pipeline board. Rename, recolor, or reorder them. The 6 keys stay fixed because the onboarding checklist maps to them — for one-off steps, add a <b>custom phase</b> on an individual client from the Clients tab.</div>
+      <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>These are the columns on the Client Pipeline board. Rename, recolor, or reorder them. The {phases.length} keys stay fixed because the onboarding checklist maps to them — for one-off steps, add a <b>custom phase</b> on an individual client from the Clients tab.</div>
       <div className="phase-editor">{phases.map((p,i)=>(<div className="phase-row" key={p.key}>
         <input type="color" value={p.color} onChange={e=>patch(i,{color:e.target.value})}/>
         <input className="phase-label" value={p.label} onChange={e=>patch(i,{label:e.target.value})}/>
@@ -9874,6 +9938,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       </div>))}</div>
       <button className="linkbtn" onClick={()=>savePhases(DEFAULT_CLIENT_PHASES)}>Reset to defaults</button>
     </div>); })()}
+    {isOwner&&<LifecycleSettings settings={settings} saveSettings={saveSettings} team={(users||[]).length?(users||[]).filter(u=>u.active!==false).map(u=>u.name):BRAND.team}/>}
 
     {/* logo */}
     <div className="card" style={{marginBottom:18}}>

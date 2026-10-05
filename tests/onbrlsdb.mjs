@@ -190,5 +190,27 @@ ok('  never the proposal\'s notes', !JSON.stringify(fromProp).includes('PROPOSAL
 const pend = await svc(`select * from onboarding_sweep_pending()`);
 ok('sweep: nothing young is swept', pend.length === 0);
 
+console.log('\nLIFECYCLE-MIGRATION.sql: the portal sees the logo and headshot ticks (Terms 6.2)');
+{
+  /* an install from before it: onboarding_public without the two asset keys */
+  const OLD = MIG.replace(/\n\s*'logo_received',[^\n]*/, '').replace(/\n\s*'headshot_received',[^\n]*/, '');
+  ok('(set up: the pre-lifecycle function)', OLD !== MIG && !OLD.includes("'headshot_received'") && (await run(OLD)) === '');
+  const lid = (await db.query(`select lead_id from onboardings where token='${T('OPEN')}'`)).rows[0].lead_id;
+  await db.query(`update leads set data = jsonb_set(jsonb_set(data, '{onboarding,logo_received}', '{"done":"2026-10-06"}'), '{onboarding,headshot_received}', '{"done":"2026-10-07"}') where id = $1`, [lid]);
+  let c = (await svc(`select checklist from onboarding_public('${T('OPEN')}')`))[0].checklist;
+  ok('before: the portal cannot see them', !('logo_received' in c), JSON.stringify(c));
+  const LM = read('LIFECYCLE-MIGRATION.sql');
+  ok('the migration runs', (await run(LM)) === '');
+  ok('  and again (re-running is safe)', (await run(LM)) === '');
+  ok('RLS-AUDIT.sql still passes', (await run(read('RLS-AUDIT.sql'))) === '');
+  c = (await svc(`select checklist from onboarding_public('${T('OPEN')}')`))[0].checklist;
+  ok('after: logo and headshot ticks come from the LEAD checklist', c.logo_received.done === '2026-10-06' && c.headshot_received.done === '2026-10-07', JSON.stringify(c));
+  ok('  beside the deposit, as before', c.deposit_paid.done === '2026-10-04');
+  for (const role of ['anon', 'authenticated']) {
+    const r = await as(role, `select * from onboarding_public('${T('OPEN')}')`);
+    ok(`${role} still cannot call it`, /permission denied/.test(r.error || ''), JSON.stringify(r));
+  }
+}
+
 console.log(`\nonbrlsdb: ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -151,8 +151,11 @@ What a token holder can do, one action per call:
 
 - **Load** their onboarding, prefilled from the lead (name, email, phone,
   company, website) and the proposal (its plan, its chosen contacts, launch
-  days). Nothing else on the lead is returned. The deposit and access dates
-  are read from the lead's checklist, never copied.
+  days). Nothing else on the lead is returned. The deposit, access, logo and
+  headshot dates are read from the lead's checklist, never copied (the logo
+  and headshot since `LIFECYCLE-MIGRATION.sql`; the launch clock waits on
+  them, Terms 6.2). The launch clock in the response is `launchState`, the
+  same function the CRM's client cards and dashboard read.
 - **Save** answers. The route rebuilds them from the field schema
   (`lib/onboarding` `cleanAnswers`: unknown ids dropped, values coerced and
   capped, options checked) and **refuses** any value shaped like an SSN or a

@@ -54,7 +54,7 @@ export const MEETING_OUTCOMES = [
 const monthKey = () => new Date().toISOString().slice(0, 7);
 
 export default function ClientView({
-  lead, settings, stages, tracks, invoices, team,
+  lead, lcRow, settings, stages, tracks, invoices, team,
   onClose, openRecord, updateLead, setClientPhase, phaseInfo, onInvoice,
   toggleMilestone, setMilestoneDue, toggleProjectMilestone,
   /* the Onboarding tab: rendered by App (owner-only, null otherwise) so this
@@ -296,7 +296,12 @@ export default function ClientView({
                     <div className="pbar"><div style={{ width: Math.round((p.pct || 0) * 100) + '%' }} /></div>
                     <div className="cv-ms">
                       {p.ms.map(m => {
-                        const e = p.entries[m] || {};
+                        const e0 = p.entries[m] || {};
+                        /* no date typed: the lifecycle's derived one (lib/lifecycle), so this
+                           list and the dashboard's "What's due" show the same day */
+                        const lcIt = !e0.due && lcRow ? lcRow.items.find(i => i.home.kind === 'track' && i.home.track === tr.key && i.home.milestone === m) : null;
+                        const auto = lcIt && lcIt.computed ? lcIt.computed : null;
+                        const e = auto ? { ...e0, due: auto } : e0;
                         const late = !e.done && e.due && daysUntil(e.due) < 0;
                         return (
                           <div className={'cv-m' + (e.done ? ' done' : '') + (late ? ' late' : '')} key={m}>
@@ -308,9 +313,9 @@ export default function ClientView({
                             {e.done
                               ? <span className="cv-m-d">{e.at ? fmtDate(String(e.at).slice(0, 10)) : 'done'}</span>
                               : <label className={'cv-m-due' + (late ? ' late' : '')}>
-                                  <input type="date" value={e.due || ''}
+                                  <input type="date" value={e0.due || ''}
                                     onChange={ev => setMilestoneDue && setMilestoneDue(l.id, tr.key, m, ev.target.value)} />
-                                  <span>{e.due ? (late ? `${Math.abs(daysUntil(e.due))}d late` : fmtDate(e.due)) : 'set a date'}</span>
+                                  <span>{e.due ? (late ? `${Math.abs(daysUntil(e.due))}d late` : fmtDate(e.due)) : 'set a date'}{auto ? ' (auto)' : ''}</span>
                                 </label>}
                           </div>
                         );

@@ -274,16 +274,37 @@ one by hand from the **Onboarding** tab for a client with no proposal.
 - **They never type a password, card number or Social Security number.** The
   portal says so, and the server refuses to save anything shaped like an SSN
   or a card number, naming the field.
-- **Deposit paid and access received are the client's checklist on the
-  Clients page.** The Onboarding tab's toggles tick the same items; there is
-  no second copy. The launch clock starts on the latest of: submitted,
-  deposit, and each required access item, and counts the offer's launch days
-  in business days.
+- **Deposit paid, access, logo and headshot received are the client's
+  checklist on the Clients page.** The Onboarding tab's toggles tick the same
+  items; there is no second copy. The launch clock starts on the latest of:
+  submitted, deposit, each required access item, and each required asset (the
+  logo, unless they have none; the headshot, when a website is being built),
+  Terms 6.2. It counts the offer's launch days in **calendar** days (Terms
+  6.1, "Live in 14 days"); it counted business days until October 2026.
 - **On submit** you get an email (owners only), and the next time the CRM is
   open it ticks the client's checklist (intake form, logo, headshot) and
   notes what came in. The answers PDF, both build prompts and the files are
   on the Onboarding tab and on the client record.
 - **A rep sees none of it.** See the table above.
+
+## The client lifecycle — stages, the 14 days, "What's due"
+
+Owners only, like the Clients page it lives on. A client moves Intake → Build
+→ Review → Launched → Active by itself where the rule is mechanical (the
+clock starts; 30 days after launch; 45 days with no logged contact moves an
+Active client to At Risk) and by your hand where it is a decision (Send for
+review, Mark launched, and any move at all from the board). Every move is a
+note on the client with who made it, "Automatic" included.
+
+Due dates are worked out from the template in **Settings → Client
+lifecycle** and are never stored, so a pause (Terms 6.3) moves every open
+date at once. A date you type on an item wins. They stay on the client's
+record: the dashboard's **What's due** reads them there, and nothing is put
+in the shared Tasks list unless you assign an item to someone by hand.
+
+- **A rep sees none of it**: no What's due on their dashboard, no strip on any
+  card, and their session never moves a client, even one they converted and
+  still own. `tests/lifecyclerep.mjs`.
 
 ## Turning someone off
 
