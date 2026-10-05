@@ -35,7 +35,11 @@ import { TOKEN_RE } from '../src/lib/proposal.js';
 // be used to learn which tokens exist.
 
 export { TOKEN_RE };
-export const PUBLIC_BODY_KEYS = ['client', 'company', 'preparedOn', 'validDays', 'copy', 'quote', 'standard'];
+/* contacts: the point(s) of contact chosen for THIS proposal (name, phone,
+   email), frozen at send — never the offer's whole list. launchDays: for the
+   "You're in" screen. The onboarding and payment links are NOT here: they are
+   handed over only once the proposal is accepted (below). */
+export const PUBLIC_BODY_KEYS = ['client', 'company', 'preparedOn', 'validDays', 'copy', 'quote', 'standard', 'contacts', 'launchDays'];
 const NOT_FOUND = 'This proposal link is not valid. Ask us for a fresh one.';
 const H = () => ({ apikey: SUPA_KEY, authorization: `Bearer ${SUPA_KEY}`, 'content-type': 'application/json' });
 
@@ -58,6 +62,8 @@ export function publicView(row) {
     expiresAt: row.expires_at || null,
     expired: row.status !== 'accepted' && (!Number.isFinite(exp) || Date.now() > exp),
     acceptedAt: row.accepted_at || null, acceptedName: row.accepted_name || null, acceptedPlan: row.accepted_plan || null,
+    /* only after acceptance: where to go next, for a client who comes back */
+    ...(row.status === 'accepted' ? { onboardingUrl: body.onboardingUrl || '', paymentUrl: body.paymentUrl || '' } : {}),
   };
 }
 
@@ -91,6 +97,7 @@ export default async function handler(req, res) {
   const acc = await rpc('proposal_accept', { p_token: t, p_name: name, p_ip: String(gate.ip || '').slice(0, 64), p_plan: plan });
   const result = acc.ok ? String(acc.data || '') : 'error';
   const onboardingUrl = (row.body && row.body.onboardingUrl) || '';
+  const paymentUrl = (row.body && row.body.paymentUrl) || '';
 
   if (result === 'accepted' || result === 'already') {
     if (result === 'accepted') {
@@ -110,7 +117,7 @@ export default async function handler(req, res) {
           <p style="margin:0"><a href="${esc(appUrl())}" style="color:#2B4DE0">Open the CRM</a></p></div>`,
       });
     }
-    res.status(200).json({ ok: true, result, onboardingUrl });
+    res.status(200).json({ ok: true, result, onboardingUrl, paymentUrl });
     return;
   }
   if (result === 'expired') { res.status(410).json({ ok: false, error: 'This proposal has expired. Reply to our email and we will send a fresh one.' }); return; }

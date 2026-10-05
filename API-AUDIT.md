@@ -84,6 +84,10 @@ execute grant):
 - **Read** one proposal, the one the token names, as **named columns**, never a
   draft, never `notes`, `email_to`, `lead_id` or `accepted_ip`. The route then
   picks the display fields again by name (`PUBLIC_BODY_KEYS`).
+  Those fields include the point(s) of contact **chosen for that proposal**
+  (name, phone, email — never the offer's whole contact list) and the days to
+  launch. The onboarding and payment links are handed over **only once the
+  proposal is accepted** (in the accept response, and on a return visit).
 - **Stamp** the first-viewed time.
 - **Accept**, under a row lock, refusing a draft, an expired proposal, a second
   acceptance, a blank name or an unknown plan. Those rules live in Postgres,

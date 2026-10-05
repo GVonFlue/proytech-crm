@@ -97,6 +97,11 @@ export function readOffer(settings) {
       quotedSeparately: lines(raw.quotedSeparately),
       steps: A(raw.steps).map(s => ({ title: S(s && s.title, 60).trim(), text: S(s && s.text, 300).trim() })).filter(s => s.title),
       needFromYou: tagged(raw.needFromYou),
+      /* after they accept: where onboarding lives (offer-wide, else the
+         package's own), the deposit payment link, and how long to launch */
+      onboardingUrl: safeHttps(raw.onboardingUrl),
+      paymentUrl: safeHttps(raw.paymentUrl),
+      launchDays: Number.isInteger(num(raw.launchDays)) && num(raw.launchDays) >= 1 && num(raw.launchDays) <= 120 ? num(raw.launchDays) : null,
       company: {
         name: S(company.name, 120).trim(), people: S(company.people, 160).trim(),
         email: S(company.email, 160).trim(), website: S(company.website, 160).trim(),
@@ -105,6 +110,9 @@ export function readOffer(settings) {
            the shipped offer points at ProyTech's files in public/, another
            install points at its own. Unset falls back to the name as text. */
         logo: safeAsset(company.logo), mark: safeAsset(company.mark),
+        /* the people a client may hear from; ONE or more is chosen per
+           proposal (chosenContacts) and frozen into its body */
+        contacts: normContacts(company.contacts),
       },
     },
   };
@@ -250,7 +258,7 @@ export function cleanCopy(raw, items = []) {
    Everything the client will see, frozen at send. A later change to the offer
    or the lead cannot rewrite a proposal already sent. The raw meeting notes
    are NOT in here; they live in their own column and never leave the CRM. */
-export function buildBody({ offer, q, copy, client, preparedOn, validDays }) {
+export function buildBody({ offer, q, copy, client, preparedOn, validDays, contacts }) {
   const pkg = offer.packages.find(p => p.id === q.packageId) || {};
   const chosen = q.items.map(it => offer.packages.concat(offer.addons).find(x => x.id === it.id) || {});
   const uniq = arr => [...new Set(arr)];
@@ -264,7 +272,10 @@ export function buildBody({ offer, q, copy, client, preparedOn, validDays }) {
       name: S(client && client.name, 120), company: S(client && client.company, 160),
       city: S(client && client.city, 120), website: S(client && client.website, 160),
     },
-    company: offer.company,
+    /* the company block WITHOUT its contact list: only the contacts chosen
+       for this proposal travel, below */
+    company: (({ contacts: _all, ...co }) => co)(offer.company || {}),
+    contacts: normContacts(contacts),
     preparedOn: S(preparedOn, 10),
     validDays: Math.floor(num(validDays)) || offer.validDays,
     copy,
@@ -279,7 +290,9 @@ export function buildBody({ offer, q, copy, client, preparedOn, validDays }) {
       needFromYou: linesFor(offer.needFromYou, ids),
       guarantee: offer.guarantee, terms: offer.terms, cancel: offer.cancel,
     },
-    onboardingUrl: pkg.onboardingUrl || '',
+    onboardingUrl: offer.onboardingUrl || pkg.onboardingUrl || '',
+    paymentUrl: offer.paymentUrl || '',
+    launchDays: offer.launchDays || null,
   }));
 }
 
@@ -458,6 +471,17 @@ export function validateOffer(raw) {
     if (!isWhole(f, 0)) err('prepay.free', 'Free months must be a whole number, 0 or more.');
     else if (isWhole(m, 1) && Number(f) >= Number(m)) err('prepay.free', 'Free months must be fewer than the months paid up front.');
   }
+  if (!blank(raw.onboardingUrl) && !safeHttps(raw.onboardingUrl)) err('onboardingUrl', 'The onboarding link must start with https://');
+  if (!blank(raw.paymentUrl) && !safeHttps(raw.paymentUrl)) err('paymentUrl', 'The payment link must start with https://');
+  if (raw.launchDays !== undefined && raw.launchDays !== null && raw.launchDays !== '' && !(isWhole(raw.launchDays, 1) && Number(raw.launchDays) <= 120))
+    err('launchDays', 'Days to launch must be a whole number from 1 to 120.');
+  A(co.contacts).forEach((c, i) => {
+    const x = c && typeof c === 'object' ? c : {};
+    if (blank(x.name)) err(`company.contacts.${i}.name`, 'Name is required.');
+    if (blank(x.phone) && blank(x.email)) err(`company.contacts.${i}.phone`, 'Add a phone or an email, so a client can reach them.');
+    if (!blank(x.email) && !isEmail(x.email)) err(`company.contacts.${i}.email`, 'That is not a valid email.');
+    if (!blank(x.phone) && S(x.phone).replace(/\D/g, '').length < 7) err(`company.contacts.${i}.phone`, 'That is not a phone number.');
+  });
   if (blank(raw.terms)) err('terms', 'Payment terms are required: the client agrees to them when they accept.');
   A(raw.steps).forEach((st, i) => {
     if (blank(st && st.title)) err(`steps.${i}.title`, 'Step title is required.');
@@ -474,4 +498,44 @@ export function validateOffer(raw) {
   const r = readOffer({ offer: raw });
   for (const m of r.missing) if (!errors.some(e => e.path === m || e.path.startsWith(m + '.'))) err(m, `Missing: ${m}.`);
   return { ok: errors.length === 0, errors, offer: errors.length ? null : r.offer };
+}
+
+
+/* ---------- points of contact ----------
+   The offer lists the people a client may hear from (company.contacts). Each
+   proposal names ONE of them, or all of them ("both"), and that choice is
+   frozen into the body when it is built, like every other thing the client
+   sees. The "You're in" screen speaks in those names. */
+export const CONTACTS_ALL = 'both';
+function normContacts(v) {
+  return A(v).map(x => ({ name: S(x && x.name, 80).trim(), phone: S(x && x.phone, 40).trim(), email: S(x && x.email, 160).trim() }))
+    .filter(c => c.name);
+}
+/* the contact whose name matches the signed-in owner, else the first */
+export function defaultContactPick(contacts, me) {
+  const list = normContacts(contacts);
+  if (!list.length) return '';
+  const m = S(me).trim().toLowerCase(), first = m.split(/\s+/)[0];
+  const hit = m && list.find(c => c.name.toLowerCase() === m || c.name.toLowerCase().split(/\s+/)[0] === first);
+  return (hit || list[0]).name;
+}
+/* a pick ('both', or a contact's name) -> the contacts it means */
+export function chosenContacts(contacts, pick) {
+  const list = normContacts(contacts);
+  if (pick === CONTACTS_ALL) return list;
+  const one = list.find(c => c.name === pick);
+  return one ? [one] : list.slice(0, 1);
+}
+/* "Logan will send", "Garrett or Logan will send", "We'll send" */
+export function whoWillSend(contacts) {
+  const names = normContacts(contacts).map(c => c.name.split(/\s+/)[0]);
+  if (!names.length) return "We'll send";
+  const who = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`;
+  return `${who} will send`;
+}
+/* tel: link from a typed phone number (US numbers get +1) */
+export function telHref(phone) {
+  const d = S(phone).replace(/\D/g, '');
+  if (d.length < 7) return '';
+  return 'tel:' + (d.length === 10 ? '+1' + d : d.length === 11 && d[0] === '1' ? '+' + d : d);
 }

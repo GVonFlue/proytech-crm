@@ -13,6 +13,7 @@ import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import ProposalDoc, { PROPOSAL_CSS } from '../ProposalDoc';
 import { TOKEN_RE } from '../lib/proposal';
+import Celebrate, { CELEBRATE_CSS } from './Celebrate';
 
 export function tokenFromHash(hash) {
   const m = String(hash || '').match(/(?:^#|&)t=([^&]+)/);
@@ -56,7 +57,7 @@ function Accept({ token, proposal, onAccepted }) {
   const [err, setErr] = useState('');
   const usd = v => '$' + (Number(v) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
 
-  if (proposal.status === 'accepted') return <div className="pg-done">Accepted by <b>{proposal.acceptedName}</b>. Thank you. Your onboarding and deposit link are on the way.</div>;
+  if (proposal.status === 'accepted') return <div className="pg-done">Accepted by <b>{proposal.acceptedName}</b>. Thank you.</div>;
   if (proposal.expired) return <div className="pg-err">This proposal has expired. Reply to our email and we will send you a fresh one.</div>;
 
   const go = async () => {
@@ -67,7 +68,7 @@ function Accept({ token, proposal, onAccepted }) {
     const j = await call({ t: token, action: 'accept', name: name.trim(), agree: true, plan }).catch(() => ({ ok: false }));
     setBusy(false);
     if (!j.ok) { setErr(j.error || 'That did not go through. Please try again.'); return; }
-    onAccepted(j);
+    onAccepted(j, name.trim());
   };
 
   return (<div className="pg-acc">
@@ -81,7 +82,7 @@ function Accept({ token, proposal, onAccepted }) {
     <label className="pg-agree"><input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} />
       <span>I agree to this proposal, its terms, and the {q.depositPct}% deposit of {usd(q.deposit)} due at signing.</span></label>
     {err && <div className="pg-err">{err}</div>}
-    <button className="pg-btn" onClick={go} disabled={busy}>{busy ? 'Recording…' : 'Accept proposal'}</button>
+    <button className="pg-btn" onClick={go} disabled={busy}>{busy ? 'Recording…' : 'Lock in my launch'}</button>
   </div>);
 }
 
@@ -99,25 +100,34 @@ function Page() {
     }).catch(() => setState({ error: 'This proposal could not be loaded. Check your connection and try again.' }));
   }, [token]);
 
-  const accepted = j => {
-    setState(s => ({ ...s, proposal: { ...s.proposal, status: 'accepted', acceptedName: s.proposal.acceptedName || 'you' }, done: j }));
-    if (j.onboardingUrl && /^https:\/\//.test(j.onboardingUrl)) setTimeout(() => { window.location.href = j.onboardingUrl; }, 1800);
+  /* No auto-redirect any more: they have just made a decision worth a moment.
+     The "You're in" screen hands them the onboarding button instead. */
+  const accepted = (j, typed) => {
+    setState(s => ({ ...s, proposal: { ...s.proposal, status: 'accepted', acceptedName: s.proposal.acceptedName || typed || 'you' }, done: { ...j, name: typed } }));
   };
 
   if (state.loading) return <div className="pg-msg"><p>Loading your proposal…</p></div>;
   if (state.error) return <div className="pg-msg"><h1>Proposal unavailable</h1><p>{state.error}</p></div>;
   const p = state.proposal;
-  const slot = state.done
-    ? <div className="pg-done"><b>Accepted. Thank you.</b> {state.done.onboardingUrl ? 'Taking you to your onboarding form now…' : 'Your onboarding form and deposit payment link are on the way today.'}</div>
+  /* Accepted, just now (confetti, once) or on a later visit (no confetti):
+     the "You're in" screen leads, with the proposal they accepted below it. */
+  const isIn = !!state.done || p.status === 'accepted';
+  const celebrate = isIn && <Celebrate body={p.body} confetti={!!state.done}
+    name={state.done ? state.done.name : p.acceptedName}
+    onboardingUrl={state.done ? state.done.onboardingUrl : p.onboardingUrl}
+    paymentUrl={state.done ? state.done.paymentUrl : p.paymentUrl} />;
+  const slot = isIn
+    ? <div className="pg-done">Accepted by <b>{p.acceptedName}</b>. Thank you.</div>
     : <Accept token={token} proposal={p} onAccepted={accepted} />;
   return (<div className="pg">
+    {celebrate}
     <ProposalDoc body={p.body} expiresAt={p.expiresAt} acceptSlot={slot} />
     <button className="pg-print" onClick={() => window.print()}>Download PDF</button>
   </div>);
 }
 
 if (typeof document !== 'undefined' && document.getElementById('root') && !globalThis.__NO_MOUNT__) {
-  const style = document.createElement('style'); style.textContent = PROPOSAL_CSS + PAGE_CSS; document.head.appendChild(style);
+  const style = document.createElement('style'); style.textContent = PROPOSAL_CSS + PAGE_CSS + CELEBRATE_CSS; document.head.appendChild(style);
   createRoot(document.getElementById('root')).render(<Page />);
 }
 export { Page };

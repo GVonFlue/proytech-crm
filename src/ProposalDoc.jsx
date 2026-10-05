@@ -77,7 +77,7 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
 
     {hasPlan && <section className="pd-sec">
       <div className="pd-label">Section {no()} — your plan</div>
-      <h2>Where you said you want to go</h2>
+      <h2>Where you're headed</h2>
       {(plan.goal || edit) && <p className="pd-goal"><Field edit={edit} value={plan.goal} onChange={v => set(['plan', 'goal'], v)} rows={2} /></p>}
       {((plan.numbers || []).length > 0 || edit) && <div className="pd-nums">{(plan.numbers || []).map((n, i) => (
         <div className="pd-num" key={i}>{X(['plan', 'numbers'], i, 'number')}<b><Field edit={edit} value={n.value} onChange={v => set(['plan', 'numbers', i, 'value'], v)} rows={1} /></b>
@@ -90,7 +90,7 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
 
     {((c.gaps || []).length > 0 || edit) && <section className="pd-sec">
       <div className="pd-label">Section {no()} — the gap</div>
-      <h2>What is costing you right now</h2>
+      <h2>What's holding you back</h2>
       <ol className="pd-gaps">{(c.gaps || []).map((g, i) => (<li key={i}>
         <span className="pd-gn">{String(i + 1).padStart(2, '0')}</span>
         <div><b><Field edit={edit} value={g.title} onChange={v => set(['gaps', i, 'title'], v)} rows={1} /></b>{' '}
@@ -102,7 +102,7 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
 
     {((c.build || []).length > 0 || edit) && <section className="pd-sec pd-break">
       <div className="pd-label">Section {no()} — the build</div>
-      <h2>Everything that gets installed</h2>
+      <h2>What we're building for you</h2>
       <div className="pd-build">{(c.build || []).map((b, i) => (<div className="pd-bi" key={i}>
         {X(['build'], i, 'build item')}
         <b><Field edit={edit} value={b.title} onChange={v => set(['build', i, 'title'], v)} rows={1} /></b>
@@ -126,7 +126,7 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
     </section>}
 
     <section className="pd-sec">
-      <div className="pd-label">Section {no()} — the investment</div>
+      <div className="pd-label">Section {no()} — your investment in growth</div>
       <div className="pd-inv">
         <div className="pd-price">
           <div className="pd-pl">Install</div>
@@ -154,7 +154,7 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
 
     {(st.steps || []).length > 0 && <section className="pd-sec">
       <div className="pd-label">Section {no()} — order of operations</div>
-      <h2>How it runs</h2>
+      <h2>Your road to Launch Day</h2>
       <div className="pd-steps">{st.steps.map((s, i) => (<div className="pd-step" key={i}>
         <span>{String(i + 1).padStart(2, '0')}</span><b>{s.title}</b><p>{s.text}</p></div>))}</div>
     </section>}

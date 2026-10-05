@@ -6,10 +6,17 @@
     "website": "getproytech.com",
     "city": "Wichita, KS",
     "logo": "/proytech-logo-dark.png",
-    "mark": "/proytech-nucleus.png"
+    "mark": "/proytech-nucleus.png",
+    "contacts": [
+      { "name": "Garrett", "phone": "901-335-3905", "email": "admin@getproytech.com" },
+      { "name": "Logan", "phone": "913-237-4403", "email": "" }
+    ]
   },
   "depositPct": 50,
   "validDays": 7,
+  "launchDays": 14,
+  "onboardingUrl": "",
+  "paymentUrl": "",
   "prepay": { "months": 12, "free": 2 },
   "guarantee": "Live in 14 days from kickoff, or your first month is free.",
   "terms": "50% of the setup at signing, 50% at launch. The monthly fee starts at launch, not before.",
