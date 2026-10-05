@@ -91,16 +91,27 @@ execute grant):
 - **Stamp** the first-viewed time.
 - **Accept**, under a row lock, refusing a draft, an expired proposal, a second
   acceptance, a blank name or an unknown plan. Those rules live in Postgres,
-  so a hand-made request cannot skip them.
+  so a hand-made request cannot skip them. When the stored proposal carries
+  `legal` links (Settings → Proposals → Legal, frozen at send), the request
+  must also carry `agreeTerms: true`; the route refuses without it, and
+  `proposal_accept(…, p_agreed_terms)` refuses again in Postgres
+  (`'terms_required'`, `PROPOSALS-LEGAL-MIGRATION.sql`). The terms version and
+  links on the record are copied from the stored body, never from the request.
 
-What it cannot do: read or write a **lead**, or read any other proposal. It never
-learns whether a token exists: malformed, unknown and draft all get the same
-404 text. Rate-limited per IP and per day. On first acceptance it emails the
-**owners allowlist** through `sendMail()` (`_mail.js`) with no `to`, the same
-rule `notify.js` and `coffee-book.js` use.
+What it cannot do: write a **lead**, return anything from one, or read any
+other proposal. It never learns whether a token exists: malformed, unknown and
+draft all get the same 404 text. Rate-limited per IP and per day. On first
+acceptance it emails the **owners allowlist** through `sendMail()` (`_mail.js`)
+with no `to`, the same rule `notify.js` and `coffee-book.js` use, and sends the
+**client their copy** ("You're in", with the Terms and Privacy links and
+version) through `sendClientMail()`, which takes the proposal id and reads the
+recipient from that proposal's lead itself. That is the one lead field this
+route causes to be read, it is never returned, and nothing in the request can
+aim the email. Only on a new acceptance, never on `already`; a mail failure is
+logged and the acceptance stands.
 
-Proven by `tests/proposalroutes.mjs`, and by `VERIFY-RLS.md` §12 against a real
-database.
+Proven by `tests/proposalroutes.mjs` and `tests/proposallegal.mjs`, and by
+`VERIFY-RLS.md` §12 and §12b against a real database.
 
 **The proposals domain.** When `PROPOSAL_URL` points at
 `proposals.getproytech.com`, `vercel.json` serves only the proposal page

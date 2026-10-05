@@ -357,9 +357,18 @@ export const db = {
      shows "not set up" rather than crashing the tab. Writes throw, so a save
      that did not land is never reported as saved. */
   async listProposals() {
-    const { data, error } = await supabase.from('proposals')
-      .select('id,lead_id,token,status,body,notes,valid_days,email_to,created_at,updated_at,sent_at,expires_at,viewed_at,accepted_at,accepted_name,accepted_ip,accepted_plan,applied_at')
-      .order('updated_at', { ascending: false });
+    const base = 'id,lead_id,token,status,body,notes,valid_days,email_to,created_at,updated_at,sent_at,expires_at,viewed_at,accepted_at,accepted_name,accepted_ip,accepted_plan,applied_at';
+    /* the terms a client agreed to (PROPOSALS-LEGAL-MIGRATION.sql). Read here
+       because they are written there: a column written and never selected is
+       a record that silently vanishes (ENGINEERING §2). */
+    const LEGAL = ['accepted_terms_version', 'accepted_terms_url', 'accepted_privacy_url'];
+    let { data, error } = await supabase.from('proposals').select(base + ',' + LEGAL.join(',')).order('updated_at', { ascending: false });
+    if (error && /accepted_(terms|privacy)/.test(error.message || '')) {
+      /* the legal migration has not run on this install yet: say WHICH columns
+         are missing, by name, and keep the tab working without them */
+      console.warn('[proposals] legal acceptance columns missing — run PROPOSALS-LEGAL-MIGRATION.sql:', LEGAL.join(', '));
+      ({ data, error } = await supabase.from('proposals').select(base).order('updated_at', { ascending: false }));
+    }
     if (error) { console.warn('[proposals]', error.message); return null; }
     return data || [];
   },

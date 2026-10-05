@@ -151,7 +151,9 @@ export async function clientRecipientFor(proposalId) {
 /** Email ONE proposal to its client. There is deliberately no `to`: anything
  *  else a caller passes is ignored, and the recipient is resolved here from
  *  the proposal's lead. `replyTo` only sets where the client's reply goes.
- *  Never throws. Used by api/proposal-send.js and nothing else. */
+ *  Never throws. Used by api/proposal-send.js (the proposal) and
+ *  api/proposal-public.js (the client's copy of their acceptance), and nothing
+ *  else; tests/clientmail.mjs holds that list. */
 export async function sendClientMail({ proposalId, subject, html, text, replyTo, tag = 'client-mail' } = {}) {
   try {
     const RESEND = process.env.RESEND_API_KEY;

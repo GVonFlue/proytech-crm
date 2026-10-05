@@ -69,12 +69,16 @@ console.log('\nviewing and accepting');
   ok('the proposal renders with the CRM\'s numbers', /\$3,000/.test(p.txt()) && /\$1,500/.test(p.txt()) && /\$299/.test(p.txt()));
   ok('"good for 7 days" and Accept are at the bottom', /good for 7 days/.test(p.txt()) && !!document.querySelector('.pg-btn'));
   ok('the prepay choice is offered', /12 months up front/.test(p.txt()));
+  /* the button stays disabled until every required box is ticked */
+  ok('"Lock in my launch" is disabled until the box is ticked', document.querySelector('.pg-btn').disabled === true);
+  await p.click(document.querySelector('.pg-btn'));
+  ok('  clicking it then sends nothing', !accepted);
+  await p.click(document.querySelector('.pg-agree input'));
+  ok('ticked: the button is enabled', document.querySelector('.pg-btn').disabled === false);
+  ok('no legal links on this proposal: no Terms box', !document.querySelector('.pg-legal'));
   await p.click(document.querySelector('.pg-btn'));
   ok('Accept with no name sends nothing', !accepted && /full name/.test(p.txt()));
   await p.type(document.querySelector('.pg-acc input[type=text]'), 'Dee Client');
-  await p.click(document.querySelector('.pg-btn'));
-  ok('Accept without ticking the terms sends nothing', !accepted && /agree/.test(p.txt()));
-  await p.click(document.querySelector('.pg-agree input'));
   await p.click([...document.querySelectorAll('.pg-plan input')][1]);
   await p.click(document.querySelector('.pg-btn'));
   ok('Accept POSTs the name, the agreement and the plan', accepted && accepted.name === 'Dee Client' && accepted.agree === true && accepted.plan === 'annual' && accepted.t === TOK, JSON.stringify(accepted));
@@ -98,6 +102,40 @@ console.log('\nexpired, and already accepted');
   const n = await boot('#t=' + TOK, () => ({ status: 404, body: { ok: false, error: 'This proposal link is not valid. Ask us for a fresh one.' } }));
   ok('a link the server does not know shows the server\'s message', /not valid/.test(n.txt()));
   n.root.unmount();
+}
+
+console.log('\nTerms of Service and Privacy Policy: a second required box');
+{
+  const LEGAL = { termsUrl: 'https://agency.test/terms', privacyUrl: 'https://agency.test/privacy', version: '2026-10-04' };
+  let posted = null;
+  const p = await boot('#t=' + TOK, b => b.action === 'accept' ? (posted = b, { body: { ok: true, result: 'accepted', onboardingUrl: '' } }) : { body: view({ body: { ...BODY, legal: LEGAL } }) });
+  const box = document.querySelector('.pg-legal input');
+  ok('the proposal has legal links: a second box is shown, unticked', !!box && box.checked === false);
+  ok('  worded exactly', /I have read and agree to the Terms of Service and Privacy Policy\./.test(document.querySelector('.pg-legal').textContent.replace(/\s+/g, ' ')));
+  const links = [...document.querySelectorAll('.pg-legal a')];
+  ok('  both names link to the documents, in a new tab', links.length === 2 && links[0].getAttribute('href') === LEGAL.termsUrl && links[1].getAttribute('href') === LEGAL.privacyUrl
+    && links.every(a => a.getAttribute('target') === '_blank' && /noopener/.test(a.getAttribute('rel') || '')));
+  ok('the original "I agree" box is still there, unchanged', /I agree to this proposal, its terms, and the 50% deposit of \$1,500 due at signing\./.test(p.txt()));
+  await p.type(document.querySelector('.pg-acc input[type=text]'), 'Dee Client');
+  ok('"Lock in my launch" disabled with neither box ticked', document.querySelector('.pg-btn').disabled);
+  await p.click(document.querySelectorAll('.pg-agree input')[0]);
+  ok('  still disabled with only the first ticked', document.querySelector('.pg-btn').disabled);
+  await p.click(document.querySelectorAll('.pg-agree input')[0]); await p.click(box);
+  ok('  still disabled with only the Terms box ticked', document.querySelector('.pg-btn').disabled);
+  await p.click(document.querySelector('.pg-btn'));
+  ok('  and clicking it sends nothing', !posted);
+  await p.click(document.querySelectorAll('.pg-agree input')[0]);
+  ok('both ticked: enabled', !document.querySelector('.pg-btn').disabled);
+  await p.click(document.querySelector('.pg-btn'));
+  ok('the acceptance carries agreeTerms: true (Postgres checks it again)', posted && posted.agreeTerms === true && posted.agree === true, JSON.stringify(posted));
+  p.root.unmount();
+  let plain = null;
+  const q = await boot('#t=' + TOK, b => b.action === 'accept' ? (plain = b, { body: { ok: true, result: 'accepted' } }) : { body: view() });
+  ok('no legal links: no Terms box', !document.querySelector('.pg-legal'));
+  await q.type(document.querySelector('.pg-acc input[type=text]'), 'Dee Client');
+  await q.click(document.querySelector('.pg-agree input')); await q.click(document.querySelector('.pg-btn'));
+  ok('  and it accepts as before, agreeTerms false', plain && plain.agreeTerms === false);
+  q.root.unmount();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

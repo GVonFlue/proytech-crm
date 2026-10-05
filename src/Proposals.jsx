@@ -14,7 +14,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Sparkles, Download, Link2, Send, X, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Trash2, Check, ArrowUp, ArrowDown } from 'lucide-react';
 import ProposalDoc, { PROPOSAL_CSS } from './ProposalDoc';
-import { readOffer, quote, cleanCopy, buildBody, newToken, isExpired, readiness, validateOffer, safeAsset,
+import { readOffer, quote, cleanCopy, buildBody, newToken, isExpired, readiness, validateOffer, safeAsset, acceptanceRecord,
   defaultContactPick, chosenContacts, CONTACTS_ALL } from './lib/proposal';
 import { personLabel, todayISO, servicesOf } from './lib/lead';
 // the shipped example offer, for "Load default offer" in Settings → Proposals
@@ -357,7 +357,9 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
             <div className="pp-hint">A "View your proposal" button and the good-until date are added below your message automatically.</div>
             <button className="btn btn-p" onClick={sendEmail} disabled={!!busy || !readyEmail.ok || mail.message.trim().length < 20}><Send size={14} />{busy === 'email' ? 'Sending…' : 'Send it'}</button>
           </div>}
-          {st === 'accepted' && <div className="pp-msg ok pd-noprint"><CheckCircle2 size={15} /><span>Accepted {fmt(start.accepted_at)} by <b>{start.accepted_name}</b>{start.accepted_plan === 'annual' ? ', with the prepay' : ''}. Next: send the deposit payment link.</span></div>}
+          {st === 'accepted' && (() => { const rec = acceptanceRecord(start); return (<div className="pp-msg ok pp-record pd-noprint"><CheckCircle2 size={15} /><span>
+            {rec.base}{rec.version && <> {' '}Agreed to {rec.termsUrl ? <a href={rec.termsUrl} target="_blank" rel="noopener noreferrer">Terms of Service</a> : 'Terms of Service'} and {rec.privacyUrl ? <a href={rec.privacyUrl} target="_blank" rel="noopener noreferrer">Privacy Policy</a> : 'Privacy Policy'}, version {rec.version}.</>}
+            {start.accepted_plan === 'annual' ? ' They chose the prepay.' : ''} Next: send the deposit payment link.</span></div>); })()}
           <div className="pd-print-area">
             <ProposalDoc body={body} edit={edit && !frozen} onCopy={setCopy} expiresAt={pub.expires_at}
               acceptSlot={<div className="pp-acceptph pd-noprint">The client sees "Lock in my launch" here: typed name, agree to terms, then their You're in screen and onboarding.</div>} />
@@ -609,6 +611,15 @@ export function OfferEditor({ settings, saveSettings, isOwner = true, defaultOff
         </div></div>
       </div>
 
+      <div className="oe-sec"><div className="oe-sh">Legal</div>
+        <div className="oe-card"><div className="oe-grid">
+          <div className="oe-hint" style={{ gridColumn: '1/-1' }}>Clients tick a box agreeing to these before they can accept, and the version is recorded with their acceptance. All three, or none.</div>
+          <Fld label="Terms of Service (https)" path="legal.termsUrl" errs={errs} wide><input value={(draft.legal && draft.legal.termsUrl) || ''} onChange={e => setAt(['legal', 'termsUrl'], e.target.value)} placeholder="https://" aria-label="Terms of Service link" /></Fld>
+          <Fld label="Privacy Policy (https)" path="legal.privacyUrl" errs={errs} wide><input value={(draft.legal && draft.legal.privacyUrl) || ''} onChange={e => setAt(['legal', 'privacyUrl'], e.target.value)} placeholder="https://" aria-label="Privacy Policy link" /></Fld>
+          <Fld label="Version" path="legal.version" errs={errs} hint="Change it whenever the documents change."><input value={(draft.legal && draft.legal.version) || ''} onChange={e => setAt(['legal', 'version'], e.target.value)} placeholder="2026-10-04" aria-label="Legal version" /></Fld>
+        </div></div>
+      </div>
+
       <div className="oe-sec"><div className="oe-sh">How it runs</div>
         <div className="oe-card">{(draft.steps || []).map((st, i) => (<div className={'oe-step' + (errs[`steps.${i}.title`] || errs[`steps.${i}.text`] ? ' bad' : '')} key={i}>
           <span className="oe-n">{String(i + 1).padStart(2, '0')}</span>
@@ -839,6 +850,7 @@ export const PROPOSALS_CSS = `
 .oe-contact-b{margin:0 0 2px}
 @media (max-width:760px){ .oe-contact{grid-template-columns:1fr} }
 .pp-contact{max-width:280px}
+.pp-record a{color:#14663E;font-weight:700}
 .oe-tagged{grid-column:1/-1}
 .oe-tl{border:1px solid #EEF1F7;border-radius:10px;padding:6px 8px 8px;margin-bottom:6px;background:#FCFDFF}
 .oe-tl.bad{border-color:#E9A09B;background:#FFF7F6}

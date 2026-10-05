@@ -17,6 +17,7 @@
   "launchDays": 14,
   "onboardingUrl": "",
   "paymentUrl": "",
+  "legal": { "termsUrl": "https://getproytech.com/terms", "privacyUrl": "https://getproytech.com/privacy", "version": "2026-10-04" },
   "prepay": { "months": 12, "free": 2 },
   "guarantee": "Live in 14 days, or your first month is free. Your 14 days start once your deposit, onboarding and required access are in.",
   "terms": "50% of the setup at signing, 50% at launch. The monthly fee starts at launch, not before.",

@@ -13,7 +13,8 @@
    The proposals port arrived with a sendMail() that would send to any address.
    This file proves the split held: the owner door still cannot reach a client,
    the client door cannot be pointed anywhere but the lead's own email, and
-   only proposal-send.js holds the client door.                               */
+   only proposal-send.js and proposal-public.js (the client's copy of an
+   acceptance) hold the client door.                                          */
 process.env.SUPABASE_URL = 'https://x.supabase.co';
 process.env.SUPABASE_SERVICE_KEY = 'svc';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'svc';
@@ -105,7 +106,10 @@ console.log('\nwho holds which door');
     const src = await fs.readFile(path.join(ROOT, 'api', f), 'utf8');
     if (f !== '_mail.js' && /\bsendClientMail\b/.test(src)) holders.push(f);
   }
-  ok('only proposal-send.js uses sendClientMail()', holders.join() === 'proposal-send.js', holders.join());
+  /* a listed set, widened on purpose: proposal-public.js sends the client their
+     copy of an acceptance (Terms §18.2). It passes only the id of the proposal
+     the token just accepted; the recipient is still read from the lead. */
+  ok('only proposal-send.js and proposal-public.js use sendClientMail()', holders.sort().join() === 'proposal-public.js,proposal-send.js', holders.join());
 
   const book = await fs.readFile(path.join(ROOT, 'api/coffee-book.js'), 'utf8');
   ok('coffee-book.js (public) imports only the owner door', /import \{ sendMail \} from '\.\/_mail\.js'/.test(book) && !/sendClientMail|clientRecipientFor/.test(book));
