@@ -56,6 +56,9 @@ const HELPERS = new Set([
   'proposalsdb.mjs',      // a TOOL, not a test: runs PROPOSALS-LEGAL-MIGRATION.sql
                           // on PGlite, same install as rlsdb.mjs. The half CI
                           // always runs is tests/proposallegal.mjs.
+  'storagerlsdb.mjs',     // a TOOL, not a test: runs STORAGE-TIGHTEN-2026-10 against
+                          // real Postgres (PGlite). tests/storagetighten.mjs is the
+                          // half CI always runs.
   'onbrlsdb.mjs',         // a TOOL, not a test: runs ONBOARDING-MIGRATION against
                           // real Postgres (PGlite). tests/onbsql.mjs is the half
                           // CI always runs.
