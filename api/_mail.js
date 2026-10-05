@@ -163,8 +163,9 @@ async function recipientVia(table, rowId) {
  *  deliberately no `to`: anything else a caller passes is ignored, and the
  *  recipient is resolved here from the record's lead. Exactly one id.
  *  `replyTo` only sets where the client's reply goes. Never throws. Used by
- *  api/proposal-send.js (proposalId) and api/onboarding-public.js
- *  (onboardingId) and nothing else. */
+ *  api/proposal-send.js (proposalId), api/proposal-public.js (proposalId: the
+ *  client's copy of their acceptance) and api/onboarding-public.js
+ *  (onboardingId), and nothing else; tests/clientmail.mjs holds that list. */
 export async function sendClientMail({ proposalId, onboardingId, subject, html, text, replyTo, tag = 'client-mail' } = {}) {
   try {
     const RESEND = process.env.RESEND_API_KEY;

@@ -12,7 +12,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import ProposalDoc, { PROPOSAL_CSS } from '../ProposalDoc';
-import { TOKEN_RE } from '../lib/proposal';
+import { TOKEN_RE, hasLegal } from '../lib/proposal';
 import Celebrate, { CELEBRATE_CSS } from './Celebrate';
 
 export function tokenFromHash(hash) {
@@ -36,6 +36,7 @@ body{font-family:Inter,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
 .pg-agree input{margin-top:3px;width:18px;height:18px}
 .pg-btn{font:inherit;font-size:17px;font-weight:700;color:#fff;background:#FF6B2C;border:none;border-radius:12px;padding:15px 20px;cursor:pointer}
 .pg-btn:disabled{opacity:.5;cursor:default}
+.pg-legal a{color:#2B4DE0;font-weight:600}
 .pg-err{color:#B4322E;font-size:14px}
 .pg-done{background:#E6F6EE;color:#14663E;border-radius:12px;padding:14px 16px;font-size:15px}
 .pg-print{display:block;margin:14px auto 0;font:inherit;font-size:14px;color:#2B4DE0;background:none;border:none;cursor:pointer;text-decoration:underline}
@@ -52,6 +53,12 @@ function Accept({ token, proposal, onAccepted }) {
   const q = (proposal.body && proposal.body.quote) || {};
   const [name, setName] = useState('');
   const [agree, setAgree] = useState(false);
+  /* Terms of Service and Privacy Policy: a SECOND required box, only when the
+     proposal carries legal links. Postgres refuses an acceptance without it
+     (proposal_accept: 'terms_required'); this box is how a client gives it. */
+  const legal = hasLegal(proposal.body) ? proposal.body.legal : null;
+  const [agreeTerms, setAgreeTerms] = useState(false);
+  const ready = agree && (!legal || agreeTerms);
   const [plan, setPlan] = useState('monthly');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -64,8 +71,9 @@ function Accept({ token, proposal, onAccepted }) {
     setErr('');
     if (name.trim().length < 2) { setErr('Type your full name to sign.'); return; }
     if (!agree) { setErr('Tick the box to agree to the terms.'); return; }
+    if (legal && !agreeTerms) { setErr('Tick the box to agree to the Terms of Service and Privacy Policy.'); return; }
     setBusy(true);
-    const j = await call({ t: token, action: 'accept', name: name.trim(), agree: true, plan }).catch(() => ({ ok: false }));
+    const j = await call({ t: token, action: 'accept', name: name.trim(), agree: true, agreeTerms: !!(legal && agreeTerms), plan }).catch(() => ({ ok: false }));
     setBusy(false);
     if (!j.ok) { setErr(j.error || 'That did not go through. Please try again.'); return; }
     onAccepted(j, name.trim());
@@ -81,8 +89,10 @@ function Accept({ token, proposal, onAccepted }) {
     <input type="text" placeholder="Type your full name to sign" value={name} onChange={e => setName(e.target.value)} autoComplete="name" />
     <label className="pg-agree"><input type="checkbox" checked={agree} onChange={e => setAgree(e.target.checked)} />
       <span>I agree to this proposal, its terms, and the {q.depositPct}% deposit of {usd(q.deposit)} due at signing.</span></label>
+    {legal && <label className="pg-agree pg-legal"><input type="checkbox" checked={agreeTerms} onChange={e => setAgreeTerms(e.target.checked)} />
+      <span>I have read and agree to the <a href={legal.termsUrl} target="_blank" rel="noopener noreferrer">Terms of Service</a> and <a href={legal.privacyUrl} target="_blank" rel="noopener noreferrer">Privacy Policy</a>.</span></label>}
     {err && <div className="pg-err">{err}</div>}
-    <button className="pg-btn" onClick={go} disabled={busy}>{busy ? 'Recording…' : 'Lock in my launch'}</button>
+    <button className="pg-btn" onClick={go} disabled={busy || !ready} title={ready ? '' : 'Tick the box' + (legal ? 'es' : '') + ' above first'}>{busy ? 'Recording…' : 'Lock in my launch'}</button>
   </div>);
 }
 

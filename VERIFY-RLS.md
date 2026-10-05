@@ -1146,6 +1146,60 @@ A wide-open second permissive policy would make the rep's count non-zero; a
 missing `revoke` would make `anon_can` true. Those are the two ways this goes
 wrong quietly, and the first two rows catch both.
 
+### 12b. Terms of Service and Privacy Policy (after PROPOSALS-LEGAL-MIGRATION.sql)
+
+A proposal whose stored body carries `legal` links cannot be accepted unless the
+client agreed, and the record copies the version and both links **from the
+stored body**: `proposal_accept(token, name, ip, plan, agreed_terms)` takes no
+URL or version from its caller. The old four-argument `proposal_accept` stays
+(the code deployed before this PR calls it) and passes `agreed_terms = false`,
+so it can never accept a proposal that shows legal links.
+
+**Status: NOT YET RUN against the real install.** Proven locally against real
+Postgres by `tests/proposalsdb.mjs` (PGlite, 22 checks; not Supabase), and the
+route half by `tests/proposallegal.mjs`.
+
+Run after the migration. Two blocks, each inside `begin … rollback`, so
+nothing persists. The first errors on purpose, which aborts its transaction;
+that is why it is on its own.
+
+**1. anon cannot call it:**
+```sql
+begin;
+set local role anon;
+select proposal_accept('LEGALxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Dee','1.1.1.1','monthly', true); -- expect: permission denied
+rollback;
+```
+
+**2. The server, against sentinels:**
+```sql
+begin;
+insert into proposals (lead_id, token, status, body, expires_at) values
+ ('sentinel', 'LEGALxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'sent',
+  '{"legal":{"termsUrl":"https://example.test/terms","privacyUrl":"https://example.test/privacy","version":"V1"}}', now() + interval '7 days'),
+ ('sentinel', 'PLAINxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'sent', '{"x":1}', now() + interval '7 days');
+set local role service_role;
+select proposal_accept('LEGALxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Dee','1.1.1.1','monthly', false) as a, -- expect: terms_required
+       proposal_accept('LEGALxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Dee','1.1.1.1','monthly')        as b, -- expect: terms_required (old signature)
+       proposal_accept('PLAINxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Pat','1.1.1.1','monthly')        as c; -- expect: accepted (old signature, no legal)
+select proposal_accept('LEGALxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','Dee','1.1.1.1','annual', true)  as d; -- expect: accepted
+reset role;
+select left(token,5) as t, accepted_name, accepted_terms_version, accepted_terms_url, accepted_privacy_url
+  from proposals where lead_id = 'sentinel' order by token;
+-- expect: LEGAL  Dee  V1  https://example.test/terms  https://example.test/privacy
+--         PLAIN  Pat  (null) (null) (null)
+rollback;
+```
+
+| check | expected | result |
+|---|---|---|
+| anon calls the five-argument `proposal_accept` | permission denied | |
+| legal proposal, `agreed_terms` false | terms_required | |
+| legal proposal, old four-argument call | terms_required | |
+| plain proposal, old four-argument call | accepted | |
+| legal proposal, agreed | accepted | |
+| the record | V1 and both example.test links, from the body | |
+
 ## 13. Settings, events and the site tables (after RLS-TIGHTEN-2026-10.sql)
 
 ### What was found

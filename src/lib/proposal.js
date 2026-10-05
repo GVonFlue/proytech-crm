@@ -101,6 +101,9 @@ export function readOffer(settings) {
          package's own), the deposit payment link, and how long to launch */
       onboardingUrl: safeHttps(raw.onboardingUrl),
       paymentUrl: safeHttps(raw.paymentUrl),
+      /* the Terms of Service and Privacy Policy a client agrees to on accept:
+         per install (white-label), frozen into each proposal at send */
+      legal: readLegal(raw.legal),
       launchDays: Number.isInteger(num(raw.launchDays)) && num(raw.launchDays) >= 1 && num(raw.launchDays) <= 120 ? num(raw.launchDays) : null,
       company: {
         name: S(company.name, 120).trim(), people: S(company.people, 160).trim(),
@@ -292,6 +295,9 @@ export function buildBody({ offer, q, copy, client, preparedOn, validDays, conta
     },
     onboardingUrl: offer.onboardingUrl || pkg.onboardingUrl || '',
     paymentUrl: offer.paymentUrl || '',
+    /* what the client is shown and agrees to; proposal_accept() copies these
+       into the acceptance record from THIS stored body, never from a request */
+    legal: offer.legal || null,
     launchDays: offer.launchDays || null,
   }));
 }
@@ -350,7 +356,7 @@ export function acceptancePatch(lead, p, stages, today) {
   const when = p.accepted_at || new Date().toISOString();
   patch.activities = [{
     id: accId, ts: when, type: 'Note', who: 'Proposal',
-    text: `Proposal accepted by ${S(p.accepted_name, 120)} (typed signature, IP ${S(p.accepted_ip, 64) || 'unknown'}).${plan} Setup $${(Number(q.setup) || 0).toLocaleString()}, deposit $${(Number(q.deposit) || 0).toLocaleString()} due now.${monthlyNote}${rep} Next: send the payment link.`,
+    text: `${acceptanceRecord(p).text}${plan} Setup $${(Number(q.setup) || 0).toLocaleString()}, deposit $${(Number(q.deposit) || 0).toLocaleString()} due now.${monthlyNote}${rep} Next: send the payment link.`,
   }, ...acts];
   patch.followUp = S(today, 10);
   patch.nextSteps = 'Send the deposit payment link';
@@ -483,6 +489,17 @@ export function validateOffer(raw) {
     if (!blank(x.phone) && S(x.phone).replace(/\D/g, '').length < 7) err(`company.contacts.${i}.phone`, 'That is not a phone number.');
     if (!blank(x.photo) && !safeAsset(x.photo)) err(`company.contacts.${i}.photo`, 'A photo must be an https:// link or a path on this site, like /team/me.jpg.');
   });
+  /* legal: all or nothing. A half-filled block would let a proposal be
+     accepted against a policy with no version, or a version with no policy. */
+  const lg = raw.legal && typeof raw.legal === 'object' ? raw.legal : null;
+  if (lg && (!blank(lg.termsUrl) || !blank(lg.privacyUrl) || !blank(lg.version))) {
+    if (blank(lg.termsUrl)) err('legal.termsUrl', 'Add the Terms of Service link (or clear all three).');
+    else if (!safeHttps(lg.termsUrl)) err('legal.termsUrl', 'The Terms link must start with https://');
+    if (blank(lg.privacyUrl)) err('legal.privacyUrl', 'Add the Privacy Policy link (or clear all three).');
+    else if (!safeHttps(lg.privacyUrl)) err('legal.privacyUrl', 'The Privacy link must start with https://');
+    if (blank(lg.version)) err('legal.version', 'Add the version clients agree to, e.g. 2026-10-04.');
+    else if (S(lg.version).trim().length > 40) err('legal.version', 'Keep the version under 40 characters.');
+  }
   if (blank(raw.terms)) err('terms', 'Payment terms are required: the client agrees to them when they accept.');
   A(raw.steps).forEach((st, i) => {
     if (blank(st && st.title)) err(`steps.${i}.title`, 'Step title is required.');
@@ -542,4 +559,39 @@ export function telHref(phone) {
   const d = S(phone).replace(/\D/g, '');
   if (d.length < 7) return '';
   return 'tel:' + (d.length === 10 ? '+1' + d : d.length === 11 && d[0] === '1' ? '+' + d : d);
+}
+
+
+/* ---------- legal: the terms a client agrees to, and the record of it ---------- */
+function readLegal(v) {
+  const x = v && typeof v === 'object' ? v : {};
+  const termsUrl = safeHttps(x.termsUrl), privacyUrl = safeHttps(x.privacyUrl), version = S(x.version, 40).trim();
+  return termsUrl && privacyUrl && version ? { termsUrl, privacyUrl, version } : null;
+}
+/* Does this proposal ask the client to agree to Terms and Privacy? The SAME
+   test proposal_accept() makes in Postgres: either link present in the body. */
+export const hasLegal = body => !!(body && body.legal && (body.legal.termsUrl || body.legal.privacyUrl));
+
+/* "Oct 5, 2026, 2:14 PM CDT" — in the calendar's zone, with the zone named,
+   so a record read in another zone is never an hour out without saying so. */
+export function fmtWhen(iso, tz = 'America/Chicago') {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '';
+  return new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(new Date(t));
+}
+
+/* THE acceptance record, one wording for the proposal screen and the lead's
+   activity: "Accepted by [name] on [date, time] from IP [ip]. Agreed to Terms
+   of Service and Privacy Policy, version [version]." The terms part comes
+   from the acceptance columns Postgres wrote (accepted_terms_*), which it
+   copied from the stored proposal — not from anything the client sent. */
+export function acceptanceRecord(p, tz = 'America/Chicago') {
+  const r = p || {};
+  const when = fmtWhen(r.accepted_at, tz);
+  const base = `Accepted by ${S(r.accepted_name, 120) || 'the client'}${when ? ` on ${when}` : ''} from IP ${S(r.accepted_ip, 64) || 'unknown'}.`;
+  const v = S(r.accepted_terms_version, 40).trim();
+  if (!v) return { text: base, base, version: '', termsUrl: '', privacyUrl: '' };
+  const termsUrl = safeHttps(r.accepted_terms_url), privacyUrl = safeHttps(r.accepted_privacy_url);
+  const agreed = `Agreed to Terms of Service and Privacy Policy, version ${v}.`;
+  return { text: `${base} ${agreed}${termsUrl ? ` Terms: ${termsUrl}` : ''}${privacyUrl ? ` Privacy: ${privacyUrl}` : ''}`, base, agreed, version: v, termsUrl, privacyUrl };
 }
