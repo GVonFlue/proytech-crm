@@ -332,6 +332,10 @@ These are **not** fully enforced by the database — some only by the screen:
      invoices and the books, though not change them.
    - **Tasks.** The task list is one row, so a rep who saves it writes the
      whole list, everyone's tasks included. The app only edits their own.
+   - **Receipt files are not in this list.** They live in Storage, and since
+     STORAGE-TIGHTEN-2026-10 only an owner can read, upload or delete one
+     (VERIFY-RLS.md §15). Website images (`site-media`) are public to read and
+     owner-only to change.
 
 3. **Your own Playbook drafts, in your own assistant.** A rep can never be
    given a draft: their browser cannot obtain the text at all, so it does not
