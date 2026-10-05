@@ -99,6 +99,12 @@ console.log('\n2. section titles, and the compliance text that must not move');
   ok('the terms and guarantee markup is byte-identical to main', termsLine(read('src/ProposalDoc.jsx')) === MAIN_TERMS && guarLine(read('src/ProposalDoc.jsx')) === MAIN_GUAR);
   const agree = s => (s.match(/<span>I agree to this proposal[^\n]*<\/span>/) || [''])[0];
   ok('the "I agree" statement a client ticks is byte-identical to main', agree(read('src/proposal/main.jsx')) === MAIN_AGREE);
+  /* A DELIBERATE formatting change (PR fix/proposal-cents): the words and the
+     markup above are unchanged, but the amount in them used to drop a trailing
+     cent digit ("$2,249.5"). It now formats with lib/proposal usd(), the CRM's
+     rule: whole dollars bare, any cents as two digits. Pinned here as text. */
+  ok('the amount in it formats cents as two digits ($2,249.50, never $2,249.5)', P.usd(2249.5) === '$2,249.50' && P.usd(1500) === '$1,500' && P.usd(999.05) === '$999.05');
+  ok('  and the page uses that one formatter, not a local one', /import \{[^}]*\busd\b[^}]*\} from '\.\.\/lib\/proposal'/.test(read('src/proposal/main.jsx')) && !/const usd\s*=/.test(read('src/proposal/main.jsx')));
   ok('the "valid until… accept below" line is unchanged', /<b>This price and proposal are good for \{body\.validDays \|\| 7\} days\.<\/b>/.test(read('src/ProposalDoc.jsx')));
   const main = read('src/proposal/main.jsx');
   ok('the button says "Lock in my launch"', /'Lock in my launch'/.test(main) && !/'Accept proposal'/.test(main));

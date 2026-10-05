@@ -104,6 +104,13 @@ console.log('\nexpired, and already accepted');
   n.root.unmount();
 }
 
+console.log('\nmoney on the "I agree" line: cents always two digits');
+{
+  const q = await boot('#t=' + TOK, () => ({ body: view({ body: { ...BODY, quote: { ...BODY.quote, deposit: 2249.5 } } }) }));
+  ok('a $2,249.50 deposit reads "$2,249.50", same words', /I agree to this proposal, its terms, and the 50% deposit of \$2,249\.50 due at signing\./.test(q.txt()) && !/\$2,249\.5 /.test(q.txt()), q.txt().slice(0, 0));
+  q.root.unmount();
+}
+
 console.log('\nTerms of Service and Privacy Policy: a second required box');
 {
   const LEGAL = { termsUrl: 'https://agency.test/terms', privacyUrl: 'https://agency.test/privacy', version: '2026-10-04' };

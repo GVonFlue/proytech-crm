@@ -595,3 +595,11 @@ export function acceptanceRecord(p, tz = 'America/Chicago') {
   const agreed = `Agreed to Terms of Service and Privacy Policy, version ${v}.`;
   return { text: `${base} ${agreed}${termsUrl ? ` Terms: ${termsUrl}` : ''}${privacyUrl ? ` Privacy: ${privacyUrl}` : ''}`, base, agreed, version: v, termsUrl, privacyUrl };
 }
+
+/** Money on everything a client sees: whole dollars as "$2,249", and any cents
+ *  always as two digits, "$2,249.50", never "$2,249.5". The CRM's own rule
+ *  (Proposals.jsx), defined once here so the page and the document agree. */
+export function usd(v) {
+  const n = Number(v) || 0; const c = Math.round(Math.abs(n) * 100) % 100;
+  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: c ? 2 : 0, maximumFractionDigits: 2 });
+}

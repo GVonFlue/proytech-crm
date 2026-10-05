@@ -12,7 +12,7 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import ProposalDoc, { PROPOSAL_CSS } from '../ProposalDoc';
-import { TOKEN_RE, hasLegal } from '../lib/proposal';
+import { TOKEN_RE, hasLegal, usd } from '../lib/proposal';
 import Celebrate, { CELEBRATE_CSS } from './Celebrate';
 
 export function tokenFromHash(hash) {
@@ -62,7 +62,6 @@ function Accept({ token, proposal, onAccepted }) {
   const [plan, setPlan] = useState('monthly');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const usd = v => '$' + (Number(v) || 0).toLocaleString('en-US', { maximumFractionDigits: 2 });
 
   if (proposal.status === 'accepted') return <div className="pg-done">Accepted by <b>{proposal.acceptedName}</b>. Thank you.</div>;
   if (proposal.expired) return <div className="pg-err">This proposal has expired. Reply to our email and we will send you a fresh one.</div>;
