@@ -53,6 +53,9 @@ const HELPERS = new Set([
                           // real Postgres (PGlite), which is deliberately not a
                           // dependency. npm i --no-save @electric-sql/pglite first.
                           // tests/rlstighten.mjs is the half CI always runs.
+  'onbrlsdb.mjs',         // a TOOL, not a test: runs ONBOARDING-MIGRATION against
+                          // real Postgres (PGlite). tests/onbsql.mjs is the half
+                          // CI always runs.
   'clockwarp.mjs',        // a TOOL, not a test: runs another suite with the clock
                           // pinned to a chosen day, to find fixtures that only
                           // pass in the month they were written. Asserts nothing
