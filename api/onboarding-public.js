@@ -89,6 +89,12 @@ export async function loadConfig() {
   return config;
 }
 
+/* ONE place builds the client's portal link: here. The resume email, the
+   owner's "Copy client link" (onboarding-admin) and the proposal's "Start my
+   onboarding" (proposal-public) all call this, on the same base as proposal
+   links (PROPOSAL_URL, else APP_URL). The slug is cosmetic, as on proposals. */
+export const portalLink = (client, token) => onboardingUrl(proposalBase(), clientSlug(client), token);
+
 /** The files a browser may know about: picked by name. No path, no flag that
  *  says where it is stored. */
 export const publicFiles = files => (Array.isArray(files) ? files : []).map(f => ({ id: f.id, slot: f.slot, name: f.name, mime: f.mime, bytes: f.bytes, at: f.at }));
@@ -232,7 +238,7 @@ export default async function handler(req, res) {
     if (!id) { res.status(200).json({ ok: false, tooSoon: true, error: 'We just sent your link. Check your inbox, and your spam folder.' }); return; }
     const ctx = ctxOf(row, row.answers, cfg);
     const p = progress(ctx, row.answers || {}, row.files || [], row.sections || {}, cfg);
-    const link = onboardingUrl(proposalBase(), clientSlug({ company: row.client_company, name: row.client_name }), t);
+    const link = portalLink({ company: row.client_company, name: row.client_name }, t);
     const first = String((row.answers && row.answers['biz.contact_name']) || row.client_name || '').trim().split(/\s+/)[0] || '';
     const sent = await sendClientMail({
       onboardingId: id, tag: 'onboarding-resume', replyTo: cfg.agencyEmail,

@@ -1,10 +1,8 @@
 import { guard, sweep } from './_guard.js';
 import { SUPA_KEY, SUPA_URL } from './_env.js';
 import { signDownloads, remove } from './_storage.js';
-// the client link's base is built in ONE place, proposal-send.js
-import { proposalBase } from './proposal-send.js';
-import { clientSlug } from '../src/lib/proposal.js';
-import { onboardingUrl } from '../src/lib/onboarding.js';
+// the portal link is built in ONE place, onboarding-public.js
+import { portalLink } from './onboarding-public.js';
 
 // api/onboarding-admin.js — what an OWNER needs from the onboarding that the
 // browser cannot do under RLS.
@@ -62,7 +60,7 @@ export default async function handler(req, res) {
     if (!o) { res.status(404).json({ ok: false, error: 'That onboarding no longer exists.' }); return; }
     const leads = await get(`leads?id=eq.${encodeURIComponent(o.lead_id)}&select=data`);
     const lead = (Array.isArray(leads) && leads[0] && leads[0].data) || {};
-    res.status(200).json({ ok: true, link: onboardingUrl(proposalBase(), clientSlug({ company: lead.company, name: lead.name }), o.token) });
+    res.status(200).json({ ok: true, link: portalLink({ company: lead.company, name: lead.name }, o.token) });
     return;
   }
 

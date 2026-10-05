@@ -94,6 +94,13 @@ execute grant):
 - **Accept**, under a row lock, refusing a draft, an expired proposal, a second
   acceptance, a blank name or an unknown plan. Those rules live in Postgres,
   so a hand-made request cannot skip them.
+- **Create the client's onboarding**, once the proposal is accepted, through
+  `onboarding_for_proposal()` (service role only; it refuses a proposal that is
+  not accepted and returns the same onboarding however often it is asked). The
+  "You're in" screen's **Start my onboarding** button gets that onboarding's
+  portal link, in the accept response and on a return visit. If it cannot be
+  made (the migration has not run), accepting still succeeds and the offer's
+  static onboarding link is used. Proven by `tests/onboardingaccept.mjs`.
 
 What it cannot do: read or write a **lead**, or read any other proposal. It never
 learns whether a token exists: malformed, unknown and draft all get the same
