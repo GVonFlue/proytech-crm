@@ -22,6 +22,7 @@
    ========================================================================== */
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
+import { parseColor, luminance } from './contrast.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',
   { url: 'https://crm.test/', pretendToBeVisual: true });
@@ -172,17 +173,23 @@ console.log('\nthe fold changed NO counts — the real bug is still there');
 
 console.log('\nthe paint, only where it can leak');
 {
-  const m = curEl.querySelector('.modal.lead');
-  /* The view is light now, with a navy band on top (THE LIGHT RULE in
-     App.jsx); readability of every element is tests/leadcontrast.mjs's job.
-     What this file still owns is the TOKENS: they must resolve here, to the
-     install's brand colour rather than a hardcoded hex, and nowhere else. */
-  ok('the lead view carries its own surface', !!m);
-  const bg = cs(m).backgroundColor + ' ' + cs(m).backgroundImage;
-  ok('  its background is painted, not inherited', /rgb|gradient/.test(bg), bg.slice(0, 90));
-  ok('  the arc token resolves inside it, to the brand cobalt', cs(m).getPropertyValue('--arc').trim().toUpperCase() === '#2B4DE0',
-     JSON.stringify(cs(m).getPropertyValue('--arc')));
-  ok('  composed from BRAND, not a literal hex',
+  /* THE LIGHT LEAD VIEW (e4ceebe). The record carries `leadfs`, the SIZE of
+     the lead view, and no longer `lead`, the size AND the dark skin. The skin's
+     ~380 rules are kept in App.jsx on purpose ("one class away if it is ever
+     wanted"), so what this file owns now is that they stay OFF the record:
+     the dark tokens must not resolve on it, and the navy header band is the
+     one dark surface. Readability of every element is leadcontrast.mjs's job.
+     (Retargeted: this section asserted the dark skin and went red the day the
+     light design shipped, on a board that was already red.) */
+  const m = curEl.querySelector('.modal.leadfs');
+  ok('the lead view is open, on the light design (leadfs)', !!m);
+  ok('  and NOT carrying the retired dark skin class', m && !m.classList.contains('lead'), m && m.className);
+  ok('  so the dark skin\'s tokens do not resolve on it', m && cs(m).getPropertyValue('--plate').trim() === '',
+     m && JSON.stringify(cs(m).getPropertyValue('--plate')));
+  const band = m && m.querySelector('.m-head.plate');
+  const bc = band && parseColor(cs(band).backgroundColor);
+  ok('  the header band is the one dark surface (navy)', !!bc && luminance(bc.rgb) < 0.05, band && cs(band).backgroundColor);
+  ok('  the skin is still composed from BRAND where it lives, not a literal hex',
      /--arc:\$\{COBALT\}/.test(fs.readFileSync('src/App.jsx','utf8')));
   ok('  JARVIS keeps its own dark palette — the two no longer share one',
      fs.readFileSync('src/Jarvis.jsx','utf8').includes('--arc:#38BDF8'));
@@ -207,7 +214,7 @@ console.log('\nthe paint, only where it can leak');
   const imp = [...curEl.querySelectorAll('button')].find(b => /^Import$/.test((b.textContent||'').trim()));
   await click(imp); await settle(110);
   const m = curEl.querySelector('.modal');
-  ok('another modal is still the light card', !m.className.includes('lead'), m.className);
+  ok('another modal is still the light card', !/\\blead(fs)?\\b/.test(m.className), m.className);
   ok('  with no dark token on it', cs(m).getPropertyValue('--arc').trim() === '',
      JSON.stringify(cs(m).getPropertyValue('--arc')));
 }
