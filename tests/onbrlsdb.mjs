@@ -162,7 +162,7 @@ ok('file begin: another onboarding\'s folder refused', (await svc(`select onboar
 ok('pending files are not public', (await svc(`select files from onboarding_public('${T('OPEN')}')`))[0].files.length === 0);
 ok('file finish', (await svc(`select onboarding_file_finish('${T('OPEN')}','${goodPath}',1234) r`))[0].r === 'ok');
 const listed = (await svc(`select files from onboarding_public('${T('OPEN')}')`))[0].files;
-ok('  one file, named logo.png, no path key', listed.length === 1 && listed[0].name === 'logo.png' && !('path' in listed[0]), JSON.stringify(listed));
+ok('  one file, named logo.png, with its path for the server (the route strips it)', listed.length === 1 && listed[0].name === 'logo.png' && listed[0].path === goodPath, JSON.stringify(listed));
 ok('submit refused without name/email/business', (await svc(`select onboarding_submit('${T('OPEN')}','{}') r`))[0].r === 'incomplete');
 await svc(`select onboarding_save('${T('OPEN')}','{"biz.contact_name":"Jordan","biz.email":"j@r.test","biz.name":"Reed"}','{}')`);
 ok('submit refused: files without the rights box', (await svc(`select onboarding_submit('${T('OPEN')}','{}') r`))[0].r === 'rights');

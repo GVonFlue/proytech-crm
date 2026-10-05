@@ -66,11 +66,13 @@ same reason as the 20 Aug pass. **25 route files, 22 of them described below.**
 | `proposal-draft.js` | ✅ `guard({requireOwner})` | + dollar ceiling, shared with `jarvis.js`. Writes nothing; returns words only, no prices |
 | `proposal-send.js` | ✅ `guard({requireOwner})` | mails through `sendClientMail()`, which takes a proposal id, **not an address**, and reads the recipient from the lead server-side. The **only** place a client link is built: `{PROPOSAL_URL or APP_URL}/p/<client-slug>#t=<token>` (an https `PROPOSAL_URL` only; anything else falls back). Mode `peek` returns a published proposal's link and changes nothing. The slug is cosmetic: no route reads it — see below |
 | `proposal-public.js` | ❌ none — by design, token-gated | the client has no account. See below |
+| `onboarding-public.js` | ❌ none — by design, token-gated | the client has no account. Reads and writes one onboarding through service-role-only definer functions; uploads go to a server-chosen path and are checked by their bytes; client mail by onboarding id, never an address. See below |
+| `onboarding-admin.js` | ✅ `guard({requireOwner})` | signed download links, the client link, and delete (files before the row). See below |
 
 `_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js`, `_coffee.js`,
-`_mail.js` are helpers with no route.
+`_mail.js`, `_storage.js` are helpers with no route. `_storage.js` is the only code that reaches the private onboarding bucket, with the service key.
 
-### `proposal-public.js` — the one public route that reads client data, and why that is safe
+### `proposal-public.js` — the first public route that reads client data, and why that is safe
 
 The client opening a proposal has no login, so a session is impossible here. The
 **token** stands in for one: 256 random bits, carried in the link's `#` fragment
@@ -109,6 +111,68 @@ database.
 other `/api/` route — redirects to `https://getproytech.com`. The rule is
 host-scoped, so the CRM's own domain is unaffected. `tests/proposallink.mjs`
 checks it path by path.
+
+### `onboarding-public.js` — the second public route that reads client data, and why that is safe
+
+The same shape as `proposal-public.js`, because the actor is the same: a client
+with a link and no account. The **token** (256 random bits, in the link's `#`
+fragment, checked against a strict 43-character shape before any database
+call) stands in for a session. Malformed and unknown tokens get the identical
+404 text, so the route cannot be used to learn which exist.
+
+Every read and write goes through a **security-definer function callable only
+by the service role** (`ONBOARDING-MIGRATION.sql`; anon and authenticated have
+no execute grant, and both tables are owner-only under RLS). The route then
+picks what it sends back **by name** (`PUBLIC_KEYS`, `publicFiles`): never the
+onboarding id, a file's storage path, the token, the lead id or the stored
+prompts.
+
+What a token holder can do, one action per call:
+
+- **Load** their onboarding, prefilled from the lead (name, email, phone,
+  company, website) and the proposal (its plan, its chosen contacts, launch
+  days). Nothing else on the lead is returned. The deposit and access dates
+  are read from the lead's checklist, never copied.
+- **Save** answers. The route rebuilds them from the field schema
+  (`lib/onboarding` `cleanAnswers`: unknown ids dropped, values coerced and
+  capped, options checked) and **refuses** any value shaped like an SSN or a
+  Luhn-valid card number, naming the field and saving nothing. Postgres
+  refuses a submitted onboarding.
+- **Upload**, in two steps. `upload-sign` checks the slot, extension and size,
+  then the **server** picks the path (`{onboardingId}/{folder}/{uuid}.{ext}`)
+  and returns a signed upload URL for that one object; the browser uploads
+  straight to Storage, so no file passes through a Vercel function.
+  `upload-done` reads the object's first bytes and size **from Storage** and
+  deletes anything that is not what its extension says, or is over 50 MB,
+  before it is ever listed. Supabase fixes a signed upload URL's life at two
+  hours; the server-chosen path and the after-the-fact check are what keep it
+  narrow.
+- **Remove** a file, before submit only.
+- **Email themselves their link** through `sendClientMail({ onboardingId })`,
+  which reads the address from the onboarding's **lead**. Nothing in the
+  request can name a recipient, and Postgres allows one every ten minutes.
+- **Submit.** Required answers are checked here (the schema is in JS) and the
+  ones Postgres can see are checked again there. Both build prompts are made
+  by the same function the CRM's Regenerate uses. The **owners allowlist** is
+  told through `sendMail()` with no `to`.
+
+What it cannot do: read or write a **lead**, read another onboarding, read or
+list Storage, or reach any file by a path it chose. Rate-limited per IP and
+per day; about 1% of calls sweep uploads that were signed and never finished.
+
+Proven by `tests/onboardingroutes.mjs` (the route) and `tests/onbrlsdb.mjs` /
+`tests/onbsql.mjs` (the functions, on real Postgres and as text). `VERIFY-RLS.md`
+§14 is the proof against a real install and has **not been run**.
+
+### `onboarding-admin.js` — owner only, and why it exists
+
+The owner reads and edits onboardings directly under RLS. Three things need the
+service key, so they sit behind `guard({requireOwner})`: five-minute **signed
+download links** (sensitive files and SVGs always download, never render, and
+get no thumbnail); the client's **portal link**, built on the same base as
+proposal links; and **delete**, which removes the files from Storage *before*
+the row and keeps the row if Storage refuses, so no file is ever stranded with
+nothing pointing at it.
 
 ### `outreach-draft.js` — why owner, and why it shares JARVIS's budget
 
@@ -522,6 +586,13 @@ now either guarded or a documented, tested exception.
 - **`tests/contentroutes.mjs`** (138 assertions) invokes both handlers against a
   fake network and asserts on what reaches the database — including that a
   wrong cron secret never reaches the model and never asks Supabase who it is.
+
+- **`tests/onboardingroutes.mjs`** drives both onboarding routes against a fake
+  network: token gating, fields picked by name, the SSN and card refusal, the
+  server-chosen upload path, the byte check that deletes a disguised file, the
+  recipient read from the lead, and owner-only signed links.
+- **`tests/clientmail.mjs`** proves `sendClientMail()` has exactly two holders,
+  `proposal-send.js` and `onboarding-public.js`, and that neither can aim it.
 
 Run any of them directly (`node tests/apiauth.mjs`, `node tests/relay.mjs`, …).
 

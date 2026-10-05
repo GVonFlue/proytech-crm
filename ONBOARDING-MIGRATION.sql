@@ -127,13 +127,16 @@ revoke all on onboarding_files from anon;
 -- come from the lead's checklist (never a copy). The client's own name, email
 -- and phone are returned because the portal prefills them for the client to
 -- confirm; nothing the owner keeps private about the lead is.
+-- `id` and each file's `path` are for the SERVER (it builds upload paths and
+-- the prompts' asset list from them); api/onboarding-public.js strips both
+-- before anything reaches a browser, picking the fields it sends by name.
 create or replace function onboarding_public(p_token text)
-returns table (status text, industry text, lender_kind text, products text[], package_name text,
+returns table (id uuid, status text, industry text, lender_kind text, products text[], package_name text,
                answers jsonb, sections jsonb, submitted_at timestamptz, last_activity_at timestamptz,
                client_name text, client_email text, client_phone text, client_company text, client_website text,
                plan jsonb, contacts jsonb, launch_days int, checklist jsonb, files jsonb)
 language sql security definer stable set search_path = public as $$
-  select o.status, o.industry, o.lender_kind, o.products, o.package_name,
+  select o.id, o.status, o.industry, o.lender_kind, o.products, o.package_name,
          o.answers, o.sections, o.submitted_at, o.last_activity_at,
          l.data->>'name', l.data->>'email', l.data->>'phone',
          coalesce(nullif(l.data->>'company',''), p.body->'client'->>'company'),
@@ -148,7 +151,8 @@ language sql security definer stable set search_path = public as $$
            'access_social',l.data->'onboarding'->'access_social',
            'onbSkip',      l.data->'onbSkip'),
          coalesce((select jsonb_agg(jsonb_build_object('id', f.id, 'slot', f.slot, 'name', f.original_name,
-                                                       'mime', f.mime, 'bytes', f.bytes, 'at', f.created_at)
+                                                       'mime', f.mime, 'bytes', f.bytes, 'at', f.created_at,
+                                                       'path', f.path, 'sensitive', f.sensitive)
                                     order by f.created_at)
                      from onboarding_files f where f.onboarding_id = o.id and f.state = 'ok'), '[]'::jsonb)
   from onboardings o
