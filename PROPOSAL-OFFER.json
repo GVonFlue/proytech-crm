@@ -18,7 +18,7 @@
   "onboardingUrl": "",
   "paymentUrl": "",
   "prepay": { "months": 12, "free": 2 },
-  "guarantee": "Live in 14 days from kickoff, or your first month is free.",
+  "guarantee": "Live in 14 days, or your first month is free. Your 14 days start once your deposit, onboarding and required access are in.",
   "terms": "50% of the setup at signing, 50% at launch. The monthly fee starts at launch, not before.",
   "cancel": "Month to month, cancel anytime. Prepaid months are non-refundable after launch, and the guarantee still applies.",
   "packages": [
@@ -77,7 +77,7 @@
     { "text": "Review requests only go to customers whose job is finished, so you are asking people who are happy.", "appliesTo": ["automations"] },
     { "text": "Opt outs are handled automatically on every text and email.", "appliesTo": ["automations"] },
     { "text": "Hosting, SSL, backups and uptime monitoring are handled for you.", "appliesTo": ["growth-os", "website"] },
-    { "text": "You own all of it. Domain, site, customer list, review history. Nothing is held hostage.", "appliesTo": [] }
+    { "text": "You own what's yours: your domain, your content, your customer list and your reviews. Leave anytime and take them with you.", "appliesTo": [] }
   ],
   "quotedSeparately": [
     "Paid ad management",

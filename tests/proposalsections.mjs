@@ -35,7 +35,7 @@ const bodyFor = (packageId, addonIds = [], o = offer) => {
 };
 const AUTO = ['Automations know when to stop', 'Review requests only go to customers whose job is finished', 'Opt outs are handled automatically'];
 const HOSTING = 'Hosting, SSL, backups and uptime monitoring are handled for you.';
-const OWN = 'You own all of it';
+const OWN = "You own what's yours";
 const DOMAIN = 'Access to your domain, Google Business Profile and phone line where needed';
 const has = (list, frag) => list.some(x => x.includes(frag));
 
@@ -44,7 +44,7 @@ console.log('\nthe shipped offer is tagged');
   const tag = t => (RAW.underneath.concat(RAW.needFromYou).find(e => e.text.startsWith(t)) || {}).appliesTo;
   ok('the three automation lines apply to automations only', AUTO.every(t => JSON.stringify(tag(t)) === '["automations"]'), AUTO.map(tag));
   ok('hosting / SSL applies to growth-os and website', JSON.stringify(tag('Hosting, SSL')) === '["growth-os","website"]');
-  ok('"You own all of it" applies to everything', JSON.stringify(tag(OWN)) === '[]');
+  ok('"You own what\'s yours" applies to everything', JSON.stringify(tag(OWN)) === '[]');
   ok('domain / phone access applies to growth-os and website', JSON.stringify(tag('Access to your domain')) === '["growth-os","website"]');
   ok('the other "what we need" lines apply to everything', ['The onboarding form', 'Your customer list', 'Real photos'].every(t => JSON.stringify(tag(t)) === '[]'));
   ok('and the offer is still valid', P.validateOffer(RAW).ok, JSON.stringify(P.validateOffer(RAW).errors));
