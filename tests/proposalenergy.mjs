@@ -107,7 +107,7 @@ console.log('\n2. section titles, and the compliance text that must not move');
 console.log('\n3. the point of contact, chosen per proposal');
 {
   const C = offer.company.contacts;
-  ok('the shipped contacts: Garrett and Logan, as given', JSON.stringify(RAW.company.contacts) === JSON.stringify([{ name: 'Garrett', phone: '901-335-3905', email: 'admin@getproytech.com' }, { name: 'Logan', phone: '913-237-4403', email: '' }]));
+  ok('the shipped contacts: Garrett and Logan, as given', JSON.stringify(RAW.company.contacts) === JSON.stringify([{ name: 'Garrett', phone: '901-335-3905', email: 'admin@getproytech.com', role: 'Strategy & your build', photo: '/team/garrett.jpg' }, { name: 'Logan', phone: '913-237-4403', email: '', role: 'Onboarding & support', photo: '/team/logan.jpg' }]));
   ok('launchDays is 14 in the shipped offer, and the offer is valid', RAW.launchDays === 14 && P.validateOffer(RAW).ok, JSON.stringify(P.validateOffer(RAW).errors));
   ok('default: the contact matching the signed-in owner (full name)', P.defaultContactPick(C, 'Logan Sell') === 'Logan');
   ok('default: matching on first name, any case', P.defaultContactPick(C, 'garrett von flue') === 'Garrett');
@@ -117,7 +117,7 @@ console.log('\n3. the point of contact, chosen per proposal');
   ok('one name means that one', P.chosenContacts(C, 'Logan').map(c => c.name).join() === 'Logan');
   ok('an unknown pick falls back to the first, never to nobody', P.chosenContacts(C, 'Nobody').map(c => c.name).join() === 'Garrett');
   const b = bodyWith('Logan');
-  ok('frozen into the body: the chosen contact, with phone and email', JSON.stringify(b.contacts) === JSON.stringify([{ name: 'Logan', phone: '913-237-4403', email: '' }]));
+  ok('frozen into the body: the chosen contact, with phone, email, role and photo', JSON.stringify(b.contacts) === JSON.stringify([{ name: 'Logan', phone: '913-237-4403', email: '', role: 'Onboarding & support', photo: '/team/logan.jpg' }]));
   ok('the body does NOT carry the offer\'s whole contact list', !('contacts' in b.company));
   const before = JSON.stringify(b);
   offer.company.contacts[1].phone = '000'; offer.company.contacts.push({ name: 'New', phone: '1', email: '' });
