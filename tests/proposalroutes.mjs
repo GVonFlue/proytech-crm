@@ -120,7 +120,9 @@ console.log('\nproposal-public — who can see what');
   const v = await hit(pub, { t: T('open') });
   ok('a sent proposal opens', v.code === 200 && v.body.ok && v.body.proposal.status === 'sent');
   const s = JSON.stringify(v.body);
-  ok('only the display fields leave, picked by name', Object.keys(v.body.proposal.body).sort().join() === [...PUBLIC_BODY_KEYS].sort().join(), Object.keys(v.body.proposal.body));
+  /* every key that leaves is on the list, and every listed key the body HAS leaves */
+  ok('only the display fields leave, picked by name', Object.keys(v.body.proposal.body).every(k => PUBLIC_BODY_KEYS.includes(k))
+    && PUBLIC_BODY_KEYS.filter(k => BODY[k] !== undefined).every(k => k in v.body.proposal.body), Object.keys(v.body.proposal.body));
   ok('an extra field on the body does not leak', !s.includes('must never leave'));
   ok('the onboarding link is not shown before acceptance', !s.includes('forms.test'));
   ok('the owner\'s notes, the client email and the lead id never leave', !s.includes('PRIVATE') && !s.includes('dee@dee.co') && !s.includes('L1'));

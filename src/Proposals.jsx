@@ -14,7 +14,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Sparkles, Download, Link2, Send, X, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Trash2, Check, ArrowUp, ArrowDown } from 'lucide-react';
 import ProposalDoc, { PROPOSAL_CSS } from './ProposalDoc';
-import { readOffer, quote, cleanCopy, buildBody, newToken, isExpired, readiness, validateOffer, safeAsset } from './lib/proposal';
+import { readOffer, quote, cleanCopy, buildBody, newToken, isExpired, readiness, validateOffer, safeAsset,
+  defaultContactPick, chosenContacts, CONTACTS_ALL } from './lib/proposal';
 import { personLabel, todayISO, servicesOf } from './lib/lead';
 // the shipped example offer, for "Load default offer" in Settings → Proposals
 import DEFAULT_OFFER from '../PROPOSAL-OFFER.json';
@@ -154,6 +155,15 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
     seats: sq.seats || 0, prepay: !!sq.prepay,
   } : blankSel(offer));
   const [validDays, setValidDays] = useState(start.valid_days || (offer && offer.validDays) || 7);
+  /* POINT OF CONTACT, chosen per proposal: one person or all of them. A
+     saved draft keeps its choice; a new one defaults to whoever is signed in
+     (else the first contact). Frozen into the body like everything else. */
+  const offerContacts = (offer && offer.company && offer.company.contacts) || [];
+  const [contactPick, setContactPick] = useState(() => {
+    const had = Array.isArray(startBody.contacts) ? startBody.contacts : null;
+    if (had && had.length) return had.length > 1 ? CONTACTS_ALL : had[0].name;
+    return defaultContactPick(offerContacts, me);
+  });
   const [notes, setNotes] = useState(start.notes || '');
   const [copy, setCopy] = useState(startBody.copy || null);
   const [warnings, setWarnings] = useState([]);
@@ -165,14 +175,14 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
   const lead = leadsById[leadId] || null;
   /* "I've read every section" is a claim about THIS text: any edit clears it */
   const [reviewed, setReviewed] = useState(false);
-  useEffect(() => { setReviewed(false); }, [copy, sel, validDays, leadId]);
+  useEffect(() => { setReviewed(false); }, [copy, sel, validDays, leadId, contactPick]);
 
   const q = useMemo(() => quoteFor(start, offer, sel), [offer, sel, start]);
   const body = useMemo(() => {
     if (frozen) return startBody;
     if (!q.ok || !copy || !lead) return null;
-    return buildBody({ offer, q, copy, client: clientOf(lead), preparedOn: todayISO(), validDays });
-  }, [frozen, q, copy, lead, offer, validDays]);
+    return buildBody({ offer, q, copy, client: clientOf(lead), preparedOn: todayISO(), validDays, contacts: chosenContacts(offerContacts, contactPick) });
+  }, [frozen, q, copy, lead, offer, validDays, contactPick]);
 
   /* THE PROPOSAL STANDARD, on the body that will be published — the same
      readiness() api/proposal-send.js enforces. Link and email differ only by
@@ -304,6 +314,11 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
           <label><input type="number" min={pkg.seatsIncluded} value={sel.seats} onChange={e => setSel(s => ({ ...s, seats: e.target.value }))} aria-label="Seats" /><em>{pkg.seatsIncluded} included, then {usd(pkg.extraSeat)}/mo each</em></label></div>}
         {offer && offer.prepay && <label className="pp-check"><input type="checkbox" checked={sel.prepay} onChange={e => setSel(s => ({ ...s, prepay: e.target.checked }))} />
           Offer the {offer.prepay.months}-month prepay ({offer.prepay.free} months free)</label>}
+        <label className="pp-l">Point of contact</label>
+        {offerContacts.length ? <select className="pp-contact" value={contactPick} onChange={e => setContactPick(e.target.value)} aria-label="Point of contact">
+          {offerContacts.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+          {offerContacts.length > 1 && <option value={CONTACTS_ALL}>{offerContacts.length === 2 ? 'Both' : 'All of them'}</option>}
+        </select> : <div className="pp-hint">No contacts yet. Add them in Settings → Proposals; until then the client is told "we".</div>}
         <div className="pp-price"><span>Good for</span><label><input type="number" min="1" max="60" value={validDays} onChange={e => setValidDays(Math.max(1, Math.min(60, Number(e.target.value) || 7)))} aria-label="Days valid" /><em>days from when it is sent</em></label></div>
         {q.ok ? <div className="pp-total">Setup <b>{usd(q.setup)}</b> · deposit <b>{usd(q.deposit)}</b> · monthly <b>{usd(q.monthly)}</b>{q.prepay ? <> · prepay <b>{usd(q.prepay.total)}</b></> : null}</div>
           : <div className="pp-total err">{q.error}</div>}
@@ -345,7 +360,7 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
           {st === 'accepted' && <div className="pp-msg ok pd-noprint"><CheckCircle2 size={15} /><span>Accepted {fmt(start.accepted_at)} by <b>{start.accepted_name}</b>{start.accepted_plan === 'annual' ? ', with the prepay' : ''}. Next: send the deposit payment link.</span></div>}
           <div className="pd-print-area">
             <ProposalDoc body={body} edit={edit && !frozen} onCopy={setCopy} expiresAt={pub.expires_at}
-              acceptSlot={<div className="pp-acceptph pd-noprint">The client sees an Accept button here: typed name, agree to terms, then onboarding.</div>} />
+              acceptSlot={<div className="pp-acceptph pd-noprint">The client sees "Lock in my launch" here: typed name, agree to terms, then their You're in screen and onboarding.</div>} />
           </div>
         </>}
       </div>
@@ -404,7 +419,8 @@ const NUM = ['setup', 'monthly', 'seatsIncluded', 'extraSeat'];
 export function offerForSave(d) {
   const o = clone(d);
   for (const g of ['packages', 'addons']) o[g] = (o[g] || []).map(it => { const x = { ...it }; for (const k of NUM) if (x[k] !== '' && x[k] != null) x[k] = Number(x[k]); return x; });
-  for (const k of ['depositPct', 'validDays']) if (o[k] !== '' && o[k] != null) o[k] = Number(o[k]);
+  for (const k of ['depositPct', 'validDays', 'launchDays']) if (o[k] !== '' && o[k] != null) o[k] = Number(o[k]);
+  if (o.launchDays === '') delete o.launchDays;
   if (o.prepay) o.prepay = { months: Number(o.prepay.months), free: Number(o.prepay.free) };
   return o;
 }
@@ -582,6 +598,17 @@ export function OfferEditor({ settings, saveSettings, isOwner = true, defaultOff
         </div></div>
       </div>
 
+      <div className="oe-sec"><div className="oe-sh">After they accept</div>
+        <div className="oe-card"><div className="oe-grid">
+          <Fld label="Onboarding form (https)" path="onboardingUrl" errs={shownErrs} wide hint="The big Start my onboarding button. Blank: each package's own link, else the client is told who will send it.">
+            <input value={draft.onboardingUrl || ''} onChange={e => setAt(['onboardingUrl'], e.target.value)} placeholder="https://" aria-label="Onboarding link" /></Fld>
+          <Fld label="Deposit payment link (https)" path="paymentUrl" errs={shownErrs} wide hint="Optional. Blank: the client is told who will send the deposit link.">
+            <input value={draft.paymentUrl || ''} onChange={e => setAt(['paymentUrl'], e.target.value)} placeholder="https://" aria-label="Payment link" /></Fld>
+          <Fld label="Days to launch" path="launchDays" errs={shownErrs} hint="On the Launch Day ticket. Blank: left off."><div className="oe-money">
+            <input inputMode="numeric" value={draft.launchDays ?? ''} onChange={e => setAt(['launchDays'], e.target.value)} aria-label="Days to launch" /><i>days after onboarding</i></div></Fld>
+        </div></div>
+      </div>
+
       <div className="oe-sec"><div className="oe-sh">How it runs</div>
         <div className="oe-card">{(draft.steps || []).map((st, i) => (<div className={'oe-step' + (errs[`steps.${i}.title`] || errs[`steps.${i}.text`] ? ' bad' : '')} key={i}>
           <span className="oe-n">{String(i + 1).padStart(2, '0')}</span>
@@ -612,7 +639,25 @@ export function OfferEditor({ settings, saveSettings, isOwner = true, defaultOff
           <Fld label="Logo" path="company.logo" errs={shownErrs} hint="https:// or a path on this site, e.g. /logo.png"><input value={co.logo || ''} onChange={e => setAt(['company', 'logo'], e.target.value)} /></Fld>
           <Fld label="Footer mark" path="company.mark" errs={shownErrs} hint="https:// or a path on this site"><input value={co.mark || ''} onChange={e => setAt(['company', 'mark'], e.target.value)} /></Fld>
           {safeAsset(co.logo) && <div className="oe-logo"><img src={safeAsset(co.logo)} alt="Logo preview" /></div>}
-        </div></div>
+        </div>
+        <div className="oe-ll" style={{ marginTop: 14 }}>Points of contact</div>
+        <div className="oe-hint" style={{ marginBottom: 6 }}>Each proposal names one of them, or all, and the client's You're in screen shows their phone and email.</div>
+        {(co.contacts || []).map((c, i) => {
+          const set = (k, v) => setAt(['company', 'contacts', i, k], v);
+          const moveC = d => edit(x => { const l = x.company.contacts; const j = i + d; if (j < 0 || j >= l.length) return; [l[i], l[j]] = [l[j], l[i]]; });
+          return (<div className="oe-contact" key={i} data-path={`company.contacts.${i}`}>
+            <Fld label="Name" path={`company.contacts.${i}.name`} errs={shownErrs}><input value={c.name || ''} onChange={e => set('name', e.target.value)} aria-label={`Contact ${i + 1} name`} /></Fld>
+            <Fld label="Phone" path={`company.contacts.${i}.phone`} errs={shownErrs}><input inputMode="tel" value={c.phone || ''} onChange={e => set('phone', e.target.value)} aria-label={`Contact ${i + 1} phone`} /></Fld>
+            <Fld label="Email" path={`company.contacts.${i}.email`} errs={shownErrs}><input inputMode="email" value={c.email || ''} onChange={e => set('email', e.target.value)} aria-label={`Contact ${i + 1} email`} /></Fld>
+            <div className="oe-li oe-contact-b">
+              <button type="button" title="Move up" disabled={i === 0} onClick={() => moveC(-1)}><ArrowUp size={13} /></button>
+              <button type="button" title="Move down" disabled={i === (co.contacts || []).length - 1} onClick={() => moveC(1)}><ArrowDown size={13} /></button>
+              <button type="button" title="Remove" onClick={() => edit(x => { x.company.contacts.splice(i, 1); })}><X size={13} /></button>
+            </div>
+          </div>);
+        })}
+        <button type="button" className="oe-addl" onClick={() => edit(x => { x.company = x.company || {}; x.company.contacts = [...(x.company.contacts || []), { name: '', phone: '', email: '' }]; })}>+ Add a contact</button>
+        </div>
       </div>
     </>}
 
@@ -790,6 +835,10 @@ export const PROPOSALS_CSS = `
 .oe-li button:disabled,.oe-step button:disabled{opacity:.35;cursor:default}
 .oe-step input:first-of-type{flex:0 0 160px}
 .oe-n{font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--oe-blue);width:22px;flex:none}
+.oe-contact{display:grid;grid-template-columns:1fr 1fr 1.4fr auto;gap:8px;align-items:end;border:1px solid #EEF1F7;border-radius:10px;padding:8px 10px;margin-bottom:6px;background:#FCFDFF}
+.oe-contact-b{margin:0 0 2px}
+@media (max-width:760px){ .oe-contact{grid-template-columns:1fr} }
+.pp-contact{max-width:280px}
 .oe-tagged{grid-column:1/-1}
 .oe-tl{border:1px solid #EEF1F7;border-radius:10px;padding:6px 8px 8px;margin-bottom:6px;background:#FCFDFF}
 .oe-tl.bad{border-color:#E9A09B;background:#FFF7F6}

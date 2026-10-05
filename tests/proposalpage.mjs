@@ -78,7 +78,11 @@ console.log('\nviewing and accepting');
   await p.click([...document.querySelectorAll('.pg-plan input')][1]);
   await p.click(document.querySelector('.pg-btn'));
   ok('Accept POSTs the name, the agreement and the plan', accepted && accepted.name === 'Dee Client' && accepted.agree === true && accepted.plan === 'annual' && accepted.t === TOK, JSON.stringify(accepted));
-  ok('then it thanks them and says what comes next', /Accepted\. Thank you\./.test(p.txt()) && /deposit payment link/.test(p.txt()));
+  /* the "You're in" screen (src/proposal/Celebrate.jsx), not a plain thank-you */
+  ok('then it celebrates them by first name', /You're in, Dee\. Let's grow\./.test(p.txt()) && !!document.querySelector('.yi'));
+  ok('  with their Launch Day ticket and what happens next', /Admit one/i.test(p.txt()) && /What happens next/i.test(p.txt()) && /Your kickoff call/.test(p.txt()));
+  ok('  no onboarding link and no contacts on this proposal: "We\'ll send…"', /We'll send your deposit and onboarding links today\./.test(p.txt()) && !document.querySelector('.yi-go'));
+  ok('  and it does not navigate away on its own', location.href.includes('#t='));
   ok('and the Accept button is gone', !document.querySelector('.pg-btn'));
   p.root.unmount();
 }
