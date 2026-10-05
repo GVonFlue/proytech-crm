@@ -553,7 +553,10 @@ export function stillNeeded(ctx, answers, files, checklist, cfg) {
     if (!need && !req) continue;
     const label = need || f.short || fieldLabel(f, ctx);
     if (seen.has(label)) continue; seen.add(label);
-    const okk = answered(f, answers, files, ctx, cfg);
+    /* access the owner has already confirmed on the lead's checklist counts,
+       whether or not the client ticked "Done": two screens, one answer */
+    const verified = (f.id === 'ax.domain' && cl.access.dns) || (f.id === 'ax.gbp' && cl.access.gbp);
+    const okk = answered(f, answers, files, ctx, cfg) || !!verified;
     if (!need && okk) continue;                 // a filled required field is not news
     out.push({ key: f.id, label, where: sectionTitle(s, ctx), section: s.id, ok: okk, note: okk ? 'Added' : sectionTitle(s, ctx) });
   }

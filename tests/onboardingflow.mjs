@@ -150,6 +150,14 @@ test('still needed: deposit from the lead checklist, need labels ticked when don
   ok(!L.stillNeeded(ctx, base, [], { onbSkip: ['deposit_paid'] }).some(x => x.key === 'deposit'), 'monthly-only client: no deposit line');
   ok(!L.stillNeeded(L.ctxOf({ products: ['suite'] }, base, {}), base, [], {}).some(x => x.label === 'A headshot'), 'no website: no headshot ask');
 });
+test('still needed: access confirmed on the lead\'s checklist is ticked for the client too', () => {
+  const ctx = L.ctxOf({ products: ['website'] }, base, {});
+  const a = { ...base, 'web.domain_own': 'yes', 'web.gbp_status': 'have' };
+  const open = L.stillNeeded(ctx, a, [], {});
+  ok(!open.find(x => x.label === 'Domain access').ok);
+  const after = L.stillNeeded(ctx, a, [], { access_dns: { done: '2026-10-05' } });
+  ok(after.find(x => x.label === 'Domain access').ok && !after.find(x => x.label === 'Google profile access').ok);
+});
 test('still needed never blocks submit on its own: only missingRequired does', () => {
   const ctx = L.ctxOf({ products: ['website'] }, base, {});
   const a = { ...base, 're.license': '1', 're.brokerage': 'B', 're.broker_name': 'Bo', 're.broker_email': 'b@b.test' };
