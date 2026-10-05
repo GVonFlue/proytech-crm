@@ -205,7 +205,7 @@ console.log('\nthe editor, mounted');
   console.log('\n"applies to": limit a standard line to some purchases');
   await mount({});
   const tl = () => [...document.querySelectorAll('[data-path="underneath"] .oe-tl')];
-  const ownIdx = tl().findIndex(r => /You own all of it/.test(r.querySelector('input').value));
+  const ownIdx = tl().findIndex(r => /You own what's yours/.test(r.querySelector('input').value));
   const autoIdx = tl().findIndex(r => /Automations know when to stop/.test(r.querySelector('input').value));
   ok('each line shows one checkbox per package and add-on', tl()[0] && tl()[0].querySelectorAll('.oe-applies input').length === 4);
   ok('an untagged line says "every proposal"', /every proposal/.test(tl()[ownIdx].textContent));
