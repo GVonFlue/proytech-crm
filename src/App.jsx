@@ -983,7 +983,7 @@ const CSS=`
 .tbl th .ar{opacity:.4;margin-left:4px}.tbl th.sorted{color:${COBALT}}.tbl th.sorted .ar{opacity:1}
 .tbl td{padding:13px 14px;border-bottom:1px solid #F0F0F6;color:#3a3658;white-space:nowrap}
 .tbl tbody tr{cursor:pointer}.tbl tbody tr:hover td{background:#FAFAFD}.tbl tr:last-child td{border-bottom:none}
-.namecell{font-weight:600;color:${INK}}.subcell{font-size:12px;color:#928DAD}
+.namecell{font-weight:600;color:${INK}}.subcell{font-size:12px;color:#6E6A88}
 .due{font-weight:600}.due.over{color:${RED}}.due.today{color:${GOLD}}.due.soon{color:${COBALT}}.due.far{color:#8E89A8}
 .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap}
 .searchbox{display:flex;align-items:center;gap:8px;background:#fff;border:1px solid #DEDFEA;border-radius:10px;padding:8px 12px;flex:1;min-width:200px}
@@ -1278,6 +1278,11 @@ const CSS=`
   background:radial-gradient(ellipse 55% 140% at 60% 50%,rgba(19,56,222,.34),transparent 70%),
              linear-gradient(180deg,#030628 0%,#000110 100%);
   --dim:#8F9AC4}
+/* The band's ground, written out in its OWN rule: a browser paints the
+   gradient above over it and looks the same, but jsdom drops a rule whose
+   background it cannot parse, whole, so a background-color inside that rule
+   never reached the contrast suite and it measured white text on white. */
+.m-head.plate{background-color:#030628}
 .m-head.plate::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
   background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2000 200' preserveAspectRatio='xMaxYMid slice'%3E%3Cdefs%3E%3Cfilter id='g' x='-5%25' y='-50%25' width='110%25' height='200%25'%3E%3CfeGaussianBlur stdDeviation='2.2' result='b'/%3E%3CfeMerge%3E%3CfeMergeNode in='b'/%3E%3CfeMergeNode in='SourceGraphic'/%3E%3C/feMerge%3E%3C/filter%3E%3C/defs%3E%3Cg filter='url(%23g)' fill='none' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1119,12 1079,12 1039,12 1039,12 979,12 959,32 919,32 909,42 769,42'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1196,20 1296,20 1304,12 1444,12 1524,12 1524,12 1604,12 1664,12 1664,12 1704,12 1704,12 1744,12'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1131,30 1031,30 1021,20 961,20 931,50 831,50 731,50 721,40 581,40 571,50'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1164,42 1304,42 1384,42 1414,72 1514,72 1614,72 1634,52 1734,52'/%3E%3Cpolyline stroke='%2338BDF8' stroke-opacity='.8' points='1124,44 1024,44 994,74 914,74 894,94 834,94 734,94 724,104 664,104 654,114 594,114 584,124 484,124'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1216,54 1276,54 1286,44 1346,44 1386,44 1406,24 1486,24 1516,54 1596,54 1676,54'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1117,64 1077,64 1057,84 957,84 927,114 827,114 817,104 717,104 687,134 647,134 617,104 577,104 437,104'/%3E%3Cpolyline stroke='%2338BDF8' stroke-opacity='.8' points='1176,74 1316,74 1326,64 1426,64 1526,64 1536,74 1596,74'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1150,80 1110,80 1100,90 960,90 820,90 790,60 710,60 690,40 630,40 600,70'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1214,88 1274,88 1334,88 1354,108 1394,108 1474,108 1504,78 1644,78'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1137,96 1077,96 1067,106 987,106 967,86 887,86 847,86 807,86'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1171,106 1251,106 1271,126 1371,126 1411,126 1471,126 1511,126 1541,156 1601,156 1741,156'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1152,114 1112,114 1072,114 1052,94 992,94 932,94 912,74 772,74'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1186,122 1226,122 1306,122 1446,122 1586,122'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1127,132 1087,132 1027,132 967,132 937,162 897,162 817,162 677,162 637,162 597,162'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1195,138 1235,138 1265,108 1345,108 1375,138 1435,138 1515,138'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1132,150 1032,150 1012,170 972,170 872,170 862,180 802,180'/%3E%3Cpolyline stroke='%2338BDF8' stroke-opacity='.8' points='1168,156 1228,156 1268,156 1278,166 1338,166 1360,188 1460,188 1480,168 1560,168 1570,178 1650,178'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1139,164 999,164 989,154 929,154 889,154 879,164 819,164 799,144 719,144 689,174 609,174'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1164,170 1204,170 1284,170 1294,160 1374,160 1474,160 1494,180 1634,180'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1153,180 1093,180 1083,170 1003,170 863,170 783,170 763,150 683,150 603,150 573,120 433,120 373,120'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1201,186 1301,186 1303,188 1383,188 1443,188 1463,168 1543,168 1603,168 1623,188 1683,188'/%3E%3Ccircle cx='769' cy='42' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1744' cy='12' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='571' cy='50' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1734' cy='52' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='484' cy='124' r='3.6' stroke='%2338BDF8' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1676' cy='54' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='437' cy='104' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1596' cy='74' r='3.6' stroke='%2338BDF8' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='600' cy='70' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1644' cy='78' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='807' cy='86' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1741' cy='156' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='772' cy='74' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1586' cy='122' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='597' cy='162' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1515' cy='138' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='802' cy='180' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1650' cy='178' r='3.6' stroke='%2338BDF8' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='609' cy='174' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1634' cy='180' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='373' cy='120' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1683' cy='188' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3C/g%3E%3C/svg%3E") right center/cover no-repeat;
   -webkit-mask-image:linear-gradient(90deg,rgba(0,0,0,.14) 0%,rgba(0,0,0,.14) 24%,#000 48%,#000 100%);
@@ -1301,16 +1306,18 @@ const CSS=`
   align-self:center;margin:0 auto 0 28px;padding:0;background:none;border:none;border-radius:0}
 .convert-banner.hdr b{font-family:'Space Grotesk';font-size:11px;font-weight:700;letter-spacing:.08em;
   text-transform:uppercase;color:#8F9AC4}
-.convert-banner.hdr .btn{background:#FB6926;border-color:#FB6926;color:#fff;white-space:nowrap;
+/* #CC4A0A, not the brand #FB6926: white on #FB6926 is ~2.9:1 and fails AA at
+   every size (tests/leadcontrast.mjs). The glow below keeps the brand orange. */
+.convert-banner.hdr .btn{background:#CC4A0A;border-color:#CC4A0A;color:#fff;white-space:nowrap;
   box-shadow:0 0 0 1px rgba(251,105,38,.35),0 6px 22px -6px rgba(251,105,38,.65)}
-.convert-banner.hdr .btn:hover{background:#E85A18;border-color:#E85A18}
+.convert-banner.hdr .btn:hover{background:#B23F07;border-color:#B23F07}
 /* a folded run of machine-written notes: quiet, one tap to open, never hidden */
 .sysrun{display:flex;align-items:center;gap:8px;width:100%;text-align:left;cursor:pointer;
   background:#F7F8FC;border:1px dashed #DFE1EE;border-radius:9px;padding:7px 11px;margin:2px 0;
   font-family:inherit;font-size:12px;color:#8b88a0}
 .sysrun:hover{border-color:#C7CBE0;color:#56527a}
 .sysrun b{color:#56527a;font-weight:700}
-.sysrun em{font-style:normal;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.75}
+.sysrun em{font-style:normal;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6E6A88}
 .sysrun-ch{flex:none;transition:transform .15s}
 .sysrun.open .sysrun-ch{transform:rotate(180deg)}
 .fitem.sys{opacity:.72}
@@ -2061,7 +2068,7 @@ const CSS=`
 @media(max-width:760px){.m-grid{grid-template-columns:1fr;overflow-y:auto}.m-left,.m-right{overflow:visible}.m-right{border-left:none;border-top:1px solid #E8E9F2}}
 .dh{font-size:11.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:${COBALT};margin:2px 0 12px;display:flex;align-items:center;gap:8px}.dh.mt{margin-top:22px}
 .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:11px}
-.field label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#928DAD;margin-bottom:5px}
+.field label{display:block;font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6E6A88;margin-bottom:5px}
 .field input,.field select,.field textarea{width:100%;padding:9px 11px;border:1px solid #DEDFEA;border-radius:9px;font-size:13.5px;font-family:'Inter';color:${INK};background:#fff}
 .field textarea{resize:vertical}
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.13)}
@@ -2107,6 +2114,7 @@ const CSS=`
 .pay-head{display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#8b88a0;margin-bottom:10px}
 .pay-head b.due{color:#D97706;font-size:13px}
 .pay-head b.clear{color:#1a7d46;font-size:13px}
+.pay-head b.notyet{color:#6B6884;font-size:12px;font-weight:600;margin-left:auto}   /* "not closed yet": quiet, not invisible (restored) */
 /* The b takes the slack so the amount and the button end up adjacent on the
    right — "next to the amount owed" is the whole point of where this sits. */
 .pay-head b{margin-left:auto}
@@ -2132,7 +2140,10 @@ const CSS=`
 .pay-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid #EFEFF6}
 .pay-m{flex:1;display:flex;flex-direction:column}
 .pay-m b{font-size:14px;color:${INK};font-weight:700;font-family:'Space Grotesk',sans-serif}
-.pay-m span{font-size:11px;color:#9b98ad}
+.pay-m span{font-size:11px;color:#6E6A88}
+/* the month tag is a span inside .pay-m too, and the rule above (later, same
+   weight) was painting it grey instead of its own cobalt */
+.pay-m span.pay-mon{color:${COBALT}}
 .pay-over{font-size:11.5px;color:#D97706;font-weight:600;margin-bottom:8px}
 .pay-add{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:10px;border:none;border-radius:10px;background:${GREEN};color:#fff;font-size:13px;font-weight:700;cursor:pointer;transition:.15s}
 .pay-add:hover{filter:brightness(1.05)}
@@ -2141,7 +2152,7 @@ const CSS=`
 .deal-close-btn{width:100%;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border:none;border-radius:11px;background:${GREEN};color:#fff;font-size:13.5px;font-weight:700;cursor:pointer;transition:.15s}
 .deal-close-btn:hover{filter:brightness(1.05);transform:translateY(-1px)}
 .deal-total{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding:11px 13px;background:#F6F7FB;border-radius:10px}
-.deal-total span{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#928DAD}
+.deal-total span{font-size:11px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#6E6A88}
 .deal-total b{font-family:'Space Grotesk';font-size:17px;color:${INK}}
 .sw{width:42px;height:24px;border-radius:14px;background:#D9DAE6;position:relative;transition:.18s;flex:none}.sw.on{background:${GREEN}}
 .sw b{position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.18s;box-shadow:0 1px 3px rgba(0,0,0,.2)}.sw.on b{left:21px}
@@ -2226,6 +2237,11 @@ const CSS=`
 .relsurface{background:radial-gradient(900px 380px at 50% -18%,rgba(56,189,248,.14),transparent 62%),
   linear-gradient(180deg,var(--plate) 0%,var(--plate2) 60%,var(--plate3) 100%);
   border:1px solid var(--line);border-radius:16px;padding:16px;margin:-4px 0 0}
+/* the gradient's middle stop as a plain colour, in its own rule, for the same
+   reason the work values below are written out: jsdom drops the rule above
+   (a var() gradient) whole, so the contrast suite measured this surface as
+   white. A browser paints the gradient over it and looks the same. */
+.relsurface{background-color:#0A0E27}
 
 /* ---- SIGNAL: needs attention ---- */
 .relsurface .needs-att{background:linear-gradient(180deg,rgba(224,162,43,.13),rgba(224,162,43,.03));
@@ -2301,7 +2317,7 @@ const CSS=`
 .relsurface .refct{color:var(--dim)}
 .relsurface .refct b{color:var(--ink-hi)}
 .relsurface .refct i{color:var(--dim)}
-.relsurface .refct em{color:rgba(127,216,255,.3)}
+.relsurface .refct em{color:rgba(127,216,255,.62)}
 /* the due pill, which arrives from the light theme */
 .relsurface .due{background:rgba(5,7,26,.42);border:1px solid var(--line);color:var(--ink-mid)}
 .relsurface .due.over{background:rgba(193,53,43,.18);border-color:rgba(193,53,43,.45);color:#FFC9C2}
@@ -2476,7 +2492,7 @@ const CSS=`
 .pp-face svg{color:#9b98ad;flex:none}
 .pp.off .pp-face{opacity:.55;cursor:not-allowed}
 .pp-val{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.pp-val.none{color:#a6a2bc}
+.pp-val.none{color:#6E6A88}
 .pp-open{position:absolute;left:0;right:0;top:0;z-index:60;background:#fff;border:1px solid ${COBALT};
   border-radius:10px;box-shadow:0 18px 44px -18px rgba(24,21,48,.42)}
 .pp-search{display:flex;align-items:center;gap:8px;padding:9px 11px;border-bottom:1px solid #EDEEF5}
@@ -2521,7 +2537,7 @@ const CSS=`
 .mf.hot b{color:#C05A1E}
 /* jump bar — one tap to any section, no scrolling */
 .m-jump{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding:10px 24px;background:#fff;border-bottom:1px solid #E8E9F2;flex:none}
-.mj-l{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#a6a2bc;margin-right:2px}
+.mj-l{font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:#6E6A88;margin-right:2px}
 .mj{display:inline-flex;align-items:center;gap:6px;border:1px solid #E4E5EF;background:#fff;border-radius:20px;padding:6px 13px;font-size:12.5px;font-weight:700;color:#56527a;cursor:pointer;transition:.12s}
 .mj:hover{border-color:${COBALT};color:${COBALT}}
 .mj.on{background:color-mix(in srgb,${COBALT} 8%,#fff);border-color:${COBALT};color:${COBALT}}
@@ -2565,7 +2581,9 @@ const CSS=`
 /* dashed = "yes, but". The border does the talking before the colour does. */
 .slot.soft{border-style:dashed;border-color:#E0A22B;background:#FFFBF3;color:#8a5c14}
 .slot.soft:hover{background:#FFF4E2}
-.slot.blocked,.slot.past{background:#F4F4F8;border-color:#EAEAF1;color:#A9A7BC;cursor:not-allowed;font-weight:600}
+.slot.blocked,/* a past slot reads as unavailable by its strike-through and its ground, not
+   by being too faint to read (was #A9A7BC, 2.1:1) */
+.slot.past{background:#F4F4F8;border-color:#EAEAF1;color:#77738F;cursor:not-allowed;font-weight:600}
 .slot.past{text-decoration:line-through}
 .slot.unknown{border-style:dashed;border-color:#CFCEDE;color:#6E6B8C;background:#FAFAFD}
 .slot.on{outline:2px solid ${COBALT};outline-offset:1px;background:${COBALT};color:#fff;border-color:${COBALT}}
@@ -2766,14 +2784,16 @@ const CSS=`
 .td-who{font-size:11.5px;color:#9A96AC;flex:none}
 .td-who.late{color:${RED};font-weight:700}
 @media(max-width:640px){.td-txt{flex:1 1 100%;white-space:normal}}
-.fday{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#A6A2BC;padding:12px 0 5px;position:sticky;top:0;background:#fff;z-index:1}
+.fday{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#6E6A88;padding:12px 0 5px;position:sticky;top:0;background:#fff;z-index:1}
 .touchbar{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap;background:color-mix(in srgb,${COBALT} 5%,#fff);border:1px solid color-mix(in srgb,${COBALT} 14%,#fff);border-radius:11px;padding:9px 12px;margin-bottom:11px}
 .touchbar b{font-size:13px;font-weight:700;color:${INK}}
 .touchbar span{font-size:12px;color:#5B6478}
-.touchbar em{font-style:normal;font-size:11.5px;color:#9A96AC;margin-left:auto}
+.touchbar em{font-style:normal;font-size:11.5px;color:#6E6A88;margin-left:auto}
 .compose-open{display:flex;align-items:center;gap:7px;width:100%;border:1px dashed #D8D9E6;background:#fff;color:#8E89A8;border-radius:11px;padding:10px 13px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;margin-bottom:4px}
 .compose-open:hover{border-color:${COBALT};color:${COBALT}}
-.afilter button.none{opacity:.45}
+/* a filter with nothing in it: quieter than the rest, still readable (it was
+   opacity .45, 1.6:1, which is a word nobody can see) */
+.afilter button.none{color:#8A86A2;border-style:dashed}
 .kd-list{margin-bottom:8px}
 .kd-row{display:flex;align-items:center;gap:9px;padding:6px 0;border-bottom:1px solid #F2F3F9}
 .kd-row:last-child{border-bottom:0}
@@ -2781,7 +2801,7 @@ const CSS=`
 .kd-l{font-size:13px;font-weight:700;color:${INK};flex:0 0 auto}
 .kd-d{flex:1;min-width:0;font-size:12.5px;color:#8E89A8}
 .kd-d b{font-weight:700}
-.kd-d em{font-style:normal;color:#A5A2BC}
+.kd-d em{font-style:normal;color:#6E6A88}
 .kd-add{display:flex;gap:7px;flex-wrap:wrap}
 .kd-add select,.kd-add input{border:1px solid #E4E5EF;border-radius:9px;padding:7px 9px;font-size:12.5px;font-family:inherit;min-width:0}
 .kd-add select{flex:1 1 150px}
@@ -3430,7 +3450,7 @@ tbody tr.picked:hover{background:#E9EDFD}
 .fitem{display:flex;gap:11px;padding:11px 0;border-bottom:1px solid #F0F0F6}.fitem:last-child{border:none}
 .fic{width:30px;height:30px;border-radius:8px;background:rgba(43,77,224,.09);color:${COBALT};display:flex;align-items:center;justify-content:center;flex:none}
 .fitem.note .fic{background:rgba(200,162,74,.16);color:#9A7B22}
-.fitem .ftxt{font-size:13px;color:#3a3658;line-height:1.45}.fitem .fmeta{font-size:11px;color:#A6A2BC;margin-top:3px;font-weight:600}
+.fitem .ftxt{font-size:13px;color:#3a3658;line-height:1.45}.fitem .fmeta{font-size:11px;color:#6E6A88;margin-top:3px;font-weight:600}
 .fitem .fdel{margin-left:auto;background:none;border:none;color:#C9C5D9;cursor:pointer;padding:3px;flex:none}.fitem .fdel:hover{color:${RED}}
 /* settings */
 .set-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #F0F0F6}.set-row:last-child{border:none}
@@ -3718,7 +3738,7 @@ tbody tr.picked:hover{background:#E9EDFD}
 @keyframes twk{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
 .fu-done h2{font-family:'Space Grotesk';font-size:24px;color:${INK};margin:14px 0 6px}
 .fu-done p{font-size:14px;color:#6a6788;max-width:420px;line-height:1.5}
-.linkbtn{background:none;border:none;color:#A6A2BC;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
+.linkbtn{background:none;border:none;color:#6E6A88;font-size:12px;font-weight:600;cursor:pointer;padding:8px 0 0;margin-top:6px}.linkbtn:hover{color:${RED}}
 .linkbtn.q:hover{color:${COBALT}}
 /* inline inside a sentence — the block variant's padding/margin push it onto its own line */
 .linkbtn.inl{padding:0;margin:0;color:${COBALT};text-decoration:underline;font-size:inherit}.linkbtn.inl:hover{color:${INK}}

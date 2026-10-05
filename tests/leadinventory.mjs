@@ -471,14 +471,14 @@ await boot({ users:[OWNER], leads:[MARCUS, FILLER, RICH()] });
   ok('J1','  the header names it too', /New Relationship/.test(T()), T().slice(0, 80));
   /* Asserted on the WRITE, not on a label: the point of this change is that the
      record created is a relationship, and a heading proves nothing about that. */
-  const nameIn = qa('.modal.lead input').find(i => /name/i.test(i.getAttribute('placeholder')||'')) || qa('.modal.lead input')[0];
+  const nameIn = qa('.modal.leadfs input').find(i => /name/i.test(i.getAttribute('placeholder')||'')) || qa('.modal.leadfs input')[0];
   if (nameIn) {
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
     await act(async () => { setter.call(nameIn, 'Dana Ruiz');
       nameIn.dispatchEvent(new dom.window.Event('input', { bubbles: true })); });
   }
   globalThis.__WRITES__ = [];
-  const create = qa('.modal.lead .btn-p').find(b => /Create/.test(b.textContent||''));
+  const create = qa('.modal.leadfs .btn-p').find(b => /Create/.test(b.textContent||''));
   ok('J1','  the footer says Create Relationship',
      create && /Create Relationship/.test(create.textContent||''),
      create ? create.textContent : 'no create button');

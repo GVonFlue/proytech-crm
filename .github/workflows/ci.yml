@@ -33,8 +33,9 @@ jobs:
     runs-on: ubuntu-latest
     # A hung suite is the failure mode this project has actually shipped, so the
     # job gets its own ceiling as well as the per-file one inside tests/all.mjs.
-    # The whole sweep is well under two minutes locally.
-    timeout-minutes: 15
+    # Two full runs now (UTC, then America/Chicago), and the first includes
+    # tests/clockguard.mjs: 196 child runs across timezones and hours.
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4
@@ -62,4 +63,18 @@ jobs:
       # the tail of anything that failed, and exits non-zero if any did — which
       # is what fails the check on the pull request.
       - name: Test
+        run: npm test
+
+      # Again, in the business's own timezone. The runner is UTC, where a local
+      # date and a UTC date are the same thing, so a suite that confuses them
+      # passes here and fails on the laptop of the person reading it every
+      # evening (monthpicker and revmonth did exactly that for a month). Run
+      # in America/Chicago too and that whole class has nowhere to hide.
+      # tests/clockguard.mjs separately pins the hour and four zones.
+      # clockguard is skipped here, by name and loudly: it sets its own TZ for
+      # every child it runs, so it would only repeat the first run's work.
+      - name: Test (TZ=America/Chicago)
+        env:
+          TZ: America/Chicago
+          TEST_SKIP: clockguard.mjs
         run: npm test

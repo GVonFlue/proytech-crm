@@ -33,7 +33,7 @@ globalThis.fetch = async u => String(u).includes('google-status')
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }
-  else { fail++; console.log('  FAIL ' + n + (x ? '\n        ' + String(x).slice(0, 2000) : '')); } };
+  else { fail++; console.log('  FAIL ' + n + (x ? '\n        ' + String(x).slice(0, 200000) : '')); } };
 
 const ago = n => new Date(Date.now() - n * 864e5).toISOString();
 /* every fact tile at once: a stage, a priority, a source, an owner, a type, a
@@ -132,7 +132,7 @@ const seenColor = n => { let raw = String(cs(n).color || '');
   const c = parseColor(raw); return c ? luminance(c.rgb) : null; };
 
 function scan(label) {
-  const modal = curEl.querySelector('.modal.lead');
+  const modal = curEl.querySelector('.modal.leadfs');
   ok(`${label}: the lead view is open`, !!modal);
   if (!modal) return;
   fresh(dom.window);

@@ -22,6 +22,10 @@
      · "past due" is only ever said about an invoice with a due date. A sale
        nobody billed is OLD, not LATE, and inventing a deadline nobody agreed
        to is how a client gets chased for being on time.                      */
+/* FROZEN CLOCK (tests/clock.mjs): this suite's answers depend on today, and
+   it went red every evening in Kansas because its fixtures were UTC dates. */
+import { freezeClock, daysAgo } from './clock.mjs';
+freezeClock();
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
 const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://crm.test/',pretendToBeVisual:true});
@@ -47,7 +51,7 @@ const THIS=`${now.getFullYear()}-${pad(now.getMonth()+1)}`;
 const prev=new Date(now.getFullYear(),now.getMonth()-1,15);
 const PREV=`${prev.getFullYear()}-${pad(prev.getMonth()+1)}`;
 const PREV_NAME=new Date(prev.getFullYear(),prev.getMonth(),1).toLocaleString('en-US',{month:'long',year:'numeric'});
-const dAgo=n=>new Date(Date.now()-n*864e5).toISOString().slice(0,10);
+const dAgo=n=>daysAgo(n);   // the LOCAL calendar date, as the app reads it
 const ago=n=>new Date(Date.now()-n*864e5).toISOString();
 
 /* KIDD — $3,000 of work won last month. $1,000 paid last month, $500 this
@@ -85,8 +89,11 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.bmp.mjs',out.outputFiles[0].text);
-const mod=await import('./.bmp.mjs?v='+Date.now());
+/* one bundle file PER PROCESS (tests/clockguard.mjs runs this in parallel) */
+const BUNDLE=`.bmp-${process.pid}.mjs`;
+fs.writeFileSync('tests/'+BUNDLE,out.outputFiles[0].text);
+const mod=await import('./'+BUNDLE);
+try{fs.unlinkSync('tests/'+BUNDLE);}catch{}
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');
@@ -215,13 +222,16 @@ console.log('\nthe breakdown answers who, how much, and how overdue');
 
 console.log('\nthe month is not remembered — a remount is back on today');
 {
+  const writesBefore=(globalThis.__SETTINGS_WRITES__||[]).length;
   await pick(PREV);
   ok('the picker moved', picker().value===PREV, picker().value);
-  /* NOTHING may have been written. A month persisted to settings is a month
-     that comes back looking current when it is not. */
-  ok('  and nothing was saved to settings',
-     !(globalThis.__SETTINGS_WRITES__||[]).some(w=>JSON.stringify(w).includes(PREV)),
-     JSON.stringify(globalThis.__SETTINGS_WRITES__||[]).slice(0,200));
+  /* NOTHING may have been written BY THE PICK. A month persisted to settings is
+     a month that comes back looking current when it is not. Counted from just
+     before the pick: this used to search every write for the month's text,
+     and the app's one-time housekeeping stamp (a UTC timestamp) contains the
+     previous month at 00:30 on the 1st east of UTC, so it failed by clock. */
+  const byPick=(globalThis.__SETTINGS_WRITES__||[]).slice(writesBefore);
+  ok('  and nothing was saved to settings', byPick.length===0, JSON.stringify(byPick).slice(0,200));
   ok('  and nothing was written to storage',
      !Object.keys({...dom.window.localStorage}).some(k=>/month/i.test(k)),
      Object.keys({...dom.window.localStorage}).join(','));

@@ -59,6 +59,8 @@ const HELPERS = new Set([
   'onbrlsdb.mjs',         // a TOOL, not a test: runs ONBOARDING-MIGRATION against
                           // real Postgres (PGlite). tests/onbsql.mjs is the half
                           // CI always runs.
+  'clock.mjs',            // the frozen test clock, imported by clock-dependent suites
+  'clock-preload.mjs',    // a TOOL: freezes a whole process for a one-off sweep
   'clockwarp.mjs',        // a TOOL, not a test: runs another suite with the clock
                           // pinned to a chosen day, to find fixtures that only
                           // pass in the month they were written. Asserts nothing
@@ -68,12 +70,24 @@ const HELPERS = new Set([
 /* Overridable so the hang path can be exercised quickly, and so a slower CI
    runner can be given more room without editing this file. */
 const PER_FILE_TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS) || 90_000;
+/* a few files are many runs in one: clockguard is 48 child processes, four at
+   a time, and inside a busy full run it needs longer than a single suite */
+const LONGER = { 'clockguard.mjs': 6 };
 /* Leave the machine a core to breathe on; never fewer than two lanes. */
 const LANES = Math.max(2, Math.min(8, (cpus()?.length || 4) - 1));
 
-const files = (await readdir(HERE))
+/* TEST_SKIP=a.mjs,b.mjs leaves named files out, LOUDLY: they are listed as
+   SKIPPED and never counted as passing. CI uses it once, for clockguard in
+   the second (America/Chicago) run, because the guard sets its own TZ for
+   every child and has already run in the first. */
+const SKIP = new Set(String(process.env.TEST_SKIP || '').split(',').map(x => x.trim()).filter(Boolean));
+const all = (await readdir(HERE))
   .filter(f => f.endsWith('.mjs') && !f.startsWith('.') && !HELPERS.has(f))
   .sort();
+const skipped = all.filter(f => SKIP.has(f));
+for (const f of SKIP) if (!all.includes(f)) { console.error(`TEST_SKIP names ${f}, which is not a test file here. Fix the name; a skip that matches nothing hides a typo.`); process.exit(1); }
+const files = all.filter(f => !SKIP.has(f));
+if (skipped.length) console.log(`SKIPPED by TEST_SKIP (not counted as passing): ${skipped.join(', ')}`);
 
 if (!files.length) {
   console.error('No test files found in tests/ — that is a broken checkout, not a pass.');
@@ -88,12 +102,19 @@ const run = file => new Promise(resolve => {
   let out = '';
   child.stdout.on('data', d => { out += d; });
   child.stderr.on('data', d => { out += d; });
-  const timer = setTimeout(() => { child.kill('SIGKILL'); }, PER_FILE_TIMEOUT_MS);
+  const limit = PER_FILE_TIMEOUT_MS * (LONGER[file] || 1);
+  const timer = setTimeout(() => { child.kill('SIGKILL'); }, limit);
   let killed = false;
   child.on('exit', (code, signal) => {
     clearTimeout(timer);
-    killed = signal === 'SIGKILL' && Date.now() - started >= PER_FILE_TIMEOUT_MS;
-    resolve({ file, ok: code === 0 && !killed, killed, code, out, ms: Date.now() - started });
+    killed = signal === 'SIGKILL' && Date.now() - started >= limit;
+    /* A PASS MUST SAY WHAT IT CHECKED. Four files once sat here that only
+       exported a run() for another product's test runner: run as files they
+       defined a function and exited 0, and this counted them as passing for a
+       month while they checked nothing. A file that exits 0 without printing
+       a tally ("N passed" / "N present") is NO RESULT, not a pass. */
+    const tallied = /\b\d+ (passed|present)\b/.test(out);
+    resolve({ file, ok: code === 0 && !killed && tallied, killed, silent: code === 0 && !killed && !tallied, code, out, ms: Date.now() - started });
   });
   child.on('error', err => {
     clearTimeout(timer);
@@ -110,7 +131,7 @@ await Promise.all(Array.from({ length: Math.min(LANES, files.length) }, async ()
     const r = await run(file);
     results.push(r);
     const secs = (r.ms / 1000).toFixed(1) + 's';
-    console.log(`${r.ok ? '  ok  ' : r.killed ? ' TIMEOUT ' : ' FAIL '}${file.padEnd(26)}${secs}`);
+    console.log(`${r.ok ? '  ok  ' : r.killed ? ' TIMEOUT ' : r.silent ? ' NO RESULT ' : ' FAIL '}${file.padEnd(26)}${secs}`);
   }
 }));
 
@@ -120,7 +141,7 @@ const failed = results.filter(r => !r.ok);
 if (failed.length) {
   console.log('\n' + '='.repeat(66));
   for (const r of failed) {
-    console.log(`\n--- ${r.file} ${r.killed ? `TIMED OUT after ${PER_FILE_TIMEOUT_MS / 1000}s` : `exited ${r.code}`} ---`);
+    console.log(`\n--- ${r.file} ${r.killed ? `TIMED OUT after ${PER_FILE_TIMEOUT_MS * (LONGER[r.file] || 1) / 1000}s` : r.silent ? 'exited 0 WITHOUT A RESULT: it printed no "N passed" tally, so it checked nothing anyone can see' : `exited ${r.code}`} ---`);
     /* The tail is where a suite prints its own failures and its tally. Whole
        stdout would bury that under React's act() warnings. */
     const lines = r.out.split('\n').filter(l =>
@@ -132,6 +153,6 @@ if (failed.length) {
 
 const total = results.length;
 const passed = total - failed.length;
-console.log(`\n${passed} / ${total} test files passed` +
+console.log(`\n${passed} / ${total} test files passed` + (skipped.length ? ` (${skipped.length} SKIPPED by TEST_SKIP: ${skipped.join(', ')})` : '') +
             (failed.length ? `\nfailing: ${failed.map(r => r.file).join(', ')}\n` : '\n'));
 process.exit(failed.length ? 1 : 0);

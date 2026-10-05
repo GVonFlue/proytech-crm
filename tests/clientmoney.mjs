@@ -62,11 +62,11 @@ const ok=(n,c,x='')=>{if(c){pass++;console.log('  ok  '+n);}else{fail++;console.
 const click=async el=>{await act(async()=>{el.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));});};
 const nav=async l=>{const b=[...document.querySelectorAll('.nav-i, nav button, aside button, a')]
   .find(e=>(e.textContent||'').trim()===l); if(b) await click(b); await act(async()=>{await new Promise(r=>setTimeout(r,50));});};
-const stat=label=>{const p=document.querySelector('.modal.lead.client'); if(!p) return null;
+const stat=label=>{const p=document.querySelector('.modal.leadfs.client'); if(!p) return null;
   const s=[...p.querySelectorAll('.cv-stat')].find(e=>((e.querySelector('.cv-stat-l')||{}).textContent||'').trim().toLowerCase()===label);
   return s?{v:(s.querySelector('.cv-stat-v')||{}).textContent||'',s:(s.querySelector('.cv-stat-s')||{}).textContent||''}:null;};
 const openClient=async name=>{
-  const x=document.querySelector('.modal.lead.client .m-x'); if(x) await click(x);
+  const x=document.querySelector('.modal.leadfs.client .m-x'); if(x) await click(x);
   await nav('Clients');
   const card=[...document.querySelectorAll('.kcard')].find(c=>!c.classList.contains('kproj')&&(c.textContent||'').includes(name));
   if(card) await click(card.querySelector('.kn')||card);
@@ -75,7 +75,7 @@ const openClient=async name=>{
 
 console.log('\none closed deal, paid in full');
 await openClient('Chris Waipa');
-ok('the client dashboard opens', !!document.querySelector('.modal.lead.client'));
+ok('the client dashboard opens', !!document.querySelector('.modal.leadfs.client'));
 ok('contracted is the one deal', (stat('contracted')||{}).v==='$2,499', JSON.stringify(stat('contracted')));
 ok('and counts it as one deal, not zero', /^1 deal$/.test((stat('contracted')||{}).s||''), JSON.stringify(stat('contracted')));
 ok('collected is the one payment', (stat('collected')||{}).v==='$2,499', JSON.stringify(stat('collected')));
@@ -91,7 +91,7 @@ console.log('\nthe dashboard reads cleanly');
 /* The reported screenshot also showed the Recurring card's labels in pale cyan
    and its fields tinted — the old dark paint reaching a light screen. */
 {
-  const p=document.querySelector('.modal.lead.client');
+  const p=document.querySelector('.modal.leadfs.client');
   fresh(dom.window);
   const head=p&&p.querySelector('.cv-head'); const hb=head&&parseColor(dom.window.getComputedStyle(head).backgroundColor);
   ok('the header is the navy band', !!hb&&hb.a>0.99&&luminance(hb.rgb)<0.05, head&&dom.window.getComputedStyle(head).backgroundColor);
@@ -104,7 +104,7 @@ console.log('\nthe lead view\'s payment header');
 /* An open Discovery lead with $0 paid read "PAID IN FULL". owedBy() returns 0
    for anything not yet won, and the header read that 0 as settled. */
 {
-  const x=document.querySelector('.modal.lead.client .m-x'); if(x) await click(x);
+  const x=document.querySelector('.modal.leadfs.client .m-x'); if(x) await click(x);
   await nav('Leads');
   const row=[...document.querySelectorAll('tbody tr')].find(r=>/Open Lead/.test(r.textContent||''));
   if(row) await click(row);
@@ -112,8 +112,8 @@ console.log('\nthe lead view\'s payment header');
   const deal=[...document.querySelectorAll('.m-jump button')].find(b=>/Deal/.test(b.textContent||''));
   if(deal) await click(deal);
   await act(async()=>{await new Promise(r=>setTimeout(r,120));});
-  const hd=document.querySelector('.modal.lead .pay-head b');
-  ok('the payment panel is open', !!document.querySelector('.modal.lead .pay-panel'));
+  const hd=document.querySelector('.modal.leadfs .pay-head b');
+  ok('the payment panel is open', !!document.querySelector('.modal.leadfs .pay-panel'));
   ok('an open lead with nothing paid does not read "paid in full"', hd && !/paid in full/i.test(hd.textContent), hd&&hd.textContent);
   ok('it says the deal has not closed', hd && /not closed yet/i.test(hd.textContent), hd&&hd.textContent);
 }

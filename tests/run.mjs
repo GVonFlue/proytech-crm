@@ -2,6 +2,14 @@ import fs from 'fs';
 import path from 'path';
 import { JSDOM } from 'jsdom';
 import esbuild from 'esbuild';
+/* FROZEN CLOCK (tests/clock.mjs): this suite's answers depend on today; the
+   sweep under several timezones and hours showed it was not independent. */
+import { freezeClock } from './clock.mjs';
+freezeClock();
+/* bundles are named per process (tests/clockguard.mjs runs this suite in
+   parallel, and a shared name let one run import another's half-written
+   file); delete ours on the way out */
+process.on('exit', () => { for (const f of fs.readdirSync('tests')) if (f.endsWith(`-${process.pid}.mjs`)) { try { fs.unlinkSync('tests/' + f); } catch {} } });
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',
   { url: 'https://crm.test/', pretendToBeVisual: true });
@@ -38,13 +46,17 @@ const iso = d => new Date(d).toISOString();
 
    Clamped to the start of this month instead, so the fixture sits as far back
    as it can while staying inside the month — three days when there is room,
-   twelve hours at noon on the 1st. RESIDUAL LIMIT, stated rather than hidden:
-   in the first hour of the 1st no instant is both past and in this month, so
-   the floor below reaches into the previous month and this suite can still
-   fail. One hour a month instead of one day a month. */
+   six hours at noon on the 1st, fifteen minutes at 00:30. (The RESIDUAL
+   LIMIT once stated here, failing in the first hour of every month, is gone:
+   see backMs below.) */
 const monthStart = (() => { const n = new Date();
   return new Date(n.getFullYear(), n.getMonth(), 1).getTime(); })();
-const backMs = Math.min(3*864e5, Math.max(36e5, Date.now() - monthStart));
+/* Halfway between the start of the month and now, at least a minute: inside
+   this month at ANY hour, 00:30 on the 1st included (that is 15 minutes ago).
+   The old floor of one hour put it in the previous month for the first hour
+   of every month, and the comment above admitted it; with the frozen clock
+   (tests/clock.mjs) the suite no longer depends on the hour at all. */
+const backMs = Math.min(3*864e5, Math.max(6e4, (Date.now() - monthStart) / 2));
 const past = iso(Date.now() - backMs);
 const future = iso(Date.now() + 3*864e5);
 const longPast = iso(Date.now() - backMs - 7*864e5);   // only used for createdAt, month doesn't matter
@@ -69,8 +81,8 @@ const out = await esbuild.build({
   }}], logLevel:'silent',
 });
 const code = out.outputFiles[0].text;
-fs.writeFileSync('tests/.bundle.mjs', code);
-const mod = await import('./.bundle.mjs?v=' + Date.now());
+fs.writeFileSync(`tests/.bundle-${process.pid}.mjs`, code);
+const mod = await import(`./.bundle-${process.pid}.mjs`);
 
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');

@@ -19,12 +19,20 @@
    clear the worst calendar — see tests/clockwarp.mjs.                        */
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
+/* FROZEN CLOCK (tests/clock.mjs): this suite's answers depend on today; the
+   sweep under several timezones and hours showed it was not independent. */
+import { freezeClock, localISO, daysAgo } from './clock.mjs';
+freezeClock();
+/* bundles are named per process (tests/clockguard.mjs runs this suite in
+   parallel, and a shared name let one run import another's half-written
+   file); delete ours on the way out */
+process.on('exit', () => { for (const f of fs.readdirSync('tests')) if (f.endsWith(`-${process.pid}.mjs`)) { try { fs.unlinkSync('tests/' + f); } catch {} } });
 
 /* ---------- the pure function first ---------- */
 const lib = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true, write:false,
   format:'esm', platform:'neutral', external:['lucide-react','react'], define:{'import.meta.env':'{}'} });
-fs.writeFileSync('tests/.bcm.mjs', lib.outputFiles[0].text);
-const { closesForMonth, moneyMonths } = await import('./.bcm.mjs?v=' + Date.now());
+fs.writeFileSync(`tests/.bcm-${process.pid}.mjs`, lib.outputFiles[0].text);
+const { closesForMonth, moneyMonths } = await import(`./.bcm-${process.pid}.mjs`);
 
 let pass=0,fail=0;
 const ok=(n,c,x='')=>{if(c){pass++;console.log('  ok  '+n);}else{fail++;console.log('  FAIL '+n+(x?' — '+String(x).slice(0,260):''));}};
@@ -39,7 +47,7 @@ const PREV_SHORT=new Date(prevD.getFullYear(),prevD.getMonth(),1).toLocaleString
 const ago=n=>new Date(Date.now()-n*864e5).toISOString();
 /* 120 days clears the deepest "last month" reaches back (day-of-month plus the
    length of last month, at most 62), so this is always older than PREV. */
-const LONG_AGO=120, dAgo=n=>new Date(Date.now()-n*864e5).toISOString().slice(0,10);
+const LONG_AGO=120, dAgo=n=>daysAgo(n);   // the LOCAL calendar date, as the app reads it
 
 const STAGES=[{key:'new',label:'New Lead',open:true},{key:'signed',label:'Signed',won:true},{key:'lost',label:'Lost',lost:true}];
 
@@ -165,14 +173,17 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.bcd.mjs',out.outputFiles[0].text);
-const mod=await import('./.bcd.mjs?v='+Date.now());
+fs.writeFileSync(`tests/.bcd-${process.pid}.mjs`,out.outputFiles[0].text);
+const mod=await import(`./.bcd-${process.pid}.mjs`);
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');
 let root=createRoot(document.getElementById('root'));
 await act(async()=>{root.render(React.createElement(mod.default));});
 await act(async()=>{await new Promise(r=>setTimeout(r,200));});
+/* settings writes the app made on its own at boot (one-time housekeeping);
+   everything after this point was caused by the picks */
+const WRITES_AT_BOOT=(globalThis.__SETTINGS_WRITES__||[]).length;
 
 const settle=async(ms=130)=>{await act(async()=>{await new Promise(r=>setTimeout(r,ms));});};
 const click=async el=>{await act(async()=>{el.dispatchEvent(new dom.window.MouseEvent('click',{bubbles:true}));});};
@@ -283,9 +294,11 @@ console.log('\neach tile keeps its OWN month — the documented difference');
 
 console.log('\nneither month is remembered — a remount is back on today');
 {
-  ok('nothing was saved to settings',
-     !(globalThis.__SETTINGS_WRITES__||[]).some(w=>JSON.stringify(w).includes(PREV)),
-     JSON.stringify(globalThis.__SETTINGS_WRITES__||[]).slice(0,200));
+  /* counted from boot: this used to search every write for the month's text,
+     and the app's one-time housekeeping stamp (a UTC timestamp) contains the
+     previous month at 00:30 on the 1st east of UTC, so it failed by clock */
+  const byPicks=(globalThis.__SETTINGS_WRITES__||[]).slice(WRITES_AT_BOOT);
+  ok('nothing was saved to settings', byPicks.length===0, JSON.stringify(byPicks).slice(0,200));
   ok('  and nothing was written to storage',
      !Object.keys({...dom.window.localStorage}).some(k=>/month|closed|revenue/i.test(k)),
      Object.keys({...dom.window.localStorage}).join(','));
