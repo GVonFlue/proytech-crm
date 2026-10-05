@@ -1302,6 +1302,138 @@ and `select count(*) from events` returns every event.
 `RLS-TIGHTEN-2026-10-ROLLBACK.sql` restores the four policies above. It
 re-opens the holes; the audit fails again after it, by design.
 
+## 14. Onboarding portal (after ONBOARDING-MIGRATION.sql)
+
+`onboardings` holds a client's answers: names, phone numbers, license and
+NMLS numbers, an EIN for texting registration, goals and team. `onboarding_files`
+lists what they uploaded, and the bytes sit in the Storage bucket `onboarding`:
+logos and photos, but also EIN letters, insurance certificates and whole
+contact lists. Like proposals, the actor is **anonymous**: the client has a
+link, not an account.
+
+**The shape of the boundary.** Both tables are owner-only under RLS (one
+policy each, `is_owner()` both ways) and `anon` has no table privileges. The
+portal never reads either table: it calls `api/onboarding-public.js`, which
+calls nine `security definer` functions with the service-role key. None of them
+is executable by `anon` or `authenticated`. `onboarding_public()` returns
+named columns: never `token`, `lead_id`, `outputs` or anything private on the
+lead or the proposal. The bucket is **private** and has **no policy on
+`storage.objects`**, so the only way to read or write a file is through the
+server: a one-off signed upload URL for a valid token, or a five-minute signed
+download URL for an owner (`api/onboarding-admin.js`).
+
+### Status: NOT YET RUN against a real database
+
+What has been run:
+
+- `tests/onbsql.mjs` (CI): the migration's text, function by function.
+- `tests/onbrlsdb.mjs` (a tool: `npm i --no-save @electric-sql/pglite` first):
+  the migration run twice against **real Postgres** (PGlite), RLS-AUDIT.sql
+  passing after it, every policy read, anon and a rep refused everything, and
+  every function rule tried. 59 assertions.
+
+PGlite is not Supabase: there is no PostgREST, no real Storage and no production
+data. **This section is the proof against the real install and it has not been
+run.** Run it once after the migration, fill in the table below, and only then
+call this boundary proven.
+
+### Run it
+
+**0. Run `RLS-AUDIT.sql`.** Pass is: it finishes without raising.
+
+**1. Read every policy, every grant and the bucket** (the migration prints these):
+```sql
+select c.relname, p.polname, p.polcmd, p.polpermissive,
+       pg_get_expr(p.polqual, p.polrelid) as using_expr,
+       pg_get_expr(p.polwithcheck, p.polrelid) as check_expr
+  from pg_policy p join pg_class c on c.oid = p.polrelid
+ where c.relname in ('onboardings','onboarding_files');
+select p.proname, has_function_privilege('anon', p.oid, 'execute') as anon_can,
+       has_function_privilege('authenticated', p.oid, 'execute') as authed_can
+  from pg_proc p where p.proname like 'onboarding\_%';
+select has_table_privilege('anon', 'public.onboardings', 'select') as anon_select,
+       has_table_privilege('anon', 'public.onboarding_files', 'select') as anon_files;
+select id, public, file_size_limit from storage.buckets where id = 'onboarding';
+select polname, pg_get_expr(polqual, polrelid) as using_expr, pg_get_expr(polwithcheck, polrelid) as check_expr
+  from pg_policy where polrelid = 'storage.objects'::regclass;
+```
+Read **every** row of the last query, not just the ones that look relevant. A
+storage policy with no `bucket_id` in it (or `true`) opens **every** bucket,
+including this one.
+
+**2. Sentinels, as the owner (or the SQL editor's postgres role), and anon and a
+rep** (same transaction; lend claims the way §11 does):
+```sql
+begin;
+insert into onboardings (lead_id, token, answers) values
+ ('sentinel', 'ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', '{"biz.name":"SENTINEL"}');
+set local role anon;
+select * from onboardings;                                                   -- expect: permission denied
+select * from onboarding_public('ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'); -- expect: permission denied
+reset role;
+set local role authenticated;
+select set_config('request.jwt.claims', json_build_object('sub','<a rep''s auth uid>','role','authenticated')::text, true);
+select count(*) from onboardings;                                            -- expect: 0
+select count(*) from onboarding_files;                                       -- expect: 0
+insert into onboardings (lead_id, token) values ('x','REPxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'); -- expect: ERROR, row-level security
+select onboarding_save('ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','{}','{}');  -- expect: permission denied
+select count(*) from storage.objects where bucket_id = 'onboarding';        -- expect: 0 (or permission denied)
+reset role;
+rollback;
+```
+
+**3. As the server (service_role), the functions' own rules:**
+```sql
+begin;
+insert into onboardings (id, lead_id, token, answers) values
+ ('00000000-0000-4000-8000-0000000000e1', 'sentinel', 'ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', '{}');
+set local role service_role;
+select * from onboarding_public('NOPExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');  -- expect: 0 rows
+select * from onboarding_public('ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx');   -- expect: 1 row, no token / lead_id / outputs column
+select onboarding_file_begin('ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','logos',
+  '00000000-0000-4000-8000-00000000ffff/logos/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.png','x.png','image/png',false); -- expect: bad_path
+select onboarding_submit('ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','{}');    -- expect: incomplete
+select onboarding_save('ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','{"biz.contact_name":"Dee","biz.email":"d@d.test","biz.name":"Dee Co"}','{}'); -- expect: saved
+select onboarding_submit('ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','{}');    -- expect: submitted
+select onboarding_submit('ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','{}');    -- expect: already
+select onboarding_save('ONBxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx','{}','{}'); -- expect: locked
+reset role;
+rollback;
+```
+
+**4. Storage, through the API, not SQL.** With the project's **anon** key (from
+Settings → API), try to list the bucket:
+```
+curl -s -X POST "$SUPABASE_URL/storage/v1/object/list/onboarding" \
+  -H "apikey: $ANON_KEY" -H "authorization: Bearer $ANON_KEY" \
+  -H 'content-type: application/json' -d '{"prefix":""}'
+```
+Pass is an empty list or an error. A list of folders is a fail: stop.
+
+### Results (fill in when run)
+
+| check | expected | result |
+|---|---|---|
+| RLS-AUDIT.sql | finishes, no raise | |
+| policies on both tables | exactly two: `onboardings_owner`, `onboarding_files_owner`, `is_owner()` / `is_owner()` | |
+| `anon_can` / `authed_can` on all nine functions | false / false | |
+| `anon` select on either table | false | |
+| bucket | `onboarding`, public false, 52428800 | |
+| policies on `storage.objects` | none mention `onboarding`; none `true` or missing `bucket_id` | |
+| rep: count on both tables | 0 / 0 | |
+| rep: insert | RLS error | |
+| rep: call `onboarding_save` | permission denied | |
+| server: unknown token | 0 rows | |
+| server: file outside its folder | bad_path | |
+| server: submit blank, then filled, then again | incomplete / submitted / already | |
+| server: save after submit | locked | |
+| anon key: list the bucket | empty or error | |
+
+A second permissive policy would make the rep's count non-zero; a missing
+`revoke` would make `anon_can` true; a storage policy without `bucket_id`
+would make step 4 list folders. Those are the three ways this goes wrong
+quietly.
+
 ## Coverage, honestly
 
 Two tables were added in Aug 2026 and **neither is fully verified.** The gap is
@@ -1311,6 +1443,7 @@ different for each, and in opposite halves:
 |---|---|---|
 | `kb_reads` (§10) | **yes** | no |
 | `rep_notes` (§11) | no | **partly** — SELECT and INSERT only |
+| `onboardings`, `onboarding_files` (§14) | **yes**, on PGlite only | **yes**, on PGlite only. Not yet on Supabase |
 
 Neither section should be read as a completed proof. `kb_reads` knows what its
 policy *says* and not what it *does*; `rep_notes` knows what two operations

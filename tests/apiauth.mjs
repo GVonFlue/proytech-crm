@@ -29,6 +29,8 @@ const KNOWN_OPEN = {
   'coffee-race.js':         'public scoreboard: GET, two integers and the race dates. No lead field leaves the server.',
   /* A client opening their proposal has no CRM login. See API-AUDIT.md. */
   'proposal-public.js':   'a client opening their proposal has no account. Gated by a 256-bit token; reads one proposal through a service-role-only definer function that returns named columns; rate-limited.',
+  /* A client filling in their onboarding has no CRM login either. Same shape. */
+  'onboarding-public.js': 'a client filling in their onboarding has no account. Gated by a 256-bit token; every read and write goes through service-role-only definer functions; uploads go to one server-chosen path per signed URL and are checked by their bytes; rate-limited.',
 };
 
 const files = (await fs.readdir(path.join(root, 'api')))

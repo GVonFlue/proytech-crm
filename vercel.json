@@ -9,11 +9,15 @@
     {
       "source": "/p/:slug",
       "destination": "/proposal.html"
+    },
+    {
+      "source": "/onboarding/:slug",
+      "destination": "/onboarding.html"
     }
   ],
   "redirects": [
     {
-      "source": "/((?!p/[^/]+$|proposal\\.html$|assets/|api/proposal-public$|[^/]+\\.(?:png|jpe?g|svg|webp|ico|gif)$).*)",
+      "source": "/((?!p/[^/]+$|proposal\\.html$|onboarding/[^/]+$|onboarding\\.html$|assets/|team/[^/]+\\.(?:png|jpe?g|webp)$|api/proposal-public$|api/onboarding-public$|[^/]+\\.(?:png|jpe?g|svg|webp|ico|gif)$).*)",
       "has": [
         {
           "type": "host",

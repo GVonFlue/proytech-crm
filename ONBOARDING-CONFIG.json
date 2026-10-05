@@ -1,0 +1,11 @@
+{
+  "state": "KS",
+  "productMap": {
+    "growth-os": ["website", "suite"],
+    "website": ["website"],
+    "suite": ["suite"],
+    "automations": ["automations"]
+  },
+  "productNames": { "website": "Website", "suite": "Business Suite", "automations": "Automations" },
+  "kickoffUrl": ""
+}

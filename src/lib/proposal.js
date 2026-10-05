@@ -487,6 +487,7 @@ export function validateOffer(raw) {
     if (blank(x.phone) && blank(x.email)) err(`company.contacts.${i}.phone`, 'Add a phone or an email, so a client can reach them.');
     if (!blank(x.email) && !isEmail(x.email)) err(`company.contacts.${i}.email`, 'That is not a valid email.');
     if (!blank(x.phone) && S(x.phone).replace(/\D/g, '').length < 7) err(`company.contacts.${i}.phone`, 'That is not a phone number.');
+    if (!blank(x.photo) && !safeAsset(x.photo)) err(`company.contacts.${i}.photo`, 'A photo must be an https:// link or a path on this site, like /team/me.jpg.');
   });
   /* legal: all or nothing. A half-filled block would let a proposal be
      accepted against a policy with no version, or a version with no policy. */
@@ -525,7 +526,10 @@ export function validateOffer(raw) {
    sees. The "You're in" screen speaks in those names. */
 export const CONTACTS_ALL = 'both';
 function normContacts(v) {
-  return A(v).map(x => ({ name: S(x && x.name, 80).trim(), phone: S(x && x.phone, 40).trim(), email: S(x && x.email, 160).trim() }))
+  /* role and photo are optional: the onboarding portal's "build crew" card
+     shows them (a photo is an https URL or a path on this site, safeAsset) */
+  return A(v).map(x => ({ name: S(x && x.name, 80).trim(), phone: S(x && x.phone, 40).trim(), email: S(x && x.email, 160).trim(),
+    role: S(x && x.role, 60).trim(), photo: safeAsset(x && x.photo) }))
     .filter(c => c.name);
 }
 /* the contact whose name matches the signed-in owner, else the first */

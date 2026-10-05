@@ -7,6 +7,10 @@ import { sendMail, sendClientMail, esc } from './_mail.js';
 import { proposalLink, proposalBase } from './proposal-send.js';
 // the token rule is defined once, in the shared library the CRM also uses
 import { TOKEN_RE, hasLegal, fmtWhen } from '../src/lib/proposal.js';
+// the onboarding created at acceptance: its config reader, link builder and
+// product mapping are the onboarding portal's own, so the two cannot disagree
+import { loadConfig, portalLink } from './onboarding-public.js';
+import { productsFor } from '../src/lib/onboarding.js';
 
 // api/proposal-public.js — the ONLY way in for someone without a login.
 //
@@ -39,7 +43,8 @@ export { TOKEN_RE };
 /* contacts: the point(s) of contact chosen for THIS proposal (name, phone,
    email), frozen at send — never the offer's whole list. launchDays: for the
    "You're in" screen. The onboarding and payment links are NOT here: they are
-   handed over only once the proposal is accepted (below). */
+   handed over only once the proposal is accepted (below); the onboarding link
+   is the portal onboarding made for this proposal (portalLinkFor). */
 export const PUBLIC_BODY_KEYS = ['client', 'company', 'preparedOn', 'validDays', 'copy', 'quote', 'standard', 'contacts', 'launchDays', 'legal'];
 const NOT_FOUND = 'This proposal link is not valid. Ask us for a fresh one.';
 const H = () => ({ apikey: SUPA_KEY, authorization: `Bearer ${SUPA_KEY}`, 'content-type': 'application/json' });
@@ -68,6 +73,26 @@ export function publicView(row) {
   };
 }
 
+/* THE ONBOARDING, CREATED AT ACCEPTANCE. The "You're in" screen's "Start my
+   onboarding" button opens the onboarding made for THIS proposal: Postgres
+   creates it on first ask and returns the same one after (one per proposal,
+   and only for an accepted proposal: onboarding_for_proposal() in
+   ONBOARDING-MIGRATION.sql). Products come from the offer's productMap over
+   what was accepted. Returns '' when that cannot be done (the migration has
+   not run, the database is down), and the caller falls back to the offer's
+   static onboarding link, so accepting never fails because of onboarding. */
+export async function portalLinkFor(t, row) {
+  try {
+    const items = (row && row.body && row.body.quote && Array.isArray(row.body.quote.items)) ? row.body.quote.items : [];
+    const cfg = await loadConfig();
+    const pkg = (items.find(i => i && i.kind === 'package') || items[0] || {}).name || '';
+    const got = await rpc('onboarding_for_proposal', { p_token: t, p_products: productsFor(items.map(i => i && i.id), cfg.productMap), p_package: String(pkg).slice(0, 120) });
+    const o = got.ok && Array.isArray(got.data) ? got.data[0] : null;
+    if (!o || !TOKEN_RE.test(String(o.token || ''))) return '';
+    return portalLink(o.client || (row.body && row.body.client), o.token);
+  } catch { return ''; }
+}
+
 export default async function handler(req, res) {
   const gate = await guard(req, res, { name: 'proposal-public', perIp: 60, windowMin: 10, perDay: 5000, maxChars: 2000 });
   if (!gate.ok) return;
@@ -84,7 +109,10 @@ export default async function handler(req, res) {
 
   if (b.action !== 'accept') {
     if (row.status === 'sent' || row.status === 'viewed') rpc('proposal_mark_viewed', { p_token: t });
-    res.status(200).json({ ok: true, proposal: publicView(row) });
+    const view = publicView(row);
+    /* a client coming back to an accepted proposal: the same onboarding */
+    if (row.status === 'accepted') view.onboardingUrl = (await portalLinkFor(t, row)) || view.onboardingUrl;
+    res.status(200).json({ ok: true, proposal: view });
     return;
   }
 
@@ -102,10 +130,11 @@ export default async function handler(req, res) {
 
   const acc = await rpc('proposal_accept', { p_token: t, p_name: name, p_ip: String(gate.ip || '').slice(0, 64), p_plan: plan, p_agreed_terms: b.agreeTerms === true });
   const result = acc.ok ? String(acc.data || '') : 'error';
-  const onboardingUrl = (row.body && row.body.onboardingUrl) || '';
+  let onboardingUrl = (row.body && row.body.onboardingUrl) || '';
   const paymentUrl = (row.body && row.body.paymentUrl) || '';
 
   if (result === 'accepted' || result === 'already') {
+    onboardingUrl = (await portalLinkFor(t, row)) || onboardingUrl;
     if (result === 'accepted') {
       // Owners only: sendMail() with no `to` IS the owners allowlist, the same
       // call notify.js and coffee-book.js make. Soft: a mail failure must not

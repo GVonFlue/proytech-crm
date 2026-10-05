@@ -8,8 +8,8 @@
     "logo": "/proytech-logo-dark.png",
     "mark": "/proytech-nucleus.png",
     "contacts": [
-      { "name": "Garrett", "phone": "901-335-3905", "email": "admin@getproytech.com" },
-      { "name": "Logan", "phone": "913-237-4403", "email": "" }
+      { "name": "Garrett", "phone": "901-335-3905", "email": "admin@getproytech.com", "role": "Strategy & your build", "photo": "/team/garrett.jpg" },
+      { "name": "Logan", "phone": "913-237-4403", "email": "", "role": "Onboarding & support", "photo": "/team/logan.jpg" }
     ]
   },
   "depositPct": 50,

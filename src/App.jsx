@@ -25,6 +25,8 @@ import MassOutreach from './MassOutreach';
 import ClientView from './ClientView';
 import ServiceAssign from './ServiceAssign';
 import Proposals, { OfferEditor } from './Proposals';
+import Onboarding, { ClientOnboarding } from './Onboarding';
+import { onboardingAppliedPatch } from './lib/onboarding';
 import { proposalEventsPatch } from './lib/proposal';
 import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, collectedByService, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
@@ -225,7 +227,7 @@ function ScopeSeg({view,setView,counts,canAll}){
    board degraded as the business succeeded. Switched off rather than deleted:
    every lead, stage and value is untouched, and putting it back is one entry in
    this array plus a modulesV bump. */
-const ALL_MODULES=[['jarvis',AI_NAME],['build','Build Console'],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['proposals','Proposals'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money'],['outreach','Mass Outreach']];
+const ALL_MODULES=[['jarvis',AI_NAME],['build','Build Console'],['board','Leaderboard'],['huddle','Monday Huddle'],['followup','Follow-Up'],['tasks','Tasks'],['activity','Activity'],['leads','Leads'],['rels','Relationships'],['clients','Clients'],['proposals','Proposals'],['onboarding','Onboarding'],['meetings','Meetings'],['mlog','Meeting Log'],['playbook','Playbook'],['events','Events'],['sponsors','Sponsors'],['invoices','Invoices'],['money','Money'],['outreach','Mass Outreach']];
 const ALWAYS_ON=['dash','settings'];
 const modList=settings=>{ if(settings&&Array.isArray(settings.modules)) return settings.modules;
   if(BRAND.modules&&BRAND.modules.length) return BRAND.modules; return ALL_MODULES.map(m=>m[0]); };
@@ -266,7 +268,7 @@ const MONEY_TABS=['invoices','books','money','huddle','mlog'];
    route would refuse them is worse than no tab — it is a broken screen. */
 /* tabs no rep can ever have, whatever their tab list says (canOpen) */
 const OWNER_ONLY_TABS=new Set(['settings','clients','huddle','invoices','money','events','sponsors']);
-const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients'&&k!=='outreach'&&k!=='proposals'&&!OWNER_ONLY_TABS.has(k)).concat(['dash']);
+const REP_TABS=ALL_MODULES.map(m=>m[0]).filter(k=>k!=='clients'&&k!=='outreach'&&k!=='proposals'&&k!=='onboarding'&&!OWNER_ONLY_TABS.has(k)).concat(['dash']);
 const tabsOf=u=>{ if(!u) return REP_DEFAULT_TABS; const t=Array.isArray(u.tabs)?u.tabs:[]; return t.length?t:REP_DEFAULT_TABS; };
 /* Sidebar order is a PERSONAL preference, not an account one — two people on the
    same install work differently and neither should be able to rearrange the
@@ -332,6 +334,11 @@ const canOpen=(settings,user,k,gated)=>{
      owner's notes. The table is owner-only in Postgres and both server routes
      run requireOwner, so the gate and the routes agree. */
   if(k==='proposals') return modOn(settings,'proposals')&&!isRep(user);
+  /* Onboarding is owner-only for the same reasons: a client's answers, files
+     and build prompts. Both tables are owner-only in Postgres (VERIFY-RLS
+     §14) and onboarding-admin runs requireOwner, so the gate and the route
+     agree, and it cannot be switched on per rep. */
+  if(k==='onboarding') return modOn(settings,'onboarding')&&!isRep(user);
   if(!modOn(settings,k)) return false;
   if(!isRep(user)) return true;
   if(k==='dash') return true;
@@ -4483,6 +4490,12 @@ export default function App(){
         st={...st,modules:st.modules.includes('proposals')?st.modules:[...st.modules,'proposals'],modulesV:11};
         try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
       }
+      /* v12: Onboarding. The same trap again (ENGINEERING §1, "new tabs ship
+         invisible"): a saved module list predates it. Owner-only in canOpen. */
+      if(amOwner&&Array.isArray(st.modules)&&num(st.modulesV)<12){
+        st={...st,modules:st.modules.includes('onboarding')?st.modules:[...st.modules,'onboarding'],modulesV:12};
+        try{ await db.saveSettings(st); }catch(err){ console.error('module backfill failed',err); }
+      }
       /* migrate the sales pipeline (idempotent) */
       const mig=migrateStages(st,s);
       if(amOwner&&mig.stagesChanged){ st={...st,stages:mig.stages}; await db.saveSettings(st); }
@@ -4561,6 +4574,49 @@ export default function App(){
     return ()=>{ alive=false; clearTimeout(timer); window.removeEventListener('focus',tick); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[proposalsOn]);
+  /* ONBOARDINGS: the list, and applying a submit to the lead's checklist.
+     The same shape as proposals above, for the same reasons: the portal's
+     route never writes a lead, so the owner's CRM ticks the lead's existing
+     checklist items (intake_form, logo_received, headshot_received) through
+     updateLead, which reads leadsRef.current (ENGINEERING §3).
+     onboardingAppliedPatch is idempotent by activity id. Polled every minute
+     only while a client is mid-onboarding, and on window focus.
+     undefined = not loaded yet, null = migration not run. */
+  const [onboardings,setOnboardings]=useState(undefined);
+  const [onbSel,setOnbSel]=useState(null);
+  /* `loaded`: applying a submit needs the leads in memory; polling before
+     they arrive finds no lead and would wait a full minute to try again */
+  const onboardingOn=isOwner&&modOn(settings,'onboarding')&&loaded;
+  const refreshOnboardings=async()=>{
+    const list=await db.listOnboardings(); setOnboardings(list);
+    if(!Array.isArray(list)) return list;
+    /* todayISO, the LOCAL date every other checklist tick uses: a UTC date
+       would stamp tomorrow on an evening submit */
+    const cur=leadsRef.current||[]; const today=todayISO();
+    for(const o of list){
+      if(!o||o.status!=='submitted'||o.applied_at) continue;
+      const l=cur.find(x=>x&&x.id===o.lead_id); if(!l) continue;
+      const patch=onboardingAppliedPatch(l,o,today);
+      if(patch) updateLead(l.id,patch);
+      db.markOnboardingApplied(o.id,o.submitted_at);
+    }
+    return list;
+  };
+  const refreshOnbRef=React.useRef(null); refreshOnbRef.current=refreshOnboardings;
+  useEffect(()=>{
+    if(!onboardingOn) return;
+    let alive=true, timer=null;
+    const live=list=>Array.isArray(list)&&list.some(o=>o&&(o.status==='in_progress'||o.status==='needs_info'||(o.status==='submitted'&&!o.applied_at)));
+    const tick=async()=>{
+      if(!alive||!refreshOnbRef.current) return;
+      clearTimeout(timer); timer=null;
+      let list=null; try{ list=await refreshOnbRef.current(); }catch(err){ console.warn('[onboardings]',err); }
+      if(alive&&live(list)) timer=setTimeout(tick,60000);
+    };
+    tick(); window.addEventListener('focus',tick);
+    return ()=>{ alive=false; clearTimeout(timer); window.removeEventListener('focus',tick); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[onboardingOn]);
   const rep=!isOwner;
   const blocked=(who&&who.active===false)||(!!myUser&&myUser.active===false);
   /* SIGNED IN, NOT SET UP.
@@ -5330,7 +5386,7 @@ export default function App(){
     try{ await db.saveInstalls(list); }catch(err){ console.error('installs save failed',err); }
   };
 
-  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['build','Build Console',<Server size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['outreach','Mass Outreach',<MessageSquare size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['proposals','Proposals',<FileText size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],...(CONTENT_STUDIO_ON?[['content','Content Studio',<Megaphone size={18}/>]]:[]),['settings','Settings',<Settings size={18}/>]];
+  const NAV=[['dash','Dashboard',<LayoutDashboard size={18}/>],['jarvis',AI_NAME,<Bot size={18}/>],['build','Build Console',<Server size={18}/>],['board','Leaderboard',<Trophy size={18}/>],['huddle','Monday Huddle',<Sparkles size={18}/>],['followup','Follow-Up',<Bell size={18}/>],['tasks','Tasks',<ListTodo size={18}/>],['activity','Activity',<List size={18}/>],['pipeline','Pipeline',<KanbanSquare size={18}/>],['leads','Leads',<Contact2 size={18}/>],['outreach','Mass Outreach',<MessageSquare size={18}/>],['rels','Relationships',<Users size={18}/>],['clients','Clients',<Building2 size={18}/>],['proposals','Proposals',<FileText size={18}/>],['onboarding','Onboarding',<Rocket size={18}/>],['meetings','Meetings',<CalendarCheck size={18}/>],['mlog','Meeting Log',<FileText size={18}/>],['playbook','Playbook',<BookOpen size={18}/>],['events','Events',<Ticket size={18}/>],['sponsors','Sponsors',<Handshake size={18}/>],['invoices','Invoices',<Receipt size={18}/>],['money','Money',<DollarSign size={18}/>],...(CONTENT_STUDIO_ON?[['content','Content Studio',<Megaphone size={18}/>]]:[]),['settings','Settings',<Settings size={18}/>]];
   /* if a section is switched off while you're standing on it — or a rep lands
      on something only owners get — fall back to the dashboard. Computed during
      render — deliberately NOT a hook, because this sits after the auth
@@ -5396,7 +5452,7 @@ export default function App(){
     const others=tasks.filter(t=>t.owner!==me);
     saveTasks([...(next||[]).filter(t=>t.owner===me),...others]);
   };
-  const titles={dash:['Dashboard','The whole board at a glance'],jarvis:[AI_NAME,'Ask the CRM anything'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],outreach:['Mass Outreach','Pick people, write one line, send a personal text to each'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],proposals:['Proposals','Build, review and send in minutes'],mlog:['Meeting Log','Paste a transcript · Claude pulls out what matters'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
+  const titles={dash:['Dashboard','The whole board at a glance'],jarvis:[AI_NAME,'Ask the CRM anything'],board:['Leaderboard','Clients closed — this month and all time'],huddle:['Monday Huddle','The last 7 days, read and interpreted'],followup:['Follow-Up',"Clear every lead that's due or overdue"],tasks:['Tasks','AI-ranked to-dos for you & Logan'],activity:['Activity','Who did what — calls, texts, meetings & notes'],pipeline:['Pipeline','Drag a card to move a deal'],leads:['Leads','Every contact, every conversation'],outreach:['Mass Outreach','Pick people, write one line, send a personal text to each'],rels:['Relationships','The people in your corner — and who introduced them'],clients:['Clients','Closed deals & monthly retainers'],proposals:['Proposals','Build, review and send in minutes'],onboarding:['Onboarding','Every client\'s answers, files and build prompts'],mlog:['Meeting Log','Paste a transcript · Claude pulls out what matters'],invoices:['Invoices','Create, send & track payments'],books:['The Books','Money in, money out, draws & receipts'],money:['Money','Revenue, MRR, forecast & attribution'],settings:['Settings','Customize the CRM · back up your data']};
   if(rep){ titles.dash=['Dashboard','Your month, your commission, your rank']; titles.leads=['Leads','Your leads — and the pools you can claim from']; titles.jarvis=[AI_NAME,'Ask about your leads · flag anything to the owner']; }
   /* the leaderboard the DB gave us; pre-migration an owner can still see one
      computed locally (an owner can read every lead, a rep never could). */
@@ -5480,8 +5536,10 @@ export default function App(){
             saveSettings={saveSettings} me={me} updateLead={updateLead} rep={rep} myPools={myPools}
             users={users} addActivity={addActivity} LeadTable={Leads}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
+          view==='onboarding'?<Onboarding leads={leads} settings={settings} saveSettings={saveSettings} apiPost={apiPost} onboardings={onboardings} proposals={proposals} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openLead={openLead} selected={onbSel} setSelected={setOnbSel}/>:
           view==='proposals'?<Proposals leads={leads} settings={settings} apiPost={apiPost} me={me} openLead={openLead} proposals={proposals} reload={refreshProposals} onSaved={refreshProposals}/>:
-          view==='clients'?<Clients labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}/>:
+          view==='clients'?<Clients labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
+            renderOnboarding={onboardingOn?(c=><ClientOnboarding lead={c} onboardings={onboardings} settings={settings} apiPost={apiPost} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openOnboarding={id=>{setOnbSel(id);setPage('onboarding');}}/>):null}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
           view==='meetings'?<MeetingsPage leads={scoped} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} removeMeeting={removeMeeting} open={openLead} settings={settings} rep={rep} myUser={repUser||myUser} myUid={myUid}/>:
@@ -8418,7 +8476,7 @@ function ClientBoard({clients,settings,onCard,setClientPhase,stages,projects,set
     </div>);})}</div>);
 }
 
-function Clients({labelServices,leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue}){
+function Clients({labelServices,leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue,renderOnboarding}){
   /* off by default: hidden items should stay out of the way, but you need a way
      back to them or switching one off would be one-directional */
   const [showSkipped,setShowSkipped]=useState(false);
@@ -8471,7 +8529,7 @@ function Clients({labelServices,leads,stages,settings,open,toggleOnboarding,setO
                  onClose={()=>setExpand(null)} openRecord={open}
                  updateLead={updateLead} setClientPhase={setClientPhase}
                  toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
-                 toggleProjectMilestone={toggleProjectMilestone}/>; })()}
+                 toggleProjectMilestone={toggleProjectMilestone} renderOnboarding={renderOnboarding}/>; })()}
     </>}
   </>);
 }

@@ -33,6 +33,10 @@
    lead that proposal belongs to (clientRecipientFor). There is no parameter a
    caller could aim, so no route can turn it into a relay, and sendMail()
    below is unchanged: it still reaches the owners and nobody else.
+
+   It also takes an ONBOARDING ID instead (the portal's "email me my link"),
+   resolved the same way: onboarding -> its lead -> the email on that lead.
+   Exactly one of the two ids; both, or neither, sends nothing.
    ========================================================================== */
 import { SUPA_KEY, SUPA_URL } from './_env.js';
 
@@ -126,13 +130,20 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The address a proposal may be emailed to: the email on the lead the
  *  proposal belongs to, read with the service key. Returns {ok, to} or
  *  {ok:false, reason}. Never throws, and never takes an address as input. */
-export async function clientRecipientFor(proposalId) {
+export async function clientRecipientFor(proposalId) { return recipientVia('proposals', proposalId); }
+/** The same, for an onboarding: the email on the onboarding's lead. */
+export async function clientRecipientForOnboarding(onboardingId) { return recipientVia('onboardings', onboardingId); }
+
+/* `table` is one of two literals chosen by the two exports above, never by a
+   caller, so it cannot be pointed at another table. */
+async function recipientVia(table, rowId) {
   if (!SUPA_URL || !SUPA_KEY) return { ok: false, reason: 'not_configured' };
-  const id = String(proposalId || '');
+  if (table !== 'proposals' && table !== 'onboardings') return { ok: false, reason: 'not_found' };
+  const id = String(rowId || '');
   if (!UUID.test(id)) return { ok: false, reason: 'not_found' };
   const H = { apikey: SUPA_KEY, authorization: `Bearer ${SUPA_KEY}` };
   try {
-    const pr = await fetch(`${SUPA_URL}/rest/v1/proposals?id=eq.${id}&select=lead_id`, { headers: H });
+    const pr = await fetch(`${SUPA_URL}/rest/v1/${table}?id=eq.${id}&select=lead_id`, { headers: H });
     const prow = pr.ok ? await pr.json() : null;
     const leadId = Array.isArray(prow) && prow[0] ? prow[0].lead_id : null;
     if (!leadId) return { ok: false, reason: 'not_found' };
@@ -148,18 +159,20 @@ export async function clientRecipientFor(proposalId) {
   }
 }
 
-/** Email ONE proposal to its client. There is deliberately no `to`: anything
- *  else a caller passes is ignored, and the recipient is resolved here from
- *  the proposal's lead. `replyTo` only sets where the client's reply goes.
- *  Never throws. Used by api/proposal-send.js (the proposal) and
- *  api/proposal-public.js (the client's copy of their acceptance), and nothing
- *  else; tests/clientmail.mjs holds that list. */
-export async function sendClientMail({ proposalId, subject, html, text, replyTo, tag = 'client-mail' } = {}) {
+/** Email ONE client: the client of a proposal, or of an onboarding. There is
+ *  deliberately no `to`: anything else a caller passes is ignored, and the
+ *  recipient is resolved here from the record's lead. Exactly one id.
+ *  `replyTo` only sets where the client's reply goes. Never throws. Used by
+ *  api/proposal-send.js (proposalId), api/proposal-public.js (proposalId: the
+ *  client's copy of their acceptance) and api/onboarding-public.js
+ *  (onboardingId), and nothing else; tests/clientmail.mjs holds that list. */
+export async function sendClientMail({ proposalId, onboardingId, subject, html, text, replyTo, tag = 'client-mail' } = {}) {
   try {
     const RESEND = process.env.RESEND_API_KEY;
     const FROM = process.env.NOTIFY_FROM;
     if (!RESEND || !FROM) return { ok: false, reason: 'not_configured' };
-    const rc = await clientRecipientFor(proposalId);
+    if (!!proposalId === !!onboardingId) return { ok: false, reason: 'not_found' };
+    const rc = proposalId ? await clientRecipientFor(proposalId) : await clientRecipientForOnboarding(onboardingId);
     if (!rc.ok) return { ok: false, reason: rc.reason };
     const payload = { from: FROM, to: [rc.to], subject: String(subject || '').slice(0, 200), html: String(html || '') };
     if (text) payload.text = String(text);
