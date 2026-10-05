@@ -17,7 +17,6 @@
    - the onboarding and payment links stay hidden until the proposal is
      accepted.                                                             */
 import fs from 'node:fs'; import path from 'node:path'; import esbuild from 'esbuild';
-import { execFileSync } from 'node:child_process';
 import { JSDOM } from 'jsdom';
 import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -25,7 +24,13 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { c ? (pass++, console.log('  ok  ' + n)) : (fail++, console.log('  FAIL ' + n + (x ? ' — ' + String(x).slice(0, 300) : ''))); };
 const clone = v => JSON.parse(JSON.stringify(v));
 const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-const onMain = f => execFileSync('git', ['show', `origin/main:${f}`], { cwd: ROOT, encoding: 'utf8' });
+/* The compliance markup as it stood on main before this change, pinned as text
+   (CI checks out one commit, so there is no origin/main to read at test time).
+   If either of these must ever change, it is a deliberate legal edit: change
+   it here too, in the same commit, and say so in the PR. */
+const MAIN_TERMS = "{(st.terms || st.cancel) && <div className=\"pd-terms\">{[st.terms, st.cancel].filter(Boolean).join(' ')}</div>}";
+const MAIN_GUAR  = "{st.guarantee && <div className=\"pd-guar\"><b>Our guarantee.</b> {st.guarantee}</div>}";
+const MAIN_AGREE = "<span>I agree to this proposal, its terms, and the {q.depositPct}% deposit of {usd(q.deposit)} due at signing.</span>";
 
 /* the DOM, then the real components */
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'https://crm.test/', pretendToBeVisual: true });
@@ -91,9 +96,9 @@ console.log('\n2. section titles, and the compliance text that must not move');
   ok('the terms, cancelling and guarantee render exactly as written in the offer', doc.includes(RAW.terms) && doc.includes(RAW.cancel) && doc.includes(RAW.guarantee));
   const termsLine = s => (s.match(/\{\(st\.terms \|\| st\.cancel\) && <div className="pd-terms">[^\n]*/) || [''])[0];
   const guarLine = s => (s.match(/\{st\.guarantee && <div className="pd-guar">[^\n]*/) || [''])[0];
-  ok('the terms and guarantee markup is byte-identical to main', termsLine(read('src/ProposalDoc.jsx')) === termsLine(onMain('src/ProposalDoc.jsx')) && guarLine(read('src/ProposalDoc.jsx')) === guarLine(onMain('src/ProposalDoc.jsx')) && termsLine(onMain('src/ProposalDoc.jsx')) !== '');
+  ok('the terms and guarantee markup is byte-identical to main', termsLine(read('src/ProposalDoc.jsx')) === MAIN_TERMS && guarLine(read('src/ProposalDoc.jsx')) === MAIN_GUAR);
   const agree = s => (s.match(/<span>I agree to this proposal[^\n]*<\/span>/) || [''])[0];
-  ok('the "I agree" statement a client ticks is byte-identical to main', agree(read('src/proposal/main.jsx')) !== '' && agree(read('src/proposal/main.jsx')) === agree(onMain('src/proposal/main.jsx')));
+  ok('the "I agree" statement a client ticks is byte-identical to main', agree(read('src/proposal/main.jsx')) === MAIN_AGREE);
   ok('the "valid until… accept below" line is unchanged', /<b>This price and proposal are good for \{body\.validDays \|\| 7\} days\.<\/b>/.test(read('src/ProposalDoc.jsx')));
   const main = read('src/proposal/main.jsx');
   ok('the button says "Lock in my launch"', /'Lock in my launch'/.test(main) && !/'Accept proposal'/.test(main));
