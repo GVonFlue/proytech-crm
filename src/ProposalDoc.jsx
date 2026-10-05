@@ -14,10 +14,7 @@
    and disagree with the investment section. */
 import React from 'react';
 
-const usd = v => {
-  const n = Number(v) || 0; const c = Math.round(Math.abs(n) * 100) % 100;
-  return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: c ? 2 : 0, maximumFractionDigits: 2 });
-};
+import { usd } from './lib/proposal';
 const fmtDay = iso => {
   const t = Date.parse(iso && iso.length <= 10 ? iso + 'T12:00:00' : iso);
   return Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
