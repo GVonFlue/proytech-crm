@@ -649,6 +649,8 @@ export function OfferEditor({ settings, saveSettings, isOwner = true, defaultOff
             <Fld label="Name" path={`company.contacts.${i}.name`} errs={shownErrs}><input value={c.name || ''} onChange={e => set('name', e.target.value)} aria-label={`Contact ${i + 1} name`} /></Fld>
             <Fld label="Phone" path={`company.contacts.${i}.phone`} errs={shownErrs}><input inputMode="tel" value={c.phone || ''} onChange={e => set('phone', e.target.value)} aria-label={`Contact ${i + 1} phone`} /></Fld>
             <Fld label="Email" path={`company.contacts.${i}.email`} errs={shownErrs}><input inputMode="email" value={c.email || ''} onChange={e => set('email', e.target.value)} aria-label={`Contact ${i + 1} email`} /></Fld>
+            <Fld label="Role" path={`company.contacts.${i}.role`} errs={shownErrs}><input value={c.role || ''} onChange={e => set('role', e.target.value)} placeholder="Strategy & your build" aria-label={`Contact ${i + 1} role`} /></Fld>
+            <Fld label="Photo" path={`company.contacts.${i}.photo`} errs={shownErrs}><input value={c.photo || ''} onChange={e => set('photo', e.target.value)} placeholder="/team/name.jpg" aria-label={`Contact ${i + 1} photo`} /></Fld>
             <div className="oe-li oe-contact-b">
               <button type="button" title="Move up" disabled={i === 0} onClick={() => moveC(-1)}><ArrowUp size={13} /></button>
               <button type="button" title="Move down" disabled={i === (co.contacts || []).length - 1} onClick={() => moveC(1)}><ArrowDown size={13} /></button>

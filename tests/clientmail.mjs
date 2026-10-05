@@ -6,14 +6,14 @@
                        nobody else. notify.js, coffee-book.js and the proposal
                        acceptance notice use it. PR #80 made it owner-only;
                        coffee-book, a PUBLIC route, depends on that.
-   - sendClientMail()  one proposal to its client. It takes a proposal id and
-                       NO address: the recipient is read server-side from the
-                       lead the proposal belongs to.
+   - sendClientMail()  one client. It takes a proposal id OR an onboarding id
+                       and NO address: the recipient is read server-side from
+                       the lead the record belongs to.
 
    The proposals port arrived with a sendMail() that would send to any address.
    This file proves the split held: the owner door still cannot reach a client,
    the client door cannot be pointed anywhere but the lead's own email, and
-   only proposal-send.js holds the client door.                               */
+   only proposal-send.js and onboarding-public.js hold the client door.                               */
 process.env.SUPABASE_URL = 'https://x.supabase.co';
 process.env.SUPABASE_SERVICE_KEY = 'svc';
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'svc';
@@ -25,13 +25,15 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const { sendMail, sendClientMail, clientRecipientFor } = await import('../api/_mail.js');
+const { sendMail, sendClientMail, clientRecipientFor, clientRecipientForOnboarding } = await import('../api/_mail.js');
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { c ? (pass++, console.log('  ok  ' + n)) : (fail++, console.log('  FAIL ' + n + (x ? ' — ' + String(x).slice(0, 300) : ''))); };
 
 const PID = '11111111-1111-4111-8111-111111111111', PID_NOEMAIL = '22222222-2222-4222-8222-222222222222';
 const PROPOSALS = { [PID]: 'L1', [PID_NOEMAIL]: 'L2' };
+const OID = '33333333-3333-4333-8333-333333333333';
+const ONBOARDINGS = { [OID]: 'L1' };
 const LEADS = { L1: { id: 'L1', email: 'client@client.test' }, L2: { id: 'L2', email: '' } };
 let sent = [], dbCalls = 0;
 globalThis.fetch = async (url, opts = {}) => {
@@ -39,6 +41,7 @@ globalThis.fetch = async (url, opts = {}) => {
   const J = (d, ok = true) => ({ ok, status: ok ? 200 : 400, json: async () => d, text: async () => JSON.stringify(d) });
   if (u.includes('api.resend.com')) { sent.push(JSON.parse(opts.body)); return J({ id: 'm1' }); }
   if (u.includes('crm_users')) return J([{ email: 'logan@agency.test' }]);
+  if (u.includes('/rest/v1/onboardings?id=eq.')) { dbCalls++; const id = u.match(/id=eq\.([^&]+)/)[1]; return J(ONBOARDINGS[id] ? [{ lead_id: ONBOARDINGS[id] }] : []); }
   if (u.includes('/rest/v1/proposals?id=eq.')) { dbCalls++; const id = u.match(/id=eq\.([^&]+)/)[1]; return J(PROPOSALS[id] ? [{ lead_id: PROPOSALS[id] }] : []); }
   if (u.includes('/rest/v1/leads?id=eq.')) { dbCalls++; const id = decodeURIComponent(u.match(/id=eq\.([^&]+)/)[1]); return J(LEADS[id] ? [{ data: LEADS[id] }] : []); }
   return J({}, false);
@@ -97,6 +100,24 @@ console.log('\nsendClientMail() — the recipient comes from the record');
   ok('clientRecipientFor names the same address', rc.ok && rc.to === 'client@client.test');
 }
 
+console.log('\nsendClientMail() by onboarding id — the same rule');
+{
+  reset();
+  const r = await sendClientMail({ onboardingId: OID, subject: 'Your link', html: 'h', to: ['attacker@evil.test'] });
+  ok('it sends to the email on the onboarding\'s lead, ignoring any `to`', r.ok && sent.length === 1 && sent[0].to.join() === 'client@client.test' && !JSON.stringify(sent).includes('evil.test'), JSON.stringify(sent));
+  reset();
+  const r2 = await sendClientMail({ onboardingId: OID, proposalId: PID, subject: 's', html: 'h' });
+  ok('both ids at once: nothing sent', r2.ok === false && sent.length === 0);
+  reset();
+  const r3 = await sendClientMail({ onboardingId: '99999999-9999-4999-8999-999999999999', subject: 's', html: 'h' });
+  ok('an unknown onboarding: nothing sent', r3.ok === false && sent.length === 0);
+  reset();
+  const r4 = await sendClientMail({ onboardingId: "x' or 1=1", subject: 's', html: 'h' });
+  ok('a malformed onboarding id never reaches the database', r4.ok === false && dbCalls === 0 && sent.length === 0);
+  const rc = await clientRecipientForOnboarding(OID);
+  ok('clientRecipientForOnboarding names the same address', rc.ok && rc.to === 'client@client.test');
+}
+
 console.log('\nwho holds which door');
 {
   const files = (await fs.readdir(path.join(ROOT, 'api'))).filter(f => f.endsWith('.js'));
@@ -105,7 +126,11 @@ console.log('\nwho holds which door');
     const src = await fs.readFile(path.join(ROOT, 'api', f), 'utf8');
     if (f !== '_mail.js' && /\bsendClientMail\b/.test(src)) holders.push(f);
   }
-  ok('only proposal-send.js uses sendClientMail()', holders.join() === 'proposal-send.js', holders.join());
+  ok('only proposal-send.js and onboarding-public.js use sendClientMail()', holders.sort().join() === 'onboarding-public.js,proposal-send.js', holders.join());
+  const onb = await fs.readFile(path.join(ROOT, 'api/onboarding-public.js'), 'utf8');
+  const onbCode = onb.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+  ok('onboarding-public.js never reads an address off the request', !/\bb\.(to|email|recipient)\b/.test(onbCode));
+  ok('  and passes no `to` to the client door', !/sendClientMail\(\{[^}]*\bto\s*:/.test(onbCode));
 
   const book = await fs.readFile(path.join(ROOT, 'api/coffee-book.js'), 'utf8');
   ok('coffee-book.js (public) imports only the owner door', /import \{ sendMail \} from '\.\/_mail\.js'/.test(book) && !/sendClientMail|clientRecipientFor/.test(book));

@@ -128,6 +128,35 @@ export const db = {
      and returns null, like the real helper. Writes are recorded so a suite can
      assert on what reached the database, and saves of a sent proposal are
      refused exactly as the status filter refuses them. */
+  /* onboardings. OWNER-ONLY IN POSTGRES, the same model as proposals below:
+     a non-owner gets [] whatever __ONBOARDINGS__ holds; undefined means
+     "migration not run" (null). Writes are recorded for the suites. */
+  listOnboardings: async () => {
+    globalThis.__ONB_LIST_CALLS__ = (globalThis.__ONB_LIST_CALLS__ || 0) + 1;
+    if (globalThis.__ONBOARDINGS__ === undefined) return null;
+    const who = (globalThis.__WHOAMI__ && globalThis.__WHOAMI__.role)
+      || (((globalThis.__USERS__ || [])[0] || {}).role) || 'owner';
+    if (who !== 'owner') return [];
+    return JSON.parse(JSON.stringify(globalThis.__ONBOARDINGS__));
+  },
+  createOnboarding: async (row) => {
+    (globalThis.__ONBOARDING_WRITES__ = globalThis.__ONBOARDING_WRITES__ || []).push({ op: 'create', row: JSON.parse(JSON.stringify(row)) });
+    globalThis.__ONBOARDINGS__ = globalThis.__ONBOARDINGS__ || [];
+    const id = '00000000-0000-4000-9000-' + String(globalThis.__ONBOARDINGS__.length + 1).padStart(12, '0');
+    globalThis.__ONBOARDINGS__.push({ id, status: 'not_started', answers: {}, sections: {}, outputs: {}, onboarding_files: [], ...row, updated_at: new Date().toISOString() });
+    return id;
+  },
+  updateOnboarding: async (id, patch) => {
+    (globalThis.__ONBOARDING_WRITES__ = globalThis.__ONBOARDING_WRITES__ || []).push({ op: 'update', id, patch: JSON.parse(JSON.stringify(patch)) });
+    const o = (globalThis.__ONBOARDINGS__ || []).find(x => x.id === id);
+    if (!o) throw new Error('That onboarding no longer exists.');
+    Object.assign(o, patch);
+  },
+  markOnboardingApplied: async (id, submittedAt) => {
+    (globalThis.__ONBOARDING_WRITES__ = globalThis.__ONBOARDING_WRITES__ || []).push({ op: 'applied', id, submittedAt });
+    const o = (globalThis.__ONBOARDINGS__ || []).find(x => x.id === id && x.submitted_at === submittedAt);
+    if (o && !o.applied_at) o.applied_at = new Date().toISOString();
+  },
   listProposals: async () => {
     if (globalThis.__PROPOSALS__ === undefined) return null;
     const who = (globalThis.__WHOAMI__ && globalThis.__WHOAMI__.role)
