@@ -68,19 +68,31 @@ export const DEFAULT_OPTIONS={
 };
 /* ---- Layer 2: client phase + universal onboarding checklist ---- */
 export const CLIENT_PHASES=[
-  ['intake','Intake','#6B73C9'],['build','Build',COBALT],['launch','Launch','#7A5CC8'],
-  ['active','Active',GREEN],['atrisk','At Risk','#E0662B'],['churned','Churned','#8E89A8'],
+  ['intake','Intake','#6B73C9'],['build','Build',COBALT],['review','Review','#C77A1E'],['launch','Launched','#7A5CC8'],
+  ['active','Active',GREEN],['atrisk','At Risk','#E0662B'],['churned','Former','#8E89A8'],
 ];
 /* editable standard phases (label/color/order in Settings; keys locked to the checklist) */
 export const DEFAULT_CLIENT_PHASES=[
   {key:'intake',label:'Intake',color:'#6B73C9',flow:true},
   {key:'build', label:'Build', color:COBALT,   flow:true},
-  {key:'launch',label:'Launch',color:'#7A5CC8',flow:true},
+  {key:'review',label:'Review',color:'#C77A1E',flow:true},
+  {key:'launch',label:'Launched',color:'#7A5CC8',flow:true},
   {key:'active',label:'Active',color:GREEN,    flow:true},
   {key:'atrisk',label:'At Risk',color:'#E0662B',terminal:true},
-  {key:'churned',label:'Churned',color:'#8E89A8',terminal:true},
+  {key:'churned',label:'Former',color:'#8E89A8',terminal:true},
 ];
-export const stdPhases=settings=>(settings&&settings.clientPhases&&settings.clientPhases.length)?settings.clientPhases:DEFAULT_CLIENT_PHASES;
+/* Review arrived in Oct 2026 (lib/lifecycle). Phases saved before then have
+   six keys, and the keys cannot be deleted in Settings, so a saved list
+   without it gets it inserted after Build on read. Nothing a person typed
+   (labels, colours, order) changes; their own "Launch" / "Churned" labels are
+   theirs to rename. */
+export const stdPhases=settings=>{
+  const saved=(settings&&Array.isArray(settings.clientPhases)&&settings.clientPhases.length)?settings.clientPhases:null;
+  if(!saved) return DEFAULT_CLIENT_PHASES;
+  if(saved.some(p=>p&&p.key==='review')) return saved;
+  const rv=DEFAULT_CLIENT_PHASES.find(p=>p.key==='review'); const i=saved.findIndex(p=>p&&p.key==='build');
+  return i<0?[...saved,rv]:[...saved.slice(0,i+1),rv,...saved.slice(i+1)];
+};
 export const ONBOARDING=[
   {phase:'intake',items:[
     ['agreement_signed','Service agreement signed (Square)'],
@@ -286,7 +298,7 @@ export const hasVoicemail=l=>((l&&l.activities)||[]).some(a=>a&&a.disp==='VM');
    writers and fails the build when one appears that this does not match.
    The list is the fallback for rows already in the database; the test is what
    keeps it honest. */
-export const SYS_NOTE=/^(Lead created\.|Follow-up cleared\.|Follow-up done —|Stage moved:|Deal value set to|Phase →|Close date set to|Commission approved|Commission voided|Converted to client|Signed — onboarding|Reverted to lead|Invoice |Payment confirmed |Payment marked as not collected|Deal closed:|New build started:|Sponsorship logged:|Dated:|Reassigned from |Checklist: )/;
+export const SYS_NOTE=/^(Lead created\.|Follow-up cleared\.|Follow-up done —|Stage moved:|Deal value set to|Phase →|Clock paused:|Clock resumed:|Close date set to|Commission approved|Commission voided|Converted to client|Signed — onboarding|Reverted to lead|Invoice |Payment confirmed |Payment marked as not collected|Deal closed:|New build started:|Sponsorship logged:|Dated:|Reassigned from |Checklist: )/;
 export const isSystemNote=a=>!!a&&a.type==='Note'&&!a.derived&&SYS_NOTE.test(String(a.text||''));
 
 /* A REAL TOUCH is a reached type, or a note a person actually wrote.

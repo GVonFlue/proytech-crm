@@ -273,7 +273,7 @@ export function OnboardingDetail({ o, lead, settings, apiPost, reload, toggleChe
           {k === 'dns' ? 'Domain access received' : 'Google profile access received'}{cl.access[k] ? ` · ${shortDate(cl.access[k])}` : ''}</label>))
           : <div className="onbd-mute">No access required for what they bought.</div>}
         <div className="onbd-launch">{sm.launch.started
-          ? <><b>Launch clock started {longDate(sm.launch.startedOn)}</b>{sm.launch.target ? <> · target launch <b>{longDate(sm.launch.target)}</b> ({sm.launch.launchDays} business days)</> : ' · no target: launch days are not set in the offer'}</>
+          ? <><b>Launch clock started {longDate(sm.launch.startedOn)}</b>{sm.launch.target ? <> · target launch <b>{longDate(sm.launch.target)}</b> ({sm.launch.launchDays} days)</> : ' · no target: launch days are not set in the offer'}</>
           : <>Waiting on: {sm.launch.waiting.join(', ')}</>}</div>
         <div className="onbd-mute">These are the client's checklist items on the Clients page; ticking here ticks there.</div>
       </div>

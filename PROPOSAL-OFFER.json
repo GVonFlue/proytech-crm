@@ -19,7 +19,7 @@
   "paymentUrl": "",
   "legal": { "termsUrl": "https://getproytech.com/terms", "privacyUrl": "https://getproytech.com/privacy", "version": "2026-10-04" },
   "prepay": { "months": 12, "free": 2 },
-  "guarantee": "Live in 14 days, or your first month is free. Your 14 days start once your deposit, onboarding and required access are in.",
+  "guarantee": "Live in 14 days, or your first month is free. Your 14 days start once your deposit, onboarding, and required access and assets are in.",
   "terms": "50% of the setup at signing, 50% at launch. The monthly fee starts at launch, not before.",
   "cancel": "Month to month, cancel anytime. Prepaid months are non-refundable after launch, and the guarantee still applies.",
   "packages": [

@@ -67,9 +67,10 @@ const rearrange=btn(/^Rearrange$/);
 ok('Rearrange button exists', !!rearrange);
 await click(rearrange);
 const titles=secTitles();
-ok('every section is listed', titles.length===12, titles.length+': '+titles.join(' | '));
-ok('in default order', titles[0]==='Your day'&&titles[1]==='New leads & relationships'
-   &&titles[2]==='Team scorecard'&&titles[titles.length-1]==='Next event', titles.join(' | '));
+/* 13 with "What's due" (lib/lifecycle), which sits right under "Your day" */
+ok('every section is listed', titles.length===13, titles.length+': '+titles.join(' | '));
+ok('in default order', titles[0]==='Your day'&&before(titles,'Your day',"What's due")&&before(titles,"What's due",'New leads & relationships')
+   &&before(titles,'New leads & relationships','Team scorecard')&&titles[titles.length-1]==='Next event', titles.join(' | '));
 ok('the alerts area is NOT reorderable', !titles.some(t=>/onboard|commission/i.test(t)), titles.join(' | '));
 
 console.log('\nmove a section');

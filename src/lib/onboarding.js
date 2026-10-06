@@ -566,16 +566,21 @@ export function stillNeeded(ctx, answers, files, checklist, cfg) {
 /* ---------- the lead's checklist, read ---------- */
 const doneOf = v => (!v ? null : typeof v === 'string' ? v : v.done || null);
 /** checklist: the jsonb onboarding_public() returns (deposit_paid, access_dns,
- *  access_gbp, access_social, onbSkip), or a lead's own `onboarding` object
- *  plus `onbSkip`. */
+ *  access_gbp, access_social, logo_received, headshot_received, onbSkip), or a
+ *  lead's own `onboarding` object plus `onbSkip`. */
 export function checklistState(checklist) {
   const c = checklist || {};
-  if ('depositAt' in c && 'access' in c) return c;     // already normalised (the portal gets this shape)
+  /* already normalised (the portal gets this shape); one normalised before
+     assets existed gains empty ones rather than being re-read as raw */
+  if ('depositAt' in c && 'access' in c) return { ...c, assets: c.assets || { logo: null, headshot: null }, assetsSkipped: c.assetsSkipped || { logo: false, headshot: false } };
   const skip = A(c.onbSkip);
   return {
     depositAt: skip.includes('deposit_paid') ? null : doneOf(c.deposit_paid),
     depositSkipped: skip.includes('deposit_paid'),
     access: { dns: doneOf(c.access_dns), gbp: doneOf(c.access_gbp), social: doneOf(c.access_social) },
+    /* an asset marked "not applicable" on the checklist cannot hold the clock */
+    assets: { logo: doneOf(c.logo_received), headshot: doneOf(c.headshot_received) },
+    assetsSkipped: { logo: skip.includes('logo_received'), headshot: skip.includes('headshot_received') },
   };
 }
 /** Which checklist access items this client's launch waits on. */
@@ -586,6 +591,27 @@ export function requiredAccess(ctx, answers) {
   return keys;
 }
 
+/** Which assets this client's launch waits on (Terms 6.2: "the logo in a
+ *  usable format, and the minimum photos listed in onboarding"). The same
+ *  rules that make the portal ASK for them: the logo when they said they have
+ *  one, the headshot when a website is being built. A client with no logo is
+ *  not held up waiting for one. */
+export function requiredAssets(ctx, answers) {
+  const field = id => SECTIONS.flatMap(s => s.when(ctx) ? s.fields : []).find(f => f.id === id);
+  const needs = id => { const f = field(id); return !!f && fieldShown(f, ctx, answers) && !!call(f.need, ctx, answers || {}); };
+  const keys = [];
+  if (needs('brand.logo')) keys.push('logo');
+  if (needs('fl.headshot')) keys.push('headshot');
+  return keys;
+}
+export const ASSET_WAIT = { logo: 'your logo', headshot: 'your headshot' };
+export function addCalendarDays(isoDate, n) {
+  const d = new Date(String(isoDate).slice(0, 10) + 'T12:00:00Z');
+  if (!Number.isFinite(d.getTime())) return null;
+  d.setUTCDate(d.getUTCDate() + Math.floor(Number(n) || 0));
+  return d.toISOString().slice(0, 10);
+}
+
 /* ---------- the launch clock: derived, never stored ---------- */
 export function addBusinessDays(isoDate, n) {
   const d = new Date(String(isoDate).slice(0, 10) + 'T12:00:00Z');
@@ -594,10 +620,15 @@ export function addBusinessDays(isoDate, n) {
   while (left > 0) { d.setUTCDate(d.getUTCDate() + 1); const w = d.getUTCDay(); if (w !== 0 && w !== 6) left--; }
   return d.toISOString().slice(0, 10);
 }
-/** The clock starts on the LATEST of: submitted, deposit paid, and each
- *  required access item received. Until all are in, it has not started and
- *  `waiting` names what it waits on. launchDays null means the offer never set
- *  it, and the target is null rather than a guess. */
+/** The clock starts on the LATEST of: submitted, deposit paid, each required
+ *  access item received, and each required asset received (Terms 6.2). Until
+ *  all are in, it has not started and `waiting` names what it waits on.
+ *  The target is launchDays CALENDAR days later (Terms 6.1, "Live in 14
+ *  days"); it counted business days until Oct 2026, which put the date the
+ *  portal promised about a week past the one the Terms do. launchDays null
+ *  means the offer never set it, and the target is null rather than a guess.
+ *  The CRM's client cards and dashboard read THIS function (lib/lifecycle),
+ *  so the portal and the CRM cannot show different dates. */
 export function launchState({ submittedAt, checklist, ctx, answers, launchDays }) {
   const cl = checklistState(checklist);
   const waits = [];
@@ -609,10 +640,15 @@ export function launchState({ submittedAt, checklist, ctx, answers, launchDays }
     if (cl.access[k]) dates.push(String(cl.access[k]).slice(0, 10));
     else waits.push(k === 'dns' ? 'domain access' : 'Google profile access');
   }
+  for (const k of requiredAssets(ctx, answers)) {
+    if (cl.assetsSkipped && cl.assetsSkipped[k]) continue;
+    if (cl.assets && cl.assets[k]) dates.push(String(cl.assets[k]).slice(0, 10));
+    else waits.push(ASSET_WAIT[k]);
+  }
   if (waits.length) return { started: false, waiting: waits, startedOn: null, target: null };
   const startedOn = dates.sort().pop();
   const days = Number.isInteger(launchDays) && launchDays > 0 ? launchDays : null;
-  return { started: true, waiting: [], startedOn, target: days ? addBusinessDays(startedOn, days) : null, launchDays: days };
+  return { started: true, waiting: [], startedOn, target: days ? addCalendarDays(startedOn, days) : null, launchDays: days };
 }
 
 /* ---------- progress ---------- */

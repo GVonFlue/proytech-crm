@@ -171,7 +171,7 @@ export function Launched({ data, business, need }) {
       <h1 className="big">{L.started ? 'Your launch clock starts now.' : `You did it${name ? `, ${name}` : ''}.`}</h1>
       <div className="sub" style={{ fontSize: 15 }}>
         {L.started
-          ? (L.target ? <>Target launch: <b style={{ color: 'var(--o-peach)' }}>{longDate(L.target)}</b>{days ? ` (${days} business days).` : '.'}</> : 'We start building today.')
+          ? (L.target ? <>Target launch: <b style={{ color: 'var(--o-peach)' }}>{longDate(L.target)}</b>{days ? ` (${days} days).` : '.'}</> : 'We start building today.')
           : <>We'll start your {days ? `${days} days` : 'launch clock'} as soon as {list || 'everything is in'}.</>}
       </div>
       <div className="row">

@@ -149,6 +149,8 @@ language sql security definer stable set search_path = public as $$
            'access_dns',   l.data->'onboarding'->'access_dns',
            'access_gbp',   l.data->'onboarding'->'access_gbp',
            'access_social',l.data->'onboarding'->'access_social',
+           'logo_received',     l.data->'onboarding'->'logo_received',
+           'headshot_received', l.data->'onboarding'->'headshot_received',
            'onbSkip',      l.data->'onbSkip'),
          coalesce((select jsonb_agg(jsonb_build_object('id', f.id, 'slot', f.slot, 'name', f.original_name,
                                                        'mime', f.mime, 'bytes', f.bytes, 'at', f.created_at,

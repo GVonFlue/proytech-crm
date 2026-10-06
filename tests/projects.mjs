@@ -30,7 +30,9 @@ const { withDefaultTracks, activeTracks, trackForLabel, newProject, projectProgr
 const ago=n=>new Date(Date.now()-n*864e5).toISOString();
 const client=(o)=>({stage:'signed',owner:'Garrett',isClient:true,convertedAt:'2026-07-01',createdAt:ago(80),activities:[],meetings:[],deals:[],dealValue:0,...o});
 globalThis.__LEADS__=[
-  client({ id:'l1', name:'Alyssa Poppell', company:'Poppell Studio', clientPhase:'active',
+  /* phaseSince today: she went Active recently, so the lifecycle's 45-days-
+     without-contact rule (lib/lifecycle) has nothing to say about her here */
+  client({ id:'l1', name:'Alyssa Poppell', company:'Poppell Studio', clientPhase:'active', phaseSince:new Date().toISOString().slice(0,10),
     closedDeals:[{id:'c1',label:'Website',amount:2500,closedAt:'2026-07-01'},{id:'c2',label:'Business Suite',amount:4000,closedAt:'2026-09-01'}],
     projects:[{id:'pj_c2',dealId:'c2',label:'Business Suite',trackKey:'suite',phase:'build',
       milestones:{'Kickoff and intake received':{done:'2026-09-01',due:null}},startedAt:'2026-09-01'}] }),
@@ -124,10 +126,11 @@ if(adv) await click(adv);
 await act(async()=>{await new Promise(r=>setTimeout(r,40));});
 let w=globalThis.__WRITES__.filter(x=>x.id==='l1').at(-1);
 const wp=w&&(w.projects||[]).find(x=>x.id==='pj_c2');
-ok('the project advanced to Launch in the database', wp && wp.phase==='launch', JSON.stringify(wp));
+/* Build → Review: Review sits between Build and Launched (lib/lifecycle FLOW) */
+ok('the project advanced to Review in the database', wp && wp.phase==='review', JSON.stringify(wp));
 ok('the client did not move', w && w.clientPhase==='active', w&&w.clientPhase);
 ok('the checklist tick survived', wp && wp.milestones && wp.milestones['Kickoff and intake received'] && wp.milestones['Kickoff and intake received'].done==='2026-09-01');
-ok('and the move is logged against the project', w && (w.activities||[]).some(a=>/^Phase → Launch \(Business Suite\)$/.test(a.text||'')),
+ok('and the move is logged against the project', w && (w.activities||[]).some(a=>/^Phase → Review \(Business Suite\)$/.test(a.text||'')),
    JSON.stringify((w&&w.activities||[]).map(a=>a.text).slice(0,2)));
 
 console.log('\nits checklist, from the card');

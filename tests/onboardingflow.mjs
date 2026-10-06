@@ -16,7 +16,7 @@
      - the clean drops unknown ids and values outside a field's options
      - prefill never overwrites an answer
      - the launch clock: waits for each missing piece by name, starts on the
-       latest date, counts business days, and has no target when the offer
+       latest date, counts calendar days, and has no target when the offer
        never set launch days (null, not a guessed 14)
      - files: allowed by slot and size, and judged by their first bytes
      - config: every fallback is named
@@ -208,18 +208,28 @@ test('prefill: fills what is empty, never overwrites, goals from the proposal pl
   ok(!('suite.goals' in L.prefill({}, { plan: { numbers: [{ label: 'x', value: '1' }] }, products: ['website'] })), 'no Suite, no goals');
 });
 
-test('launch: waits by name, starts on the latest date, counts business days', () => {
+test('launch: waits by name (Terms 6.2), starts on the latest date, counts CALENDAR days', () => {
   const ctx = L.ctxOf({ products: ['website'] }, {}, {});
   const ans = { 'web.domain_own': 'yes', 'web.gbp_status': 'have' };
   let s = L.launchState({ submittedAt: null, checklist: {}, ctx, answers: ans, launchDays: 14 });
-  eq(s.waiting, ['your onboarding', 'your deposit', 'domain access', 'Google profile access']);
+  eq(s.waiting, ['your onboarding', 'your deposit', 'domain access', 'Google profile access', 'your logo', 'your headshot']);
   ok(!s.started && s.target === null);
-  s = L.launchState({ submittedAt: '2026-10-05T15:00:00Z', checklist: { deposit_paid: '2026-10-02', access_dns: { done: '2026-10-07' }, access_gbp: { done: '2026-10-06' } }, ctx, answers: ans, launchDays: 14 });
-  ok(s.started); eq(s.startedOn, '2026-10-07', 'the latest of the four');
-  eq(s.target, '2026-10-27', '14 business days from Wed Oct 7');
-  s = L.launchState({ submittedAt: '2026-10-05', checklist: { onbSkip: ['deposit_paid'] }, ctx: L.ctxOf({ products: ['suite'] }, {}, {}), answers: {}, launchDays: null });
+  const four = { deposit_paid: '2026-10-02', access_dns: { done: '2026-10-07' }, access_gbp: { done: '2026-10-06' } };
+  s = L.launchState({ submittedAt: '2026-10-05T15:00:00Z', checklist: four, ctx, answers: ans, launchDays: 14 });
+  ok(!s.started, 'deposit, onboarding and access are not enough: the assets hold the clock');
+  eq(s.waiting, ['your logo', 'your headshot']);
+  s = L.launchState({ submittedAt: '2026-10-05T15:00:00Z', checklist: { ...four, logo_received: { done: '2026-10-05' }, headshot_received: { done: '2026-10-08' } }, ctx, answers: ans, launchDays: 14 });
+  ok(s.started); eq(s.startedOn, '2026-10-08', 'the latest of all six');
+  eq(s.target, '2026-10-22', '14 calendar days from Thu Oct 8 (Terms 6.1), not 14 business days');
+  s = L.launchState({ submittedAt: '2026-10-05', checklist: { ...four, headshot_received: '2026-10-05' }, ctx, answers: { ...ans, 'brand.logo_status': 'none' }, launchDays: 14 });
+  ok(s.started, 'a client with no logo is not held up waiting for one');
+  s = L.launchState({ submittedAt: '2026-10-05', checklist: { ...four, logo_received: '2026-10-05', onbSkip: ['headshot_received'] }, ctx, answers: ans, launchDays: 14 });
+  ok(s.started, 'an asset marked not applicable on the checklist does not hold the clock');
+  eq(L.requiredAssets(L.ctxOf({ products: ['suite'] }, {}, {}), {}).includes('headshot'), false, 'no website, no headshot needed');
+  s = L.launchState({ submittedAt: '2026-10-05', checklist: { onbSkip: ['deposit_paid', 'logo_received'] }, ctx: L.ctxOf({ products: ['suite'] }, {}, {}), answers: {}, launchDays: null });
   ok(s.started && s.target === null, 'no launch days in the offer: no target, not a guessed one');
-  eq(L.addBusinessDays('2026-10-09', 1), '2026-10-12', 'Friday + 1 = Monday');
+  eq(L.addCalendarDays('2026-10-30', 3), '2026-11-02', 'calendar days cross a month and a weekend');
+  eq(L.addBusinessDays('2026-10-09', 1), '2026-10-12', 'Friday + 1 = Monday (still used for "1 business day" rules)');
 });
 
 test('files: by slot, by size, and by their first bytes', () => {
