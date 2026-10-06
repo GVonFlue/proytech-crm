@@ -124,7 +124,7 @@ export default function ClientView({
       <div className="modal leadfs client" onMouseDown={e => e.stopPropagation()}>
 
         {/* ------------------------------------------------------- header */}
-        <div className="cv-head">
+        <div className="cv-head plate">
           <div className="cv-head-m">
             <div className="cv-name">{personLabel(l)}</div>
             <div className="cv-sub">
