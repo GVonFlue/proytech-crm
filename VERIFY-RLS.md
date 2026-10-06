@@ -1465,6 +1465,92 @@ select p.proname, p.prosecdef as security_definer,
 | returns_assets | true | |
 | RLS-AUDIT.sql | RLS-AUDIT OK | |
 
+## 15. Storage: receipts and site-media (after STORAGE-TIGHTEN-2026-10.sql)
+
+Files are rows in `storage.objects`, one table for every bucket, and its
+policies OR together across buckets exactly like a table's. Before this,
+`receipts` (the business's receipts, from Money / The Books) could be read,
+uploaded, overwritten and deleted by any signed-in account, reps included,
+and `site-media` (website images) could be written and deleted by any
+signed-in account. Now:
+
+| bucket | read | write (upload, overwrite, delete) | bucket setting |
+|---|---|---|---|
+| `receipts` | owners | owners | **private** |
+| `site-media` | anyone (it is the website's images) | owners | public |
+| `onboarding` | nobody but the server (§14) | nobody but the server | private |
+
+The Supabase dashboard uses the service role and is unaffected: uploading
+site images there keeps working.
+
+### Status: NOT YET RUN against a real database
+
+What has been run: `tests/storagetighten.mjs` (CI, the file's text) and
+`tests/storagerlsdb.mjs` (a tool, `npm i --no-save @electric-sql/pglite`
+first): the migration on real Postgres against the open state, every person
+tried, re-run, rollback, 43 assertions. PGlite is not Supabase Storage (no
+storage API, no signed URLs); this section is the proof on the install.
+
+### Run it
+
+**0. Run `STORAGE-TIGHTEN-2026-10.sql`.** Save its section 0 output (every
+storage policy as it was). Pass is: it ends with `STORAGE-TIGHTEN OK`, and the
+read-back lists, for these two buckets, exactly `storage_receipts_owner_select`,
+`_insert`, `_update`, `_delete`, `storage_site_media_read` and
+`storage_site_media_owner_insert`, `_update`, `_delete`; `receipts` false,
+`site-media` true. A policy for another bucket may remain; one that names no
+bucket may not.
+
+**1. Run `RLS-AUDIT.sql`.** Pass is: it finishes without raising, and its
+notes list `site-media` as a public bucket and nothing else you did not expect.
+
+**2. As a rep, in SQL** (lend claims the way §11 does; one transaction, rolled back):
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', json_build_object('sub','<a rep''s auth uid>','role','authenticated')::text, true);
+select count(*) from storage.objects where bucket_id = 'receipts';     -- expect: 0
+select count(*) from storage.objects where bucket_id = 'site-media';   -- expect: the number of website images
+insert into storage.objects (bucket_id, name) values ('receipts', 'rep-test.pdf');    -- expect: ERROR, row-level security
+insert into storage.objects (bucket_id, name) values ('site-media', 'rep-test.jpg');  -- expect: ERROR, row-level security
+delete from storage.objects where bucket_id in ('receipts', 'site-media');            -- expect: DELETE 0
+reset role;
+rollback;
+```
+Then the same as an **owner's** uid: the first count is the number of
+receipts, and the inserts succeed (still rolled back).
+
+**3. Through the API, with the anon key** (Settings → API):
+```
+curl -s -X POST "$SUPABASE_URL/storage/v1/object/list/receipts" \
+  -H "apikey: $ANON_KEY" -H "authorization: Bearer $ANON_KEY" \
+  -H 'content-type: application/json' -d '{"prefix":""}'
+```
+Pass is `[]` or an error. Then open any website image by its public URL
+(`$SUPABASE_URL/storage/v1/object/public/site-media/<file>`): pass is the image.
+
+**4. In the CRM, as the owner:** Money → The Books → attach a receipt to a
+transaction, open it, then delete the transaction. Pass is all three work.
+As a rep there is no Books tab at all (ROLES.md), which is unchanged.
+
+### Results (fill in when run)
+
+| check | expected | result |
+|---|---|---|
+| tighten | ends `STORAGE-TIGHTEN OK`; the eight policies; receipts private | |
+| RLS-AUDIT.sql | finishes, no raise | |
+| rep: count receipts / site-media | 0 / the images | |
+| rep: insert receipts, insert site-media | RLS error, RLS error | |
+| rep: delete either | DELETE 0 | |
+| owner: count receipts, insert both | the receipts; succeeds | |
+| anon key: list receipts | `[]` or error | |
+| public URL of a site image | the image | |
+| owner: attach, open, delete a receipt in the CRM | all work | |
+
+A policy left behind without a `bucket_id` would make the rep's receipts count
+non-zero; a public `receipts` bucket would make step 3's public URL serve a
+receipt. Those are the two ways this goes wrong quietly.
+
 ## Coverage, honestly
 
 Two tables were added in Aug 2026 and **neither is fully verified.** The gap is
@@ -1475,6 +1561,7 @@ different for each, and in opposite halves:
 | `kb_reads` (§10) | **yes** | no |
 | `rep_notes` (§11) | no | **partly** — SELECT and INSERT only |
 | `onboardings`, `onboarding_files` (§14) | **yes**, on PGlite only | **yes**, on PGlite only. Not yet on Supabase |
+| Storage: `receipts`, `site-media` (§15) | **yes**, on PGlite only | **yes**, on PGlite only. Not yet on Supabase |
 
 Neither section should be read as a completed proof. `kb_reads` knows what its
 policy *says* and not what it *does*; `rep_notes` knows what two operations
