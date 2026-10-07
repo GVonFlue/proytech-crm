@@ -254,6 +254,33 @@ begin
     raise exception E'RLS-AUDIT FAILED: security definer functions a browser can call with no team or portal check:\n  %\nEach bypasses RLS. Gate it on crm_listed()/is_owner() (team) or portal_lead() (client), or revoke it from anon and authenticated.', open_functions;
   end if;
 
+  ------------------------------------------ 2f. SERVER-WRITE-ONLY tables (Oct 2026)
+  -- Some tables are written only by the server (service role, which bypasses
+  -- RLS) and READ by owners. For those, ANY insert/update/delete/all policy is
+  -- a hole even if its expression looks right, and the read policy must
+  -- require an owner. client_emails is the record that makes each client
+  -- email send once: a write path from a browser could delete a claim and
+  -- re-send, or claim one so it never sends.
+  --   RAISES on: a non-SELECT policy, or a SELECT policy not naming is_owner().
+  declare
+    srv text;
+  begin
+    select string_agg(format('%s.%s (%s): using=%s', c.relname, p.polname,
+             case p.polcmd when 'r' then 'SELECT' when 'a' then 'INSERT' when 'w' then 'UPDATE'
+                           when 'd' then 'DELETE' else 'ALL' end,
+             coalesce(pg_get_expr(p.polqual, p.polrelid), '(none)')), E'\n  ' order by c.relname, p.polname)
+      into srv
+      from pg_policy p
+      join pg_class c on c.oid = p.polrelid
+      join pg_namespace n on n.oid = c.relnamespace
+     where n.nspname = 'public'
+       and c.relname in ('client_emails')
+       and (p.polcmd <> 'r' or coalesce(pg_get_expr(p.polqual, p.polrelid), '') !~ 'is_owner\(\)');
+    if srv is not null then
+      raise exception E'RLS-AUDIT FAILED: a server-write-only table has a write policy, or a read not limited to owners:\n  %', srv;
+    end if;
+  end;
+
   if rls_off is not null then
     raise exception E'RLS-AUDIT FAILED: row level security is OFF on:\n  %\nThese are governed only by GRANTs, and Supabase grants anon and authenticated by default.', rls_off;
   end if;
@@ -265,7 +292,8 @@ begin
   raise notice '----------------------------------------------------------------';
   raise notice 'RLS-AUDIT OK: every table in public has RLS on, no permissive policy';
   raise notice 'anywhere evaluates to true, every storage policy names a bucket, and';
-  raise notice 'every security definer function a browser can call checks the team or the portal.';
+  raise notice 'every security definer function a browser can call checks the team or the portal, and';
+  raise notice 'server-write-only tables (client_emails) have no write policy.';
   raise notice 'Read section 1 anyway — this';
   raise notice 'proves nothing is WIDE open, not that every expression is RIGHT.';
   raise notice '----------------------------------------------------------------';

@@ -63,6 +63,9 @@ const HELPERS = new Set([
   'storagerlsdb.mjs',     // a TOOL, not a test: runs STORAGE-TIGHTEN-2026-10 against
                           // real Postgres (PGlite). tests/storagetighten.mjs is the
                           // half CI always runs.
+  'clientemailsdb.mjs',   // a TOOL, not a test: runs CLIENT-EMAILS-MIGRATION on
+                          // real Postgres (PGlite). tests/clientemails.mjs is the
+                          // half CI always runs.
   'onbrlsdb.mjs',         // a TOOL, not a test: runs ONBOARDING-MIGRATION against
                           // real Postgres (PGlite). tests/onbsql.mjs is the half
                           // CI always runs.

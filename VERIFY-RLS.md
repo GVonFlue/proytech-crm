@@ -1716,6 +1716,94 @@ definer function a browser can call checks the team or the portal".
 | as an owner: `portal_home()` | null | |
 | `RLS-AUDIT.sql` | OK, with the function sweep | |
 
+## 18. Client emails: the once-only record (after CLIENT-EMAILS-MIGRATION.sql)
+
+`client_emails` holds one row per (lead, kind) for each onboarding email the
+server has claimed or sent ("You're locked in", the three "saved your seat"
+reminders, the Launch Day ticket) and the day-10 call-task claim. The unique
+`(lead_id, kind)` is what makes each send once-only.
+
+| who | read | write |
+|---|---|---|
+| owner | every row | **nothing** (no write policy) |
+| rep | nothing | nothing |
+| anon | nothing | nothing |
+| the server (service role) | everything | everything (bypasses RLS) |
+
+**Why server-write only:** a browser that could write here could delete a claim
+(the email goes out again) or insert one (it never goes out).
+
+### Status: NOT YET RUN against a real database
+
+What has been run: `tests/clientemailsdb.mjs` (PGlite, real Postgres): the
+migration, every person tried, the unique claim under two inserts, re-run,
+rollback. PGlite is not Supabase; this section is the proof on the install.
+
+### Run it
+
+**0. Run `CLIENT-EMAILS-MIGRATION.sql`.** Pass is: no error. Then:
+```sql
+select polname, polcmd, pg_get_expr(polqual, polrelid) as using_expr, pg_get_expr(polwithcheck, polrelid) as check_expr
+  from pg_policy where polrelid = 'client_emails'::regclass;
+```
+Pass is **exactly one row**: `client_emails_owner_read`, `r` (SELECT), using
+`(no_users() OR (crm_active() AND is_owner()))`, check empty. Any second row
+is a hole, whatever it says.
+
+**1. Run `RLS-AUDIT.sql`.** Pass is: it finishes without raising (its §2e
+raises if `client_emails` ever gets a write policy or a read that does not
+require an owner).
+
+**2. As a rep, in SQL** (one transaction, rolled back):
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', json_build_object('sub','<a rep''s auth uid>','role','authenticated')::text, true);
+select count(*) from client_emails;                                              -- expect: 0
+insert into client_emails (lead_id, kind) values ('x', 'locked_in');             -- expect: ERROR, permission denied
+delete from client_emails;                                                       -- expect: ERROR, permission denied
+reset role;
+rollback;
+```
+Then as an **owner's** uid: the count is the number of rows, and the insert
+and delete are still refused (owners read only).
+
+**3. The unique claim** (as the service role, i.e. the SQL editor's default):
+```sql
+begin;
+insert into client_emails (lead_id, kind) values ('verify-test', 'ticket') on conflict (lead_id, kind) do nothing returning id;  -- expect: one id
+insert into client_emails (lead_id, kind) values ('verify-test', 'ticket') on conflict (lead_id, kind) do nothing returning id;  -- expect: no row
+rollback;
+```
+
+**4. Through the API, with the anon key:**
+```
+curl -s "$SUPABASE_URL/rest/v1/client_emails?select=*" -H "apikey: $ANON_KEY" -H "authorization: Bearer $ANON_KEY"
+```
+Pass is `[]` or a permission error.
+
+**5. End to end, in the CRM, as the owner** (with `RESEND_API_KEY`,
+`NOTIFY_FROM` and `CRON_SECRET` set):
+- Settings → Client emails: switch on "You're locked in". On a TEST client
+  whose email is yours, with an onboarding, tick the deposit. Pass is: one
+  email, at the client's address, and a note on the lead "Client email sent".
+  Untick and tick again: no second email.
+- Switch on "Launch Day Ticket" and submit that test onboarding. Pass is: one
+  ticket email; the owners' "finished onboarding" email still arrives.
+
+### Results (fill in when run)
+
+| check | expected | result |
+|---|---|---|
+| migration, then the policy read-back | one SELECT policy, the owner expression | |
+| RLS-AUDIT.sql | finishes, no raise | |
+| rep: count / insert / delete | 0 / permission denied / permission denied | |
+| owner: count / insert / delete | the rows / denied / denied | |
+| the same claim twice | an id, then nothing | |
+| anon key: select | `[]` or error | |
+| CRM: deposit tick on a test client | one email, a note; no second on re-tick | |
+| CRM: submit the test onboarding | one ticket; the owners' email too | |
+
 ## Coverage, honestly
 
 Two tables were added in Aug 2026 and **neither is fully verified.** The gap is
