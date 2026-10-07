@@ -100,7 +100,7 @@ import { retainerState, monthsDue, monthsPaid } from './lib/retainer';
 import { DateFix, PriBadge, StageBadge } from './LeadBits';
 import { LogTouch, PersonCadence } from './RelCadence';
 import { touchActivity } from './lib/relationships';
-import { rollupFor, sourceChange } from './lib/sources';
+import { rollupFor, sourceChange, heardOf, referrerSuggestions } from './lib/sources';
 import PersonPicker from './PersonPicker';
 
 /* The ONE place a meeting gets booked. The Meetings section and the activity
@@ -1368,6 +1368,20 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           </div>
           {F({label:'How you know them',k:'relNote'})}
         </div>
+        {/* WHAT THE VISITOR SAID, and who it might be (the coffee page).
+            Shown, never applied: a typed name is not a contact, so linking is
+            a person's click, which goes through set() and is noted. */}
+        {(()=>{ const h=heardOf(draft); if(!h) return null;
+          const sug=referrerSuggestions(draft,allLeads||[]);
+          return (<div className="heard">
+            <div className="heard-l"><b>How they heard:</b> {h.answer||'—'}{h.referrer?<> · they named <b>{h.referrer}</b></>:null}{h.on?<span className="heard-on"> ({fmtDate(h.on)})</span>:null}</div>
+            {sug.length>0&&<div className="heard-sug">
+              <span className="heard-q">{sug.length===1?'Is this who they meant?':'Could be one of these:'}</span>
+              {sug.map(p=>(<span key={p.id} className="heard-p"><span>{p.name}{p.company&&p.company!==p.name?` · ${p.company}`:''} <i>{p.kind}</i></span>
+                {!lockSource&&<button type="button" className="heard-link" onClick={()=>set({introducedBy:p.id})}>Link as Referred by</button>}</span>))}
+            </div>}
+            {h.referrer&&!draft.introducedBy&&!sug.length&&<div className="heard-none">Nobody in the CRM matches "{h.referrer}". Add them, or pick them above once they are.</div>}
+          </div>); })()}
         {chain.length>0&&<div className="rel-chain">
           <div className="rc-lbl">Intro chain</div>
           <div className="rc-path">
@@ -2154,7 +2168,8 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               [draft.source,draft.businessType!=='—'?draft.businessType:null,sOf(draft.stage,stages)?.label,PRIORITIES[draft.priority]?.label].filter(Boolean).join(' · ')||'not set',
               <div className="fgrid">
                 {lockSource?<div className="field"><label>Arrived via</label><input value={draft.source||'—'} disabled title="Only an owner can change how they arrived"/></div>
-                  :Sel({label:'Arrived via',k:'source',opts:['',...opt.source]})}{Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}
+                  :Sel({label:'Arrived via',k:'source',opts:['',...opt.source]})}
+                {heardOf(draft)&&<div className="field"><label>How they heard</label><input value={[heardOf(draft).answer,heardOf(draft).referrer].filter(Boolean).join(' — ')} disabled title="What they told the coffee page. Credit is Referred by, under Intro."/></div>}{Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}
                 {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
                 {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
                 {F({label:'Expected Close',k:'expectedClose',type:'date'})}

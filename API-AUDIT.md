@@ -527,6 +527,18 @@ returns, not a policy.
   recipients and the guest's address cannot be one of them. A failed send
   is logged and the booking still succeeds. See the Oct 2026 note under
   `notify.js` above.
+
+  **What it writes on the lead (Oct 2026).** `source` is `'Coffee page'`: how
+  they arrived. An existing lead keeps a channel it already had and only an
+  empty one is filled. The visitor's "how did you hear" answer goes in its own
+  field, `heard: {answer, referrer?, on}`, capped at 80 and 120 characters,
+  set only when the lead has none. It is never written into `source` or
+  `introducedBy`. Before this, a typed referrer *name* was written into
+  `introducedBy`, which holds a contact id, so the CRM credited
+  "(removed contact)". The CRM now **suggests** contacts matching the name
+  (`src/lib/sources` `referrerSuggestions`) and a person links one. No auth,
+  rate limit, CORS or recipient behaviour changed. `tests/coffee.mjs` covers
+  new and existing leads.
 - **`coffee-race.js`** — GET. Reads every lead's `data` with the service key and
   returns `{Garrett: n, Logan: n}`, the race dates and the goal. No name,
   contact detail or deal field is in the response. `tests/coffee.mjs` covers
