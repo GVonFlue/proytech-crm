@@ -83,8 +83,9 @@ const RELS = [
      cleared." was written yesterday. Counting any activity as contact would
      make this one look touched yesterday and hide it. */
   rel({ id:'r5', name:'Bookkeeping Only', relTier:'b', activities:[sysnote(1), call(200)] }),
-  /* overdue by date */
-  rel({ id:'r6', name:'Overdue Date', relTier:'b', followUp: iso(-9), activities:[call(3)] }),
+  /* overdue by date: set 9 days ago, last touched 12 days ago, so no touch
+     has met it (a touch on or after the date would, lib/relationships) */
+  rel({ id:'r6', name:'Overdue Date', relTier:'b', followUp: iso(-9), activities:[call(12)] }),
   /* due today */
   rel({ id:'r7', name:'Due Today', relTier:'new', followUp: iso(0), activities:[call(3)] }),
   /* introduced by r1, so a group with a real introducer exists */
