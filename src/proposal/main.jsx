@@ -34,7 +34,14 @@ body{font-family:Inter,-apple-system,"Segoe UI",Roboto,Arial,sans-serif}
 .pg-plan.on{border-color:#2B4DE0;box-shadow:0 0 0 2px rgba(43,77,224,.15)}
 .pg-agree{display:flex;gap:8px;align-items:flex-start;font-size:14px;color:#14122B}
 .pg-agree input{margin-top:3px;width:18px;height:18px}
-.pg-btn{font:inherit;font-size:17px;font-weight:700;color:#fff;background:#FF6B2C;border:none;border-radius:12px;padding:15px 20px;cursor:pointer}
+/* the accept button: #CC4A0A, not the brand orange. White on #FF6B2C is
+   about 2.9:1 and fails WCAG AA at every size; #CC4A0A is about 4.6:1, the
+   same fill as the onboarding portal's and the lead view's buttons. The brand
+   orange stays as the glow, where it carries no text. tests/proposalpage.mjs
+   measures both. */
+.pg-btn{font:inherit;font-size:17px;font-weight:700;color:#fff;background:#CC4A0A;border:none;border-radius:12px;padding:15px 20px;cursor:pointer;
+  box-shadow:0 0 0 1px rgba(255,107,44,.35),0 10px 26px -10px rgba(255,107,44,.7)}
+.pg-btn:hover:not(:disabled){background:#B23F07}
 .pg-btn:disabled{opacity:.5;cursor:default}
 .pg-legal a{color:#2B4DE0;font-weight:600}
 .pg-err{color:#B4322E;font-size:14px}
