@@ -457,8 +457,11 @@ console.log('\nthe tab is off unless the build says otherwise');
 console.log('\nthe cron is registered and points at the right route');
 {
   const v = JSON.parse(await read('vercel.json'));
-  const c = (v.crons || [])[0] || {};
-  ok('vercel.json has one cron', (v.crons || []).length === 1);
+  /* exactly one content-slate cron; other jobs (client-emails-cron, Oct 2026)
+     have their own entries and their own suite */
+  const mine = (v.crons || []).filter(x => x.path === '/api/content-slate');
+  const c = mine[0] || {};
+  ok('vercel.json has exactly one content-slate cron', mine.length === 1, JSON.stringify(v.crons));
   ok('  pointed at /api/content-slate', c.path === '/api/content-slate', c.path);
   ok('  at 0 1 * * 1 — Sunday 8pm Central', c.schedule === '0 1 * * 1', c.schedule);
 }

@@ -185,8 +185,16 @@ async function recipientVia(table, rowId) {
  *  (proposalId), api/proposal-public.js (proposalId: the client's copy of
  *  their acceptance; clientUserId: the portal invite), api/onboarding-public.js
  *  (onboardingId), api/portal-login.js and api/portal-admin.js (clientUserId),
- *  and nothing else; tests/clientmail.mjs holds that list. */
-export async function sendClientMail({ proposalId, onboardingId, clientUserId, subject, html, text, replyTo, tag = 'client-mail' } = {}) {
+ *  api/_clientemail.js (onboardingId: the onboarding emails), and nothing
+ *  else; tests/clientmail.mjs holds that list.
+ *  `attachments` (Oct 2026, the Launch Day .ics): at most 2, each a plain file
+ *  name and base64 content under 100 KB. Anything else is dropped, never sent:
+ *  an attachment changes what the client receives, not who receives it. */
+export const cleanAttachments = list => (Array.isArray(list) ? list : []).slice(0, 2)
+  .filter(a => a && /^[A-Za-z0-9][A-Za-z0-9._-]{0,59}$/.test(String(a.filename || '')) && typeof a.content === 'string'
+    && /^[A-Za-z0-9+/=]+$/.test(a.content) && a.content.length <= 140000)
+  .map(a => ({ filename: String(a.filename), content: a.content }));
+export async function sendClientMail({ proposalId, onboardingId, clientUserId, subject, html, text, replyTo, attachments, tag = 'client-mail' } = {}) {
   try {
     const RESEND = process.env.RESEND_API_KEY;
     const FROM = process.env.NOTIFY_FROM;
@@ -197,6 +205,8 @@ export async function sendClientMail({ proposalId, onboardingId, clientUserId, s
     const payload = { from: FROM, to: [rc.to], subject: String(subject || '').slice(0, 200), html: String(html || '') };
     if (text) payload.text = String(text);
     if (replyTo && isEmail(replyTo)) payload.reply_to = String(replyTo).trim();
+    const att = cleanAttachments(attachments);
+    if (att.length) payload.attachments = att;
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: { 'content-type': 'application/json', Authorization: `Bearer ${RESEND}` },

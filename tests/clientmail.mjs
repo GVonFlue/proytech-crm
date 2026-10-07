@@ -134,11 +134,17 @@ console.log('\nwho holds which door');
      acceptance), portal-login.js (the sign-in link) and portal-admin.js (an
      owner's invite / resend). All three pass a clientUserId, so the recipient
      is the address on that login's own client_users row, never the request. */
-  const HOLDERS = '_portal.js,onboarding-public.js,portal-admin.js,portal-login.js,proposal-public.js,proposal-send.js';
+  /* and for the onboarding client emails (Oct 2026): _clientemail.js, by
+     onboarding id, so the recipient is the address on the onboarding's lead. */
+  const HOLDERS = '_clientemail.js,_portal.js,onboarding-public.js,portal-admin.js,portal-login.js,proposal-public.js,proposal-send.js';
   ok('only the listed routes use sendClientMail()', holders.sort().join() === HOLDERS, holders.join());
   for (const f of ['_portal.js', 'portal-login.js', 'portal-admin.js']) {
     const src = (await fs.readFile(path.join(ROOT, 'api', f), 'utf8')).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
     ok(`  ${f} addresses portal mail by clientUserId, never with a to:`, /sendClientMail\(\{\s*clientUserId:/.test(src) && !/sendClientMail\(\{[^}]*\bto\s*:/.test(src));
+  }
+  {
+    const src = (await fs.readFile(path.join(ROOT, 'api', '_clientemail.js'), 'utf8')).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    ok('  _clientemail.js addresses every email by onboardingId, never with a to:', /sendClientMail\(\{\s*onboardingId,/.test(src) && !/sendClientMail\(\{[^}]*\bto\s*:/.test(src) && !/clientUserId|proposalId/.test(src));
   }
   const onb = await fs.readFile(path.join(ROOT, 'api/onboarding-public.js'), 'utf8');
   const onbCode = onb.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
