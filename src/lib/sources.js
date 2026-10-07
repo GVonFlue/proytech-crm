@@ -17,8 +17,9 @@
    Nothing is migrated. Existing rows map as they are:
      introducedBy set                      the person (wins over source)
      introducedBy pointing at nobody       "(removed contact)", still a person
-     source "Intro from Dana", no person   "Intro from Dana (not linked)", its
-                                           own row until somebody links Dana
+     a named introducer, no person         "Intro from Dana (not linked)", its
+       (heard.referrer, or an older          own row until somebody links Dana;
+        "Intro from Dana" source line)       referrerSuggestions offers matches
      source "Referral", no person          "Referral (person not recorded)",
                                            its own row, never folded into one
      any other source                      that source
@@ -53,11 +54,43 @@ export function referredBy(l, byId) {
     return { kind: 'person', key: 'person:' + via, id: via, gone: !p, label: p ? (S(p.name) || S(p.company) || '(unnamed)') : '(removed contact)' };
   }
   const src = S(l && l.source);
-  const m = src.match(INTRO_FROM);
-  if (m) return { kind: 'unlinked', key: 'unlinked:' + m[1].toLowerCase(), label: `Intro from ${m[1]} (not linked)` };
+  /* a named introducer nobody has linked yet: the coffee page's `heard`
+     field (Oct 2026), or the older "Intro from X" it used to write into
+     source. Credit stays on its own row until a person links someone. */
+  const h = heardOf(l);
+  if (h && h.referrer) return { kind: 'unlinked', key: 'unlinked:' + h.referrer.toLowerCase(), label: `Intro from ${h.referrer} (not linked)` };
   if (/^referral$/i.test(src)) return { kind: 'unrecorded', key: UNRECORDED_KEY, label: 'Referral (person not recorded)' };
   if (src) return { kind: 'source', key: 'source:' + src.toLowerCase(), label: src };
   return { kind: 'unknown', key: UNKNOWN_KEY, label: 'Unknown' };
+}
+
+/** The visitor's "how did you hear" answer: {answer, referrer, on} from the
+ *  lead's `heard` field (the coffee page, Oct 2026), or recovered from an
+ *  older "Intro from X" source line. null when there is none. */
+export function heardOf(l) {
+  const h = l && l.heard && typeof l.heard === 'object' ? l.heard : null;
+  if (h && (S(h.answer) || S(h.referrer))) return { answer: S(h.answer, 80), referrer: S(h.referrer, 120), on: S(h.on, 10) };
+  const m = S(l && l.source).match(INTRO_FROM);
+  return m ? { answer: 'Someone introduced us', referrer: m[1], on: '' } : null;
+}
+
+const norm = v => S(v, 200).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+/** Contacts who might be the person the visitor named, for a person to
+ *  confirm. NEVER applied on its own: a typed name is not an id, and two
+ *  people share names. Only while nobody is linked. Exact name or company
+ *  first; then a contact whose name contains every word typed (so "Dana"
+ *  finds "Dana Realtor" and "Dana Smith", and offers both). At most 3. */
+export function referrerSuggestions(l, all) {
+  if (!l || S(l.introducedBy)) return [];
+  const h = heardOf(l);
+  const want = norm(h && h.referrer);
+  if (!want) return [];
+  const words = want.split(' ');
+  const pool = (all || []).filter(x => x && x.id !== l.id);
+  const exact = pool.filter(x => norm(x.name) === want || norm(x.company) === want);
+  const loose = exact.length ? [] : pool.filter(x => { const n = norm(x.name); return n && words.every(w => n.split(' ').includes(w)); });
+  return [...exact, ...loose].slice(0, 3).map(x => ({ id: x.id, name: S(x.name) || S(x.company) || '(unnamed)', company: S(x.company),
+    kind: x.isRelationship ? 'Relationship' : x.isClient ? 'Client' : 'Lead' }));
 }
 
 /** How they arrived. The coffee page writes the visitor's own answer into

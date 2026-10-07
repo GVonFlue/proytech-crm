@@ -9,6 +9,14 @@
 //        match an existing lead by email -> phone(digits) -> name;
 //        if found, attach the coffee as a meeting + keyDate + activity note;
 //        if not, create a new lead in the pool with the coffee details.
+//      HOW THEY ARRIVED and WHO GETS CREDIT are two facts (src/lib/sources).
+//      A coffee booking arrived via the coffee page, so `source` is
+//      'Coffee page' (an existing lead keeps the channel it already had: that
+//      is how it first arrived). The visitor's "how did you hear" answer is
+//      its own field, `heard`, and is never written into `source` or turned
+//      into `introducedBy`: a typed name is not a contact id, and guessing
+//      one credits the wrong person or "(removed contact)". The CRM SUGGESTS
+//      a link when the name matches someone (lib/sources); a person confirms.
 //   4. Email the owners through ./_mail.js, IN-PROCESS. Not an HTTP call to
 //      /api/notify: that route needs a signed-in session, which a public
 //      booking never has, so every one of these was a silent 401. The
@@ -176,7 +184,9 @@ export default async function handler(req, res) {
     if (sb) {
       const nowISO = new Date().toISOString();
       const whenLabel = `${date} · ${slotLabel(slot)}`;
-      const srcLine = heard ? (heard === 'intro' && referrer ? `Intro from ${referrer}` : heard) : 'Coffee page';
+      /* the visitor's own answer, kept as they gave it (capped), with the
+         page's 'intro' code spelled out the way the page shows it */
+      const heardField = heard ? { answer: heard === 'intro' ? 'Someone introduced us' : heard.slice(0, 80), ...(referrer ? { referrer: referrer.slice(0, 120) } : {}), on: date } : null;
       const meetingText = `Coffee booked — ${whenLabel} at ${SHOPS[shop]} (host: ${host})`;
       const detailNote =
         `Booked a coffee via getproytech.com/coffee.\n`
@@ -212,6 +222,9 @@ export default async function handler(req, res) {
           id: existing.id,
           phone: d.phone || phone,
           email: d.email || email,
+          /* how they FIRST arrived stays; only an empty channel is filled */
+          source: String(d.source || '').trim() ? d.source : 'Coffee page',
+          ...(heardField && !d.heard ? { heard: heardField } : {}),
           meetings: [...(d.meetings || []), meeting],
           keyDates: [...(d.keyDates || []), keyDate],
           activities: [bookedAct, noteAct, ...(d.activities || [])],
@@ -225,12 +238,13 @@ export default async function handler(req, res) {
         const id = uid();
         const lead = {
           id, name, company: '', businessType: '—', phone, email, website: '',
-          stage: 'new', priority: 'medium', source: srcLine,
+          stage: 'new', priority: 'medium', source: 'Coffee page',
+          ...(heardField ? { heard: heardField } : {}),
           nextAction: 'Coffee meeting', nextSteps: '', followUp: '', expectedClose: '',
           serviceInterest: [], owner: POOL, dealValue: 0, retainer: 0,
           potentialSponsor: false, pastSponsor: false, sponsorTier: '', sponsorAmount: 0,
           labels: ['Coffee'], keyDates: [keyDate],
-          isRelationship: false, introducedBy: (heard === 'intro' ? referrer : ''), relNote: '', relTier: '',
+          isRelationship: false, introducedBy: '', relNote: '', relTier: '',
           retainerActive: false, retainerStart: '', closedAt: '', closedDeals: [], custom: {},
           createdAt: nowISO,
           meetings: [meeting],

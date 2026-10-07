@@ -76,6 +76,15 @@ export const SOURCES_CSS = `
    record the ledger rendered as raw browser buttons; nobody saw it because
    the section had no Jump-to entry either (added with this). Light rules,
    same shapes; tests/relsources.mjs requires each outside the dark scope. */
+.heard{margin-top:10px;padding:10px 12px;border-radius:10px;background:#F8F9FD;border:1px solid #E3E6F2;font-size:12.5px;color:#3A4160;display:flex;flex-direction:column;gap:6px}
+.heard b{color:#14122B}
+.heard-on{color:#5F6680}
+.heard-sug{display:flex;flex-direction:column;gap:6px}
+.heard-q{font-weight:700;color:#3A4160}
+.heard-p{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;background:#fff;border:1px solid #E3E6F2;border-radius:8px;padding:6px 9px}
+.heard-p i{font-style:normal;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#56607A;margin-left:4px}
+.heard-link{font:inherit;font-size:12px;font-weight:700;border:1px solid #CBD3F5;background:#F3F5FE;color:#2B4DE0;border-radius:8px;padding:4px 9px;cursor:pointer}
+.heard-none{color:#5F6680}
 .leadfs .rl-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 14px;border-radius:12px;background:#F4F6FE;border:1px solid #DDE3F6}
 .leadfs .rl-stat{display:flex;flex-direction:column;gap:1px;min-width:0}
 .leadfs .rl-stat b{font-size:19px;font-weight:800;color:#14122B;font-family:'Space Grotesk',sans-serif;line-height:1.1}
