@@ -240,7 +240,7 @@ ok('A14','fact strip', q('.m-facts'));
   const sels = qa('.m-facts .mf-sel');
   ok('A14a','stage is an inline picker', sels.some(s => /Stage/.test(s.textContent || '')));
   ok('A14b','priority is an inline picker', sels.some(s => /Priority/.test(s.textContent || '')));
-  ok('A14c','source fact', facts.some(f => /^Source/.test(f)));
+  ok('A14c','arrived-via fact (was "Source")', facts.some(f => /^Arrived via/i.test(f)));
   ok('A14d','owner fact', facts.some(f => /^Owner/.test(f)));
   ok('A14e','type fact', facts.some(f => /^Type/.test(f)));
   ok('A14f','close fact', facts.some(f => /^Close/.test(f)));

@@ -42,7 +42,7 @@ don't".
 - [ ] **A14** Fact strip — `!isNew`, nine facts:
   - [ ] **A14a** Stage — an inline `<select>`, not a jump link
   - [ ] **A14b** Priority — an inline `<select>`, not a jump link
-  - [ ] **A14c** Source → jumps to Qualifying
+  - [ ] **A14c** Arrived via (the channel; was "Source") → jumps to Qualifying
   - [ ] **A14d** Owner → jumps to Qualifying
   - [ ] **A14e** Type → jumps to Qualifying
   - [ ] **A14f** Close → jumps to Qualifying
