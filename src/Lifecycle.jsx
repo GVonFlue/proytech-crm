@@ -10,8 +10,10 @@
    screen (ROLES.md), and the items live on the client's lead, which a rep's
    login does not read. */
 import React, { useState } from 'react';
-import { CalendarClock, CheckCircle2, Rocket, Send, PauseCircle, RotateCcw } from 'lucide-react';
+import { CalendarClock, CheckCircle2, Rocket, Send, PauseCircle, RotateCcw, HeartHandshake } from 'lucide-react';
 import { whatsDue, launchesThisMonth, stageSince, DUE_GROUPS, DEFAULT_TEMPLATE, OWNER_ROLES, FLOW, readLifecycle } from './lib/lifecycle';
+import { reachOut } from './lib/relationships';
+import { ReachOutList } from './RelCadence';
 
 const fmt = iso => { if (!iso) return ''; const d = new Date(String(iso).slice(0, 10) + 'T12:00:00'); return isNaN(d) ? iso : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
 const daysIn = (since, today) => { if (!since) return null; const n = Math.round((Date.parse(String(today).slice(0, 10) + 'T12:00:00Z') - Date.parse(String(since).slice(0, 10) + 'T12:00:00Z')) / 864e5); return Number.isFinite(n) && n >= 0 ? n : null; };
@@ -44,11 +46,14 @@ export function LifecycleStrip({ row, label, today, onMove }) {
 }
 
 /** Dashboard: Overdue / Today / This week, by client, with one-click done,
- *  and the month's launches. */
-export function WhatsDue({ rows, me, today, label, onDone, openLead }) {
+ *  and the month's launches. Then "Reach out" (relationships due a touch,
+ *  lib/relationships reachOut, the same list the Relationships page's strip
+ *  shows), under the same Mine toggle: Mine is the relationship's owner. */
+export function WhatsDue({ rows, me, today, label, onDone, openLead, rels, cadence, onLog }) {
   const [mine, setMine] = useState(false);
   const d = whatsDue(rows, { today, mine: mine ? me : '' });
   const launches = launchesThisMonth(rows, today);
+  const reach = Array.isArray(rels) ? reachOut(rels, { cfg: cadence, today, mine: mine ? me : '' }) : null;
   return (<div className="card lc-due">
     <div className="lc-due-h">
       <div className="sec-title" style={{ margin: 0 }}><CalendarClock size={15} />What's due</div>
@@ -62,7 +67,7 @@ export function WhatsDue({ rows, me, today, label, onDone, openLead }) {
       {launches.map(x => <button key={x.leadId} className={'lc-chip ' + x.tone} onClick={() => openLead && openLead(x.leadId)}>
         <b>{x.client}</b><span>Day {x.day} of {x.launchDays || '—'} · {fmt(x.target)}{x.paused ? ' · paused' : ''}</span></button>)}
     </div>}
-    {!d.count ? <div className="lc-empty">{mine ? 'Nothing due for you this week.' : 'Nothing due this week.'}</div>
+    {!d.count ? <div className="lc-empty">{mine ? 'No client work due for you this week.' : 'No client work due this week.'}</div>
       : DUE_GROUPS.map(([k, title]) => d[k].length > 0 && <div key={k} className={'lc-grp ' + k}>
         <div className="lc-grp-h">{title}<i>{d[k].reduce((a, g) => a + g.items.length, 0)}</i></div>
         {d[k].map(g => <div key={g.leadId} className="lc-client">
@@ -74,6 +79,10 @@ export function WhatsDue({ rows, me, today, label, onDone, openLead }) {
           </div>)}
         </div>)}
       </div>)}
+    {reach && <div className="lc-reach">
+      <div className="lc-reach-t"><HeartHandshake size={14} />Reach out</div>
+      <ReachOutList data={reach} openLead={openLead} onLog={onLog} empty={mine ? 'None of your relationships are due this week.' : 'No relationships due this week.'} />
+    </div>}
   </div>);
 }
 
