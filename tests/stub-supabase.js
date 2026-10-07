@@ -182,8 +182,19 @@ export const db = {
     (globalThis.__PROPOSAL_APPLIED__ = globalThis.__PROPOSAL_APPLIED__ || []).push(id);
     const p = (globalThis.__PROPOSALS__ || []).find(x => x.id === id); if (p && !p.applied_at) p.applied_at = new Date().toISOString();
   },
+  /* models PROPOSALS-ARCHIVE-MIGRATION.sql: an accepted proposal is never
+     deleted (the real db refuses in a trigger), only a non-accepted one is */
   deleteProposal: async (id) => {
-    globalThis.__PROPOSALS__ = (globalThis.__PROPOSALS__ || []).filter(p => !(p.id === id && p.status === 'draft'));
+    (globalThis.__PROPOSAL_DELETES__ = globalThis.__PROPOSAL_DELETES__ || []).push(id);
+    const p = (globalThis.__PROPOSALS__ || []).find(x => x.id === id);
+    if (!p || p.status === 'accepted' || p.accepted_at) throw new Error('Nothing was deleted: the proposal is accepted or already gone.');
+    globalThis.__PROPOSALS__ = globalThis.__PROPOSALS__.filter(x => x.id !== id);
+  },
+  archiveProposal: async (id, on) => {
+    (globalThis.__PROPOSAL_ARCHIVES__ = globalThis.__PROPOSAL_ARCHIVES__ || []).push({ id, on });
+    const p = (globalThis.__PROPOSALS__ || []).find(x => x.id === id);
+    if (!p || p.status !== 'accepted') throw new Error('Only an accepted proposal can be archived.');
+    p.archived_at = on ? new Date().toISOString() : null;
   },
   /* MAPPED, exactly as the real db.lastSeen() maps it. The stub REPLACES the db
      module, so returning the raw column name here would let a screen read

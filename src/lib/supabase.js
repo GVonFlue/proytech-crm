@@ -362,12 +362,22 @@ export const db = {
        because they are written there: a column written and never selected is
        a record that silently vanishes (ENGINEERING §2). */
     const LEGAL = ['accepted_terms_version', 'accepted_terms_url', 'accepted_privacy_url'];
-    let { data, error } = await supabase.from('proposals').select(base + ',' + LEGAL.join(',')).order('updated_at', { ascending: false });
+    /* archived_at (PROPOSALS-ARCHIVE-MIGRATION.sql): an accepted proposal
+       hidden from the default list, never deleted */
+    const ARCHIVE = ['archived_at'];
+    const sel = cols => supabase.from('proposals').select([base, ...cols].join(',')).order('updated_at', { ascending: false });
+    let { data, error } = await sel([...LEGAL, ...ARCHIVE]);
+    if (error && /archived_at/.test(error.message || '')) {
+      /* the archive migration has not run here yet: say so by name, and keep
+         the tab working (nothing can be archived until it does) */
+      console.warn('[proposals] archived_at missing — run PROPOSALS-ARCHIVE-MIGRATION.sql');
+      ({ data, error } = await sel(LEGAL));
+    }
     if (error && /accepted_(terms|privacy)/.test(error.message || '')) {
       /* the legal migration has not run on this install yet: say WHICH columns
          are missing, by name, and keep the tab working without them */
       console.warn('[proposals] legal acceptance columns missing — run PROPOSALS-LEGAL-MIGRATION.sql:', LEGAL.join(', '));
-      ({ data, error } = await supabase.from('proposals').select(base).order('updated_at', { ascending: false }));
+      ({ data, error } = await sel([]));
     }
     if (error) { console.warn('[proposals]', error.message); return null; }
     return data || [];
@@ -424,9 +434,22 @@ export const db = {
     const { error } = await supabase.from('proposals').update({ applied_at: new Date().toISOString() }).eq('id', id).is('applied_at', null);
     if (error) console.warn('[proposals] applied_at', error.message);
   },
+  /* A draft, or a sent / viewed / expired proposal that was never accepted.
+     The filter keeps an accepted one out even if a stale screen asks; Postgres
+     refuses it anyway (PROPOSALS-ARCHIVE-MIGRATION.sql trigger). Throws when
+     nothing was deleted, so the screen never says "deleted" for a row that
+     is still there. */
   async deleteProposal(id) {
-    const { error } = await supabase.from('proposals').delete().eq('id', id).eq('status', 'draft');
-    if (error) throw new Error(error.message || 'Could not delete that draft.');
+    const { data, error } = await supabase.from('proposals').delete().eq('id', id).neq('status', 'accepted').is('accepted_at', null).select('id');
+    if (error) throw new Error(error.message || 'Could not delete that proposal.');
+    if (!Array.isArray(data) || !data.length) throw new Error('Nothing was deleted: the proposal is accepted or already gone.');
+  },
+  /* Archive (or bring back) an ACCEPTED proposal: hidden from the default
+     list, the row, body and acceptance record untouched. */
+  async archiveProposal(id, on) {
+    const { data, error } = await supabase.from('proposals').update({ archived_at: on ? new Date().toISOString() : null }).eq('id', id).eq('status', 'accepted').select('id');
+    if (error) throw new Error(/archived_at/.test(error.message || '') ? 'Run PROPOSALS-ARCHIVE-MIGRATION.sql first.' : (error.message || 'Could not archive that proposal.'));
+    if (!Array.isArray(data) || !data.length) throw new Error('Only an accepted proposal can be archived.');
   },
 
   /* ---- who has read what, and when anyone last signed in ----------------
