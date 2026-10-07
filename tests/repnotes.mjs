@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_rn = bundleName('rn');
 /* AN OWNER'S NOTES ABOUT A REP — proved from the REP'S side.
    ============================================================================
 
@@ -88,8 +91,8 @@ const out=await esbuild.build({entryPoints:[path.join(root,'src/App.jsx')],bundl
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.join(here,'stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync(path.join(here,'.brn.mjs'),out.outputFiles[0].text);
-const mod=await import('./.brn.mjs?v='+Date.now());
+fs.writeFileSync(path.join(here,B_rn),out.outputFiles[0].text);
+const mod=await import('./'+B_rn+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');

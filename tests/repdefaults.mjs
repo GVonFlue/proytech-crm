@@ -1,3 +1,7 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_dm = bundleName('dm');
+const B_rd = bundleName('rd');
 /* REP-AUDIT #9 and #3 — the two things a rep hits on every single lead.
 
    #9 THE COMPOSER DEFAULT IS NOT COSMETIC. REACHED_TYPES contains 'Call' and
@@ -43,8 +47,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const leadOut = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true, write:false,
   format:'esm', external:['react'], define:{'import.meta.env':'__ENV__'},
   banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'}, logLevel:'silent' });
-fs.writeFileSync('tests/.bdm.mjs', leadOut.outputFiles[0].text);
-const { DEMO_MIN } = await import('./.bdm.mjs?v=' + Date.now());
+fs.writeFileSync('tests/'+B_dm, leadOut.outputFiles[0].text);
+const { DEMO_MIN } = await import('./'+B_dm+'?v=' + Date.now());
 
 const WORDS = { five:5, ten:10, fifteen:15, twenty:20, thirty:30, forty:40, sixty:60 };
 function scriptPromise() {
@@ -90,7 +94,7 @@ const out = await esbuild.build({ entryPoints:['src/App.jsx'], bundle:true, writ
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   plugins:[{ name:'stub', setup(b){ b.onResolve({filter:/(^|\/)lib\/supabase$/}, () => ({ path: path.resolve('tests/stub-supabase.js') })); } }],
   logLevel:'silent' });
-fs.writeFileSync('tests/.brd.mjs', out.outputFiles[0].text);
+fs.writeFileSync('tests/'+B_rd, out.outputFiles[0].text);
 
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
@@ -120,7 +124,7 @@ async function boot({ users, gcal }) {
   globalThis.__SETTINGS__ = null; globalThis.__SETTINGS_WRITES__ = []; globalThis.__USER_WRITES__ = [];
   curEl = document.createElement('div');
   document.body.appendChild(curEl);
-  const mod = await import('./.brd.mjs?v=' + Date.now() + Math.random());
+  const mod = await import('./'+B_rd+'?v=' + Date.now() + Math.random());
   curRoot = createRoot(curEl);
   await act(async () => { curRoot.render(React.createElement(mod.default)); });
   await settle(140);

@@ -1,3 +1,7 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_ch = bundleName('ch');
+const B_cp = bundleName('cp');
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
 const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://crm.test/',pretendToBeVisual:true});
@@ -36,8 +40,8 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.bcp.mjs',out.outputFiles[0].text);
-const mod=await import('./.bcp.mjs?v='+Date.now());
+fs.writeFileSync('tests/'+B_cp,out.outputFiles[0].text);
+const mod=await import('./'+B_cp+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');
@@ -67,8 +71,8 @@ console.log('\nTHE SERIES THEMSELVES');
 const cb=await esbuild.build({entryPoints:['src/lib/charts.js'],bundle:true,write:false,format:'esm',logLevel:'silent',
   loader:{'.js':'jsx'},define:{'import.meta.env':'__ENV__'},
   banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'}});
-fs.writeFileSync('tests/.bch.mjs',cb.outputFiles[0].text);
-const lib=await import('./.bch.mjs?v='+Date.now());
+fs.writeFileSync('tests/'+B_ch,cb.outputFiles[0].text);
+const lib=await import('./'+B_ch+'?v='+Date.now());
 const coll=lib.collectedByMonth(globalThis.__LEADS__,12);
 ok('twelve months of revenue', coll.length===12);
 ok('a payment lands in its own month', coll.find(m=>m.k===mAgo(2)).value===2999,

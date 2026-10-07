@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_slabel = bundleName('slabel');
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
 const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://crm.test/',pretendToBeVisual:true});
@@ -53,8 +56,8 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.bslabel.mjs',out.outputFiles[0].text);
-const mod=await import('./.bslabel.mjs?v='+Date.now());
+fs.writeFileSync('tests/'+B_slabel,out.outputFiles[0].text);
+const mod=await import('./'+B_slabel+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');
@@ -136,4 +139,4 @@ ok('it closes', !card());
 ok('and the dashboard has no Unassigned left to label', !document.querySelector('.sa-open'));
 
 console.log(`\n${pass} passed, ${fail} failed`);
-root.unmount(); try{fs.unlinkSync('tests/.bslabel.mjs');}catch{} process.exit(fail?1:0);
+root.unmount(); try{fs.unlinkSync('tests/'+B_slabel);}catch{} process.exit(fail?1:0);

@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_jp = bundleName('jp');
 /* The conversation survives leaving the screen.
    ============================================================================
 
@@ -66,7 +69,7 @@ const out = await esbuild.build({ entryPoints:['src/App.jsx'], bundle:true, writ
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   plugins:[{ name:'stub', setup(b){ b.onResolve({filter:/(^|\/)lib\/supabase$/}, () => ({ path: path.resolve('tests/stub-supabase.js') })); } }],
   logLevel:'silent' });
-fs.writeFileSync('tests/.bjp.mjs', out.outputFiles[0].text);
+fs.writeFileSync('tests/'+B_jp, out.outputFiles[0].text);
 
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
@@ -78,7 +81,7 @@ const settle = async (ms = 140) => { await act(async () => { await new Promise(r
 /* One import of the bundle for the whole run. The store is module state, so a
    fresh import per mount would hand every mount a fresh store and the test
    would pass no matter what the component did. */
-const mod = await import('./.bjp.mjs?v=1');
+const mod = await import('./'+B_jp+'?v=1');
 
 let curRoot = null, curEl = null;
 async function boot(users) {

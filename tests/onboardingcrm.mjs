@@ -1,3 +1,7 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_onbcrm = bundleName('onbcrm');
+const B_onbcv = bundleName('onbcv');
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
 const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://crm.test/',pretendToBeVisual:true});
@@ -74,8 +78,8 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.bonbcrm.mjs',out.outputFiles[0].text);
-const mod=await import('./.bonbcrm.mjs?v='+Date.now());
+fs.writeFileSync('tests/'+B_onbcrm,out.outputFiles[0].text);
+const mod=await import('./'+B_onbcrm+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');
@@ -169,8 +173,8 @@ console.log('\nthe client record');
 {
   const cv=await esbuild.build({entryPoints:['src/ClientView.jsx'],bundle:true,write:false,format:'esm',jsx:'automatic',loader:{'.js':'jsx','.jsx':'jsx'},
     external:['react','react-dom','react-dom/client','react/jsx-runtime'],define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={};'},logLevel:'silent'});
-  fs.writeFileSync('tests/.bonbcv.mjs',cv.outputFiles[0].text);
-  const CV=(await import('./.bonbcv.mjs?v='+Date.now())).default;
+  fs.writeFileSync('tests/'+B_onbcv,cv.outputFiles[0].text);
+  const CV=(await import('./'+B_onbcv+'?v='+Date.now())).default;
   const host=document.createElement('div'); document.body.appendChild(host);
   const r2=createRoot(host);
   const lead={id:'L1',name:'Jordan',company:'Reed',activities:[],isClient:true};
@@ -181,9 +185,9 @@ console.log('\nthe client record');
   ok('  and it renders App\'s panel for that client', host.querySelector('#onb-marker')&&/ONB for L1/.test(host.textContent));
   await act(async()=>{r2.render(React.createElement(CV,{lead,settings:{},stages:[],tracks:[],invoices:[],team:[],onClose(){}}));});
   ok('  and none when it does not (a rep, or the module off)', ![...host.querySelectorAll('button')].some(b=>/^Onboarding$/.test(b.textContent)));
-  r2.unmount(); fs.unlinkSync('tests/.bonbcv.mjs');
+  r2.unmount(); fs.unlinkSync('tests/'+B_onbcv);
 }
 
-root.unmount(); fs.unlinkSync('tests/.bonbcrm.mjs');
+root.unmount(); fs.unlinkSync('tests/'+B_onbcrm);
 console.log(`\nonboardingcrm: ${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);
