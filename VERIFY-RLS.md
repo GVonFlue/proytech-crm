@@ -1591,6 +1591,54 @@ A policy left behind without a `bucket_id` would make the rep's receipts count
 non-zero; a public `receipts` bucket would make step 3's public URL serve a
 receipt. Those are the two ways this goes wrong quietly.
 
+## 16. Signed in is not on the team (after AUTH-LISTED-2026-10.sql)
+
+A Supabase login with **no `crm_users` row** (a stray account today, a client
+of the portal tomorrow) must get nothing from the CRM. Production had **five**
+policies on `leads` (read by RLS-AUDIT on 7 Oct 2026): `leads_all` (ALL) and
+`leads_select` / `leads_insert` / `leads_update`, each on `crm_active()`, which
+is **true** for such a login, plus `leads_delete` (owner-only, made moot by
+`leads_all` covering DELETE). So such a login could insert leads it owned and
+then read, edit and delete them, and a rep could delete their own leads. The
+migration drops every policy on `leads` and creates four: select / insert /
+update for listed team members, delete for owners only; `crm_team()` and
+`crm_leaderboard()` returned the team list and each rep's conversion counts to
+any login; `kb_mark_read()` wrote for any login. Now each requires
+`crm_listed()` (a row, and active). Nothing changes for the team.
+
+**Status: NOT YET RUN against the real install.** Proven locally against real
+Postgres by `tests/authlisteddb.mjs` (PGlite: the hole shown open with the old
+policy, closed after; reps, owners, an inactive rep and first-run mode
+checked), and in the routes by `tests/authlisted.mjs`.
+
+Run after the migration. Use the uid of any login that has **no** `crm_users`
+row; make one in Authentication → Users → Add user if none exists, and
+delete it afterwards. Nothing persists:
+```sql
+begin;
+select set_config('request.jwt.claims', json_build_object('sub','<a uid with NO crm_users row>','role','authenticated')::text, true);
+set local role authenticated;
+select count(*) from leads;                    -- expect: 0
+select count(*) from crm_team();               -- expect: 0
+select count(*) from crm_leaderboard();        -- expect: 0
+savepoint a;
+insert into leads (id, data, owner_id) values ('VERIFY-STRAY', '{}', '<the same uid>');  -- expect: ERROR, row-level security
+rollback;
+```
+Then the same block with a **rep's** uid: `leads` returns their own and their
+pools' leads, `crm_team()` the team.
+
+| check | expected | result |
+|---|---|---|
+| stray login: `select count(*) from leads` | 0 | |
+| stray login: `crm_team()` / `crm_leaderboard()` | 0 / 0 | |
+| stray login: insert a lead it owns | ERROR: new row violates row-level security | |
+| a rep: leads / crm_team | their own and their pools' / the team | |
+| a rep: delete their own lead | DELETE 0 (owner only) | |
+| policies on `leads` | exactly 4: leads_select, leads_insert, leads_update, leads_delete; none mentions crm_active() | |
+| `POLICY-SWEEP-2026-10.sql` | no row with `crm_active_alone = true`; every `not_in_repo = true` row explained | |
+| `RLS-AUDIT.sql` | RLS-AUDIT OK | |
+
 ## Coverage, honestly
 
 Two tables were added in Aug 2026 and **neither is fully verified.** The gap is

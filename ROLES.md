@@ -347,6 +347,13 @@ These are **not** fully enforced by the database — some only by the screen:
    on what actually goes out over the network (`tests/kb.mjs`), not a policy.
    The rep side of it is a real boundary; this side is a tested promise.
 
+**Signed in is not on the team.** A login with no team row (a stray account,
+or later a client of the portal) gets nothing from the CRM: no lead, no team
+list, no leaderboard, no setting, and no API route. That is enforced in
+Postgres (AUTH-LISTED-2026-10.sql, VERIFY-RLS §16) and in every signed-in
+route (`guard`). Sign-ups are switched off in Supabase, so the only way to get
+a login is an owner adding you (Settings → Team, through `api/team-login.js`).
+
 Everything else — which leads a rep can read, edit, or claim; who can manage
 people; who can approve commission; which Playbook notes a rep can read — is
 enforced in the database, and VERIFY-RLS.md shows you how to prove it.

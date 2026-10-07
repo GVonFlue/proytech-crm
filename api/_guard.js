@@ -90,21 +90,31 @@ async function bump(bucket, limit, windowMin) {
  *  not permission. The rate limiter fails open because a limiter that takes the
  *  product down when its datastore blips is worse than the abuse it prevents;
  *  an authorisation check that does the same is just a hole. */
-export async function isOwner(token) {
-  if (!SUPA || !KEY || !token) return false;
+export async function whoAmI(token) {
+  if (!SUPA || !KEY || !token) return null;
   try {
     const r = await fetch(`${SUPA}/rest/v1/rpc/crm_whoami`, {
       method: 'POST',
       headers: { apikey: KEY, authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: '{}',
     });
-    if (!r.ok) return false;
+    if (!r.ok) return null;
     const rows = await r.json();
-    const me = Array.isArray(rows) ? rows[0] : rows;
-    return !!(me && me.role === 'owner' && me.active !== false);
+    return (Array.isArray(rows) ? rows[0] : rows) || null;
   } catch {
-    return false;
+    return null;
   }
+}
+export async function isOwner(token) {
+  const me = await whoAmI(token);
+  return !!(me && me.role === 'owner' && me.active !== false);
+}
+/** On the team: an active owner or rep. A login with no crm_users row gets
+ *  role 'none' from crm_whoami() (a stray account, or a client of the
+ *  portal) and is NOT on the team, however valid its session. Fails closed. */
+export async function isListed(token) {
+  const me = await whoAmI(token);
+  return !!(me && (me.role === 'owner' || me.role === 'rep') && me.active !== false);
 }
 
 /**
@@ -124,7 +134,12 @@ export async function isOwner(token) {
  *             times it, and one that takes a lead id needs a fiftieth. A
  *             shared default is either a paste that fails for no visible
  *             reason or a hole big enough to run the bill up through.
- *   requireAuth  verify a Supabase JWT         (default false)
+ *   requireAuth  verify a Supabase JWT AND that it belongs to an active
+ *                CRM user (owner or rep), asked of Postgres through
+ *                crm_whoami() (default false). A valid session alone is NOT
+ *                enough: a login with no crm_users row (a stray account, a
+ *                portal client) is refused with 403. It used to be enough,
+ *                and 15 routes trusted it (AUTH-LISTED-2026-10).
  *   requireOwner verify the JWT AND that the caller's crm_users role is owner
  *                (default false). Implies requireAuth.
  *   methods   HTTP methods this route accepts  (default ['POST'])
@@ -189,6 +204,10 @@ export async function guard(req, res, opts = {}) {
     if (!who || !who.id) { res.status(401).json({ error: 'Session expired.' }); return { ok: false }; }
     user = who;
 
+    if (!requireOwner && !(await isListed(tok))) {
+      res.status(403).json({ error: 'This login is not on the team.' });
+      return { ok: false };
+    }
     if (requireOwner) {
       owner = await isOwner(tok);
       if (!owner) {

@@ -115,6 +115,9 @@ create or replace function kb_mark_read(p_note_id text, p_kind text default 'rea
 returns void
 language plpgsql security definer as $$
 begin
+  if not crm_listed() then   -- team members only (AUTH-LISTED-2026-10.sql)
+    raise exception 'kb_mark_read: not a team member';
+  end if;
   if p_kind is null or p_kind not in ('read','ack') then
     raise exception 'kb_mark_read: kind must be read or ack, got %', p_kind;
   end if;

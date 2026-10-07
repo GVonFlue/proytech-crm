@@ -32,6 +32,21 @@ same reason as the 20 Aug pass. **25 route files, 22 of them described below.**
 > Reading each of the three and writing its row is **still open** — it was left
 > out of the Mass Outreach change rather than done badly in passing.
 
+**Updated 7 Oct 2026 (AUTH-LISTED-2026-10): `requireAuth` now means an active
+CRM user.** It used to mean "any valid Supabase session". A login with no
+`crm_users` row (a stray account, or a client of the coming portal) passed it,
+and 15 routes trusted it: `conversation`, `huddle`, `import-leads`, `jarvis`,
+`kb-draft`, `meeting-log`, `parse-receipt`, `pocket-segment`, `rank-tasks`,
+`sheet-read`, `notify`, `calendar-event`, `calendar-availability`,
+`google-status`, `pocket-backfill` (the last also checks owner itself). Now
+`guard()` asks Postgres through `crm_whoami()`, with the caller's own token,
+and only an active owner or rep gets past; anyone else gets 403 before any
+work or budget is spent, and a failure to ask fails closed. Proven by
+`tests/authlisted.mjs`, which drives the real guard and five of the routes.
+Every "✅ `guard({requireAuth})`" below now reads "signed in **and on the
+team**". New: `team-login.js` (owner-only), so team members can be added with
+Supabase sign-ups switched off.
+
 ---
 
 ## The table
@@ -67,6 +82,7 @@ same reason as the 20 Aug pass. **25 route files, 22 of them described below.**
 | `proposal-send.js` | ✅ `guard({requireOwner})` | mails through `sendClientMail()`, which takes a proposal id, **not an address**, and reads the recipient from the lead server-side. The **only** place a client link is built: `{PROPOSAL_URL or APP_URL}/p/<client-slug>#t=<token>` (an https `PROPOSAL_URL` only; anything else falls back). Mode `peek` returns a published proposal's link and changes nothing. The slug is cosmetic: no route reads it — see below |
 | `proposal-public.js` | ❌ none — by design, token-gated | the client has no account. See below |
 | `onboarding-public.js` | ❌ none — by design, token-gated | the client has no account. Reads and writes one onboarding through service-role-only definer functions; uploads go to a server-chosen path and are checked by their bytes; client mail by onboarding id, never an address. See below |
+| `team-login.js` | ✅ `guard({requireOwner})` | creates a new team member's LOGIN through the Supabase admin API (service key), email confirmed, so it works with sign-ups OFF. Never the public `/auth/v1/signup`. The `crm_users` row is still written by the owner's browser under the owner-only RLS policy |
 | `onboarding-admin.js` | ✅ `guard({requireOwner})` | signed download links, the client link, and delete (files before the row). See below |
 
 `_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js`, `_coffee.js`,

@@ -79,24 +79,43 @@ create or replace function no_users() returns boolean language sql security defi
 create or replace function crm_active() returns boolean language sql security definer stable as $$
   select coalesce((select active from crm_users where id = auth.uid()), true); $$;
 
+-- on the team: a crm_users row, and active. NOT crm_active(), which is true
+-- for a login with no row at all (AUTH-LISTED-2026-10.sql).
+create or replace function crm_listed() returns boolean language sql security definer stable as $$
+  select exists (select 1 from crm_users where id = auth.uid() and active); $$;
+
 -- --------------------------------------------------------------- 4. RLS
 alter table leads enable row level security;
 alter table crm_users enable row level security;
 
-drop policy if exists leads_all on leads;
-create policy leads_all on leads for all using (
-  no_users() or ( crm_active() and (
-    is_owner()
-    or owner_id = auth.uid()
-    or (pool is not null and pool = any (my_pools()))
-  ))
+-- ONE set of four, matching AUTH-LISTED-2026-10.sql. Every policy already on
+-- the table is dropped first, whatever its name: production carried five
+-- (leads_all plus select/insert/update/delete), and permissive policies are
+-- ORed, so a leftover one decides what the table allows.
+do $$
+declare p record;
+begin
+  for p in select polname from pg_policy where polrelid = 'public.leads'::regclass loop
+    execute format('drop policy %I on leads', p.polname);
+  end loop;
+end $$;
+-- crm_listed(), not crm_active(): a login with no crm_users row must get
+-- nothing. crm_active() is true for such a login.
+create policy leads_select on leads for select using (
+  no_users() or ( crm_listed() and (
+    is_owner() or owner_id = auth.uid() or (pool is not null and pool = any (my_pools())) )));
+create policy leads_insert on leads for insert with check (
+  no_users() or ( crm_listed() and (
+    is_owner() or owner_id = auth.uid() or (pool is not null and pool = any (my_pools())) )));
+create policy leads_update on leads for update using (
+  no_users() or ( crm_listed() and (
+    is_owner() or owner_id = auth.uid() or (pool is not null and pool = any (my_pools())) ))
 ) with check (
-  no_users() or ( crm_active() and (
-    is_owner()
-    or owner_id = auth.uid()
-    or (pool is not null and pool = any (my_pools()))
-  ))
-);
+  no_users() or ( crm_listed() and (
+    is_owner() or owner_id = auth.uid() or (pool is not null and pool = any (my_pools())) )));
+-- owner only: the app already says "Only an owner can delete a lead"
+create policy leads_delete on leads for delete using (
+  no_users() or ( crm_listed() and is_owner() ));
 
 drop policy if exists users_read on crm_users;
 create policy users_read on crm_users for select using (id = auth.uid() or is_owner());
@@ -113,8 +132,8 @@ create policy users_bootstrap on crm_users for insert with check (no_users() and
 -- BUILD-NOTES.md; reps simply don't get those tabs.
 -- Someone who is signed in but has NO crm_users row (a stray account) gets
 -- nothing at all: not the settings, not a lead.
-create or replace function crm_listed() returns boolean language sql security definer stable as $$
-  select exists (select 1 from crm_users where id = auth.uid() and active); $$;
+-- crm_listed() is defined above, beside crm_active(): the leads policies need it first
+
 
 alter table app_settings enable row level security;
 drop policy if exists settings_read on app_settings;
@@ -189,7 +208,7 @@ language sql security definer stable as $$
     on l.owner_id = u.id
    and coalesce(l.data->>'isClient','false') = 'true'
    and coalesce(l.data->>'convertedAt','') <> ''
-  where u.role = 'rep' and u.active
+  where u.role = 'rep' and u.active and crm_listed()
   group by u.id, u.name;
 $$;
 revoke all on function crm_leaderboard() from public, anon;

@@ -53,6 +53,8 @@ const HELPERS = new Set([
                           // real Postgres (PGlite), which is deliberately not a
                           // dependency. npm i --no-save @electric-sql/pglite first.
                           // tests/rlstighten.mjs is the half CI always runs.
+  'authlisteddb.mjs',     // a TOOL, not a test: runs AUTH-LISTED-2026-10.sql on PGlite
+                          // (same install as rlsdb.mjs). tests/authlisted.mjs is the CI half.
   'proposalsdb.mjs',      // a TOOL, not a test: runs PROPOSALS-LEGAL-MIGRATION.sql
                           // on PGlite, same install as rlsdb.mjs. The half CI
                           // always runs is tests/proposallegal.mjs.

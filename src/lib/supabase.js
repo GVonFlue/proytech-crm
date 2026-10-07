@@ -43,20 +43,22 @@ export const auth = {
   username(session) { return (session?.user?.email || '').split('@')[0]; },
   uid(session) { return session?.user?.id || null; },
   email(session) { return session?.user?.email || ''; },
-  /* Create a login for a new hire WITHOUT touching the owner's own session.
-     supabase.auth.signUp() would swap the browser session over to the new
-     user (and sign the owner out), so we call the gotrue endpoint directly.
-     Returns the new auth uid when the project returns one. */
+  /* Create a login for a new hire. Done by the server (api/team-login.js,
+     owner only, Supabase admin API) rather than the public sign-up endpoint:
+     sign-ups are OFF on the project, so nobody can make an account against
+     its URL, and the owner's own session is never touched. */
   async createLogin(email, password) {
-    const r = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+    const { data } = await supabase.auth.getSession();
+    const token = data && data.session && data.session.access_token;
+    if (!token) throw new Error('Sign in again, then add them.');
+    const r = await fetch('/api/team-login', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
       body: JSON.stringify({ email: (email || '').trim().toLowerCase(), password }),
     });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.msg || j.error_description || j.error || 'Could not create that login.');
-    const id = j.id || j.user?.id || null;
-    return { id, needsConfirm: !id };
+    if (!r.ok || !j.ok) throw new Error(j.error || 'Could not create that login.');
+    return { id: j.id || null, needsConfirm: !j.id };
   },
   /* password-reset / set-your-password email.
      redirectTo pins the link to THIS deployment, so a stale "Site URL" in the

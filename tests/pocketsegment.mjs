@@ -23,6 +23,8 @@ globalThis.fetch = async (url, opts = {}) => {
   const u = String(url);
   const reply = (status, body) => ({ ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body), json: async () => body });
   if (u.includes('/rest/v1/api_hits')) return reply(200, []);
+  /* guard({requireAuth}) also asks Postgres whether the login is on the team (AUTH-LISTED-2026-10): a 'good' token is an active rep (an owner if it says so) */
+  if (u.includes('/rpc/crm_whoami')) return reply(200, [{ role: 'owner', active: true }]);
   if (u.includes('/auth/v1/user')) return reply(200, { id: 'u_owner' });
   if (u.includes('api.anthropic.com')) {
     SENT = JSON.parse(opts.body);
