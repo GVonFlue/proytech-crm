@@ -100,6 +100,7 @@ import { retainerState, monthsDue, monthsPaid } from './lib/retainer';
 import { DateFix, PriBadge, StageBadge } from './LeadBits';
 import { LogTouch, PersonCadence } from './RelCadence';
 import { touchActivity } from './lib/relationships';
+import { rollupFor, sourceChange } from './lib/sources';
 import PersonPicker from './PersonPicker';
 
 /* The ONE place a meeting gets booked. The Meetings section and the activity
@@ -790,7 +791,25 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
         if(/^\d{4}-\d{2}-\d{2}$/.test(clean)) patch={...patch,followUp:clean,
           nextAction:draft.nextAction||'Check back in — said not right now'}; }
     }
+    /* WHO GETS CREDIT and HOW THEY ARRIVED are logged when they change on a
+       record that already exists (Relationships Part 2), as app-written
+       notes riding in the SAME patch: one event, one write (ENGINEERING §3).
+       SYS_NOTE knows both prefixes, so neither ever counts as a touch. */
+    if(!isNew&&('introducedBy' in patch||'source' in patch)){
+      const c=sourceChange(draft,patch,new Map((allLeads||[]).map(x=>[x.id,x])));
+      if(c.referred||c.arrived){ const now=new Date().toISOString();
+        patch={...patch,activities:[
+          ...(c.referred?[{id:uid(),ts:now,type:'Note',text:`Referred by: ${c.referred[0]} → ${c.referred[1]}`,who:me}]:[]),
+          ...(c.arrived?[{id:uid(),ts:now,type:'Note',text:`Arrived via: ${c.arrived[0]} → ${c.arrived[1]}`,who:me}]:[]),
+          ...(patch.activities||draft.activities||[])]}; }
+    }
     setDraft(d=>({...d,...patch})); if(!isNew) updateLead(draft.id,patch); };
+  /* Credit and channel are set when a lead is created and editable by owners
+     only after that (Relationships Part 2). A screen lock, not a database
+     rule: Postgres cannot stop a rep editing one field of a lead they can
+     write without a trigger, which is its own approved change. The change
+     note above is what makes an edit visible either way. */
+  const lockSource=rep&&!isNew;
   /* One booking path, used by the Meetings section AND the activity log's
      Meeting Booked button. Always writes the meeting + the Booked activity, so
      it always reaches the dashboard numbers; the Google Calendar event is the
@@ -1340,10 +1359,12 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
         {draft.isRelationship&&<PersonCadence lead={draft} settings={settings} onChange={v=>set({relCadenceDays:v})}/>}
         {draft.isRelationship&&!isNew&&<div className="rel-lt"><LogTouch name={draft.name} onLog={(k,n)=>{ const t=touchActivity(k,n); if(t) addActivity(draft.id,t[0],t[1],me,t[2]); }}/></div>}
         <div className="fgrid" style={{marginTop:10}}>
-          <div className="field"><label>Introduced by</label>
-            <PersonPicker people={candidates} value={draft.introducedBy||''}
-              onChange={id=>set({introducedBy:id})}
-              emptyLabel={'\u2014 nobody / direct \u2014'} placeholder="Search a name or business…"/>
+          <div className="field"><label>Referred by</label>
+            {lockSource
+              ? <input value={(allLeads||[]).find(x=>x.id===draft.introducedBy)?.name||(draft.introducedBy?'(removed contact)':'— nobody —')} disabled title="Only an owner can change who gets credit"/>
+              : <PersonPicker people={candidates} value={draft.introducedBy||''}
+                  onChange={id=>set({introducedBy:id,...(id&&!String(draft.source||'').trim()?{source:'Referral'}:{})})}
+                  emptyLabel={'\u2014 nobody: credit how they arrived \u2014'} placeholder="Search a name or business…"/>}
           </div>
           {F({label:'How you know them',k:'relNote'})}
         </div>
@@ -2074,7 +2095,14 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
             </button>
             {showMore&&<><div className="dh mt"><Bell size={13}/>Follow-up</div>{FollowUpBlock()}</>}
             {showMore&&<div className="fgrid" style={{marginTop:12}}>
-              {Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
+              {Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}{Sel({label:'Arrived via',k:'source',opts:['',...opt.source]})}
+              {/* WHO GETS CREDIT, set at creation (Relationships Part 2), by a rep
+                  too: after this it is an owner's edit (lockSource). */}
+              <div className="field"><label>Referred by</label>
+                <PersonPicker people={(allLeads||[]).filter(x=>x.id!==draft.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''))} value={draft.introducedBy||''}
+                  onChange={id=>set({introducedBy:id,...(id&&!String(draft.source||'').trim()?{source:'Referral'}:{})})}
+                  emptyLabel={'\u2014 nobody: credit how they arrived \u2014'} placeholder="Search a name or business…"/>
+              </div>
               {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
               {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}
               {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
@@ -2121,7 +2149,8 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
               [draft.source,draft.businessType!=='—'?draft.businessType:null,sOf(draft.stage,stages)?.label,PRIORITIES[draft.priority]?.label].filter(Boolean).join(' · ')||'not set',
               <div className="fgrid">
-                {Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}{Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}
+                {lockSource?<div className="field"><label>Arrived via</label><input value={draft.source||'—'} disabled title="Only an owner can change how they arrived"/></div>
+                  :Sel({label:'Arrived via',k:'source',opts:['',...opt.source]})}{Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}
                 {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
                 {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
                 {F({label:'Expected Close',k:'expectedClose',type:'date'})}
@@ -2144,9 +2173,12 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 reliably learn what a referral was worth to them, and a field
                 nobody fills is worse than no field.
 
-                The money comes in as a prop from useMetrics — the same hook the
-                Dashboard runs — rather than being summed here, so the two
-                screens cannot disagree about what a closed deal is worth. */}
+                The money is lib/sources rollupFor (Oct 2026), the Sources
+                leaderboard's own row for this person, built on the Money
+                page's revenueForMonth, so the record, the leaderboard and the
+                Money page cannot disagree about what a referral was worth. It
+                used to be useMetrics' wonValue (booked value of cash-confirmed
+                wins), a different number from the Money page's. */}
             {draft.isRelationship&&Sec('refer',<Handshake size={13}/>,'Referrals',
               (()=>{ const g=referralsOut(draft).length; const r=(inbound&&inbound.count)||0;
                 return g||r?`${g} given · ${r} received`:'none yet'; })(),
@@ -2156,8 +2188,16 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                   <div className="rl-sep"/>
                   <div className="rl-stat"><b>{(inbound&&inbound.count)||0}</b><span>received</span></div>
                   <div className="rl-sep"/>
-                  <div className="rl-stat" title="Won and collected — not pipeline. The same figure the Dashboard counts as revenue.">
-                    <b>{usdc((inbound&&inbound.value)||0)}</b><span>collected</span></div>
+                  {/* lib/sources rollupFor: the Sources leaderboard's own row
+                      for this person, so the record and the leaderboard
+                      cannot disagree. Owners only: a rep never sees revenue
+                      roll-ups. */}
+                  {!rep&&(()=>{ const ro=rollupFor(draft.id,allLeads||[],stages);
+                    return (<><div className="rl-sep"/>
+                      <div className="rl-stat" title="Setup money collected from the clients they sent, all time, the Money page's way. Retainers are the MRR beside it.">
+                        <b>{usdc(ro.setup)}</b><span>setup won</span></div>
+                      <div className="rl-sep"/>
+                      <div className="rl-stat"><b>{usdc(ro.mrr)}</b><span>MRR now</span></div></>); })()}
                 </div>
 
                 <div className="dh mt"><UserPlus size={13}/>Sent to them</div>

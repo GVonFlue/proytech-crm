@@ -295,7 +295,7 @@ ok('G1b','meeting list', q('.msec') && has(/Discovery call/));
 ok('G1c','undated meeting offers a date', has(/Undated catch-up/));
 ok('G1d','scheduler present', has(/Invite client/) || has(/Meet link/));
 ok('G1e','scheduler names the calendar', q('.mtg-acct') || q('.mtg-warn'));
-ok('G2a','lead source', label('Lead Source'));
+ok('G2a','lead source', label('Arrived via'));
 ok('G2b','business type', label('Business Type'));
 ok('G2c','stage', label('^Stage$'));
 ok('G2d','priority', label('^Priority$'));
@@ -305,7 +305,7 @@ ok('G2g','lead pool (owner only)', label('Lead pool'));
 ok('G2h','add custom next action', btn(/Add custom Next Action/));
 ok('G3a','service chips', qa('.chips .chip').length > 0);
 ok('G4a','relationship toggle', q('.spon-tog.rel'), T().slice(0,120));
-ok('G4d','introduced by', label('Introduced by'));
+ok('G4d','referred by (who gets credit)', label('Referred by'));
 ok('G4e','how you know them', label('How you know them'));
 ok('G4f','intro chain', q('.rc-path') && has(/Marcus Webb/));
 ok('G5a','potential sponsor toggle', has(/[Pp]otential sponsor/));
@@ -383,7 +383,7 @@ ok('E4','hint line', q('.fn-hint'));
 ok('E5','add more details toggle', q('.morebtn'));
 { await click(curEl.querySelector('.morebtn')); await settle(80); }
 ok('E6a','business type', label('Business Type'));
-ok('E6b','lead source', label('Lead Source'));
+ok('E6b','arrived via (the channel)', label('Arrived via'));
 ok('E6c','stage', label('^Stage$'));
 ok('E6d','priority', label('^Priority$'));
 ok('E6e','next action', label('Next Action'));
@@ -438,10 +438,10 @@ ok('G4h','people introduced by this contact', q('.rel-gave'), T().slice(0, 160))
 /* G4R — the referral ledger. Marcus introduced Sarah in this fixture, so the
    inbound side has something real in it rather than a zero that would pass
    whether or not the derivation works. */
-ok('G4Ra','ledger headline: given · received · collected', qa('.rl-stat').length === 3,
+ok('G4Ra','ledger headline: given · received · setup won · MRR now', qa('.rl-stat').length === 4,
    qa('.rl-stat').map(e => (e.textContent||'').trim()).join(' | '));
-ok('G4Rb','"collected" says it is not pipeline',
-   qa('.rl-stat').some(e => /not pipeline/i.test(e.getAttribute('title')||'')),
+ok('G4Rb','"setup won" says it is cash collected, the Money page\'s way',
+   qa('.rl-stat').some(e => /collected/i.test(e.getAttribute('title')||'') && /Money page/.test(e.getAttribute('title')||'')),
    qa('.rl-stat').map(e => e.getAttribute('title')||'—').join(' | '));
 ok('G4Rf','inbound list — who they sent',
    qa('.rl-link').some(b => /Sarah Chen/.test(b.textContent||'')),

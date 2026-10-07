@@ -41,7 +41,10 @@ export const COBALT=BRAND.colors.cobalt, INDIGO=BRAND.colors.indigo, INK=BRAND.c
 /* ===================== editable defaults ===================== */
 export const DEFAULT_OPTIONS={
   businessType:['—','Real Estate','Lending','Restaurant','Retail','Law Firm','Construction','Professional Services','Other'],
-  source:['Referral',...BRAND.team,'Cold Outreach','Instagram','Networking','Walk-in','Website','Other'],
+  /* HOW A LEAD ARRIVED (lib/sources arrivedVia), not who gets credit: that is
+     introducedBy. Coffee page, Event, Ad and Social are the channels the
+     Relationships spec names (Oct 2026); an install's own saved list wins. */
+  source:['Referral',...BRAND.team,'Cold Outreach','Instagram','Networking','Walk-in','Website','Coffee page','Event','Ad','Social','Other'],
   service:['Web Design','AI Integration','Both','Unknown','Missed-Call Text-Back','AI Receptionist','Booking / Scheduling','CRM Setup','Full Front Office'],
   nextAction:['Schedule Coffee','Schedule Sit Down','Text in 1 Week','Visit and Introduce','Send Proposal','Follow Up Call','Close','—'],
   owner:[...BRAND.team,BRAND.pool],
@@ -305,7 +308,7 @@ export const hasVoicemail=l=>((l&&l.activities)||[]).some(a=>a&&a.disp==='VM');
    writers and fails the build when one appears that this does not match.
    The list is the fallback for rows already in the database; the test is what
    keeps it honest. */
-export const SYS_NOTE=/^(Lead created\.|Proposal deleted by |Follow-up cleared\.|Follow-up done —|Stage moved:|Deal value set to|Phase →|Clock paused:|Clock resumed:|Close date set to|Commission approved|Commission voided|Converted to client|Signed — onboarding|Reverted to lead|Invoice |Payment confirmed |Payment marked as not collected|Deal closed:|New build started:|Sponsorship logged:|Dated:|Reassigned from |Checklist: )/;
+export const SYS_NOTE=/^(Lead created\.|Proposal deleted by |Follow-up cleared\.|Follow-up done —|Stage moved:|Deal value set to|Phase →|Clock paused:|Clock resumed:|Close date set to|Commission approved|Commission voided|Converted to client|Signed — onboarding|Reverted to lead|Invoice |Payment confirmed |Payment marked as not collected|Deal closed:|New build started:|Sponsorship logged:|Dated:|Reassigned from |Checklist: |Referred by: |Arrived via: )/;
 export const isSystemNote=a=>!!a&&a.type==='Note'&&!a.derived&&SYS_NOTE.test(String(a.text||''));
 
 /* A REAL TOUCH is a reached type, or a note a person actually wrote.

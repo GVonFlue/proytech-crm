@@ -98,7 +98,7 @@ don't".
 - [ ] **E4** Hint line — becomes `Logs as a {type} from {who} the moment you save`
 - [ ] **E5** `Add more details` / `Hide extra details` toggle, with a one-line summary when closed
 - [ ] **E6** Extra details:
-  - [ ] **E6a** Business Type · **E6b** Lead Source · **E6c** Stage · **E6d** Priority · **E6e** Next Action
+  - [ ] **E6a** Business Type · **E6b** Arrived via · **E6c** Stage · **E6d** Priority · **E6e** Next Action
   - [ ] **E6f** Owner — a picker for an owner, a **disabled input** for a rep
   - [ ] **E6g** Follow-up Date — the duplicate of D2
   - [ ] **E6h** Expected Close · **E6i** Notes for the follow-up
@@ -122,7 +122,7 @@ don't".
 - [ ] **G1f** Log a meeting with **no date yet**
 
 ### G2 Qualifying
-- [ ] **G2a** Lead Source · **G2b** Business Type · **G2c** Stage · **G2d** Priority
+- [ ] **G2a** Arrived via (the channel; read-only for a rep after creation) · **G2b** Business Type · **G2c** Stage · **G2d** Priority
 - [ ] **G2e** Owner — picker for an owner, **disabled input** for a rep
 - [ ] **G2f** Expected Close
 - [ ] **G2g** Lead pool picker — **owner only**
@@ -137,7 +137,7 @@ don't".
 - [ ] **G4a** Relationship toggle
 - [ ] **G4b** `Kept out of Pipeline, Money & Dashboard…` hint — when a relationship
 - [ ] **G4c** Tier buttons — when a relationship
-- [ ] **G4d** `Introduced by` picker over every other contact
+- [ ] **G4d** `Referred by` picker over every other contact: who gets credit (read-only for a rep after creation; a change is noted)
 - [ ] **G4e** `How you know them` field
 - [ ] **G4f** Intro chain: clickable nodes ending in this contact — when a chain exists
 - [ ] **G4g** `It all traces back to X` — when the chain is longer than one
@@ -156,8 +156,8 @@ don't".
 > that makes it useful. G4h already works this way, so the gate has always
 > counted assertions rather than bullet points.
 
-- [ ] **G4Ra** Headline: given · received · collected
-- [ ] **G4Rb** `collected` is won-and-collected, not pipeline — stated in its tooltip
+- [ ] **G4Ra** Headline: given · received · setup won · MRR now (the money is owners only)
+- [ ] **G4Rb** `setup won` is cash collected the Money page's way (lib/sources rollupFor, the Sources leaderboard's row) — stated in its tooltip
 - [ ] **G4Rc** Outbound list, newest first: name, optional note, date, remove
 - [ ] **G4Rd** A linked entry opens that lead; a dangling one reads `record removed`
 - [ ] **G4Re** Add form: an existing lead by name, or a name that was never a lead
