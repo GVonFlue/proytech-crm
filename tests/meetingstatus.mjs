@@ -1,3 +1,7 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_mstatus = bundleName('mstatus');
+const B_mstatus_lead = bundleName('mstatus_lead');
 /* A MEETING WITH AN UNKNOWN STATUS MUST NOT DISAPPEAR.
    ============================================================================
 
@@ -24,11 +28,11 @@ import { countRace } from '../api/coffee-race.js';
    tests/cardfee.mjs and tests/closedmonth.mjs reach it. */
 const libOut = await esbuild.build({ entryPoints: ['src/lib/lead.js'], bundle: true, write: false, format: 'esm',
   platform: 'neutral', external: ['lucide-react', 'react'], define: { 'import.meta.env': '{}' }, logLevel: 'silent' });
-fs.writeFileSync('tests/.bmstatus_lead.mjs', libOut.outputFiles[0].text);
+fs.writeFileSync('tests/'+B_mstatus_lead, libOut.outputFiles[0].text);
 const {
   MEETING_STATUSES, meetingStatus, meetingsOf, isUpcoming, needsStatus, needsDate,
-} = await import('./.bmstatus_lead.mjs?v=' + Date.now());
-fs.unlinkSync('tests/.bmstatus_lead.mjs');
+} = await import('./'+B_mstatus_lead+'?v=' + Date.now());
+fs.unlinkSync('tests/'+B_mstatus_lead);
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); } else { fail++; console.log('  FAIL ' + n + (x ? ' — ' + x : '')); } };
@@ -108,8 +112,8 @@ const out = await esbuild.build({ entryPoints: ['src/App.jsx'], bundle: true, wr
   define: { 'import.meta.env': '__ENV__' }, banner: { js: 'const __ENV__={MODE:"test",DEV:false,PROD:true};' },
   plugins: [{ name: 'stub', setup(b) { b.onResolve({ filter: /(^|\/)lib\/supabase$/ }, () => ({ path: path.resolve('tests/stub-supabase.js') })); } }],
   logLevel: 'silent' });
-fs.writeFileSync('tests/.bmstatus.mjs', out.outputFiles[0].text);
-const mod = await import('./.bmstatus.mjs?v=' + Date.now());
+fs.writeFileSync('tests/'+B_mstatus, out.outputFiles[0].text);
+const mod = await import('./'+B_mstatus+'?v=' + Date.now());
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
 const { act } = await import('react');
@@ -176,7 +180,7 @@ try {
      before.Garrett === 0 && before.Logan === 0, JSON.stringify(before));
 } finally {
   await act(async () => { root.unmount(); });
-  try { fs.unlinkSync('tests/.bmstatus.mjs'); } catch {}
+  try { fs.unlinkSync('tests/'+B_mstatus); } catch {}
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

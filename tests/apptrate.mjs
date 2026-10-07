@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_ar = bundleName('ar');
 /* DOES THE APPOINTMENT RATE FIELD ACTUALLY RENDER?
 
    grep proves a string is in the file. It does not prove React puts it on the
@@ -42,8 +45,8 @@ const out=await esbuild.build({entryPoints:[path.join(root,'src/App.jsx')],bundl
  loader:{'.js':'jsx','.jsx':'jsx'},external:['react','react-dom','react-dom/client','react/jsx-runtime'],
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.join(here,'stub-supabase.js')}));}}],logLevel:'silent'});
-fs.writeFileSync(path.join(here,'.bar.mjs'),out.outputFiles[0].text);
-const mod=await import('./.bar.mjs?v='+Date.now());
+fs.writeFileSync(path.join(here,B_ar),out.outputFiles[0].text);
+const mod=await import('./'+B_ar+'?v='+Date.now());
 const React=(await import('react')).default; const {createRoot}=await import('react-dom/client'); const {act}=await import('react');
 const rootEl=createRoot(document.getElementById('root'));
 await act(async()=>{rootEl.render(React.createElement(mod.default));});

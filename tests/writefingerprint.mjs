@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_wf = bundleName('wf');
 /* WHAT THIS APP WRITES, as a stable fingerprint.
    ============================================================================
 
@@ -82,7 +85,7 @@ const out = await esbuild.build({ entryPoints:['src/App.jsx'], bundle:true, writ
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   plugins:[{ name:'stub', setup(b){ b.onResolve({filter:/(^|\/)lib\/supabase$/}, () => ({ path: path.resolve('tests/stub-supabase.js') })); } }],
   logLevel:'silent' });
-fs.writeFileSync('tests/.bwf.mjs', out.outputFiles[0].text);
+fs.writeFileSync('tests/'+B_wf, out.outputFiles[0].text);
 
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
@@ -107,7 +110,7 @@ globalThis.__SETTINGS_WRITES__ = []; globalThis.__USER_WRITES__ = [];
 
 const el = document.getElementById('root');
 const root = createRoot(el);
-const mod = await import('./.bwf.mjs?v=' + Date.now());
+const mod = await import('./'+B_wf+'?v=' + Date.now());
 await act(async () => { root.render(React.createElement(mod.default)); });
 await settle(180);
 

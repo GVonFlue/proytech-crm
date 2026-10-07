@@ -1,3 +1,7 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_oe = bundleName('oe');
+const B_oe_entry_JSX = bundleName('oe-entry', '.jsx');
 /* SETTINGS → PROPOSALS: THE PRICE EDITOR, AND WHAT IT CAN NEVER TOUCH.
    ============================================================================
 
@@ -31,7 +35,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let confirmAnswer = true; dom.window.confirm = () => confirmAnswer;
 globalThis.__PROPOSAL_WRITES__ = [];
 
-const entry = path.join(ROOT, 'tests/.boe-entry.jsx');
+const entry = path.join(ROOT, 'tests/'+B_oe_entry_JSX);
 fs.writeFileSync(entry, `import React from 'react'; import { createRoot } from 'react-dom/client'; import { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { OfferEditor, offerForSave, priceLine, quoteFor } from '../src/Proposals.jsx';
@@ -42,7 +46,7 @@ const built = await esbuild.build({ entryPoints: [entry], bundle: true, write: f
   loader: { '.js': 'jsx', '.json': 'json' }, external: ['react', 'react-dom', 'react-dom/client', 'react-dom/server', 'react/jsx-runtime', 'lucide-react'],
   define: { 'import.meta.env': '{}' }, logLevel: 'error',
   plugins: [{ name: 'stub', setup(b) { b.onResolve({ filter: /(^|\/)lib\/supabase$/ }, () => ({ path: path.join(ROOT, 'tests/stub-supabase.js') })); } }] });
-const out = path.join(ROOT, 'tests/.boe.mjs'); fs.writeFileSync(out, built.outputFiles[0].text);
+const out = path.join(ROOT, 'tests/'+B_oe); fs.writeFileSync(out, built.outputFiles[0].text);
 const { OfferEditor, offerForSave, priceLine, quoteFor, ProposalDoc, P, React, createRoot, act, renderToStaticMarkup } = await import(out + '?' + Date.now());
 fs.unlinkSync(entry); fs.unlinkSync(out);
 

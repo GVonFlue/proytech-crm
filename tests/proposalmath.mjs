@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_pm = bundleName('pm');
 /* PROPOSAL PRICE MATH, AND THE PURE RULES AROUND IT.
 
    The CRM writes every number on a proposal (lib/proposal quote()); the AI
@@ -15,8 +18,8 @@ import fs from 'fs';
 import esbuild from 'esbuild';
 
 const out = await esbuild.build({ entryPoints: ['src/lib/proposal.js'], bundle: true, write: false, format: 'esm', platform: 'neutral', logLevel: 'silent' });
-fs.writeFileSync('tests/.bpm.mjs', out.outputFiles[0].text);
-const P = await import('./.bpm.mjs?v=' + Date.now());
+fs.writeFileSync('tests/'+B_pm, out.outputFiles[0].text);
+const P = await import('./'+B_pm+'?v=' + Date.now());
 const OFFER_JSON = JSON.parse(fs.readFileSync('PROPOSAL-OFFER.json', 'utf8'));
 
 let pass = 0, fail = 0;
@@ -138,5 +141,5 @@ ok('"what it covers" merges the chosen items', body.standard.covers.some(c => /a
 ok('the onboarding link comes from the package', body.onboardingUrl === '' && P.buildBody({ offer: P.readOffer({ offer: { ...OFFER_JSON, packages: [{ ...OFFER_JSON.packages[0], onboardingUrl: 'https://f.example.com/g' }] } }).offer, q, copy, client: {}, preparedOn: '', validDays: 7 }).onboardingUrl === 'https://f.example.com/g');
 
 console.log(`\n${pass} passed, ${fail} failed`);
-try { fs.unlinkSync('tests/.bpm.mjs'); } catch {}
+try { fs.unlinkSync('tests/'+B_pm); } catch {}
 process.exit(fail ? 1 : 0);

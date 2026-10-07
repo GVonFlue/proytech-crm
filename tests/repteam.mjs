@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_rt = bundleName('rt');
 /* A REP CAN SEE WHO ELSE IS ON THE TEAM — and could not, until now.
 
    crm_users has `users_read using (id = auth.uid() or is_owner())`, so a rep
@@ -75,7 +78,7 @@ const out = await esbuild.build({ entryPoints:['src/App.jsx'], bundle:true, writ
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   plugins:[{ name:'stub', setup(b){ b.onResolve({filter:/(^|\/)lib\/supabase$/}, () => ({ path: path.resolve('tests/stub-supabase.js') })); } }],
   logLevel:'silent' });
-fs.writeFileSync('tests/.brt.mjs', out.outputFiles[0].text);
+fs.writeFileSync('tests/'+B_rt, out.outputFiles[0].text);
 
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
@@ -95,7 +98,7 @@ async function boot({ users, roster, gcal }) {
   globalThis.__WRITES__ = []; globalThis.__MANY__ = []; globalThis.__MLOGS__ = [];
   globalThis.__SETTINGS__ = null; globalThis.__SETTINGS_WRITES__ = []; globalThis.__USER_WRITES__ = [];
   curEl = document.createElement('div'); document.body.appendChild(curEl);
-  const mod = await import('./.brt.mjs?v=' + Date.now() + Math.random());
+  const mod = await import('./'+B_rt+'?v=' + Date.now() + Math.random());
   curRoot = createRoot(curEl);
   await act(async () => { curRoot.render(React.createElement(mod.default)); });
   await settle(160);

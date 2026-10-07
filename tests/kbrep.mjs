@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_kr = bundleName('kr');
 /* PLAYBOOK, THE REP SIDE — what a sales rep's browser does with it.
 
    WHAT ENFORCES THIS, AND WHAT THIS FILE IS
@@ -83,8 +86,8 @@ const out=await esbuild.build({entryPoints:[path.join(root,'src/App.jsx')],bundl
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.join(here,'stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync(path.join(here,'.bkr.mjs'),out.outputFiles[0].text);
-const mod=await import('./.bkr.mjs?v='+Date.now());
+fs.writeFileSync(path.join(here,B_kr),out.outputFiles[0].text);
+const mod=await import('./'+B_kr+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');

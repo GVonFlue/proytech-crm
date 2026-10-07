@@ -1,3 +1,8 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_ra = bundleName('ra');
+const B_rb = bundleName('rb');
+const B_rc2 = bundleName('rc2');
 /* A REP'S WORK, AND THE PLAYBOOK GATE.
    ============================================================================
 
@@ -34,9 +39,9 @@ const build = async (entry, out) => {
   fs.writeFileSync(out, b.outputFiles[0].text);
   return import('./' + out.split('/').pop() + '?v=' + Date.now());
 };
-const W = await build('src/lib/repwork.js', 'tests/.bra.mjs');
-const K = await build('src/lib/kb.js', 'tests/.brb.mjs');
-const L = await build('src/lib/lead.js', 'tests/.brc2.mjs');
+const W = await build('src/lib/repwork.js', 'tests/'+B_ra);
+const K = await build('src/lib/kb.js', 'tests/'+B_rb);
+const L = await build('src/lib/lead.js', 'tests/'+B_rc2);
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }

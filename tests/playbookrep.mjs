@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_pr = bundleName('pr');
 /* THE PLAYBOOK AS A REP ACTUALLY USES IT — tiles, two clicks, and the split
    between what he SAYS and why it works.
 
@@ -295,8 +298,8 @@ const out=await esbuild.build({entryPoints:[path.join(root,'src/App.jsx')],bundl
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.join(here,'stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync(path.join(here,'.bpr.mjs'),out.outputFiles[0].text);
-const mod=await import('./.bpr.mjs?v='+Date.now());
+fs.writeFileSync(path.join(here,B_pr),out.outputFiles[0].text);
+const mod=await import('./'+B_pr+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');

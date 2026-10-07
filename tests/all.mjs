@@ -40,6 +40,7 @@ const HELPERS = new Set([
   'all.mjs',              // this file
   'assert.mjs',           // the assertion helpers + report()
   'harness.mjs',          // the jsdom mount used by dom.test.mjs
+  'tmpbundle.mjs',        // per-process bundle names, deleted on exit
   'stub-supabase.mjs',    // the fake database for harness.mjs
   'stub-supabase.js',     // the fake database for the older per-file suites
   'contrast.mjs',         // the contrast engine, imported by the per-screen
@@ -74,7 +75,11 @@ const HELPERS = new Set([
 const PER_FILE_TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS) || 90_000;
 /* a few files are many runs in one: clockguard is 48 child processes, two at
    a time, and inside a busy full run it needs longer than a single suite */
-const LONGER = { 'clockguard.mjs': 6 };
+/* clockguard reruns a dozen suites at pinned clocks inside ONE lane, two at a
+   time (never more: CLAUDE.md, Testing). At 6x it was taking 418-520s of its
+   540s in CI and then timed out (PR #98). 10x (900s) is headroom for the time
+   the work actually takes, not more parallelism. */
+const LONGER = { 'clockguard.mjs': 10 };
 /* Fixed at two, not cores-1. clockguard fans out its own lanes inside one of
    these, so cores-1 here meant ~14 jsdom processes on an 8-core laptop: load
    average 50, a fanless machine throttling, and nine suites killed at the
@@ -160,4 +165,14 @@ const total = results.length;
 const passed = total - failed.length;
 console.log(`\n${passed} / ${total} test files passed` + (skipped.length ? ` (${skipped.length} SKIPPED by TEST_SKIP: ${skipped.join(', ')})` : '') +
             (failed.length ? `\nfailing: ${failed.map(r => r.file).join(', ')}\n` : '\n'));
-process.exit(failed.length ? 1 : 0);
+
+/* NO BUNDLE LEFT BEHIND (tests/tmpbundle.mjs). Every suite has exited by now,
+   so a tests/.b*.mjs or .b*.jsx whose process is gone is litter: 174 files and
+   221MB of it had piled up before this check. A file whose pid is still alive
+   belongs to a suite another session is running right now, and is left alone. */
+const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+const litter = (await readdir(HERE))
+  .filter(f => /^\.b.*\.(mjs|jsx)$/.test(f))
+  .filter(f => { const m = f.match(/-(\d+)-[a-z0-9]+\.(mjs|jsx)$/); return !(m && alive(Number(m[1]))); });
+if (litter.length) console.log(`LEFT BEHIND in tests/ (${litter.length}): ${litter.slice(0, 10).join(', ')}${litter.length > 10 ? ', …' : ''}\nA suite wrote a bundle without tests/tmpbundle.mjs, or did not exit cleanly.\n`);
+process.exit(failed.length || litter.length ? 1 : 0);

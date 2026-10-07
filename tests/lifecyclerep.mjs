@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_lcrep = bundleName('lcrep');
 /* THE CLIENT LIFECYCLE, AS A REP: nothing.
    ============================================================================
 
@@ -46,9 +49,9 @@ const out = await esbuild.build({ entryPoints: ['src/App.jsx'], bundle: true, wr
   define: { 'import.meta.env': '__ENV__' }, banner: { js: 'const __ENV__={MODE:"test",DEV:false,PROD:true};' },
   plugins: [{ name: 'stub', setup(b) { b.onResolve({ filter: /(^|\/)lib\/supabase$/ }, () => ({ path: path.resolve('tests/stub-supabase.js') })); } }],
   logLevel: 'silent' });
-fs.writeFileSync('tests/.blcrep.mjs', out.outputFiles[0].text);
-const mod = await import('./.blcrep.mjs?v=' + Date.now());
-fs.unlinkSync('tests/.blcrep.mjs');
+fs.writeFileSync('tests/'+B_lcrep, out.outputFiles[0].text);
+const mod = await import('./'+B_lcrep+'?v=' + Date.now());
+fs.unlinkSync('tests/'+B_lcrep);
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
 const { act } = await import('react');

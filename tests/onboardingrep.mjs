@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_onbrep = bundleName('onbrep');
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
 const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://crm.test/',pretendToBeVisual:true});
@@ -38,8 +41,8 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.bonbrep.mjs',out.outputFiles[0].text);
-const mod=await import('./.bonbrep.mjs?v='+Date.now());
+fs.writeFileSync('tests/'+B_onbrep,out.outputFiles[0].text);
+const mod=await import('./'+B_onbrep+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');
@@ -56,6 +59,6 @@ ok('  and no Proposals tab either (the same gate)', !navs.some(n=>/^Proposals$/.
 ok('the onboardings table is never asked for', !globalThis.__ONB_LIST_CALLS__, String(globalThis.__ONB_LIST_CALLS__));
 ok('nothing from an onboarding reaches the screen', !/SECRET-ONB-BUSINESS|SECRET-ANSWER|SECRET-PROMPT/.test(document.body.innerHTML));
 ok('the rep\'s lead is not touched by the poll', !globalThis.__WRITES__.some(l=>l.id==='R1'&&(l.activities||[]).some(a=>/^onb-sub-/.test(a.id))));
-root.unmount(); fs.unlinkSync('tests/.bonbrep.mjs');
+root.unmount(); fs.unlinkSync('tests/'+B_onbrep);
 console.log(`\nonboardingrep: ${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);

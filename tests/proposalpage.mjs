@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_ppage = bundleName('ppage');
 /* THE CLIENT'S PAGE: what they see, what Accept sends, and what it never ships.
 
    Renders src/proposal/main.jsx in a simulated browser with the server
@@ -24,7 +27,7 @@ const built = await esbuild.build({ entryPoints: ['src/proposal/main.jsx'], bund
 const code = built.outputFiles[0].text;
 ok('the page bundle has no database client', !/supabase|createClient/.test(code));
 ok('  and none of the CRM', !/LeadView|ServiceAssign|dealRows|owedBy/.test(code));
-fs.writeFileSync('tests/.bppage.mjs', code);
+fs.writeFileSync('tests/'+B_ppage, code);
 
 const boot = async (hash, server) => {
   const dom = new JSDOM('<!doctype html><html><head></head><body><div id="root"></div></body></html>', { url: 'https://crm.test/proposal.html' + hash, pretendToBeVisual: true });
@@ -33,7 +36,7 @@ const boot = async (hash, server) => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true; globalThis.__NO_MOUNT__ = true;
   const calls = [];
   globalThis.fetch = async (u, o = {}) => { const b = JSON.parse(o.body || '{}'); calls.push({ u: String(u), b }); const r = server(b); return { status: r.status || 200, json: async () => r.body }; };
-  const { Page } = await import('./.bppage.mjs?v=' + Math.random());
+  const { Page } = await import('./'+B_ppage+'?v=' + Math.random());
   const React = (await import('react')).default; const { createRoot } = await import('react-dom/client'); const { act } = await import('react');
   const root = createRoot(document.getElementById('root'));
   await act(async () => { root.render(React.createElement(Page)); });
@@ -146,5 +149,5 @@ console.log('\nTerms of Service and Privacy Policy: a second required box');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
-try { fs.unlinkSync('tests/.bppage.mjs'); } catch {}
+try { fs.unlinkSync('tests/'+B_ppage); } catch {}
 process.exit(fail ? 1 : 0);

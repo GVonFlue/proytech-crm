@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_rt = bundleName('rt');
 /* A machine note is not a response to a lead.
    ============================================================================
 
@@ -30,8 +33,8 @@ const built = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true
   format:'esm', jsx:'automatic', loader:{'.js':'jsx'},
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   logLevel:'silent' });
-fs.writeFileSync('tests/.brt.mjs', built.outputFiles[0].text);
-const { isRealTouch } = await import('./.brt.mjs?v=' + Date.now());
+fs.writeFileSync('tests/'+B_rt, built.outputFiles[0].text);
+const { isRealTouch } = await import('./'+B_rt+'?v=' + Date.now());
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }
@@ -117,7 +120,7 @@ ok('the mean improves without any lead improving',
    The last line is the invariant worth keeping: no lead may get warmer.
    -------------------------------------------------------------------------- */
 console.log('\nthe clock');
-const { lastTouch, daysSinceTouch } = await import('./.brt.mjs?v=' + Date.now());
+const { lastTouch, daysSinceTouch } = await import('./'+B_rt+'?v=' + Date.now());
 
 ok('a machine note does not reset the clock',
    lastTouch(FICTION) === null && lastTouch(WORKED) === at(0.5),
@@ -183,7 +186,7 @@ ok('the same text typed by a person still counts',
    call rather than a new activity type.
    -------------------------------------------------------------------------- */
 console.log('\nthe no-answer');
-const { dispIsContact, CONTACT_DISP, DISPOSITIONS } = await import('./.brt.mjs?v=' + Date.now());
+const { dispIsContact, CONTACT_DISP, DISPOSITIONS } = await import('./'+B_rt+'?v=' + Date.now());
 
 const dialed = (code, h = 1) => ({ id:'x', createdAt: CREATED, activities:[
   { id:'1', ts: at(0), type:'Note', text:'Lead created.' },

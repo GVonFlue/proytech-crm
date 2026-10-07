@@ -1,3 +1,7 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_en = bundleName('en');
+const B_en_entry_JSX = bundleName('en-entry', '.jsx');
 /* PROPOSALS WITH ENERGY — and everything that must NOT change with it.
    ============================================================================
 
@@ -37,7 +41,7 @@ const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></
 for (const k of ['window', 'document', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'navigator', 'MutationObserver'])
   try { Object.defineProperty(globalThis, k, { value: dom.window[k], configurable: true, writable: true }); } catch {}
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-const entry = path.join(ROOT, 'tests/.ben-entry.jsx');
+const entry = path.join(ROOT, 'tests/'+B_en_entry_JSX);
 fs.writeFileSync(entry, `import React from 'react'; import { createRoot } from 'react-dom/client'; import { act } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ProposalDoc from '../src/ProposalDoc.jsx';
@@ -49,7 +53,7 @@ const built = await esbuild.build({ entryPoints: [entry], bundle: true, write: f
   loader: { '.js': 'jsx', '.json': 'json' }, external: ['react', 'react-dom', 'react-dom/client', 'react-dom/server', 'react/jsx-runtime', 'lucide-react'],
   define: { 'import.meta.env': '{}' }, logLevel: 'error',
   plugins: [{ name: 'stub', setup(b) { b.onResolve({ filter: /(^|\/)lib\/supabase$/ }, () => ({ path: path.join(ROOT, 'tests/stub-supabase.js') })); } }] });
-const out = path.join(ROOT, 'tests/.ben.mjs'); fs.writeFileSync(out, built.outputFiles[0].text);
+const out = path.join(ROOT, 'tests/'+B_en); fs.writeFileSync(out, built.outputFiles[0].text);
 const { React, createRoot, act, renderToStaticMarkup, ProposalDoc, Celebrate, prefersReducedMotion, burst, Proposals, P } = await import(out + '?' + Date.now());
 fs.unlinkSync(entry); fs.unlinkSync(out);
 const { SYSTEM } = await import('../api/proposal-draft.js');

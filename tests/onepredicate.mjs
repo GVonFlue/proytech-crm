@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_op = bundleName('op');
 /* ONE QUESTION, ONE ANSWER — every "has anybody contacted this lead?" agrees.
    ============================================================================
 
@@ -40,8 +43,8 @@ const built = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true
   format:'esm', jsx:'automatic', loader:{'.js':'jsx'},
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   logLevel:'silent' });
-fs.writeFileSync('tests/.bop.mjs', built.outputFiles[0].text);
-const { isRealTouch, REACHED_TYPES } = await import('./.bop.mjs?v=' + Date.now());
+fs.writeFileSync('tests/'+B_op, built.outputFiles[0].text);
+const { isRealTouch, REACHED_TYPES } = await import('./'+B_op+'?v=' + Date.now());
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }

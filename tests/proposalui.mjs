@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_pui = bundleName('pui');
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
 const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://crm.test/',pretendToBeVisual:true});
@@ -60,8 +63,8 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.bpui.mjs',out.outputFiles[0].text);
-const mod=await import('./.bpui.mjs?v='+Date.now());
+fs.writeFileSync('tests/'+B_pui,out.outputFiles[0].text);
+const mod=await import('./'+B_pui+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');
@@ -212,4 +215,4 @@ ok('the tab is owner-only in the gate', /if\(k==='proposals'\) return modOn\(set
 ok('and never on a rep\'s tab list', /const REP_TABS=[^\n]*k!=='proposals'[^\n]*\.concat\(\['dash'\]\)/.test(appSrc));
 
 console.log(`\n${pass} passed, ${fail} failed`);
-root.unmount(); try{fs.unlinkSync('tests/.bpui.mjs');}catch{} process.exit(fail?1:0);
+root.unmount(); try{fs.unlinkSync('tests/'+B_pui);}catch{} process.exit(fail?1:0);

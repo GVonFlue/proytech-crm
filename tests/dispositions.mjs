@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_dp = bundleName('dp');
 /* DISPOSITION CODES — the attempt cap, and the rules enforced at the write.
    ============================================================================
 
@@ -30,8 +33,8 @@ const built = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true
   format:'esm', jsx:'automatic', loader:{'.js':'jsx'},
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   logLevel:'silent' });
-fs.writeFileSync('tests/.bdp.mjs', built.outputFiles[0].text);
-const L = await import('./.bdp.mjs?v=' + Date.now());
+fs.writeFileSync('tests/'+B_dp, built.outputFiles[0].text);
+const L = await import('./'+B_dp+'?v=' + Date.now());
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }

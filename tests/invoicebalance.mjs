@@ -1,3 +1,5 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
 /* INVOICING THE BALANCE — the number must be the same in both places.
    ============================================================================
 
@@ -31,9 +33,9 @@ const bundle = async entry => {
     format:'esm', jsx:'automatic', loader:{'.js':'jsx'},
     define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
     logLevel:'silent' });
-  const f = 'tests/.bib' + Math.random().toString(36).slice(2,6) + '.mjs';
-  fs.writeFileSync(f, out.outputFiles[0].text);
-  return import('./' + f.slice(6) + '?v=' + Date.now());
+  const n = bundleName('ib');   // per-process name, deleted on exit (tests/tmpbundle.mjs)
+  fs.writeFileSync('tests/' + n, out.outputFiles[0].text);
+  return import('./' + n + '?v=' + Date.now());
 };
 const L = await bundle('src/lib/lead.js');
 const R = await bundle('src/lib/retainer.js');
