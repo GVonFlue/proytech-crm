@@ -30,6 +30,8 @@ import { onboardingAppliedPatch, readOnbConfig } from './lib/onboarding';
 import { proposalEventsPatch, readOffer } from './lib/proposal';
 import { readLifecycle, productsOf, clockOf, dueItems, lifecyclePatch, waitingOn } from './lib/lifecycle';
 import { LifecycleStrip, WhatsDue, LifecycleSettings, LIFECYCLE_CSS } from './Lifecycle';
+import { readCadence, cadenceOf, nextTouch, reachOut, coldByCadence, tierOf, tierMeta, tierLetter, REL_TIER_DESC, touchActivity } from './lib/relationships';
+import { LogTouch, ReachOutList, ReachOutCard, CadenceSettings, REL_CADENCE_CSS } from './RelCadence';
 import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, collectedByService, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
@@ -84,7 +86,7 @@ import {
   preDatesPayments, sOf, seedOnboarding, skippedOnb, sponsorshipsOf, stdPhases, stripTagText,
   tagCleared, tagsOn, todayISO, trackProgress, uid, usd, usdc, yearsAt,
   gmailIndex, setGmailIndex,
-  introducedLeads, lastTouch, daysSinceTouch, referralsOut, isRealTouch, isAppWritten,
+  introducedLeads, lastTouch, daysSinceTouch, referralsOut, isRealTouch, isAppWritten, everTouched,
   servicesOf, priceLineLabel,
 } from './lib/lead';
 
@@ -497,10 +499,10 @@ function buildHuddle(leads,tasks,settings,stages,rels,now=new Date()){
   const dueEligible=l=>{ const st=sOf(l.stage,stages); return st.open||st.nurture; };
   const overdue=(leads||[]).filter(l=>l.followUp&&daysUntil(l.followUp)<0&&dueEligible(l))
     .sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
-  const cold=coldList(rels||[]).slice(0,8);
+  const cold=coldList(rels||[],settings,now).slice(0,8);
   const stalled=openLeads.map(l=>({l,d:daysSinceTouch(l)??Infinity}))
     .filter(x=>x.d>=14).sort((a,b)=>b.d-a.d).slice(0,8);
-  const untouched=(leads||[]).filter(l=>!(l.activities||[]).some(isRealTouch));
+  const untouched=(leads||[]).filter(l=>!everTouched(l));
   return {
     period:{from:isoOf(r.start),to:isoOf(r.end),days:7,rolling:true,
       label:fmtDate(isoOf(r.start))+' – '+fmtDate(isoOf(r.end))},
@@ -556,9 +558,12 @@ const firstTouchHrs=l=>{ const acts=(l.activities||[]).filter(isRealTouch); if(!
 const median=arr=>{ if(!arr.length) return null; const x=[...arr].sort((a,b)=>a-b); const i=Math.floor(x.length/2);
   return x.length%2?x[i]:(x[i-1]+x[i])/2; };
 const fmtHrs=h=>h==null?'—':h<1?Math.round(h*60)+'m':h<48?Math.round(h)+'h':Math.round(h/24)+'d';
-/* champions need watering more often than brand-new contacts */
-export const COLD_DAYS={champion:30,b:60,new:90};
-/* COLD READS lastTouch(), and by now so does everything else.
+/* GOING COLD is past the relationship's cadence (lib/relationships), the
+   same number the Relationships page and the dashboard's "Reach out" read:
+   A 14 / B 30 / C 90 days unless Settings or the record says otherwise. It
+   was COLD_DAYS (30/60/90) here and nowhere else until Oct 2026.
+
+   COLD READS lastTouch(), and by now so does everything else.
 
    This was the first place to move off the old clock, which took the newest
    activity of ANY type and fell back to createdAt: a "Follow-up cleared." or a
@@ -570,11 +575,7 @@ export const COLD_DAYS={champion:30,b:60,new:90};
    returns null when there has been none. That NULL is why the sort below is
    written the way it is: never-contacted is the coldest thing there is, not a
    missing value to be skipped. */
-const coldOf=(r,now)=>{ const tier=tierOf(r); const t=lastTouch(r);
-  return {r,tier,last:t,days:t?daysSinceTouch(r,now):null,limit:COLD_DAYS[tier]||90}; };
-const coldRank=x=>x.days===null?Infinity:x.days;
-const coldList=(rels,now)=>(rels||[]).map(r=>coldOf(r,now))
-  .filter(x=>coldRank(x)>=x.limit).sort((a,b)=>coldRank(b)-coldRank(a));
+const coldList=(rels,settings,now)=>coldByCadence(rels,readCadence(settings),now?isoOf(now):undefined);
 /* ---- what a client owes and what has actually arrived ---------------------
    Revenue used to be attributed by CLOSE date: a deal closed 21 July put every
    dollar in July even if half the money arrived in August. That's accrual
@@ -5143,6 +5144,11 @@ export default function App(){
     }catch{}
   };
   const addActivity=(id,type,text,who,extra)=>{if(!text.trim())return; let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:[{id:uid(),ts:new Date().toISOString(),type,text:text.trim(),who:who||me,...(myUid?{whoId:myUid}:{}),...(extra&&typeof extra==='object'?extra:{})},...l.activities]}; return updated; })); if(updated) putLead(updated); };
+  /* "Log touch" (Relationships Part 1): one activity through addActivity, the
+     composer's own write, so last touch moves at once and nothing new is
+     stored. lib/relationships touchActivity is the only place a kind becomes
+     a type. */
+  const logTouch=(id,kind,note)=>{ const t=touchActivity(kind,note); if(t) addActivity(id,t[0],t[1],me,t[2]); };
   const delActivity=(id,aid)=>{ let updated=null; commitLeads(leadsRef.current.map(l=>{ if(l.id!==id)return l; updated={...l,activities:l.activities.filter(a=>a.id!==aid)}; return updated; })); if(updated) putLead(updated); };
   /* deleting is an owner action — the database enforces it too (leads_delete
      in MIGRATION.sql). This guard just keeps the UI honest. */
@@ -5583,7 +5589,7 @@ export default function App(){
     moveNav(navOrder.indexOf(navDrag),navOrder.indexOf(key)); setNavDrag(null); };
   const navItems=navOrder.map(k=>NAV.find(([kk])=>kk===k)).filter(Boolean).filter(([k])=>canSee(k));
 
-  return (<><style>{CSS+LIFECYCLE_CSS}</style><div className="pt">
+  return (<><style>{CSS+LIFECYCLE_CSS+REL_CADENCE_CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <SidebarArt/>
@@ -5635,7 +5641,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedMoney} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard labelServices={isOwner?()=>setSvcAssign(true):null} pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null} lcRows={lcRows} markDue={markDue}/>:
+          view==='dash'?<Dashboard labelServices={isOwner?()=>setSvcAssign(true):null} pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null} lcRows={lcRows} markDue={markDue} relsOn={canSee('rels')} logTouch={logTouch}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -5645,7 +5651,7 @@ export default function App(){
           view==='outreach'?<MassOutreach leads={scoped} settings={settings} stages={stages} open={openLead}
             saveSettings={saveSettings} me={me} updateLead={updateLead} rep={rep} myPools={myPools}
             users={users} addActivity={addActivity} LeadTable={Leads}/>:
-          view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead}/>:
+          view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead} settings={settings} logTouch={logTouch}/>:
           view==='onboarding'?<Onboarding leads={leads} settings={settings} saveSettings={saveSettings} apiPost={apiPost} onboardings={onboardings} proposals={proposals} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openLead={openLead} selected={onbSel} setSelected={setOnbSel}/>:
           view==='proposals'?<Proposals leads={leads} settings={settings} apiPost={apiPost} me={me} openLead={openLead} proposals={proposals} reload={refreshProposals} onSaved={refreshProposals}/>:
           view==='clients'?<Clients lcRows={lcRows} labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
@@ -5782,7 +5788,7 @@ function useMetrics(leads,stages,settings,txns){
     /* speed to first touch + follow-up discipline */
     const touchHrs=[]; let untouched=0,fuCleared=0,fuOnTime=0;
     leads.forEach(l=>{ const h=firstTouchHrs(l);
-      if(h==null){ if(!(l.activities||[]).some(isRealTouch)) untouched++; } else touchHrs.push(h);
+      if(h==null){ if(!everTouched(l)) untouched++; } else touchHrs.push(h);
       (l.activities||[]).forEach(a=>{ if(a&&a.fuOnTime!==undefined&&a.ts&&isoOf(new Date(a.ts)).slice(0,7)===mKey){ fuCleared++; if(a.fuOnTime) fuOnTime++; } }); });
     /* monthly close figures — the all-time wonCount can't drive a monthly goal */
     /* a won lead only counts once the money is confirmed — see cashConfirmed */
@@ -5991,7 +5997,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep,invoices}){
+function Dashboard({lcRows,markDue,relsOn,logTouch,labelServices,leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep,invoices}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings,txns);
   const [drill,setDrill]=useState(null);
@@ -6070,7 +6076,7 @@ function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,set
        what is on today. */
     const today=isoOf(new Date());
     const overdue=m.overdue.slice().sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
-    const untouched=openMine.filter(l=>!(l.activities||[]).some(isRealTouch))
+    const untouched=openMine.filter(l=>!everTouched(l))
       .sort((a,b)=>String(a.createdAt||'').localeCompare(String(b.createdAt||'')));
     const stale=openMine.filter(l=>!untouched.includes(l)&&(daysSinceTouch(l)??Infinity)>=7)
       .sort((a,b)=>(daysSinceTouch(b)??Infinity)-(daysSinceTouch(a)??Infinity));
@@ -6122,6 +6128,11 @@ function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,set
               {stale.length>6&&<div className="subcell">+ {stale.length-6} more</div>}
             </div>}
           </div>}
+
+      {/* REACH OUT (Relationships Part 1): a rep with the Relationships tab
+          gets their OWN relationships due a touch, and nothing else from the
+          owner's "What's due" (client delivery is not a rep screen). */}
+      {relsOn&&<ReachOutCard rels={rels||[]} settings={settings} me={me} today={todayISO()} openLead={open} onLog={logTouch}/>}
 
       {/* REP PAY. The block a rep sees follows THEIR model. A rep on NEITHER
           sees nothing at all — an honest blank for somebody not yet on a pay
@@ -6259,7 +6270,7 @@ function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,set
   const retLeads=leads.filter(billsMrr).sort((a,b)=>num(b.retainer)-num(a.retainer));
   const quotedLeads=leads.filter(l=>quotedRate(l)>0).sort((a,b)=>num(b.retainer)-num(a.retainer));
   const onboardedLeads=leads.filter(l=>l.isClient&&l.convertedAt&&String(l.convertedAt).slice(0,7)===mKey);
-  const cold=coldList(rels||[]);
+  const cold=coldList(rels||[],settings);
   /* one flat list of every meeting, filtered by the active tab + time scope */
   /* which month key a tab is scoped by. Anything that hasn't happened yet is
      scoped by when it was BOOKED, or a meeting you booked today for next month
@@ -6312,8 +6323,13 @@ function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,set
     ? dashHidden.filter(k=>k!==key) : [...dashHidden,key]);
 
   const BLOCKS={
-    /* owner only: client delivery is not a rep screen (ROLES.md) */
-    due:rep||!Array.isArray(lcRows)||!lcRows.length?null:<WhatsDue rows={lcRows} me={me} today={todayISO()} label={k=>phaseInfo(k,settings).label} onDone={markDue} openLead={open}/>,
+    /* Client delivery is owner only (ROLES.md). "Reach out" rides along for
+       the owner when the Relationships tab is on. A rep's dashboard returns
+       early above and has its own Reach out card. */
+    due:rep?null
+      :(!(Array.isArray(lcRows)&&lcRows.length)&&!(relsOn&&(rels||[]).length))?null
+      :<WhatsDue rows={lcRows||[]} me={me} today={todayISO()} label={k=>phaseInfo(k,settings).label} onDone={markDue} openLead={open}
+        rels={relsOn?(rels||[]):null} cadence={readCadence(settings)} onLog={logTouch}/>,
     /* What came in, and when. Defaults to today; the range buttons widen it.
        Counts come from countAdded so this tile and anything that counts intake
        later cannot drift apart. */
@@ -6659,7 +6675,7 @@ function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,set
       <Kpi variant="green" label="Clients Onboarded" value={m.onboardedMonth} icon={<Rocket size={14}/>} d={`this month · ${m.depositsMonth} of ${m.onbNeeded} deposit${m.onbNeeded===1?'':'s'} in${m.onbMonthlyOnly>0?` · ${m.onbMonthlyOnly} monthly-only`:''}`} onClick={()=>tog('onboarded')} active={drill==='onboarded'} goal={G.onboarded} current={m.onboardedMonth}/>
       <Kpi label="Speed to First Touch" value={fmtHrs(m.firstTouch)} icon={<Zap size={14}/>} d={m.untouched>0?`${m.untouched} never contacted`:`median across ${m.touchHrs.length} leads`} onClick={()=>tog('speed')} active={drill==='speed'}/>
       <Kpi label="Follow-Up Health" value={<Rate part={m.fuOnTime} whole={m.fuCleared} warnBelow={0.7} goodAbove={0.9}/>} icon={<Bell size={14}/>} d={`${rateSample(m.fuOnTime,m.fuCleared,'cleared on time')}${m.overdue.length>0?` · ${m.overdue.length} overdue right now`:''}`} onClick={()=>tog('fu')} active={drill==='fu'}/>
-      <Kpi label="Going Cold" value={cold.length} icon={<Users size={14}/>} d={cold.length>0?`${cold.filter(x=>x.tier==='champion').length} champion${cold.filter(x=>x.tier==='champion').length===1?'':'s'} need a touch`:'everyone is warm'} onClick={()=>tog('cold')} active={drill==='cold'}/>
+      <Kpi label="Going Cold" value={cold.length} icon={<Users size={14}/>} d={cold.length>0?`${cold.filter(x=>x.tier==='champion').length} in ${tierMeta('champion')[1]} need${cold.filter(x=>x.tier==='champion').length===1?'s':''} a touch`:'everyone is warm'} onClick={()=>tog('cold')} active={drill==='cold'}/>
     </div>
     {(drill==='booked'||drill==='held')&&<Drill title="Meetings" sub={`${mtabCounts.upcoming} upcoming · ${mtabCounts.completed} held · ${mtabCounts.noshow} no-show`} onClose={()=>setDrill(null)}>
       <div className="mtabs">
@@ -6692,7 +6708,7 @@ function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,set
 
     {drill==='speed'&&<Drill title="Speed to first touch" sub={m.firstTouch!=null?`median ${fmtHrs(m.firstTouch)}`:'no touches yet'} onClose={()=>setDrill(null)}>
       {(()=>{ const rows=leads.map(l=>({l,h:firstTouchHrs(l)}))
-          .filter(r=>r.h!=null||!(r.l.activities||[]).some(isRealTouch))
+          .filter(r=>r.h!=null||!everTouched(r.l))
           .sort((a,b)=>(a.h==null?-1:1)-(b.h==null?-1:1)||((b.h||0)-(a.h||0)));
         return rows.length?rows.map(({l,h})=>(<div className={'drow'+(h==null?' untyped':'')} key={l.id}>
           <div className="drow-m"><Name l={l}/><div className="subcell">{h==null?'never contacted':`added ${fmtDate(l.createdAt)}`}</div></div>
@@ -6707,10 +6723,10 @@ function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,set
       </div>)):<Empty t="Nothing overdue — you're clear."/>}
     </Drill>}
 
-    {drill==='cold'&&<Drill title="Relationships going cold" sub={`champions ${COLD_DAYS.champion}d · b tier ${COLD_DAYS.b}d · new ${COLD_DAYS.new}d`} onClose={()=>setDrill(null)}>
+    {drill==='cold'&&<Drill title="Relationships going cold" sub={(c=>`A every ${c.champion}d · B ${c.b}d · C ${c.new}d`)(readCadence(settings).days)} onClose={()=>setDrill(null)}>
       {cold.length?cold.map(({r,tier,days,limit})=>(<div className={'drow'+(tier==='champion'?' untyped':'')} key={r.id}>
         <div className="drow-m"><Name l={r}/><div className="subcell">{tierMeta(tier)[1]} · last touch {days===null?'never':fmtDate(lastTouch(r))}</div></div>
-        <span className="drow-v" style={{color:days>limit*2?RED:'#C05A1E'}}>{days>=9999?'never':days+'d ago'}</span>
+        <span className="drow-v" style={{color:days===null||days>limit*2?RED:'#C05A1E'}}>{days===null?'never':days+'d ago'}</span>
       </div>)):<Empty t="Everyone's been touched recently. Nice."/>}
     </Drill>}
 
@@ -7799,7 +7815,7 @@ function Leads({leads,settings,stages,open,saveSettings,importLeads,me,updateLea
      RUN THE BACKFILL FIRST. Before those 21 notes are marked, isRealTouch
      counts them as contact, so shipping this without it drops 21 leads nobody
      has ever spoken to off the to-work list. See TOWORK-DISAGREE-MEASURE.sql. */
-  const untouched=l=>!(l.activities||[]).some(isRealTouch);
+  const untouched=l=>!everTouched(l);
   const recentCount=leads.filter(recentFilter).length;
   const toWorkCount=leads.filter(l=>recentFilter(l)&&untouched(l)).length;
   const claim=(e,l)=>{ e.stopPropagation(); if(updateLead) updateLead(l.id,{owner:me}); };
@@ -8307,44 +8323,25 @@ function NetworkWeb({contacts,open}){
   </>);
 }
 
-const REL_TIER_DESC={champion:'Your top referrers & hubs',b:'Warm — keep nurturing',new:'Just met — start farming'};
-const tierOf=r=>r.relTier||'new';
-const tierMeta=k=>REL_TIERS.find(t=>t[0]===k)||REL_TIERS[2];
+/* tierOf, tierMeta and REL_TIER_DESC live in lib/relationships now, with
+   the cadence they are read with. */
 /* WHAT NEEDS ATTENTION, across every tier.
 
-   The tab was organised by tier — a label set once that never changes — while
-   the thing that actually decays is silence. Overdue dates were buried in the
-   fifth column of List and absent from Grouped entirely, so the actionable
-   content was the hardest thing on the page to see.
+   The tab was organised by tier, a label set once that never changes, while
+   the thing that actually decays is silence. The strip is pinned above the
+   tiers and is lib/relationships reachOut(): overdue (past last touch +
+   cadence, a sooner follow-up date, or never contacted), due this week, and
+   birthdays three days ahead, A tier first. It is the SAME function the
+   dashboard's "Reach out" reads, so the two cannot list different people.
 
-   Three buckets, and the third is the point. Overdue and due-today read
-   followUp, so a relationship with NO follow-up date set can never appear in
-   them however long it has been quiet — which is exactly the failure this page
-   was supposed to fix. GONE QUIET catches those: no date set, and no real
-   touch in longer than the tier allows.
-
-   Thresholds are COLD_DAYS, the same 30/60/90 the Monday Huddle uses, so the
-   two screens cannot call different people cold. */
-function attentionBuckets(rels,now){
-  const over=[],today=[],quiet=[];
-  for(const r of (rels||[])){
-    const d=r.followUp?daysUntil(r.followUp):null;
-    if(d!==null&&d<0){ over.push({r,why:'Overdue · '+fmtDate(r.followUp),days:daysSinceTouch(r,now)}); continue; }
-    if(d===0){ today.push({r,why:'Due today',days:daysSinceTouch(r,now)}); continue; }
-    if(r.followUp) continue;              /* a date is set and it is ahead */
-    const days=daysSinceTouch(r,now); const limit=COLD_DAYS[tierOf(r)]||90;
-    if(days===null) quiet.push({r,why:'Never contacted',days:null});
-    else if(days>=limit) quiet.push({r,why:`${days}d quiet · ${tierMeta(tierOf(r))[1]} allows ${limit}`,days});
-  }
-  const rank=x=>x.days===null?Infinity:x.days;
-  over.sort((a,b)=>(a.r.followUp||'').localeCompare(b.r.followUp||''));
-  quiet.sort((a,b)=>rank(b)-rank(a));
-  return {over,today,quiet};
-}
+   It replaced three buckets (overdue / due today / gone quiet) whose quiet
+   threshold was COLD_DAYS 30/60/90. "Gone quiet" is not lost: a relationship
+   with no date set that has run past its cadence is overdue now, because the
+   cadence is its due date. */
 /* how long since a real touch, as a row reads it */
-const SinceTouch=({lead})=>{ const d=daysSinceTouch(lead);
+const SinceTouch=({lead,cfg})=>{ const d=daysSinceTouch(lead);
   if(d===null) return <span className="since never">never contacted</span>;
-  const limit=COLD_DAYS[tierOf(lead)]||90;
+  const limit=cadenceOf(lead,cfg).days;
   return <span className={'since'+(d>=limit?' cold':d>=limit*0.6?' warm':'')}>{d}d ago</span>; };
 /* given · received, per row. Money stays on the record itself: a dollar figure
    on every row of a table would need a metrics run per row, and the one on the
@@ -8354,7 +8351,9 @@ const RefCount=({lead,all})=>{ const g=referralsOut(lead).length; const r=introd
   return <span className="refct" title={`${g} sent to them · ${r} sent to you`}>
     <b>{g}</b><i>given</i><em>·</em><b>{r}</b><i>received</i></span>; };
 
-function Relationships({leads,open,updateLead}){
+function Relationships({leads,open,updateLead,settings,logTouch}){
+  const cfg=useMemo(()=>readCadence(settings),[settings]);
+  const today=todayISO();
   const [q,setQ]=useState('');
   const [src,setSrc]=useState('all');
   const [tier,setTier]=useState(null);
@@ -8392,6 +8391,7 @@ function Relationships({leads,open,updateLead}){
     leads.forEach(l=>{const c=introChain(l,leads);if(c.length>best){best=c.length;who=l;}});
     return {len:best,who};
   },[leads]);
+  const onLog=logTouch?((id,kind,note)=>logTouch(id,kind,note)):null;
   const TierPick=({r})=>{const m=tierMeta(tierOf(r));return (<span className="tier-pick" style={{'--tc':m[2]}} onClick={e=>e.stopPropagation()}>
     <span className="tier-dot"/>
     <select value={tierOf(r)} onChange={e=>updateLead&&updateLead(r.id,{relTier:e.target.value})}>{REL_TIERS.map(([k,l])=><option key={k} value={k}>{l}</option>)}</select>
@@ -8403,37 +8403,22 @@ function Relationships({leads,open,updateLead}){
   const Row=(r,{intro=true}={})=>(<tr key={r.id} onClick={()=>open(r.id,shown.map(x=>x.id))}>
     <td><div className="namecell">{r.name}</div><div className="subcell">{r.company||'—'}</div></td>
     <td onClick={e=>e.stopPropagation()}>{TierPick({r})}</td>
-    <td><SinceTouch lead={r}/></td>
+    <td><SinceTouch lead={r} cfg={cfg}/></td>
     <td><RefCount lead={r} all={leads}/></td>
     {intro?<td>{r.introducedBy?<span className="rel-chip"><Link2 size={11}/>{nameOf(r.introducedBy)||'—'}</span>:<span className="subcell">Direct</span>}</td>:null}
-    <td><Due iso={r.followUp}/></td>
+    <td><Due iso={nextTouch(r,cfg,today).due}/></td>
     <td className="subcell">{r.owner||'—'}</td>
+    {onLog?<td onClick={e=>e.stopPropagation()}><LogTouch compact name={r.name} onLog={(k,n)=>onLog(r.id,k,n)}/></td>:null}
   </tr>);
   const Head=({intro=true})=>(<thead><tr><th>Name</th><th>Tier</th><th>Last contact</th><th>Referrals</th>
-    {intro?<th>Introduced by</th>:null}<th>Follow-up</th><th>Owner</th></tr></thead>);
-  const att=useMemo(()=>attentionBuckets(rels),[rels]);
-  const attTotal=att.over.length+att.today.length+att.quiet.length;
-  const AttGroup=({items,kind,label})=>items.length?(<div className={'na-col '+kind}>
-    <div className="na-h">{label}<span className="na-n">{items.length}</span></div>
-    <div className="na-list">{items.slice(0,6).map(({r,why,days})=>(
-      <div className="na-row" key={r.id} onClick={()=>open(r.id,rels.map(x=>x.id))}>
-        <span className="na-dot" style={{background:tierMeta(tierOf(r))[2]}}/>
-        <span className="na-name">{r.name||r.company||'(no name)'}</span>
-        <span className="na-why">{why}</span>
-      </div>))}
-      {items.length>6?<div className="na-more">+{items.length-6} more</div>:null}
-    </div>
-  </div>):null;
+    {intro?<th>Introduced by</th>:null}<th>Next touch</th><th>Owner</th>{onLog?<th aria-label="Log touch"/>:null}</tr></thead>);
+  const att=useMemo(()=>reachOut(rels,{cfg,today}),[rels,cfg,today]);
   return (<div className="relsurface">
     {/* PINNED ABOVE THE TIERS, and above the grouping, because it is the same
         answer whichever way the page below is arranged. */}
-    {attTotal>0&&<div className="needs-att">
-      <div className="na-top"><AlertTriangle size={14}/>Needs attention<span className="na-tot">{attTotal}</span></div>
-      <div className="na-cols">
-        {AttGroup({items:att.over,kind:"over",label:"Overdue"})}
-        {AttGroup({items:att.today,kind:"today",label:"Due today"})}
-        {AttGroup({items:att.quiet,kind:"quiet",label:"Gone quiet"})}
-      </div>
+    {att.count>0&&<div className="needs-att">
+      <div className="na-top"><AlertTriangle size={14}/>Needs attention<span className="na-tot">{att.count}</span></div>
+      <ReachOutList data={att} openLead={id=>open(id,rels.map(x=>x.id))} onLog={onLog} max={6}/>
     </div>}
     <div className="rel-tiers">
       {REL_TIERS.map(([key,label,color])=>{
@@ -8451,12 +8436,12 @@ function Relationships({leads,open,updateLead}){
         return (<div key={key} className={'rel-tier'+(on?' on':'')} style={{'--tc':color}}>
           <div className="rt-head" onClick={pick}>
             <div className="rt-top"><span className="rt-dot"/>{label}<span className="rt-count">{people.length}</span></div>
-            <div className="rt-d">{REL_TIER_DESC[key]}</div>
+            <div className="rt-d">{REL_TIER_DESC[key]} · every {cfg.days[key]}d</div>
           </div>
           <div className="rt-people">
             {people.length?people.map(r=>(<div key={r.id} className="rt-person" onClick={()=>open(r.id)}>
               <span className="rt-pn">{r.name||'(no name)'}</span>
-              <SinceTouch lead={r}/>
+              <SinceTouch lead={r} cfg={cfg}/>
             </div>)):<div className="rt-empty">No one here yet</div>}
           </div>
           {/* It said "Tap to list all 7" while all 7 were already listed above
@@ -9970,6 +9955,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <button className="linkbtn" onClick={()=>savePhases(DEFAULT_CLIENT_PHASES)}>Reset to defaults</button>
     </div>); })()}
     {isOwner&&<LifecycleSettings settings={settings} saveSettings={saveSettings} team={(users||[]).length?(users||[]).filter(u=>u.active!==false).map(u=>u.name):BRAND.team}/>}
+    {isOwner&&<CadenceSettings settings={settings} saveSettings={saveSettings}/>}
 
     {/* logo */}
     <div className="card" style={{marginBottom:18}}>

@@ -70,6 +70,7 @@ console.log('\na rep');
 {
   ok('no "What\'s due" card', !document.querySelector('.lc-due') && !/What's due/.test(txt(document.body)));
   ok('no lifecycle strip anywhere', !document.querySelector('.lc-strip'));
+  ok('no "Reach out" card either: this rep does not have the Relationships tab', !document.querySelector('.ro-card') && !document.querySelector('.lc-reach'));
   ok('no Clients tab', ![...document.querySelectorAll('.nav-i, nav button, aside button, a')].some(e => (e.textContent || '').trim() === 'Clients'));
   ok('their client\'s lead is not written by the lifecycle', !writesFor('r1').some(w => w.clientPhase === 'build'), JSON.stringify(writesFor('r1').map(w => w.clientPhase)));
   const arr = [...document.querySelectorAll('button')].find(b => /^Rearrange$/.test((b.textContent || '').trim()));

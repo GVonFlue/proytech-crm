@@ -28,7 +28,7 @@ import {
   isBookable, markSlots, slotAt, slotWallClock, slotsForDay,
 } from './lib/availability.js';
 import {
-  ACT_TYPES, CMSN_STATE, DATE_LEAD_DEFAULT, DEFAULT_DELIVERY_TRACKS,
+  ACT_TYPES, actTypesFor, CMSN_STATE, DATE_LEAD_DEFAULT, DEFAULT_DELIVERY_TRACKS,
   MEETING_TYPES, OWNERS, PRIORITIES, REL_TIERS, actLabel, activeTracks, allMeetings,
   blankFirst, bookedCount, calendarOwner, clientOverall, closedDealsTotal, cmsnAmount,
   cmsnOf, dateVocab, datelessOf, dayLabel, daysToDate, daysUntil, dealsOf, depositPaidAt,
@@ -98,6 +98,8 @@ import {
 import { apptEarnings, payModels } from './lib/reppay';
 import { retainerState, monthsDue, monthsPaid } from './lib/retainer';
 import { DateFix, PriBadge, StageBadge } from './LeadBits';
+import { LogTouch, PersonCadence } from './RelCadence';
+import { touchActivity } from './lib/relationships';
 import PersonPicker from './PersonPicker';
 
 /* The ONE place a meeting gets booked. The Meetings section and the activity
@@ -1328,10 +1330,15 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
       const summary=[draft.isRelationship?'Relationship':'Lead',chain.length?`via ${chain[chain.length-1].name}`:null].filter(Boolean).join(' · ');
       return Sec('type',<Users size={13}/>,draft.isRelationship?'The relationship':'Type & Introduction',summary,<>
         <div className="spon-row">
-          <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?'Relationship — not a ProyTech lead':'ProyTech lead'}</label>
+          <label className={'spon-tog rel'+(draft.isRelationship?' on':'')}><input type="checkbox" checked={!!draft.isRelationship} onChange={e=>set({isRelationship:e.target.checked})}/>{draft.isRelationship?`Relationship — not a ${BRAND.name} lead`:`${BRAND.name} lead`}</label>
         </div>
-        {draft.isRelationship&&<div className="rel-hint">Kept out of Pipeline, Money &amp; Dashboard — still shows in Follow-Up when due.</div>}
+        {draft.isRelationship&&<div className="rel-hint">Kept out of Pipeline and Money. Shows in Reach out and Follow-Up when a touch is due.</div>}
         {draft.isRelationship&&<div className="tier-btns">{REL_TIERS.map(([k,l,c])=><button key={k} type="button" className={'tier-btn'+((draft.relTier||'new')===k?' on':'')} style={{'--tc':c}} onClick={()=>set({relTier:k})}><span className="tier-dot"/>{l}</button>)}</div>}
+        {/* Cadence and "Log touch" (Relationships Part 1). The touch goes
+            straight through addActivity, like the composer below; the
+            cadence is the record's own relCadenceDays, blank for the tier. */}
+        {draft.isRelationship&&<PersonCadence lead={draft} settings={settings} onChange={v=>set({relCadenceDays:v})}/>}
+        {draft.isRelationship&&!isNew&&<div className="rel-lt"><LogTouch name={draft.name} onLog={(k,n)=>{ const t=touchActivity(k,n); if(t) addActivity(draft.id,t[0],t[1],me,t[2]); }}/></div>}
         <div className="fgrid" style={{marginTop:10}}>
           <div className="field"><label>Introduced by</label>
             <PersonPicker people={candidates} value={draft.introducedBy||''}
@@ -1726,7 +1733,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 A rep books exactly one thing: the ten minutes with Logan. Type,
                 length and Meet link are not his decisions, so the scheduler is
                 an owner control and BK is his. */}
-            <div className="act-types">{ACT_TYPES.filter(t=>!(rep&&t.key==='Booked')).map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
+            <div className="act-types">{actTypesFor(draft.isRelationship).filter(t=>!(rep&&t.key==='Booked')).map(({key,icon:Ic})=><button key={key} className={'act-t '+(atype===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setAtype(key)}><Ic size={12}/>{actLabel(key)}</button>)}
               {canLogPayment&&<button className={'act-t pay'+(atype==='Payment'?' on':'')} onClick={()=>setAtype('Payment')}><DollarSign size={12}/>Payment</button>}
             </div>
             {/* WHAT HAPPENED ON THE CALL. Shown to a rep only: the owners log
@@ -1884,7 +1891,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               {touch.noAnswer>0&&<button className={feedFilter==='NoAnswer'?'on':''}
                 onClick={()=>setFeedFilter('NoAnswer')}>No answer ({touch.noAnswer})</button>}
               <button className={feedFilter==='Note'?'on':''} onClick={()=>setFeedFilter('Note')}>Notes{noteCount?` (${noteCount})`:''}</button>
-              {ACT_TYPES.filter(t=>t.key!=='Note').map(t=>{ const n=touch.by[t.key]||0;
+              {actTypesFor(draft.isRelationship).filter(t=>t.key!=='Note').map(t=>{ const n=touch.by[t.key]||0;
                 return (<button key={t.key} className={(feedFilter===t.key?'on':'')+(n?'':' none')}
                   onClick={()=>setFeedFilter(t.key)}>{actLabel(t.key)}{n?` (${n})`:''}</button>); })}
             </div>
@@ -2056,7 +2063,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           {isNew&&<>
             <div className="dh mt"><MessageSquare size={13}/>First note</div>
             <div className="fn-block">
-              <div className="act-types">{ACT_TYPES.filter(t=>!(rep&&t.key==='Booked')).map(({key,icon:Ic})=><button key={key} className={'act-t '+(firstType===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setFirstType(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
+              <div className="act-types">{actTypesFor(draft.isRelationship).filter(t=>!(rep&&t.key==='Booked')).map(({key,icon:Ic})=><button key={key} className={'act-t '+(firstType===key?'on':'')+(key==='Booked'?' booked':'')} onClick={()=>setFirstType(key)}><Ic size={12}/>{actLabel(key)}</button>)}</div>
               <textarea className="fu-note" style={{marginTop:9}} rows={3} placeholder={`How'd the ${firstType.toLowerCase()} go? What did they say?`} value={firstNote} onChange={e=>setFirstNote(e.target.value)}/>
               <div className="fn-hint">{firstNote.trim()?<><CheckCircle2 size={12} color="var(--ok2)"/>Logs as a {firstType} from {who} the moment you save</>:'Optional — but log it now while it\u2019s fresh'}</div>
             </div>
