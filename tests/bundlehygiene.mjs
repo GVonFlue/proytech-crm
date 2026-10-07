@@ -25,6 +25,11 @@ console.log('\nno fixed bundle names');
 {
   const fixed = files.filter(f => /['"`][^'"`\n]*\.b[A-Za-z0-9_]+(-entry)?\.(mjs|jsx)/.test(src[f]));
   ok('no suite writes or imports a fixed tests/.b*.mjs or .jsx name', !fixed.length, fixed.join(', '));
+  /* invoicebalance.mjs built 'tests/.bib' + random + '.mjs' and never deleted
+     it: no literal for the check above to find. A '.b…' string that is
+     concatenated onto is a hand-made bundle name too. */
+  const built = files.filter(f => /['"`](?:tests\/)?\.b[A-Za-z0-9_-]*['"`]\s*\+/.test(src[f]));
+  ok('no suite builds a bundle name by hand (\'tests/.bX\' + …)', !built.length, built.join(', '));
   const users = files.filter(f => /\bbundleName\(/.test(src[f]));
   ok(`the ${users.length} suites that bundle all take the name from ./tmpbundle.mjs`, users.length > 50 && users.every(f => /import \{ bundleName \} from '\.\/tmpbundle\.mjs'/.test(src[f])),
     users.filter(f => !/from '\.\/tmpbundle\.mjs'/.test(src[f])).join(', '));
