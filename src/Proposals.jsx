@@ -12,7 +12,7 @@
    A SENT PROPOSAL IS FROZEN. What the client saw is what stays on record; a new
    offer is a new proposal. saveProposal refuses to update anything but a draft. */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Sparkles, Download, Link2, Send, X, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Trash2, Check, ArrowUp, ArrowDown } from 'lucide-react';
+import { Plus, Sparkles, Download, Link2, Send, X, ChevronLeft, ChevronRight, AlertTriangle, CheckCircle2, Trash2, Check, ArrowUp, ArrowDown, Archive, ArchiveRestore } from 'lucide-react';
 import ProposalDoc, { PROPOSAL_CSS } from './ProposalDoc';
 import { readOffer, quote, cleanCopy, buildBody, newToken, isExpired, readiness, validateOffer, safeAsset, acceptanceRecord,
   defaultContactPick, chosenContacts, CONTACTS_ALL } from './lib/proposal';
@@ -48,10 +48,12 @@ const blankSel = (offer) => {
   return { packageId: pkg ? pkg.id : '', addonIds: [], prices: {}, seats: pkg ? pkg.seatsIncluded : 0, prepay: true };
 };
 
-export default function Proposals({ leads, settings, apiPost, me, openLead, proposals, reload, onSaved }) {
+export default function Proposals({ leads, settings, apiPost, me, openLead, proposals, reload, onSaved, noteLead }) {
   const { offer, missing } = useMemo(() => readOffer(settings), [settings]);
   const [cur, setCur] = useState(null);           // the proposal being built or viewed
   const [filter, setFilter] = useState('all');
+  /* archived = accepted and put away: kept for the record (Terms 18.2), out of the default list */
+  const [showArchived, setShowArchived] = useState(false);
   const leadsById = useMemo(() => Object.fromEntries((leads || []).map(l => [l.id, l])), [leads]);
 
   if (proposals === null) return (<div className="card pp-empty">
@@ -59,19 +61,23 @@ export default function Proposals({ leads, settings, apiPost, me, openLead, prop
     <p>Run <code>PROPOSALS-MIGRATION.sql</code> in Supabase, then reload. Nothing else is affected.</p></div>);
 
   if (cur) return <Builder key={cur.id || cur.token} start={cur} offer={offer} missing={missing} leads={leads}
-    leadsById={leadsById} apiPost={apiPost} me={me} openLead={openLead}
+    leadsById={leadsById} apiPost={apiPost} me={me} openLead={openLead} noteLead={noteLead}
     onBack={() => { setCur(null); reload && reload(); }} onSaved={onSaved} />;
 
   const all = proposals || [];
-  const rows = all.map(p => ({ p, st: statusOf(p), v: valueOf(p), lead: leadsById[p.lead_id] }));
+  /* the stat tiles count every proposal (an archived one is still history);
+     the chips and the list leave archived ones out unless asked */
+  const every = all.map(p => ({ p, st: statusOf(p), v: valueOf(p), lead: leadsById[p.lead_id] }));
+  const archivedN = every.filter(r => r.p.archived_at).length;
+  const rows = showArchived ? every : every.filter(r => !r.p.archived_at);
   const count = k => (k === 'all' ? rows.length : rows.filter(r => r.st === k).length);
   const shown = filter === 'all' ? rows : rows.filter(r => r.st === filter);
-  const open = rows.filter(r => r.st === 'sent' || r.st === 'viewed');
+  const open = every.filter(r => r.st === 'sent' || r.st === 'viewed');
   const sum = list => list.reduce((a, r) => a + (r.v.setup || 0), 0);
-  const won = rows.filter(r => r.st === 'accepted');
+  const won = every.filter(r => r.st === 'accepted');
   /* opened = ever viewed, among everything ever sent: an accepted or expired
      proposal was still opened, and leaving it out undercounts the rate */
-  const sentRows = rows.filter(r => r.p.sent_at);
+  const sentRows = every.filter(r => r.p.sent_at);
   const opened = sentRows.filter(r => r.p.viewed_at);
   const start = () => setCur({ token: newToken(), status: 'draft', isNew: true });
   const canStart = !!(offer && offer.packages.length);
@@ -89,20 +95,22 @@ export default function Proposals({ leads, settings, apiPost, me, openLead, prop
     {missing.length > 0 && <div className="pp-warn"><AlertTriangle size={15} />
       <span><b>{missing.includes('offer') ? 'No offer is set up yet.' : 'Your offer is incomplete.'}</b> Missing: {missing.join(', ')}. Add it in Settings → Proposals. Until then nothing can be priced.</span></div>}
 
-    {rows.length > 0 && <div className="pp-stats">
+    {every.length > 0 && <div className="pp-stats">
       <div className="pp-stat"><span>Waiting on a client</span><b>{open.length}</b><em>{open.length ? usd(sum(open)) + ' in setup' : 'none out right now'}</em></div>
       <div className="pp-stat"><span>Opened</span><b>{opened.length}</b><em>of {sentRows.length} sent</em></div>
       <div className="pp-stat win"><span>Accepted</span><b>{won.length}</b><em>{won.length ? usd(sum(won)) + ' in setup' : 'none yet'}</em></div>
-      <div className="pp-stat"><span>Drafts</span><b>{count('draft')}</b><em>not sent</em></div>
+      <div className="pp-stat"><span>Drafts</span><b>{every.filter(r => r.st === 'draft').length}</b><em>not sent</em></div>
     </div>}
 
     {rows.length > 0 && <div className="pp-filters" role="tablist">
       {FILTERS.filter(k => k !== 'expired' || count('expired') > 0).map(k => (
         <button key={k} role="tab" aria-selected={filter === k} className={'pp-chip ' + k + (filter === k ? ' on' : '')} onClick={() => setFilter(k)}>
           {k !== 'all' && <i />}{k === 'all' ? 'All' : PILL[k]}<span>{count(k)}</span></button>))}
+      {archivedN > 0 && <button role="tab" aria-selected={showArchived} className={'pp-chip arch' + (showArchived ? ' on' : '')} onClick={() => setShowArchived(v => !v)}>
+        <Archive size={12} />{showArchived ? 'Hide archived' : 'Show archived'}<span>{archivedN}</span></button>}
     </div>}
 
-    {!rows.length && <div className="pp-emptycard">
+    {!every.length && <div className="pp-emptycard">
       <div className="pp-kick">Nothing sent yet</div>
       <h2>No proposals yet</h2>
       <p>Your first one takes about five minutes. Every price comes from your offer in Settings, and the AI writes only the words.</p>
@@ -118,7 +126,7 @@ export default function Proposals({ leads, settings, apiPost, me, openLead, prop
         <div className="pp-who"><b>{lead ? personLabel(lead) : 'Lead removed'}</b><span>{title}</span></div>
         <div className="pp-val"><b>{v.setup === null ? '—' : usd(v.setup)}</b><span>{v.monthly ? usd(v.monthly) + '/mo' : 'no monthly'}</span></div>
         <div className="pp-when">
-          <span className={'pp-pill ' + st}><i />{PILL[st]}</span>
+          <span className={'pp-pill ' + st}><i />{PILL[st]}</span>{p.archived_at && <span className="pp-arch-tag"><Archive size={11} />Archived</span>}
           <div className="pp-trail">{st === 'draft' ? <span>Last edited {fmt(p.updated_at)}</span> : <>
             {p.sent_at && <span>Sent {fmt(p.sent_at)}</span>}
             {p.viewed_at ? <span className="seen">Viewed {fmtAt(p.viewed_at)}</span> : (st !== 'accepted' && p.sent_at && <span className="muted">Not opened yet</span>)}
@@ -142,7 +150,7 @@ export function quoteFor(start, offer, sel) {
   return quote(offer, sel);
 }
 
-function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLead, onBack, onSaved }) {
+function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLead, onBack, onSaved, noteLead }) {
   const frozen = !!(start.status && start.status !== 'draft');
   const startBody = start.body || {};
   const sq = startBody.quote || {};
@@ -266,6 +274,21 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
   };
 
   const st = statusOf({ ...start, ...pub });
+  const who = lead ? (lead.company || personLabel(lead)) : 'this client';
+  const removeSent = async () => {
+    if (!window.confirm(`Delete the proposal you sent to ${who}? Their link will stop working. This can't be undone.`)) return;
+    try {
+      await db.deleteProposal(id);
+      /* the lead keeps its "sent" and "viewed" notes; this says where it went */
+      if (lead && noteLead) noteLead(lead.id, start.sent_at ? fmt(start.sent_at) : '');
+      onBack();
+    } catch (e) { say('err', e.message); }
+  };
+  const toggleArchive = async () => {
+    setBusy('archive');
+    try { await db.archiveProposal(id, !start.archived_at); onBack(); }
+    catch (e) { say('err', e.message); setBusy(''); }
+  };
   const leadsSorted = useMemo(() => (leads || []).filter(l => !l.isRelationship).slice().sort((a, b) => personLabel(a).localeCompare(personLabel(b))), [leads]);
 
   return (<div className="pp-wrap">
@@ -273,6 +296,14 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
     <div className="toolbar pd-noprint" style={{ marginBottom: 12 }}>
       <button className="btn btn-g btn-sm" onClick={onBack}><ChevronLeft size={15} />All proposals</button>
       <span className={'pp-pill ' + st}>{PILL[st]}</span>
+      {start.archived_at && <span className="pp-arch-tag"><Archive size={11} />Archived</span>}
+      <span style={{ marginLeft: 'auto' }} />
+      {/* sent, viewed or expired, never accepted: deletable, with a confirm that
+          names the client. Accepted: never deletable (Postgres refuses it,
+          PROPOSALS-ARCHIVE-MIGRATION.sql); archive it instead. */}
+      {id && frozen && st !== 'accepted' && <button className="btn btn-g btn-sm pp-del" onClick={removeSent}><Trash2 size={14} />Delete</button>}
+      {id && st === 'accepted' && <button className="btn btn-g btn-sm pp-archive" onClick={toggleArchive} disabled={!!busy}>
+        {start.archived_at ? <><ArchiveRestore size={14} />Unarchive</> : <><Archive size={14} />Archive</>}</button>}
     </div>
     {msg && <div className={'pp-msg pd-noprint ' + msg.kind}>{msg.kind === 'err' ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />}<span>{msg.text}</span>
       <button onClick={() => setMsg(null)}><X size={14} /></button></div>}
@@ -853,6 +884,9 @@ export const PROPOSALS_CSS = `
 @media (max-width:760px){ .oe-contact{grid-template-columns:1fr} }
 .pp-contact{max-width:280px}
 .pp-record a{color:#14663E;font-weight:700}
+.pp-arch-tag{display:inline-flex;align-items:center;gap:4px;margin-left:6px;font-size:11px;font-weight:700;color:#56607A;background:#EEF0F7;border-radius:999px;padding:2px 8px}
+.pp-chip.arch{display:inline-flex;align-items:center;gap:5px}
+.pp-del{color:#B42F2F}
 .oe-tagged{grid-column:1/-1}
 .oe-tl{border:1px solid #EEF1F7;border-radius:10px;padding:6px 8px 8px;margin-bottom:6px;background:#FCFDFF}
 .oe-tl.bad{border-color:#E9A09B;background:#FFF7F6}

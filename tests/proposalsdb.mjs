@@ -101,6 +101,45 @@ for (const role of ['anon', 'authenticated']) {
   ok(`${role}: permission denied, both signatures`, /permission denied/.test(a.error || '') && /permission denied/.test(b.error || ''), JSON.stringify([a, b]));
 }
 
+console.log('\nPROPOSALS-ARCHIVE-MIGRATION.sql: an accepted proposal is kept (Terms 18.2)');
+{
+  const ARCH = read('PROPOSALS-ARCHIVE-MIGRATION.sql');
+  /* the sections above left accepted rows; after this migration nothing can
+     delete them, which is the point. Seed once, before it goes in. */
+  await seed();
+  ok('runs', (await run(ARCH)) === '');
+  ok('  with accepted rows present, the old reset (delete everything) is now refused', /An accepted proposal is kept for the record/.test(await run(`update proposals set status = 'accepted', accepted_at = now() where token = '${T('legal2')}'; delete from proposals`)));
+  await run(`alter table proposals disable trigger proposals_keep_accepted_upd`); await run(`alter table proposals disable trigger proposals_keep_accepted_del`);
+  await seed();
+  await run(`alter table proposals enable trigger proposals_keep_accepted_upd`); await run(`alter table proposals enable trigger proposals_keep_accepted_del`);
+  ok('  and again (re-running is safe)', (await run(ARCH)) === '');
+  /* one accepted, one sent, one draft: accept through the real function */
+  await db.exec('begin'); await db.exec('set local role service_role');
+  await db.query(`select proposal_accept('${T('legal')}','Dee Client','9.8.7.6','monthly', true)`);
+  await db.exec('commit');
+  await db.query(`update proposals set status = 'draft' where token = '${T('legal2')}'`);
+  const tryAs = async (role, sql) => role === 'postgres' ? (await run(sql)) : ((await as(role, sql)).error || '');
+  const kept = /An accepted proposal is kept for the record/;
+  for (const role of ['service_role', 'postgres'])
+    ok(`${role}: deleting the accepted proposal is refused`, kept.test(await tryAs(role, `delete from proposals where token = '${T('legal')}'`)));
+  ok('  a bulk delete of everything is refused too (and deletes nothing)', kept.test(await run(`delete from proposals`)) && (await db.query(`select count(*)::int n from proposals`)).rows[0].n === 4);
+  ok('the accepted row and its record are all still there', (await rec(T('legal'))).status === 'accepted' && (await rec(T('legal'))).accepted_name === 'Dee Client' && (await rec(T('legal'))).v === '2026-10-04');
+  const changed = /An accepted proposal cannot be changed/;
+  for (const [what, set] of [['its status', `status = 'sent'`], ['its body', `body = '{}'::jsonb`], ['the accepted name', `accepted_name = 'Someone Else'`], ['the IP', `accepted_ip = '0.0.0.0'`], ['the time', `accepted_at = now()`], ['the plan', `accepted_plan = 'annual'`], ['the terms version', `accepted_terms_version = 'X'`], ['the terms link', `accepted_terms_url = 'https://x.test'`], ['the privacy link', `accepted_privacy_url = 'https://x.test'`]])
+    ok(`changing ${what} on an accepted proposal is refused`, changed.test(await run(`update proposals set ${set} where token = '${T('legal')}'`)));
+  ok('archiving it works', (await run(`update proposals set archived_at = now() where token = '${T('legal')}'`)) === '' && !!(await db.query(`select archived_at from proposals where token = '${T('legal')}'`)).rows[0].archived_at);
+  ok('  and so does unarchiving', (await run(`update proposals set archived_at = null where token = '${T('legal')}'`)) === '');
+  ok('the CRM marking it applied still works', (await run(`update proposals set applied_at = now(), updated_at = now() where token = '${T('legal')}'`)) === '');
+  ok('an archived accepted proposal still opens for the client', (await run(`update proposals set archived_at = now() where token = '${T('legal')}'`)) === '' && (await server(`select status from proposal_public('${T('legal')}')`)) === 'accepted');
+  ok('archiving a draft is refused (delete it instead)', /Only an accepted proposal can be archived/.test(await run(`update proposals set archived_at = now() where token = '${T('legal2')}'`)));
+  /* as() rolls back, so: allowed as the server, then really deleted */
+  ok('a sent proposal deletes (as the server, and for real)', (await tryAs('service_role', `delete from proposals where token = '${T('plain')}'`)) === ''
+    && (await run(`delete from proposals where token = '${T('plain')}'`)) === '' && !(await rec(T('plain'))));
+  ok('a draft deletes', (await run(`delete from proposals where token = '${T('legal2')}'`)) === '' && !(await rec(T('legal2'))));
+  ok('accepting a sent proposal still works under the trigger', (await server(`select proposal_accept('${T('emptylegal')}','Pat','1.1.1.1','monthly', false)`)) === 'accepted');
+  ok('RLS-AUDIT.sql still passes', (await run(read('RLS-AUDIT.sql'))) === '');
+}
+
 await db.close();
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

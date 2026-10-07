@@ -1200,6 +1200,46 @@ rollback;
 | legal proposal, agreed | accepted | |
 | the record | V1 and both example.test links, from the body | |
 
+### 12c. Accepted proposals are kept (after PROPOSALS-ARCHIVE-MIGRATION.sql)
+
+An accepted proposal is the client's signed record (Terms §18.2; the Privacy
+Policy's retention promise). Two triggers on `proposals` keep it, for **every**
+role, the SQL editor included: deleting an accepted proposal is refused, and
+once accepted its `status`, `body` and every `accepted_*` column cannot be
+changed. `archived_at` (hide it from the CRM's default list) stays changeable,
+and can only be set on an accepted proposal. No policy changes; §12's single
+owner-only policy still decides who can reach the table at all.
+
+**Status: NOT YET RUN against the real install.** Proven locally against real
+Postgres by `tests/proposalsdb.mjs` (PGlite: refused as the server and as the
+table owner, a bulk delete refused, every protected column refused, archive and
+unarchive allowed, a sent or draft proposal deletes, accepting still works).
+
+Run as one block; nothing persists:
+```sql
+begin;
+insert into proposals (lead_id, token, status, body, expires_at, accepted_at, accepted_name) values
+ ('sentinel', 'KEEPxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'accepted', '{"x":1}', now() + interval '7 days', now(), 'Dee'),
+ ('sentinel', 'GONExxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', 'sent',     '{"x":1}', now() + interval '7 days', null, null);
+savepoint a; delete from proposals where token like 'KEEP%';                     -- expect: ERROR An accepted proposal is kept for the record
+rollback to a; savepoint b; update proposals set accepted_name = 'X' where token like 'KEEP%';  -- expect: ERROR An accepted proposal cannot be changed
+rollback to b; update proposals set archived_at = now() where token like 'KEEP%'; -- expect: UPDATE 1
+savepoint c; update proposals set archived_at = now() where token like 'GONE%';   -- expect: ERROR Only an accepted proposal can be archived
+rollback to c; delete from proposals where token like 'GONE%';                   -- expect: DELETE 1
+select token, status, accepted_name, archived_at is not null as archived from proposals where lead_id = 'sentinel';
+-- expect: one row, KEEP…, accepted, Dee, archived true
+rollback;
+```
+
+| check | expected | result |
+|---|---|---|
+| delete the accepted sentinel | ERROR: An accepted proposal is kept for the record | |
+| change its accepted_name | ERROR: An accepted proposal cannot be changed | |
+| archive it | UPDATE 1 | |
+| archive the sent one | ERROR: Only an accepted proposal can be archived | |
+| delete the sent one | DELETE 1 | |
+| the final select | KEEP…, accepted, Dee, archived true | |
+
 ## 13. Settings, events and the site tables (after RLS-TIGHTEN-2026-10.sql)
 
 ### What was found
