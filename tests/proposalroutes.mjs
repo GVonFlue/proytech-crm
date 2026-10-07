@@ -49,13 +49,19 @@ const BODY = { client: { name: 'Dee', company: 'Dee Co' }, company: { name: 'Age
     build: [{ title: 'Website', tag: 'new', text: 'x', item: 'growth-os' }] },
   quote: { packageId: 'growth-os', items: [{ id: 'growth-os', name: 'Growth OS', kind: 'package', setup: 3000, monthly: 299 }],
     setup: 3000, deposit: 1500, monthly: 299, prepay: { months: 12, free: 2, total: 2990 } },
-  standard: { covers: ['x'] }, onboardingUrl: 'https://forms.test/g', SECRET_FIELD: 'must never leave' };
+  standard: { covers: ['x'] }, onboardingUrl: 'https://forms.test/g', SECRET_FIELD: 'must never leave',
+  /* required to SEND since Oct 2026 ("fast to scope"): a point of contact.
+     The legal block is added only for the send tests below, so the acceptance
+     tests above keep testing acceptance without the terms box. */
+  contacts: [{ name: 'Logan' }] };
 const future = new Date(Date.now() + 5 * 864e5).toISOString(), past = new Date(Date.now() - 864e5).toISOString();
 let DB, sent, calls, leads;
+const LEGAL = { termsUrl: 'https://agency.test/terms', privacyUrl: 'https://agency.test/privacy', version: '2026-10-04' };
 const reset = () => {
   DB = [
     { id: '11111111-1111-4111-8111-111111111111', token: T('open'), status: 'sent', body: BODY, notes: 'PRIVATE NOTES', lead_id: 'L1', expires_at: future, email_to: 'dee@dee.co', accepted_ip: null },
-    { id: '22222222-2222-4222-8222-222222222222', token: T('draft'), status: 'draft', body: BODY, notes: 'PRIVATE', lead_id: 'L1', expires_at: null },
+    /* the draft is what the send tests send: it carries the legal block, as every real one does */
+    { id: '22222222-2222-4222-8222-222222222222', token: T('draft'), status: 'draft', body: { ...BODY, legal: LEGAL }, notes: 'PRIVATE', lead_id: 'L1', expires_at: null },
     { id: '33333333-3333-4333-8333-333333333333', token: T('old'), status: 'sent', body: BODY, notes: '', lead_id: 'L1', expires_at: past },
     { id: '44444444-4444-4444-8444-444444444444', token: T('done'), status: 'accepted', body: BODY, notes: '', lead_id: 'L1', expires_at: past, accepted_name: 'Dee', accepted_at: past },
   ];

@@ -147,10 +147,14 @@ const row=re=>[...((ready()&&ready().querySelectorAll('li'))||[])].find(li=>re.t
 const isNo=re=>{const r=row(re);return !!r&&r.className==='no';}, isOk=re=>{const r=row(re);return !!r&&r.className==='ok';};
 ok('a ready-to-send checklist is shown above Send', !!ready());
 ok('  blocked, and it says how many things are left', ready()&&/to fix before this can go out/.test(ready().textContent), ready()&&ready().textContent.slice(0,160));
+/* numbers, levers, gaps and the goal are RECOMMENDED (Oct 2026): a yellow
+   note with a way to add them, never a row that blocks the send */
+const advice=()=>document.querySelector('.pp-advice');
 ok('  a package is selected: passes', isOk(/A package is selected/));
-ok('  three levers: passes', isOk(/Exactly 3 levers/));
-ok('  only 1 of their numbers: missing', isNo(/At least 3 of their numbers/)&&/1 of 3/.test(row(/At least 3/).textContent));
-ok('  only 1 gap: missing', isNo(/3 to 5 gaps/));
+ok('  three levers: not advised', !/levers/.test((advice()&&advice().textContent)||''));
+ok('  only 1 of their numbers: advised in the yellow note, not a blocking row', !row(/their numbers/)&&advice()&&/Three of their numbers \(1 of 3/.test(advice().textContent), advice()&&advice().textContent);
+ok('  only 1 gap: advised', advice()&&/3 to 5 gaps/.test(advice().textContent));
+ok('  with a one-click "Add numbers"', !!(advice()&&[...advice().querySelectorAll('button')].some(b=>/Add numbers/.test(b.textContent))));
 ok('  the build item not tied to anything bought is named', isNo(/Every build item/)&&/Website/.test(row(/Every build item/).textContent)&&!/Automations/.test(row(/Every build item/).textContent));
 ok('  the lead has an email: passes', isOk(/valid email/));
 ok('  not yet read: missing', isNo(/read every section/));
@@ -169,7 +173,7 @@ await setVal(gl[gl.length-1].querySelectorAll('textarea')[0],'Reviews are left t
 const link=[...document.querySelectorAll('.pd-link select')].find(sel=>sel.value==='');
 ok('the unlinked build item offers what they are buying', link&&[...link.options].some(o=>o.value==='growth-os'));
 await setVal(link,'growth-os');
-ok('three numbers, three gaps, every build item linked: those rows pass', isOk(/At least 3 of their numbers/)&&isOk(/3 to 5 gaps/)&&isOk(/Every build item/));
+ok('three numbers, three gaps, every build item linked: the advice is gone and the row passes', !advice()&&isOk(/Every build item/), advice()&&advice().textContent);
 ok('  but still blocked until the owner has read it', byText('button',/Email to client/).disabled===true&&isNo(/read every section/));
 await click(document.querySelector('.pp-ready-tick input'));
 ok('ticked: ready, and both Send buttons unlock', ready().className.includes(' ok')&&!byText('button',/Email to client/).disabled&&!byText('button',/Copy client link/).disabled);

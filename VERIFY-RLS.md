@@ -1240,6 +1240,18 @@ rollback;
 | delete the sent one | DELETE 1 | |
 | the final select | KEEP…, accepted, Dee, archived true | |
 
+### 12d. The recordings a draft came from (after PROPOSALS-SOURCES-MIGRATION.sql)
+
+One column, `proposals.source_pocket_ids`: the ids of the Pocket recordings an
+owner attached when drafting. It sits on `proposals`, whose single policy is
+owner-only (above), so nothing new is exposed; `proposal_public()` returns
+named columns and does not return it (the migration refuses to commit if it
+did), and the body a client sees never carries it (`tests/proposaldraftrec.mjs`
+and `tests/proposalscope.mjs`). Only ids are stored: no transcript.
+
+Check after the migration: `select count(*) from pg_policy where polrelid =
+'public.proposals'::regclass` is 1, and the column exists with default `'{}'`.
+
 ## 13. Settings, events and the site tables (after RLS-TIGHTEN-2026-10.sql)
 
 ### What was found

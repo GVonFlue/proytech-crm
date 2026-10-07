@@ -404,7 +404,12 @@ export function viewedPatch(lead, p) {
    offer or a draft in memory, so what is checked is exactly what is sent.
    `mode` is 'link' or 'email'; the email rule only applies to email.
    `reviewed` is the owner's own tick, sent with each request. */
-export const READY_RULES = ['package', 'goal', 'numbers', 'levers', 'gaps', 'build', 'email', 'reviewed'];
+/* REQUIRED decides whether it can go out. RECOMMENDED makes it stronger and
+   never blocks: a client who said no numbers in the meeting gets a proposal
+   written in words, not one held back until somebody invents a figure. */
+export const READY_REQUIRED = ['package', 'contact', 'legal', 'build', 'email', 'reviewed'];
+export const READY_RECOMMENDED = ['goal', 'numbers', 'levers', 'gaps'];
+export const READY_RULES = [...READY_REQUIRED, ...READY_RECOMMENDED];
 export function readiness(body, { mode = 'link', leadEmail = '', reviewed = false } = {}) {
   const b = body && typeof body === 'object' ? body : {};
   const q = b.quote || {}; const c = b.copy || {}; const plan = c.plan || {};
@@ -417,20 +422,29 @@ export function readiness(body, { mode = 'link', leadEmail = '', reviewed = fals
   const buildItems = A(c.build).filter(x => x && S(x.title).trim());
   const unlinked = A(c.build).filter(x => !x || !ids.has(x.item));
   const pkg = items.find(i => i.id === q.packageId && i.kind !== 'addon');
+  /* priced: every item carries a real setup and monthly, and the quote adds up to a real setup */
+  const num = v => v !== '' && v !== null && v !== undefined && Number.isFinite(Number(v)) && Number(v) >= 0;
+  const priced = !!pkg && items.every(i => num(i.setup) && num(i.monthly)) && num(q.setup);
+  const contacts = A(b.contacts).filter(x => x && filled(x.name));
+  const R = 'required', K = 'recommended';
   const checks = [
-    { key: 'package', label: 'A package is selected', ok: !!pkg, detail: pkg ? pkg.name : 'Pick a package.' },
-    { key: 'goal', label: 'Their goal is filled in', ok: filled(plan.goal), detail: filled(plan.goal) ? '' : 'Add the goal in their words.' },
-    { key: 'numbers', label: 'At least 3 of their numbers', ok: nums.length >= 3, detail: nums.length >= 3 ? `${nums.length} numbers` : `${nums.length} of 3` },
-    { key: 'levers', label: 'Exactly 3 levers', ok: levers.length === 3, detail: `${levers.length} of 3` },
-    { key: 'gaps', label: '3 to 5 gaps', ok: gaps.length >= 3 && gaps.length <= 5, detail: `${gaps.length} gap${gaps.length === 1 ? '' : 's'}` },
+    { key: 'package', level: R, label: 'A package is selected, with its prices', ok: priced, detail: !pkg ? 'Pick a package.' : priced ? pkg.name : 'Every item needs a setup and a monthly price.' },
+    { key: 'contact', level: R, label: 'A point of contact', ok: contacts.length > 0, detail: contacts.length ? contacts.map(x => x.name).join(', ') : 'Pick who the client should call.' },
+    { key: 'legal', level: R, label: 'The Terms of Service and Privacy Policy', ok: hasLegal(b), detail: hasLegal(b) ? `version ${S((b.legal || {}).version, 40)}` : 'Add the legal links in Settings → Proposals → Legal.' },
     /* at least one, and every one tied to something bought: a proposal with
        no build section never says what the client is getting */
-    { key: 'build', label: 'Every build item is part of what they are buying', ok: buildItems.length > 0 && unlinked.length === 0,
+    { key: 'build', level: R, label: 'Every build item is part of what they are buying', ok: buildItems.length > 0 && unlinked.length === 0,
       detail: !buildItems.length ? 'Add at least one build item' : unlinked.length ? `Not linked: ${unlinked.map(x => (x && x.title) || 'untitled').join(', ')}` : '' },
+    { key: 'goal', level: K, label: 'Their goal, in words', ok: filled(plan.goal), detail: filled(plan.goal) ? '' : 'Without it the "Where you\'re headed" section is left out.' },
+    { key: 'numbers', level: K, label: 'Three of their numbers', ok: nums.length >= 3, detail: nums.length >= 3 ? `${nums.length} numbers` : `${nums.length} of 3. Only numbers they actually said.` },
+    { key: 'levers', level: K, label: 'Three levers that move the goal', ok: levers.length === 3, detail: `${levers.length} of 3` },
+    { key: 'gaps', level: K, label: '3 to 5 gaps', ok: gaps.length >= 3 && gaps.length <= 5, detail: `${gaps.length} gap${gaps.length === 1 ? '' : 's'}` },
   ];
-  if (mode === 'email') checks.push({ key: 'email', label: 'The lead has a valid email', ok: isEmail(leadEmail), detail: isEmail(leadEmail) ? S(leadEmail, 160).trim() : 'Add an email to the lead.' });
-  checks.push({ key: 'reviewed', label: "You've read every section", ok: reviewed === true, detail: reviewed === true ? '' : 'Tick the box once you have.' });
-  return { ok: checks.every(x => x.ok), checks, missing: checks.filter(x => !x.ok).map(x => x.key) };
+  if (mode === 'email') checks.push({ key: 'email', level: R, label: 'The lead has a valid email', ok: isEmail(leadEmail), detail: isEmail(leadEmail) ? S(leadEmail, 160).trim() : 'Add an email to the lead.' });
+  checks.push({ key: 'reviewed', level: R, label: "You've read every section", ok: reviewed === true, detail: reviewed === true ? '' : 'Tick the box once you have.' });
+  const req = checks.filter(x => x.level === R);
+  return { ok: req.every(x => x.ok), checks, missing: req.filter(x => !x.ok).map(x => x.key),
+    advice: checks.filter(x => x.level === K && !x.ok).map(x => x.key) };
 }
 
 /* ---------- validating an offer before it is saved ----------

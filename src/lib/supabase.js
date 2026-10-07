@@ -367,8 +367,15 @@ export const db = {
     /* archived_at (PROPOSALS-ARCHIVE-MIGRATION.sql): an accepted proposal
        hidden from the default list, never deleted */
     const ARCHIVE = ['archived_at'];
+    /* the Pocket recordings a draft was written from (PROPOSALS-SOURCES-
+       MIGRATION.sql): owner-only, never part of the body a client sees */
+    const SOURCES = ['source_pocket_ids'];
     const sel = cols => supabase.from('proposals').select([base, ...cols].join(',')).order('updated_at', { ascending: false });
-    let { data, error } = await sel([...LEGAL, ...ARCHIVE]);
+    let { data, error } = await sel([...LEGAL, ...ARCHIVE, ...SOURCES]);
+    if (error && /source_pocket_ids/.test(error.message || '')) {
+      console.warn('[proposals] source_pocket_ids missing — run PROPOSALS-SOURCES-MIGRATION.sql');
+      ({ data, error } = await sel([...LEGAL, ...ARCHIVE]));
+    }
     if (error && /archived_at/.test(error.message || '')) {
       /* the archive migration has not run here yet: say so by name, and keep
          the tab working (nothing can be archived until it does) */
@@ -386,6 +393,17 @@ export const db = {
   },
   async saveProposal(row) {
     const rec = { lead_id: row.lead_id, body: row.body, notes: row.notes || '', valid_days: row.valid_days, updated_at: new Date().toISOString() };
+    if (Array.isArray(row.source_pocket_ids)) rec.source_pocket_ids = row.source_pocket_ids.slice(0, 3).map(String);
+    try { return await this.saveProposalRow(row, rec); }
+    catch (e) {
+      /* the sources migration has not run: save without them, and say so */
+      if (!/source_pocket_ids/.test(String(e.message || ''))) throw e;
+      console.warn('[proposals] source_pocket_ids missing — run PROPOSALS-SOURCES-MIGRATION.sql; saved without the attached recordings');
+      delete rec.source_pocket_ids;
+      return this.saveProposalRow(row, rec);
+    }
+  },
+  async saveProposalRow(row, rec) {
     if (row.id) {
       /* drafts only: once sent, the body is what the client saw and must not
          change under them. The status filter makes that a fact of the write. */

@@ -102,7 +102,9 @@ export default async function handler(req, res) {
      owner's tick for THIS send; a request without it is refused. */
   const ready = readiness(p.body, { mode, leadEmail: to, reviewed: b.reviewed === true });
   if (!ready.ok) {
-    const failing = ready.checks.filter(c => !c.ok);
+    /* REQUIRED rules only: a recommended one (numbers, levers, gaps, the goal)
+       never blocks a send, and is not named as a reason it was refused */
+    const failing = ready.checks.filter(c => !c.ok && c.level !== 'recommended');
     res.status(200).json({ ok: false, notReady: true, missing: ready.missing,
       error: 'Not ready to send: ' + failing.map(c => c.label.toLowerCase() + (c.detail ? ` (${c.detail})` : '')).join('; ') + '.' });
     return;
