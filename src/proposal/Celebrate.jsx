@@ -127,8 +127,14 @@ export default function Celebrate({ body, name, onboardingUrl, paymentUrl, confe
   </section>);
 }
 
+/* Orange that carries white text is --yi-hot-ink (#CC4A0A, 4.61:1), the same
+   fill as the proposal's accept button, the portal and the lead view. The brand
+   orange --yi-hot (#FB6926) is only 2.94:1 under white, so it stays where it
+   carries no text: borders, glows, confetti. "Start my onboarding" was a
+   #FF8A4C..#E2531A gradient (2.34..3.83:1) and the "Admit one" tag sat on
+   #FB6926; tests/youreincontrast.mjs holds every stop to 4.5:1. */
 export const CELEBRATE_CSS = `
-.yi{--yi-ink:#0B1633;--yi-mute:#56637F;--yi-blue:#1F6FEB;--yi-elec:#2E9BFF;--yi-ice:#38BDF8;--yi-navy:#061431;--yi-hot:#FB6926;--yi-line:#DCE5F4;
+.yi{--yi-ink:#0B1633;--yi-mute:#56637F;--yi-blue:#1F6FEB;--yi-elec:#2E9BFF;--yi-ice:#38BDF8;--yi-navy:#061431;--yi-hot:#FB6926;--yi-hot-ink:#CC4A0A;--yi-line:#DCE5F4;
   max-width:880px;margin:0 auto 22px;color:var(--yi-ink);font-family:Inter,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
   border:1.5px solid transparent;border-radius:22px;overflow:hidden;
   background:linear-gradient(#fff,#fff) padding-box,linear-gradient(135deg,var(--yi-elec),var(--yi-ice) 45%,var(--yi-hot)) border-box;
@@ -147,7 +153,7 @@ export const CELEBRATE_CSS = `
 .yi-ticket-l{padding:20px 26px 20px 30px;display:flex;flex-direction:column;gap:4px;min-width:0}
 .yi-ticket-r{padding:20px 30px 20px 26px;border-left:2px dashed rgba(255,255,255,.28);display:flex;flex-direction:column;justify-content:center;gap:2px;text-align:right;
   background:radial-gradient(120% 120% at 100% 0%,rgba(251,105,38,.35),transparent 60%)}
-.yi-admit{align-self:flex-start;font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#fff;background:var(--yi-hot);border-radius:99px;padding:3px 10px}
+.yi-admit{align-self:flex-start;font-family:ui-monospace,Menlo,monospace;font-size:10px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:#fff;background:var(--yi-hot-ink);border-radius:99px;padding:3px 10px;box-shadow:0 0 0 1px rgba(251,105,38,.55),0 0 12px rgba(251,105,38,.45)}
 .yi-tk{font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:#9FC4F5;margin-top:6px}
 .yi-co{font-family:"Space Grotesk",Inter,sans-serif;font-size:26px;line-height:1.1;letter-spacing:-.01em;overflow-wrap:anywhere}
 .yi-bought{font-size:14px;color:#D6E4F7}
@@ -163,8 +169,8 @@ export const CELEBRATE_CSS = `
 .yi-link{display:inline-block;margin-top:8px;font-size:13.5px;font-weight:700;color:var(--yi-blue)}
 .yi-go{display:flex;align-items:center;justify-content:center;gap:10px;margin:26px 40px 0;padding:18px 22px;border-radius:14px;text-decoration:none;
   font-family:"Space Grotesk",Inter,sans-serif;font-size:20px;font-weight:700;color:#fff;
-  background:radial-gradient(90% 140% at 100% 0%,#FF8A4C,var(--yi-hot) 55%,#E2531A);box-shadow:0 18px 40px -16px rgba(251,105,38,.75)}
-.yi-go:hover{filter:brightness(1.04)}
+  background:radial-gradient(90% 140% at 100% 0%,var(--yi-hot-ink),#B23F07 55%,#A83A06);box-shadow:0 0 0 1px rgba(251,105,38,.45),0 18px 40px -16px rgba(251,105,38,.75)}
+.yi-go:hover{background:radial-gradient(90% 140% at 100% 0%,#B23F07,#A83A06 55%,#963305)}
 .yi-wait{margin:26px 40px 0;padding:16px 18px;border-radius:14px;background:#FFF4EC;border:1px solid #F7C9AE;color:#8A3B12;font-size:16px;font-weight:600;text-align:center}
 .yi-contacts{margin:24px 40px 28px;padding-top:18px;border-top:1px solid var(--yi-line)}
 .yi-people{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
