@@ -44,7 +44,7 @@ const built = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   logLevel:'silent' });
 fs.writeFileSync('tests/'+B_op, built.outputFiles[0].text);
-const { isRealTouch, REACHED_TYPES } = await import('./'+B_op+'?v=' + Date.now());
+const { isRealTouch, everTouched, REACHED_TYPES } = await import('./'+B_op+'?v=' + Date.now());
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }
@@ -56,7 +56,11 @@ const ago = n => new Date(Date.now() - n * 864e5).toISOString();
    lead and compared. `LEADS_OLD` is what the Leads screen used to do — kept
    here so the fix is demonstrated rather than asserted from memory. */
 const LEADS_OLD = l => !(l.activities || []).some(a => a && REACHED_TYPES.has(a.type));
-const SHARED    = l => !(l.activities || []).some(isRealTouch);
+/* The shared rule is everTouched (Oct 2026): lastTouch() !== null, which is
+   isRealTouch over the activities PLUS a meeting marked held. Same answer as
+   activities.some(isRealTouch) on every fixture below, which carry no
+   meetings; the held-meeting case has its own line at the end. */
+const SHARED    = l => !everTouched(l);
 
 /* ------------------------------------------------------------ the fixtures */
 
@@ -137,8 +141,11 @@ console.log('\nsrc/App.jsx really does call the shared predicate now');
   /* Structural, because the two above are pure-function claims and the actual
      regression would be someone re-inlining REACHED_TYPES on that line. */
   const src = fs.readFileSync('src/App.jsx', 'utf8');
-  ok('the to-work rule calls isRealTouch',
-     /const untouched=l=>!\(l\.activities\|\|\[\]\)\.some\(isRealTouch\)/.test(src));
+  ok('the to-work rule calls the shared everTouched',
+     /const untouched=l=>!everTouched\(l\)/.test(src));
+  ok('and no "never contacted" anywhere in App.jsx asks activities.some(isRealTouch) on its own',
+     !/!\((?:r\.)?l\.activities\|\|\[\]\)\.some\(isRealTouch\)/.test(src),
+     (src.match(/.{40}!\((?:r\.)?l\.activities\|\|\[\]\)\.some\(isRealTouch\).{20}/) || [''])[0]);
   ok('and no longer tests REACHED_TYPES itself',
      !/const untouched=l=>!\(l\.activities\|\|\[\]\)\.some\(a=>a&&REACHED_TYPES\.has/.test(src));
   /* The batch-delete warning still reads raw types. That is DELIBERATE and
@@ -148,6 +155,16 @@ console.log('\nsrc/App.jsx really does call the shared predicate now');
      decision rather than something nobody noticed. */
   ok('the batch-delete warning is knowingly left alone',
      /withWork=hit\.filter\(l=>\(l\.activities\|\|\[\]\)\.some\(a=>REACHED_TYPES\.has\(a\.type\)\)/.test(src));
+}
+
+console.log('\na meeting marked held is contact (Oct 2026)');
+{
+  const HELD = { ...mk('held only'), meetings: [{ id:'m1', mtype:'Coffee', start: ago(3), end: ago(3), status:'held' }] };
+  const SOON = { ...mk('not yet'),   meetings: [{ id:'m1', mtype:'Coffee', start: ago(-3), end: ago(-3), status:'' }] };
+  const NOSHOW = { ...mk('no show'), meetings: [{ id:'m1', mtype:'Coffee', start: ago(3), end: ago(3), status:'noshow' }] };
+  ok('a lead whose only contact is a held coffee is contacted', SHARED(HELD) === false);
+  ok('  one with a coffee still to come is not', SHARED(SOON) === true);
+  ok('  nor one whose coffee was a no-show', SHARED(NOSHOW) === true);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

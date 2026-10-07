@@ -28,7 +28,7 @@
 
 
 import {
-  CalendarCheck, CalendarClock, Mailbox, MessageSquare, PhoneCall, Send, StickyNote,
+  CalendarCheck, CalendarClock, Handshake, Link2, Mailbox, MessageSquare, PhoneCall, Send, StickyNote, Ticket,
 } from 'lucide-react';
 import { BRAND } from './brand';
 /* AUDIT #23 — setupPaid and allPayments are the retainer module's answers to
@@ -159,8 +159,15 @@ export const dayLabel=iso=>{ const t=isoOf(new Date());
     ...(sameYear?{}:{year:'numeric'})});
 };
 /* what counts as real outreach — shared by the untouched filter and the
-   batch-delete warning so the two can't drift apart */
-export const REACHED_TYPES=new Set(['Call','Text','Email','Meeting','Booked','Payment']);
+   batch-delete warning so the two can't drift apart.
+   Event, Intro and Referral (Oct 2026) are the relationship touches the
+   Relationships spec lists beyond a call or a meeting: an event you both
+   attended, an introduction you made, a referral given or received. Each is a
+   person in contact with this record, so each is reached. Only "Log touch" and
+   a relationship's own composer write them (ACT_TYPES relOnly below), so no
+   number on a lead moves unless a person logged one. Coffee is not a type: it
+   is a Meeting with mtype 'Coffee', the vocabulary MEETING_TYPES already has. */
+export const REACHED_TYPES=new Set(['Call','Text','Email','Meeting','Booked','Payment','Event','Intro','Referral']);
 
 /* ---- disposition codes ----------------------------------------------------
 
@@ -337,14 +344,33 @@ export const isAppWritten=a=>!!a&&(!!a.imported||isSystemNote(a));
    Returns null when there has been no real touch. That is a true answer and a
    useful row — "never contacted" is precisely who you are looking for — so it
    is deliberately not softened into a date. */
+/* A MEETING MARKED HELD IS A TOUCH (Oct 2026), on leads as well as on
+   relationships. A coffee recorded only on the Meetings screen as held never
+   wrote an activity, so the person you sat across from last week read as
+   "never contacted" and went cold on every list. Its time is when it ended (or
+   started); one dated in the future does not count until it has happened.
+   This moves every reader of lastTouch at once, on purpose: stalled deals,
+   cold leads, the Huddle, Relationships, "never contacted". A no-show and a
+   meeting not yet marked are not touches. */
+const heldTouch=m=>{ if(meetingStatus(m)!=='held') return null;
+  const t=String(m.end||m.start||''); if(!t) return null;
+  const ms=new Date(t).getTime(); return isNaN(ms)||ms>Date.now()?null:t; };
 export const lastTouch=l=>{
   let best=null;
   for(const a of ((l&&l.activities)||[])){
     if(!isRealTouch(a)||!a.ts) continue;
     if(best===null||String(a.ts)>String(best)) best=a.ts;
   }
+  if(l) for(const m of meetingsOf(l)){
+    const t=heldTouch(m); if(!t) continue;
+    if(best===null||new Date(t).getTime()>new Date(best).getTime()) best=t;
+  }
   return best;
 };
+/* Has a person ever been in contact? The "never contacted" lists ask this.
+   They used to ask activities.some(isRealTouch), which a held meeting cannot
+   answer, so a lead could be off the stale list and on the untouched one. */
+export const everTouched=l=>lastTouch(l)!==null;
 /* Whole days since the last real touch; null when there has never been one. */
 export const daysSinceTouch=(l,from)=>{
   const t=lastTouch(l); if(!t) return null;
@@ -408,7 +434,11 @@ export const POOL_OWNER=BRAND.pool;
 /* "the pool" = anything nobody has claimed: the legacy company-owned leads,
    plus any lead sitting in a named pool with no owner_id on it. */
 export const isPoolLead=(l,myPools)=>l.owner===POOL_OWNER||(!l.owner_id&&!!l.pool&&(!myPools||myPools.includes(l.pool)));
-export const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox}];
+/* relOnly: offered in a relationship's composer and in "Log touch", never on
+   a business lead, where an event or an intro is not how a deal is worked. */
+export const ACT_TYPES=[{key:'Booked',icon:CalendarCheck},{key:'Note',icon:StickyNote},{key:'Call',icon:PhoneCall},{key:'Text',icon:MessageSquare},{key:'Meeting',icon:CalendarClock},{key:'Email',icon:Mailbox},
+  {key:'Event',icon:Ticket,relOnly:true},{key:'Intro',icon:Link2,relOnly:true},{key:'Referral',icon:Handshake,relOnly:true}];
+export const actTypesFor=(isRel)=>ACT_TYPES.filter(t=>!t.relOnly||isRel);
 /* named buckets of unclaimed leads. A rep sees the pools they're given. */
 export const DEFAULT_POOLS=['General'];
 export const poolList=settings=>{ const p=(settings&&settings.pools)||[]; return p.length?p:DEFAULT_POOLS; };
@@ -1100,7 +1130,11 @@ export const sponsorshipsOf=(lead,events)=>{
     .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
 };
 /* ===================== RELATIONSHIPS ===================== */
-export const REL_TIERS=[['champion','Champions','#C8A24A'],['b','B Tier','#2B4DE0'],['new','New Relationships','#1F9D55']];
+/* The stored keys are the ones every record already carries ('champion', 'b',
+   'new'); only what a person reads changed, to the spec's A / B / C (Oct
+   2026). Rewriting relTier on every record would race any screen open at the
+   time and gain nothing. Descriptions and cadences live in lib/relationships. */
+export const REL_TIERS=[['champion','A tier','#C8A24A'],['b','B tier','#2B4DE0'],['new','C tier','#1F9D55']];
 export function fmtMeetingTime(iso){ try{ const d=new Date(iso); return d.toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch{ return iso; } }
 
 /* Meeting shape — moved here in the LeadView extraction (PR 1b) rather than
