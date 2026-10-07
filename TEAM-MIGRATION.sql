@@ -51,7 +51,7 @@ returns table (id uuid, name text, role text)
 language sql security definer stable as $$
   select u.id, u.name, u.role
     from crm_users u
-   where u.active
+   where u.active and crm_listed()   -- team members only (AUTH-LISTED-2026-10.sql)
    order by u.role, u.name;
 $$;
 

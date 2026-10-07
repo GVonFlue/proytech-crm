@@ -89,7 +89,9 @@ console.log('\ngoogle-disconnect — owner-only, not merely signed-in');
 
   const g = await fs.readFile(path.join(root, 'api/_guard.js'), 'utf8');
   ok('the role comes from crm_whoami, not the request body', /crm_whoami/.test(g));
-  ok('  and the owner check fails CLOSED', /catch\s*{\s*\n?\s*return false/.test(g), 'isOwner must return false when it cannot prove ownership');
+  /* whoAmI() returns null when it cannot ask; isOwner / isListed turn a null
+     into false. Both halves, so a refactor cannot fail OPEN quietly. */
+  ok('  and the owner check fails CLOSED', /catch\s*{\s*\n?\s*return (false|null)/.test(g) && /return !!\(me && me\.role === 'owner'/.test(g), 'isOwner must return false when it cannot prove ownership');
 
   const bf = await fs.readFile(path.join(root, 'api/pocket-backfill.js'), 'utf8');
   ok('there is ONE owner check, not one per endpoint',

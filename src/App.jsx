@@ -9615,7 +9615,7 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
     setBusy(true); setMsg(null);
     try{
       const {id,needsConfirm}=await auth.createLogin(email,pw);
-      if(!id||needsConfirm) throw new Error('Supabase created the login but did not return a user id — switch "Confirm email" OFF in Authentication → Providers → Email, then add them again.');
+      if(!id||needsConfirm) throw new Error('The login was not created. Try again, or check the server logs for team-login.');
       await saveUser({id,name,email,role:f.role,pools:f.pools,commission_pct:num(f.commission_pct),appointment_rate:num(f.appointment_rate),active:true,
         tabs:f.role==='rep'?f.tabs:[],goal_conversions:num(f.goal_conversions)});
       setMsg({t:`${name} can sign in with ${email} and the temporary password ${pw} — give it to them, or send a reset email below.`,pw,email});

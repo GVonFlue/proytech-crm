@@ -56,6 +56,8 @@ globalThis.fetch = async (url, opts = {}) => {
 
   if (u.includes('/api/notify')) { notifyHttpCalls++; return json({}, 401); }
   // a real session, for any token containing "good"
+  /* guard({requireAuth}) also asks Postgres whether the login is on the team (AUTH-LISTED-2026-10): a 'good' token is an active rep (an owner if it says so) */
+  if (u.includes('/rpc/crm_whoami')) { const h = opts.headers || {}; const tok = h.authorization || h.Authorization || ''; return json(/good/.test(tok) ? [{ role: /owner/.test(tok) ? 'owner' : 'rep', active: true }] : [{ role: 'none', active: true }]); }
   if (u.includes('/auth/v1/user')) {
     const h = opts.headers || {};
     const tok = h.authorization || h.Authorization || '';

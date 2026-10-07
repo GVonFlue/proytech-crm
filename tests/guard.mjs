@@ -16,6 +16,8 @@ const store=[]; let reachable=true;
 globalThis.fetch=async(url,opts={})=>{
   if(!reachable) throw new Error('supabase down');
   const u=String(url);
+  /* guard({requireAuth}) also asks Postgres whether the login is on the team (AUTH-LISTED-2026-10): a 'good' token is an active rep (an owner if it says so) */
+  if(u.includes('/rpc/crm_whoami')){ const tok=(opts.headers||{}).authorization||''; return {ok:true,json:async()=>/good/.test(tok)?[{role:/owner/.test(tok)?'owner':'rep',active:true}]:[{role:'none',active:true}]}; }
   if(u.includes('/auth/v1/user')){
     const tok=(opts.headers||{}).authorization||'';
     return /good/.test(tok)?{ok:true,json:async()=>({id:'u1'})}:{ok:false,json:async()=>({})};

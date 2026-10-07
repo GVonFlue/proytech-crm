@@ -79,19 +79,26 @@ create or replace function no_users() returns boolean language sql security defi
 create or replace function crm_active() returns boolean language sql security definer stable as $$
   select coalesce((select active from crm_users where id = auth.uid()), true); $$;
 
+-- on the team: a crm_users row, and active. NOT crm_active(), which is true
+-- for a login with no row at all (AUTH-LISTED-2026-10.sql).
+create or replace function crm_listed() returns boolean language sql security definer stable as $$
+  select exists (select 1 from crm_users where id = auth.uid() and active); $$;
+
 -- --------------------------------------------------------------- 4. RLS
 alter table leads enable row level security;
 alter table crm_users enable row level security;
 
 drop policy if exists leads_all on leads;
+-- crm_listed(), not crm_active(): a login with no crm_users row must get
+-- nothing (AUTH-LISTED-2026-10.sql). crm_active() is true for such a login.
 create policy leads_all on leads for all using (
-  no_users() or ( crm_active() and (
+  no_users() or ( crm_listed() and (
     is_owner()
     or owner_id = auth.uid()
     or (pool is not null and pool = any (my_pools()))
   ))
 ) with check (
-  no_users() or ( crm_active() and (
+  no_users() or ( crm_listed() and (
     is_owner()
     or owner_id = auth.uid()
     or (pool is not null and pool = any (my_pools()))
@@ -113,8 +120,8 @@ create policy users_bootstrap on crm_users for insert with check (no_users() and
 -- BUILD-NOTES.md; reps simply don't get those tabs.
 -- Someone who is signed in but has NO crm_users row (a stray account) gets
 -- nothing at all: not the settings, not a lead.
-create or replace function crm_listed() returns boolean language sql security definer stable as $$
-  select exists (select 1 from crm_users where id = auth.uid() and active); $$;
+-- crm_listed() is defined above, beside crm_active(): leads_all needs it first
+
 
 alter table app_settings enable row level security;
 drop policy if exists settings_read on app_settings;
@@ -189,7 +196,7 @@ language sql security definer stable as $$
     on l.owner_id = u.id
    and coalesce(l.data->>'isClient','false') = 'true'
    and coalesce(l.data->>'convertedAt','') <> ''
-  where u.role = 'rep' and u.active
+  where u.role = 'rep' and u.active and crm_listed()
   group by u.id, u.name;
 $$;
 revoke all on function crm_leaderboard() from public, anon;

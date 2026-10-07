@@ -152,6 +152,8 @@ const {default:handler}=await import('../api/meeting-log.js');
 let sent=null;
 globalThis.fetch=async(url,opts={})=>{
   const u=String(url);
+  /* guard({requireAuth}) also asks Postgres whether the login is on the team (AUTH-LISTED-2026-10): a 'good' token is an active rep (an owner if it says so) */
+  if(u.includes('/rpc/crm_whoami')) return {ok:true,json:async()=>[{role:'owner',active:true}]};
   if(u.includes('/auth/v1/user')) return {ok:true,json:async()=>({id:'u1'})};
   if(u.includes('api_hits')) return {ok:true,text:async()=>'[]'};
   if(u.includes('api.anthropic.com')){
