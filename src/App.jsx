@@ -32,6 +32,7 @@ import { readLifecycle, productsOf, clockOf, dueItems, lifecyclePatch, waitingOn
 import { LifecycleStrip, WhatsDue, LifecycleSettings, LIFECYCLE_CSS } from './Lifecycle';
 import { readCadence, cadenceOf, nextTouch, dueOn, reachOut, coldByCadence, tierOf, tierMeta, tierLetter, REL_TIER_DESC, touchActivity } from './lib/relationships';
 import { LogTouch, ReachOutList, ReachOutCard, CadenceSettings, REL_CADENCE_CSS } from './RelCadence';
+import { SourcesView, SourcesTop, SOURCES_CSS } from './Sources';
 import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, collectedByService, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
@@ -4309,6 +4310,9 @@ export default function App(){
   const [installs,setInstalls]=useState([]);
   const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES,pools:[],modulesV:0,notifyEmails:''});
   const [page,setPage]=useState('dash');
+  /* which Relationships view to open on: the dashboard's Lead source ROI
+     card opens Sources; anything else opens the page as it was */
+  const [relStart,setRelStart]=useState(null);
   const [sbOpen,setSbOpen]=useState(false);
   const [activeId,setActiveId]=useState(null);
   const [navIds,setNavIds]=useState(null);
@@ -4736,25 +4740,18 @@ export default function App(){
      the Dashboard uses, over the SAME scopedBiz list. Jarvis derives no money of
      its own. A rep gets null: the figures never enter the request at all. */
   const jvMetrics=useMetrics(scopedMoney,stages,settings,txns);
-  /* INBOUND REFERRAL VALUE, for whichever record is open.
-
-     Run through useMetrics — the SAME hook the Dashboard uses — over the leads
-     this relationship introduced, rather than summing deal values here.
-     ENGINEERING §2: two screens must never disagree, and they would the moment
-     this counted a won-but-unpaid lead that the Dashboard does not. What comes
-     out is won AND cash-confirmed, which is the honest reading of "what they
-     closed for" and is why the tile says collected rather than pipeline.
-
-     Unconditional, like every hook here: it computes over an empty list when
-     nothing is open, which costs nothing and keeps the hook order stable. */
+  /* INBOUND REFERRALS, for whichever record is open: the count only. The
+     money is lib/sources rollupFor on the record itself (Oct 2026), the
+     Sources leaderboard's own row, built on the Money page's revenueForMonth.
+     It used to be useMetrics' wonValue over these leads, which is booked
+     value of cash-confirmed wins: a different number from the Money page's
+     cash, on the one screen that sits next to a leaderboard of cash. */
   const introSubset=useMemo(()=>{
     if(!activeId||activeId==='new'||activeId==='new-rel') return [];
     const rel=leads.find(l=>l.id===activeId);
     return rel?introducedLeads(rel,leads):[];
   },[activeId,leads]);
-  const introMetrics=useMetrics(introSubset,stages,settings,txns);
-  const inbound=useMemo(()=>({count:introSubset.length,value:introMetrics.wonValue,
-    mrr:introMetrics.mrr,won:introMetrics.wonCount}),[introSubset,introMetrics]);
+  const inbound=useMemo(()=>({count:introSubset.length}),[introSubset]);
   const jvMoney=rep?null:{mrr:jvMetrics.mrr,openPipeline:jvMetrics.pipelineValue,revenueMonth:jvMetrics.revenueMonth,collectedMonth:jvMetrics.collectedMonth,outstanding:jvMetrics.outstanding,wonValue:jvMetrics.wonValue,avgDeal:jvMetrics.avgDeal,retainers:jvMetrics.retainers,winRate:jvMetrics.winRate};
   /* leaderboard: a rep cannot read other reps' leads, so the ranking comes
      from a security-definer DB function (names + counts, never dollars). */
@@ -5589,7 +5586,7 @@ export default function App(){
     moveNav(navOrder.indexOf(navDrag),navOrder.indexOf(key)); setNavDrag(null); };
   const navItems=navOrder.map(k=>NAV.find(([kk])=>kk===k)).filter(Boolean).filter(([k])=>canSee(k));
 
-  return (<><style>{CSS+LIFECYCLE_CSS+REL_CADENCE_CSS}</style><div className="pt">
+  return (<><style>{CSS+LIFECYCLE_CSS+REL_CADENCE_CSS+SOURCES_CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <SidebarArt/>
@@ -5641,7 +5638,7 @@ export default function App(){
         {!loaded?<div className="empty">Loading…</div>:
           view==='huddle'?<Huddle leads={scopedMoney} tasks={myTasks} settings={settings} stages={stages} rels={scoped.filter(l=>l.isRelationship)} saveSettings={saveSettings} me={me} open={()=>setPage('followup')}/>:
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
-          view==='dash'?<Dashboard labelServices={isOwner?()=>setSvcAssign(true):null} pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null} lcRows={lcRows} markDue={markDue} relsOn={canSee('rels')} logTouch={logTouch}/>:
+          view==='dash'?<Dashboard labelServices={isOwner?()=>setSvcAssign(true):null} pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null} lcRows={lcRows} markDue={markDue} relsOn={canSee('rels')} logTouch={logTouch} goSources={isOwner&&canSee('rels')?()=>{setRelStart('sources');setPage('rels');}:null}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
           view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools} logTouch={logTouch}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
@@ -5651,7 +5648,7 @@ export default function App(){
           view==='outreach'?<MassOutreach leads={scoped} settings={settings} stages={stages} open={openLead}
             saveSettings={saveSettings} me={me} updateLead={updateLead} rep={rep} myPools={myPools}
             users={users} addActivity={addActivity} LeadTable={Leads}/>:
-          view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead} settings={settings} logTouch={logTouch}/>:
+          view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead} settings={settings} logTouch={logTouch} stages={stages} isOwner={isOwner} startView={relStart} clearStart={()=>setRelStart(null)}/>:
           view==='onboarding'?<Onboarding leads={leads} settings={settings} saveSettings={saveSettings} apiPost={apiPost} onboardings={onboardings} proposals={proposals} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openLead={openLead} selected={onbSel} setSelected={setOnbSel}/>:
           view==='proposals'?<Proposals leads={leads} settings={settings} apiPost={apiPost} me={me} openLead={openLead} proposals={proposals} reload={refreshProposals} onSaved={refreshProposals} noteLead={(id,sentOn)=>{ const l=leadsRef.current.find(x=>x.id===id); if(l) updateLead(id,{activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:`Proposal deleted by ${me||'an owner'}${sentOn?` (it was sent ${sentOn})`:''}.`,who:me},...(l.activities||[])]}); }}/>:
           view==='clients'?<Clients lcRows={lcRows} labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
@@ -5870,11 +5867,7 @@ function useMetrics(leads,stages,settings,txns){
     const openLeadsArr=leads.filter(l=>sOf(l.stage,stages).open);
     const rotting=openLeadsArr.filter(l=>(daysSinceTouch(l)??Infinity)>=14).length;
     const movingPct=openLeadsArr.length?1-(rotting/openLeadsArr.length):1;
-    // source ROI: which lead source actually closes
-    const bySource={}; leads.forEach(l=>{ const src=l.source||'—'; bySource[src]=bySource[src]||{total:0,won:0,value:0};
-      bySource[src].total++; if(l.isClient||sOf(l.stage,stages).won){ bySource[src].won++; bySource[src].value+=num(l.dealValue); } });
-    const sourceROI=Object.entries(bySource).map(([source,v])=>({source,...v,rate:v.total?v.won/v.total:0}))
-      .sort((a,b)=>b.won-a.won||b.total-a.total);
+    /* source ROI moved to lib/sources sourceRollup (Relationships Part 2) */
 
     /* revenue by client — lifetime booked value per client, biggest first.
        Counts archived closed deals + any current won dealValue, plus flags MRR. */
@@ -5901,7 +5894,7 @@ function useMetrics(leads,stages,settings,txns){
     return {byStage,openCount,openValue,upsellCount,upsellValue,pipelineValue,weighted,wonCount,wonValue,lostCount,mrr,retainers,overdue,dueWeek,hot,winRate,avgDeal,avgRet,byClient,
       bookedAll,bookedMonth,mtgUpcoming,heldMonth,noShowMonth,heldAll,noShowAll,needsStatusCount,needsDateCount,showRate,noShowRate,bookedByType,onboardedMonth,depositsMonth,onbNeeded,onbMonthlyOnly,
       firstTouch,untouched,touchHrs,fuCleared,fuOnTime,fuRate,funnel,quotedMrr,quotedCount,closedMonth,closedMonthValue,closedRows,awaitingLog,awaitingLogValue,revenueMonth,clientRevenueMonth,otherIncomeMonth,contribMonth,collectedMonth,legacyMonth,outstanding,awaitingCash,awaitingValue,
-      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,wonDealCount,avgDaysToClose,movingPct,rotting,sourceROI};
+      meetCloseRate,metLeads,metAndClosed,metNoSalesMtg,metAfterCloseOnly,ratioEx,wonPending,wonForRate,wonValued,wonDealCount,avgDaysToClose,movingPct,rotting};
   },[leads,stages,settings,txns]);
 }
 
@@ -6012,7 +6005,7 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
 /* One Dashboard, two audiences. Owners get everything they had before; a rep
    gets their own world — no company pipeline, no MRR, no owner numbers. Every
    hook is declared before the role branch so the hook order never changes. */
-function Dashboard({lcRows,markDue,relsOn,logTouch,labelServices,leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep,invoices}){
+function Dashboard({lcRows,markDue,relsOn,logTouch,goSources,labelServices,leads,stages,open,tagBooked,setMeetingStatus,setMeetingTime,tagMeetingType,rels,settings,saveSettings,events,goEvents,rep,me,myUser,myUid,board,ack,goBoard,team,approve,pockets,openPocket,txns,payouts,openRep,invoices}){
   const G=goalsOf(settings);
   const m=useMetrics(leads,stages,settings,txns);
   const [drill,setDrill]=useState(null);
@@ -6795,23 +6788,11 @@ function Dashboard({lcRows,markDue,relsOn,logTouch,labelServices,leads,stages,op
     </div>
     </>),
     sources:(<>
-    {m.sourceROI.length>0&&<div className="card" style={{marginBottom:18}}>
-      <h3>Lead source ROI</h3>
-      <div className="ch-sub">Which sources actually close — spend your time where the money is</div>
-      <div className="src-list">
-        <div className="src-row src-head"><span>Source</span><span>Leads</span><span>Closed</span><span>Rate</span><span>Value</span></div>
-        {m.sourceROI.map(s=>(<div className="src-row" key={s.source}>
-          <span className="src-name">{s.source}</span><span>{s.total}</span><span>{s.won}</span>
-          {/* AUDIT #7. This had its OWN threshold — s.total>=3 — hand-rolled and
-              lower than everywhere else, so one source could be judged on three
-              leads while an identical rate elsewhere was not. The row already
-              prints Leads and Closed beside it, so the sample was never the
-              problem here; the colour was. One floor now, from <Rate>. */}
-          <span><Rate part={s.won} whole={s.total} warnBelow={0.15} goodAbove={0.4}/></span>
-          <span>{s.value?usd(s.value):'—'}</span>
-        </div>))}
-      </div>
-    </div>}
+    {/* THE TOP OF THE SOURCES LEADERBOARD (lib/sources sourceRollup), not a
+        second sum. This card used to total booked deal value by the
+        free-text source alone, which disagreed with the Money page and gave
+        a referral no person. Ranked by who gets credit now. */}
+    <SourcesTop leads={[...leads,...(rels||[]).filter(r=>!leads.some(l=>l.id===r.id))]} stages={stages} goAll={goSources} today={todayISO()}/>
     </>),
     clients:(<>
     {m.byClient&&m.byClient.length>0&&<div className="card" style={{marginBottom:18}}>
@@ -8366,13 +8347,15 @@ const RefCount=({lead,all})=>{ const g=referralsOut(lead).length; const r=introd
   return <span className="refct" title={`${g} sent to them · ${r} sent to you`}>
     <b>{g}</b><i>given</i><em>·</em><b>{r}</b><i>received</i></span>; };
 
-function Relationships({leads,open,updateLead,settings,logTouch}){
+function Relationships({leads,open,updateLead,settings,logTouch,stages,isOwner,startView,clearStart}){
   const cfg=useMemo(()=>readCadence(settings),[settings]);
   const today=todayISO();
   const [q,setQ]=useState('');
   const [src,setSrc]=useState('all');
   const [tier,setTier]=useState(null);
-  const [view,setView]=useState('grouped');
+  /* Sources is owner only: revenue roll-ups are never a rep screen */
+  const [view,setView]=useState(startView==='sources'&&isOwner?'sources':'grouped');
+  useEffect(()=>{ if(startView&&clearStart) clearStart(); },[]);
   const rels=useMemo(()=>leads.filter(l=>l.isRelationship),[leads]);
   const nameOf=id=>{const x=leads.find(l=>l.id===id);return x?x.name:'';};
   const tierCount=k=>rels.filter(r=>tierOf(r)===k).length;
@@ -8481,9 +8464,11 @@ function Relationships({leads,open,updateLead,settings,logTouch}){
         <button className={view==='grouped'?'on':''} onClick={()=>setView('grouped')}>Grouped</button>
         <button className={view==='list'?'on':''} onClick={()=>setView('list')}>List</button>
         <button className={view==='web'?'on':''} onClick={()=>setView('web')}>Web</button>
+        {isOwner&&<button className={view==='sources'?'on':''} onClick={()=>setView('sources')}>Sources</button>}
       </div>
     </div>
-    {view==='web'?<NetworkWeb contacts={leads} open={open}/>
+    {view==='sources'&&isOwner?<SourcesView leads={leads} stages={stages} open={open} today={todayISO()}/>
+    :view==='web'?<NetworkWeb contacts={leads} open={open}/>
     :!rels.length?<div className="card"><div className="empty">No relationships yet. Open any contact and flip the <b>Relationship</b> toggle at the top to move them here.</div></div>
     :!shown.length?<div className="card"><div className="empty">No relationships in {tier?tierMeta(tier)[1]:'this view'}{q?' matching that search':''}.</div></div>
     :view==='list'?<div className="tbl-wrap"><table className="tbl">{Head({})}<tbody>{shown.map(r=>Row(r))}</tbody></table></div>

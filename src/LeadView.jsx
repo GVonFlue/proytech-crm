@@ -100,6 +100,7 @@ import { retainerState, monthsDue, monthsPaid } from './lib/retainer';
 import { DateFix, PriBadge, StageBadge } from './LeadBits';
 import { LogTouch, PersonCadence } from './RelCadence';
 import { touchActivity } from './lib/relationships';
+import { rollupFor, sourceChange, heardOf, referrerSuggestions } from './lib/sources';
 import PersonPicker from './PersonPicker';
 
 /* The ONE place a meeting gets booked. The Meetings section and the activity
@@ -790,7 +791,25 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
         if(/^\d{4}-\d{2}-\d{2}$/.test(clean)) patch={...patch,followUp:clean,
           nextAction:draft.nextAction||'Check back in — said not right now'}; }
     }
+    /* WHO GETS CREDIT and HOW THEY ARRIVED are logged when they change on a
+       record that already exists (Relationships Part 2), as app-written
+       notes riding in the SAME patch: one event, one write (ENGINEERING §3).
+       SYS_NOTE knows both prefixes, so neither ever counts as a touch. */
+    if(!isNew&&('introducedBy' in patch||'source' in patch)){
+      const c=sourceChange(draft,patch,new Map((allLeads||[]).map(x=>[x.id,x])));
+      if(c.referred||c.arrived){ const now=new Date().toISOString();
+        patch={...patch,activities:[
+          ...(c.referred?[{id:uid(),ts:now,type:'Note',text:`Referred by: ${c.referred[0]} → ${c.referred[1]}`,who:me}]:[]),
+          ...(c.arrived?[{id:uid(),ts:now,type:'Note',text:`Arrived via: ${c.arrived[0]} → ${c.arrived[1]}`,who:me}]:[]),
+          ...(patch.activities||draft.activities||[])]}; }
+    }
     setDraft(d=>({...d,...patch})); if(!isNew) updateLead(draft.id,patch); };
+  /* Credit and channel are set when a lead is created and editable by owners
+     only after that (Relationships Part 2). A screen lock, not a database
+     rule: Postgres cannot stop a rep editing one field of a lead they can
+     write without a trigger, which is its own approved change. The change
+     note above is what makes an edit visible either way. */
+  const lockSource=rep&&!isNew;
   /* One booking path, used by the Meetings section AND the activity log's
      Meeting Booked button. Always writes the meeting + the Booked activity, so
      it always reaches the dashboard numbers; the Google Calendar event is the
@@ -1340,13 +1359,29 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
         {draft.isRelationship&&<PersonCadence lead={draft} settings={settings} onChange={v=>set({relCadenceDays:v})}/>}
         {draft.isRelationship&&!isNew&&<div className="rel-lt"><LogTouch name={draft.name} onLog={(k,n)=>{ const t=touchActivity(k,n); if(t) addActivity(draft.id,t[0],t[1],me,t[2]); }}/></div>}
         <div className="fgrid" style={{marginTop:10}}>
-          <div className="field"><label>Introduced by</label>
-            <PersonPicker people={candidates} value={draft.introducedBy||''}
-              onChange={id=>set({introducedBy:id})}
-              emptyLabel={'\u2014 nobody / direct \u2014'} placeholder="Search a name or business…"/>
+          <div className="field"><label>Referred by</label>
+            {lockSource
+              ? <input value={(allLeads||[]).find(x=>x.id===draft.introducedBy)?.name||(draft.introducedBy?'(removed contact)':'— nobody —')} disabled title="Only an owner can change who gets credit"/>
+              : <PersonPicker people={candidates} value={draft.introducedBy||''}
+                  onChange={id=>set({introducedBy:id,...(id&&!String(draft.source||'').trim()?{source:'Referral'}:{})})}
+                  emptyLabel={'\u2014 nobody: credit how they arrived \u2014'} placeholder="Search a name or business…"/>}
           </div>
           {F({label:'How you know them',k:'relNote'})}
         </div>
+        {/* WHAT THE VISITOR SAID, and who it might be (the coffee page).
+            Shown, never applied: a typed name is not a contact, so linking is
+            a person's click, which goes through set() and is noted. */}
+        {(()=>{ const h=heardOf(draft); if(!h) return null;
+          const sug=referrerSuggestions(draft,allLeads||[]);
+          return (<div className="heard">
+            <div className="heard-l"><b>How they heard:</b> {h.answer||'—'}{h.referrer?<> · they named <b>{h.referrer}</b></>:null}{h.on?<span className="heard-on"> ({fmtDate(h.on)})</span>:null}</div>
+            {sug.length>0&&<div className="heard-sug">
+              <span className="heard-q">{sug.length===1?'Is this who they meant?':'Could be one of these:'}</span>
+              {sug.map(p=>(<span key={p.id} className="heard-p"><span>{p.name}{p.company&&p.company!==p.name?` · ${p.company}`:''} <i>{p.kind}</i></span>
+                {!lockSource&&<button type="button" className="heard-link" onClick={()=>set({introducedBy:p.id})}>Link as Referred by</button>}</span>))}
+            </div>}
+            {h.referrer&&!draft.introducedBy&&!sug.length&&<div className="heard-none">Nobody in the CRM matches "{h.referrer}". Add them, or pick them above once they are.</div>}
+          </div>); })()}
         {chain.length>0&&<div className="rel-chain">
           <div className="rc-lbl">Intro chain</div>
           <div className="rc-path">
@@ -1439,7 +1474,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               {k:'stage', l:'Stage',    v:st.label||'—', dot:st.color},
               {k:'pri',   l:'Priority', v:(PRIORITIES[draft.priority]||{}).label||'—',
                 dot:(PRIORITIES[draft.priority]||{}).color},
-              {k:'qual',  l:'Source',   v:draft.source||'—'},
+              {k:'qual',  l:'Arrived via', v:draft.source||'—'},
               {k:'qual',  l:'Owner',    v:draft.owner||'—'},
               {k:'qual',  l:'Type',     v:draft.businessType&&draft.businessType!=='—'?draft.businessType:'—'},
               {k:'qual',  l:'Close',    v:draft.expectedClose?fmtDate(draft.expectedClose):'—'},
@@ -1478,7 +1513,11 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           ['svc','Service',Target,(draft.serviceInterest||[]).length||''],
           ['type','Intro',Users,''],
           ['deal','Deal',DollarSign,''],
-          ['spon','Sponsors',Award,'']].map(([k,label,Ic,badge])=>(
+          ['spon','Sponsors',Award,''],
+          /* A relationship's Referrals (given, received, setup won, MRR) had
+             no jump, and the full-screen record shows one section at a time,
+             so it could not be reached at all. */
+          ...(draft.isRelationship?[['refer','Referrals',Handshake,'']]:[])].map(([k,label,Ic,badge])=>(
           <button key={k} className={'mj'+(panel===k?' on':'')} onClick={()=>jumpTo(k)}><Ic size={13}/>{label}{badge!==''&&<i>{badge}</i>}</button>
         ))}
       </div>}
@@ -2074,7 +2113,14 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
             </button>
             {showMore&&<><div className="dh mt"><Bell size={13}/>Follow-up</div>{FollowUpBlock()}</>}
             {showMore&&<div className="fgrid" style={{marginTop:12}}>
-              {Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}{Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}
+              {Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}{Sel({label:'Arrived via',k:'source',opts:['',...opt.source]})}
+              {/* WHO GETS CREDIT, set at creation (Relationships Part 2), by a rep
+                  too: after this it is an owner's edit (lockSource). */}
+              <div className="field"><label>Referred by</label>
+                <PersonPicker people={(allLeads||[]).filter(x=>x.id!==draft.id).sort((a,b)=>(a.name||'').localeCompare(b.name||''))} value={draft.introducedBy||''}
+                  onChange={id=>set({introducedBy:id,...(id&&!String(draft.source||'').trim()?{source:'Referral'}:{})})}
+                  emptyLabel={'\u2014 nobody: credit how they arrived \u2014'} placeholder="Search a name or business…"/>
+              </div>
               {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
               {Sel({label:'Next Action',k:'nextAction',opts:opt.nextAction})}
               {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
@@ -2121,7 +2167,9 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
             {Sec('qual',<SlidersHorizontal size={13}/>,'Qualifying',
               [draft.source,draft.businessType!=='—'?draft.businessType:null,sOf(draft.stage,stages)?.label,PRIORITIES[draft.priority]?.label].filter(Boolean).join(' · ')||'not set',
               <div className="fgrid">
-                {Sel({label:'Lead Source',k:'source',opts:['',...opt.source]})}{Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}
+                {lockSource?<div className="field"><label>Arrived via</label><input value={draft.source||'—'} disabled title="Only an owner can change how they arrived"/></div>
+                  :Sel({label:'Arrived via',k:'source',opts:['',...opt.source]})}
+                {heardOf(draft)&&<div className="field"><label>How they heard</label><input value={[heardOf(draft).answer,heardOf(draft).referrer].filter(Boolean).join(' — ')} disabled title="What they told the coffee page. Credit is Referred by, under Intro."/></div>}{Sel({label:'Business Type',k:'businessType',opts:blankFirst(opt.businessType)})}
                 {Sel({label:'Stage',k:'stage',opts:stages.map(s=>({v:s.key,l:s.label}))})}{Sel({label:'Priority',k:'priority',opts:Object.entries(PRIORITIES).map(([v,x])=>({v,l:x.label}))})}
                 {rep?<div className="field"><label>Owner</label><input value={draft.owner||''} disabled/></div>:Sel({label:'Owner',k:'owner',opts:opt.owner||OWNERS})}
                 {F({label:'Expected Close',k:'expectedClose',type:'date'})}
@@ -2144,9 +2192,12 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                 reliably learn what a referral was worth to them, and a field
                 nobody fills is worse than no field.
 
-                The money comes in as a prop from useMetrics — the same hook the
-                Dashboard runs — rather than being summed here, so the two
-                screens cannot disagree about what a closed deal is worth. */}
+                The money is lib/sources rollupFor (Oct 2026), the Sources
+                leaderboard's own row for this person, built on the Money
+                page's revenueForMonth, so the record, the leaderboard and the
+                Money page cannot disagree about what a referral was worth. It
+                used to be useMetrics' wonValue (booked value of cash-confirmed
+                wins), a different number from the Money page's. */}
             {draft.isRelationship&&Sec('refer',<Handshake size={13}/>,'Referrals',
               (()=>{ const g=referralsOut(draft).length; const r=(inbound&&inbound.count)||0;
                 return g||r?`${g} given · ${r} received`:'none yet'; })(),
@@ -2156,8 +2207,16 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
                   <div className="rl-sep"/>
                   <div className="rl-stat"><b>{(inbound&&inbound.count)||0}</b><span>received</span></div>
                   <div className="rl-sep"/>
-                  <div className="rl-stat" title="Won and collected — not pipeline. The same figure the Dashboard counts as revenue.">
-                    <b>{usdc((inbound&&inbound.value)||0)}</b><span>collected</span></div>
+                  {/* lib/sources rollupFor: the Sources leaderboard's own row
+                      for this person, so the record and the leaderboard
+                      cannot disagree. Owners only: a rep never sees revenue
+                      roll-ups. */}
+                  {!rep&&(()=>{ const ro=rollupFor(draft.id,allLeads||[],stages);
+                    return (<><div className="rl-sep"/>
+                      <div className="rl-stat" title="Setup money collected from the clients they sent, all time, the Money page's way. Retainers are the MRR beside it.">
+                        <b>{usdc(ro.setup)}</b><span>setup won</span></div>
+                      <div className="rl-sep"/>
+                      <div className="rl-stat"><b>{usdc(ro.mrr)}</b><span>MRR now</span></div></>); })()}
                 </div>
 
                 <div className="dh mt"><UserPlus size={13}/>Sent to them</div>

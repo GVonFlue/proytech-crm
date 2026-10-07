@@ -438,7 +438,7 @@ test('custom times follow the preset rules: Banana, cancelled, back-to-back, the
 /* ---- the routes, end to end, against a fake Google / Supabase / Resend ---- */
 const BOOK_DATE = '2030-01-08';                  // a Tuesday, safely in the future
 const bat = h => `${BOOK_DATE}T${h}:00-06:00`;    // CST in January
-let CAL = [], calFail = false, posted = [], mails = [], leadWrites = [];
+let CAL = [], calFail = false, posted = [], mails = [], leadWrites = [], LEAD_ROWS = [];
 const realFetch = globalThis.fetch;
 const fake = async (url, opts = {}) => {
   const u = String(url), method = (opts.method || 'GET').toUpperCase();
@@ -450,7 +450,7 @@ const fake = async (url, opts = {}) => {
     if (method === 'GET') return calFail ? J({}, 403) : J({ items: CAL });
     posted.push(JSON.parse(opts.body)); return J({ id: 'ev1', htmlLink: 'https://cal/ev1' });
   }
-  if (u.includes('/rest/v1/leads')) { if (method === 'GET') return J([]); leadWrites.push(JSON.parse(opts.body)); return J([], 201); }
+  if (u.includes('/rest/v1/leads')) { if (method === 'GET') return J(LEAD_ROWS); leadWrites.push(JSON.parse(opts.body)); return J([], 201); }
   if (u.includes('crm_users')) return J([{ email: 'logan@getproytech.com' }]);
   if (u.includes('api.resend.com')) { mails.push(JSON.parse(opts.body)); return J({ id: 'm1' }); }
   return J({}, 404);
@@ -528,6 +528,52 @@ test('the Race to 20 still counts these coffees once held', () => {
   eq(countRace([held], '2030-01-01', '2030-01-31', CHI), { Garrett: 1, Logan: 0 }, 'a custom-time coffee is credited to its host');
   const evening = { data: { meetings: [{ mtype: 'Coffee', status: 'held', host: 'Logan', start: '2026-10-10T18:30:00' }] } };
   eq(countRace([evening], '2026-10-03', '2026-10-10', CHI), { Garrett: 0, Logan: 1 }, 'a 6:30 PM coffee on the last day counts');
+});
+
+/* ---- how they arrived vs what they told us (Relationships Part 2) -------
+   A coffee booking ARRIVED VIA the coffee page, always. The visitor's "how
+   did you hear" answer is its own field, `heard`, and never becomes source or
+   introducedBy: a typed name is not a contact id, and the old code wrote the
+   name itself into introducedBy, which reads as "(removed contact)". */
+await testAsync('a new coffee lead: Arrived via "Coffee page", the answer kept separately, no guessed credit', async () => {
+  globalThis.fetch = fake;
+  try {
+    CAL = []; LEAD_ROWS = []; leadWrites = []; posted = []; mails = [];
+    let r = await call(bookRoute, { ...GUEST, host: 'Garrett', slot: '0900', heard: 'intro', referrer: 'Dana Realtor' });
+    eq(r.body.ok, true, 'booked: ' + JSON.stringify(r.body));
+    let lead = (leadWrites[0] && leadWrites[0].data) || {};
+    eq(lead.source, 'Coffee page', 'arrived via the coffee page, not "Intro from Dana Realtor"');
+    eq(lead.heard, { answer: 'Someone introduced us', referrer: 'Dana Realtor', on: BOOK_DATE }, 'the answer, as its own field');
+    eq(lead.introducedBy, '', 'nobody credited by guess: the name is not a contact');
+    ok(mails.length === 1 && /Heard:<\/b> intro — Dana Realtor/.test(mails[0].html), 'the owners still see what they said');
+    leadWrites = [];
+    r = await call(bookRoute, { ...GUEST, host: 'Garrett', slot: '1030', heard: 'Facebook' });
+    lead = (leadWrites[0] && leadWrites[0].data) || {};
+    eq([lead.source, lead.heard], ['Coffee page', { answer: 'Facebook', on: BOOK_DATE }], 'any other answer: Coffee page, and the answer kept');
+    leadWrites = [];
+    r = await call(bookRoute, { ...GUEST, host: 'Garrett', slot: '1200' });
+    lead = (leadWrites[0] && leadWrites[0].data) || {};
+    ok(lead.source === 'Coffee page' && !('heard' in lead), 'no answer: Coffee page, no heard field');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+await testAsync('an existing lead keeps how it first arrived, and its credit', async () => {
+  globalThis.fetch = fake;
+  try {
+    CAL = []; leadWrites = [];
+    const row = (data) => ({ id: 'L1', owner_id: 'u1', pool: null, data: { id: 'L1', name: 'Sam Guest', email: GUEST.email, activities: [], meetings: [], keyDates: [], ...data } });
+    LEAD_ROWS = [row({ source: 'Website', introducedBy: 'dana' })];
+    await call(bookRoute, { ...GUEST, host: 'Garrett', slot: '0900', heard: 'intro', referrer: 'Pat' });
+    let d = (leadWrites[0] && leadWrites[0].data) || {};
+    eq([d.source, d.introducedBy], ['Website', 'dana'], 'a known channel and a linked referrer are untouched');
+    eq(d.heard, { answer: 'Someone introduced us', referrer: 'Pat', on: BOOK_DATE }, 'the answer is recorded, since there was none');
+    leadWrites = []; LEAD_ROWS = [row({ source: '', heard: { answer: 'Postcard', on: '2029-12-01' } })];
+    await call(bookRoute, { ...GUEST, host: 'Garrett', slot: '0900', heard: 'Facebook' });
+    d = (leadWrites[0] && leadWrites[0].data) || {};
+    eq(d.source, 'Coffee page', 'an empty channel becomes Coffee page');
+    eq(d.heard, { answer: 'Postcard', on: '2029-12-01' }, 'the first answer they gave is kept, not overwritten');
+    ok((d.activities || []).some(a => /How they heard: Facebook/.test(a.text || '')), 'the new answer is still in the booking note');
+  } finally { globalThis.fetch = realFetch; LEAD_ROWS = []; }
 });
 
 report('coffee');
