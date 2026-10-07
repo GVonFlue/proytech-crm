@@ -131,6 +131,14 @@ export const db = {
   /* onboardings. OWNER-ONLY IN POSTGRES, the same model as proposals below:
      a non-owner gets [] whatever __ONBOARDINGS__ holds; undefined means
      "migration not run" (null). Writes are recorded for the suites. */
+  /* client_emails: OWNER READ in Postgres (CLIENT-EMAILS-MIGRATION.sql), so a
+     non-owner gets [] whatever __CLIENT_EMAILS__ holds. Nobody writes it from
+     the browser, so there is no write helper to stub. */
+  listClientEmails: async () => {
+    const who = (globalThis.__WHOAMI__ && globalThis.__WHOAMI__.role)
+      || (((globalThis.__USERS__ || [])[0] || {}).role) || 'owner';
+    return who === 'owner' ? JSON.parse(JSON.stringify(globalThis.__CLIENT_EMAILS__ || [])) : [];
+  },
   listOnboardings: async () => {
     globalThis.__ONB_LIST_CALLS__ = (globalThis.__ONB_LIST_CALLS__ || 0) + 1;
     if (globalThis.__ONBOARDINGS__ === undefined) return null;
@@ -283,7 +291,7 @@ export const db = {
   saveInvoices: async (l) => { (globalThis.__INVOICE_WRITES__ = globalThis.__INVOICE_WRITES__ || []).push(l); },
   getTxns: async () => Array.isArray(globalThis.__TXNS__) ? globalThis.__TXNS__ : [],
   saveTxns: async (l) => { globalThis.__TXNS__ = l; },
-  getTasks: async () => JSON.parse(JSON.stringify(globalThis.__TASKS__ || [])), saveTasks: async () => {},
+  getTasks: async () => JSON.parse(JSON.stringify(globalThis.__TASKS__ || [])), saveTasks: async (list) => { (globalThis.__TASK_WRITES__ = globalThis.__TASK_WRITES__ || []).push(JSON.parse(JSON.stringify(list))); },
   getUsers: async () => JSON.parse(JSON.stringify(globalThis.__USERS__ || [])),
   /* crm_team(): names and roles for every ACTIVE person, and no money. The
      stub mirrors the boundary rather than the convenience — getUsers() above

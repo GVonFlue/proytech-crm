@@ -3,6 +3,14 @@
     {
       "path": "/api/content-slate",
       "schedule": "0 1 * * 1"
+    },
+    {
+      "path": "/api/client-emails-cron",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/client-emails-cron",
+      "schedule": "0 16 * * *"
     }
   ],
   "rewrites": [

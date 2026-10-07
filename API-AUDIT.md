@@ -86,6 +86,8 @@ Supabase sign-ups switched off.
 | `portal-admin.js` | ✅ `guard({requireOwner})` | the owner's controls for a client's portal logins: list, invite, resend, remove (switches the row off and bans the login). See below |
 | `team-login.js` | ✅ `guard({requireOwner})` | creates a new team member's LOGIN through the Supabase admin API (service key), email confirmed, so it works with sign-ups OFF. Never the public `/auth/v1/signup`. The `crm_users` row is still written by the owner's browser under the owner-only RLS policy |
 | `onboarding-admin.js` | ✅ `guard({requireOwner})` | signed download links, the client link, and delete (files before the row). See below |
+| `client-email.js` | ✅ `guard({requireOwner})` | the CRM calls it after a deposit tick, with a lead id only; sends "You're locked in" once through `sendClientMail()` (onboarding id, **no address**). See *The client emails* |
+| `client-emails-cron.js` | ✅ `CRON_SECRET` **or** `guard({requireOwner})` | the daily 10 AM job: reminders, the day-10 claim, the backstops. The same two doors as `content-slate.js`. See *The client emails* |
 
 `_guard.js`, `_google.js`, `_pocket.js`, `_spend.js`, `_content.js`, `_coffee.js`,
 `_mail.js`, `_storage.js` are helpers with no route. `_storage.js` is the only code that reaches the private onboarding bucket, with the service key.
@@ -233,6 +235,35 @@ per day; about 1% of calls sweep uploads that were signed and never finished.
 Proven by `tests/onboardingroutes.mjs` (the route) and `tests/onbrlsdb.mjs` /
 `tests/onbsql.mjs` (the functions, on real Postgres and as text). `VERIFY-RLS.md`
 §14 is the proof against a real install and has **not been run**.
+
+### The client emails — `client-email.js`, `client-emails-cron.js` (Oct 2026)
+
+Three onboarding emails to the CLIENT ("You're locked in", "We saved your
+seat" at 24 hours / day 3 / day 6, "Launch Day Ticket") and a day-10 call
+task. All of the sending is `_clientemail.js`, which reaches the client only
+through `sendClientMail({onboardingId})`: the address is read from the
+onboarding's lead, and nothing a request carries can name one
+(`tests/clientemails.mjs` sends with an attacker's address in every field).
+
+- **`client-email.js`**: owner only. Body: `{leadId}`, nothing else. The
+  deposit tick, the switch and its switch-on date are re-read from the
+  database, so a caller cannot claim a tick that is not there.
+- **`client-emails-cron.js`**: the scheduler (`Bearer $CRON_SECRET`,
+  constant-time, an unset secret refuses it), or an owner, who may
+  `{force: true}` a run now. Scheduled at 15:00 **and** 16:00 UTC; only the
+  run that is 10 AM in `CALENDAR_TZ` does anything, so it is 10 AM in Chicago
+  in daylight and standard time.
+- **`onboarding-public.js`** (already listed) now also sends the client's
+  ticket on submit, by onboarding id, after the owners' email.
+- **Once, never twice:** every send first claims `(lead_id, kind)` in
+  `client_emails` (unique; insert on conflict do nothing). Owners read that
+  table; only the server writes it (VERIFY-RLS.md §18, RLS-AUDIT.sql §2f). A
+  failed send deletes its claim so tomorrow retries.
+- **Past clients are never emailed:** each email is off until an owner
+  switches it on, and only a tick, activity or submit on or after that day
+  triggers it.
+- **No lead is written by the server.** The day-10 task is a claim; the
+  owner's CRM creates the task, so an open tab cannot erase it.
 
 ### `onboarding-admin.js` — owner only, and why it exists
 

@@ -127,7 +127,10 @@ console.log('\nvercel.json: /p/<slug>, /onboarding/<slug>, and the proposals dom
   const v = JSON.parse(fs.readFileSync(path.join(ROOT, 'vercel.json'), 'utf8'));
   ok('/p/:slug is served by proposal.html', (v.rewrites || []).some(r => r.source === '/p/:slug' && r.destination === '/proposal.html'));
   ok('/onboarding/:slug is served by onboarding.html', (v.rewrites || []).some(r => r.source === '/onboarding/:slug' && r.destination === '/onboarding.html'));
-  ok('the crons are untouched', JSON.stringify(v.crons) === JSON.stringify([{ path: '/api/content-slate', schedule: '0 1 * * 1' }]));
+  /* the content-slate cron is untouched (other jobs, e.g. client-emails-cron
+     since Oct 2026, have their own entries and suites) */
+  ok('the content-slate cron is untouched', (v.crons || []).filter(c => c.path === '/api/content-slate').length === 1
+    && (v.crons || []).some(c => c.path === '/api/content-slate' && c.schedule === '0 1 * * 1'), JSON.stringify(v.crons));
   const rd = (v.redirects || []).find(r => (r.has || []).some(h => h.type === 'host' && h.value === 'proposals.getproytech.com'));
   ok('a redirect applies ONLY on proposals.getproytech.com', !!rd && rd.has.length === 1, JSON.stringify(v.redirects));
   ok('  to https://getproytech.com, temporarily (302/307, so it can change later)', rd && rd.destination === 'https://getproytech.com' && rd.permanent === false);

@@ -34,6 +34,7 @@ import { LifecycleStrip, WhatsDue, LifecycleSettings, LIFECYCLE_CSS } from './Li
 import { readCadence, cadenceOf, nextTouch, dueOn, reachOut, coldByCadence, tierOf, tierMeta, tierLetter, REL_TIER_DESC, touchActivity } from './lib/relationships';
 import { LogTouch, ReachOutList, ReachOutCard, CadenceSettings, REL_CADENCE_CSS } from './RelCadence';
 import { SourcesView, SourcesTop, SOURCES_CSS } from './Sources';
+import { ClientEmailSettings, CLIENT_EMAILS_CSS } from './ClientEmails';
 import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, collectedByService, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
@@ -4652,12 +4653,16 @@ export default function App(){
      only while a client is mid-onboarding, and on window focus.
      undefined = not loaded yet, null = migration not run. */
   const [onboardings,setOnboardings]=useState(undefined);
+  /* which client emails the server has claimed (api/_clientemail.js); owner
+     read only. undefined = not loaded, null = migration not run */
+  const [clientEmails,setClientEmails]=useState(undefined);
   const [onbSel,setOnbSel]=useState(null);
   /* `loaded`: applying a submit needs the leads in memory; polling before
      they arrive finds no lead and would wait a full minute to try again */
   const onboardingOn=isOwner&&modOn(settings,'onboarding')&&loaded;
   const refreshOnboardings=async()=>{
     const list=await db.listOnboardings(); setOnboardings(list);
+    if(typeof db.listClientEmails==='function') setClientEmails(await db.listClientEmails());
     if(!Array.isArray(list)) return list;
     /* todayISO, the LOCAL date every other checklist tick uses: a UTC date
        would stamp tomorrow on an evening submit */
@@ -5403,6 +5408,52 @@ export default function App(){
      updateLead (ENGINEERING §3). lifecyclePatch is idempotent, so applying
      it re-renders to null. The ref is a fuse: the same patch twice for one
      client means it is not converging, and it is logged, not looped. */
+  /* "YOU'RE LOCKED IN" FOLLOWS THE DEPOSIT TICK, whatever ticked it: the
+     checklist, "Mark payment collected", an invoice marked paid, another tab,
+     and later Square. Any lead whose deposit goes from unticked to ticked
+     while this owner's CRM is open asks api/client-email to send, with the
+     lead id only; the server re-reads the tick, the switch and the address,
+     and sends once (client_emails). The server may read the lead before this
+     tab's save lands, so "not ticked" retries twice; the daily job is the
+     backstop either way. The first pass only records what is already ticked:
+     opening the CRM never sends anything. */
+  const depSeen=React.useRef(null);
+  const lockedInFor=(id,attempt=0)=>{
+    apiPost('/api/client-email',{leadId:id}).then(r=>r.json()).then(j=>{
+      if(j.ok) addActivity(id,'Note',`Client email sent: "You're locked in" to the client's address.`,me);
+      else if(j.reason==='not_ticked'&&attempt<2) setTimeout(()=>lockedInFor(id,attempt+1),2500*(attempt+1));
+      else if(['no_onboarding','no_email','send_failed','send_error','not_configured'].includes(j.reason)) addActivity(id,'Note',`Client email not sent: ${j.message||j.reason}`,me);
+    }).catch(()=>{}); };
+  useEffect(()=>{ if(!isOwner||!loaded) return;
+    const cur=new Map((leads||[]).map(l=>[l.id,!!depositPaidAt(l)]));
+    const prev=depSeen.current; depSeen.current=cur; if(!prev) return;
+    for(const [id,t] of cur) if(t&&prev.has(id)&&!prev.get(id)) lockedInFor(id);
+  },[leads,isOwner,loaded]);
+  /* THE DAY-10 CALL TASK. The daily job claims it (client_emails stall_10d);
+     this owner's CRM creates the task through its own task list, because the
+     tasks row is saved whole from the browser and a server-written task would
+     be erased by the next save from any open tab (ENGINEERING §3). Created
+     ONCE: the lead is stamped with the task's id in the same pass, and every
+     new task goes in ONE saveTasks (upsertTask reads a stale list in a loop).
+     The assignee is the point of contact: the accepted proposal's first
+     contact, else the lead's owner, the same rule the lifecycle uses. */
+  const stallDone=React.useRef(new Set());
+  useEffect(()=>{ if(!lcReady||!Array.isArray(clientEmails)) return;
+    const fresh=[];
+    for(const ce of clientEmails){
+      if(!ce||ce.kind!=='stall_10d'||!ce.sent_at||stallDone.current.has(ce.lead_id)) continue;
+      const l=(leadsRef.current||[]).find(x=>x&&x.id===ce.lead_id); if(!l||l.onbStallTaskId) continue;
+      const prop=(Array.isArray(proposals)?proposals:[]).filter(p=>p&&p.lead_id===l.id&&p.status==='accepted')
+        .sort((a,b)=>String(b.accepted_at||'').localeCompare(String(a.accepted_at||'')))[0];
+      const who=(prop&&prop.body&&Array.isArray(prop.body.contacts)&&prop.body.contacts[0]&&prop.body.contacts[0].name)||l.owner||me;
+      const id=uid(); stallDone.current.add(l.id);
+      fresh.push({...newTask(who),id,owner:who,leadId:l.id,due:todayISO(),
+        title:ce.detail||`Call ${l.company||l.name||'the client'}: onboarding stalled 10 days`,
+        notes:'Their onboarding has had no activity for 10 days. No email goes out for this one: call them.',fromStall:true});
+      updateLead(l.id,{onbStallTaskId:id});
+    }
+    if(fresh.length) saveTasks([...fresh,...tasks]);
+  },[lcReady,clientEmails]);
   const lcLast=React.useRef({});
   useEffect(()=>{ if(!lcReady) return;
     for(const r of lcRows){
@@ -5587,7 +5638,7 @@ export default function App(){
     moveNav(navOrder.indexOf(navDrag),navOrder.indexOf(key)); setNavDrag(null); };
   const navItems=navOrder.map(k=>NAV.find(([kk])=>kk===k)).filter(Boolean).filter(([k])=>canSee(k));
 
-  return (<><style>{CSS+LIFECYCLE_CSS+REL_CADENCE_CSS+SOURCES_CSS}</style><div className="pt">
+  return (<><style>{CSS+LIFECYCLE_CSS+REL_CADENCE_CSS+SOURCES_CSS+CLIENT_EMAILS_CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <SidebarArt/>
@@ -9958,6 +10009,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
     </div>); })()}
     {isOwner&&<LifecycleSettings settings={settings} saveSettings={saveSettings} team={(users||[]).length?(users||[]).filter(u=>u.active!==false).map(u=>u.name):BRAND.team}/>}
     {isOwner&&<CadenceSettings settings={settings} saveSettings={saveSettings}/>}
+    {isOwner&&<ClientEmailSettings settings={settings} saveSettings={saveSettings}/>}
 
     {/* logo */}
     <div className="card" style={{marginBottom:18}}>

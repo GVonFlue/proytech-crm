@@ -6,6 +6,7 @@ import { appUrl } from './_google.js';
 // nobody else; sendClientMail() takes an onboarding id and reads the client's
 // address from the onboarding's lead. Neither takes an address from here.
 import { sendMail, sendClientMail, esc } from './_mail.js';
+import { sendTicket } from './_clientemail.js';
 import { signUpload, head, remove } from './_storage.js';
 // the client link's base is built in ONE place, proposal-send.js
 import { proposalBase } from './proposal-send.js';
@@ -274,6 +275,11 @@ export default async function handler(req, res) {
       const open = stillNeeded(ctx, answers, row.files || [], row.checklist, cfg).filter(x => !x.ok).map(x => x.label);
       await sendMail({ tag: 'onboarding-public', subject: `${business} finished onboarding`,
         html: submittedHtml({ business, who: String(answers['biz.contact_name'] || row.client_name || 'The client'), product: row.package_name || productLine(ctx.products, cfg.productNames), missing: open }) });
+      /* The client's "Launch Day Ticket" (api/_clientemail.js): once, to the
+         address on the lead, only if switched on. Soft like the owners' mail:
+         a failure releases its claim and the daily job sends it tomorrow. */
+      const tk = await sendTicket(row.id).catch(() => ({ ok: false, reason: 'error' }));
+      if (!tk.ok && tk.reason !== 'switched_off' && tk.reason !== 'already') console.error('[onboarding-public] ticket not sent:', tk.reason);
     }
     res.status(200).json({ ok: true, result: r, onboarding: publicView(fresh, cfg) });
     return;

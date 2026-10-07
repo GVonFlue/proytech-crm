@@ -308,7 +308,7 @@ export const hasVoicemail=l=>((l&&l.activities)||[]).some(a=>a&&a.disp==='VM');
    writers and fails the build when one appears that this does not match.
    The list is the fallback for rows already in the database; the test is what
    keeps it honest. */
-export const SYS_NOTE=/^(Lead created\.|Proposal deleted by |Follow-up cleared\.|Follow-up done —|Stage moved:|Deal value set to|Phase →|Clock paused:|Clock resumed:|Close date set to|Commission approved|Commission voided|Converted to client|Signed — onboarding|Reverted to lead|Invoice |Payment confirmed |Payment marked as not collected|Deal closed:|New build started:|Sponsorship logged:|Dated:|Reassigned from |Checklist: |Referred by: |Arrived via: )/;
+export const SYS_NOTE=/^(Lead created\.|Proposal deleted by |Follow-up cleared\.|Follow-up done —|Stage moved:|Deal value set to|Phase →|Clock paused:|Clock resumed:|Close date set to|Commission approved|Commission voided|Converted to client|Signed — onboarding|Reverted to lead|Invoice |Payment confirmed |Payment marked as not collected|Deal closed:|New build started:|Sponsorship logged:|Dated:|Reassigned from |Checklist: |Referred by: |Arrived via: |Client email sent: |Client email not sent: )/;
 export const isSystemNote=a=>!!a&&a.type==='Note'&&!a.derived&&SYS_NOTE.test(String(a.text||''));
 
 /* A REAL TOUCH is a reached type, or a note a person actually wrote.
