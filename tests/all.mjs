@@ -75,7 +75,11 @@ const HELPERS = new Set([
 const PER_FILE_TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS) || 90_000;
 /* a few files are many runs in one: clockguard is 48 child processes, two at
    a time, and inside a busy full run it needs longer than a single suite */
-const LONGER = { 'clockguard.mjs': 6 };
+/* clockguard reruns a dozen suites at pinned clocks inside ONE lane, two at a
+   time (never more: CLAUDE.md, Testing). At 6x it was taking 418-520s of its
+   540s in CI and then timed out (PR #98). 10x (900s) is headroom for the time
+   the work actually takes, not more parallelism. */
+const LONGER = { 'clockguard.mjs': 10 };
 /* Fixed at two, not cores-1. clockguard fans out its own lanes inside one of
    these, so cores-1 here meant ~14 jsdom processes on an 8-core laptop: load
    average 50, a fanless machine throttling, and nine suites killed at the
