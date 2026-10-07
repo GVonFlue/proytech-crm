@@ -257,7 +257,7 @@ onboarding's lead, and nothing a request carries can name one
   ticket on submit, by onboarding id, after the owners' email.
 - **Once, never twice:** every send first claims `(lead_id, kind)` in
   `client_emails` (unique; insert on conflict do nothing). Owners read that
-  table; only the server writes it (VERIFY-RLS.md §17, RLS-AUDIT.sql §2e). A
+  table; only the server writes it (VERIFY-RLS.md §18, RLS-AUDIT.sql §2f). A
   failed send deletes its claim so tomorrow retries.
 - **Past clients are never emailed:** each email is off until an owner
   switches it on, and only a tick, activity or submit on or after that day

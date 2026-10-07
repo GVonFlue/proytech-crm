@@ -17,7 +17,7 @@
      passes, and FAILS (naming the policy) when a write policy is added ·
      re-running the migration changes nothing · the rollback drops the table.
 
-   It is not VERIFY-RLS.md §17: PGlite is real Postgres but not Supabase.
+   It is not VERIFY-RLS.md §18: PGlite is real Postgres but not Supabase.
    tests/clientemails.mjs is the half CI always runs (the SQL as text). */
 import fs from 'node:fs'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
