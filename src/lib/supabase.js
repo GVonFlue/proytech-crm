@@ -413,6 +413,14 @@ export const db = {
     if (error) { console.warn('[onboardings]', error.message); return null; }
     return data || [];
   },
+  /* CLIENT EMAILS (CLIENT-EMAILS-MIGRATION.sql): which onboarding emails the
+     server has claimed or sent, per lead. Owners read; nobody writes from
+     here (server-write only). null = migration not run, said once. */
+  async listClientEmails() {
+    const { data, error } = await supabase.from('client_emails').select('lead_id,kind,claimed_at,sent_at,detail');
+    if (error) { console.warn('[client_emails]', error.message); return null; }
+    return data || [];
+  },
   async createOnboarding(row) {
     const { data, error } = await supabase.from('onboardings').insert({
       lead_id: row.lead_id, token: row.token, products: row.products || [], industry: row.industry || null,
