@@ -307,6 +307,27 @@ in the shared Tasks list unless you assign an item to someone by hand.
   card, and their session never moves a client, even one they converted and
   still own. `tests/lifecyclerep.mjs`.
 
+## The client portal: a client, signed in
+
+When a client accepts a proposal they get an email: "Your portal is ready".
+The button signs them in to `/portal`; after that they ask for a fresh link
+on the sign-in page whenever they need one. No password, ever.
+
+- **They see their own build and nothing else:** where it stands, Day X of 14
+  and the launch date (the same numbers as your client card), the road to
+  Launch Day, what is waiting on them, their billing from the proposal they
+  accepted, their crew, the proposal itself, the Terms version they agreed to,
+  and their onboarding answers with the EIN masked to its last 4.
+- **They never see:** another client, a lead, your notes, activity, deals,
+  settings, the team, or the words "At Risk" (an At Risk client reads as
+  Active). Enforced in Postgres and proven table by table (VERIFY-RLS §17).
+- **A client login is never a team login**, and the other way round. An address
+  on your team cannot be invited to a portal, and a team member gets no portal.
+- **You manage access on the client's Portal tab** (owners only): who can sign
+  in and when they last did, invite another person (an office manager), send
+  a fresh link, or remove someone, which signs them out for good.
+- **A rep sees none of it.**
+
 ## Turning someone off
 
 **Deactivate** ends their access at the next page load, takes them off the

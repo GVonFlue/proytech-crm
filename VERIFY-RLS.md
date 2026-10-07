@@ -1639,6 +1639,83 @@ pools' leads, `crm_team()` the team.
 | `POLICY-SWEEP-2026-10.sql` | no row with `crm_active_alone = true`; every `not_in_repo = true` row explained | |
 | `RLS-AUDIT.sql` | RLS-AUDIT OK | |
 
+## 17. The client portal (after PORTAL-MIGRATION.sql)
+
+A client signs in to `/portal` with an email link. Their login is a Supabase
+`authenticated` account like a team member's, with **no** `crm_users` row and
+an active `client_users` row tying it to exactly one lead. What they can read
+is decided here, not in the app:
+
+- **No table.** `client_users` is owner-only; every other table already needs a
+  listed team member or an owner (AUTH-LISTED-2026-10, §16).
+- **Three functions:** `portal_home()`, `portal_documents()`, `portal_touch()`.
+  Each finds the lead from `auth.uid()` alone through `portal_lead()` (an
+  active `client_users` row, and never a CRM user), takes **no argument**, and
+  returns named fields only. The EIN is masked to its last 4 inside
+  `portal_documents()`, so the full number never reaches a browser.
+- **The server's functions** (invite target, link, login target) are
+  service_role only.
+- **First-run mode is shut to clients:** `no_users()` is false and
+  `crm_whoami()` says `none` once any client login exists, so a client can
+  never be "owner" of an empty install or claim it.
+- **RLS-AUDIT.sql §2e** now fails on any `security definer` function a browser
+  can call that checks neither the team (`crm_listed()`/`is_owner()`) nor the
+  portal (`portal_lead()`).
+
+**Status: NOT YET RUN against the real install.** Proven locally against real
+Postgres by `tests/portaldb.mjs` (PGlite, every migration applied, then a
+sweep driven by the catalog: every table, every function a signed-in account
+can execute, the stored files; client A against client B; a removed client; a
+CRM user on the client list; a stray login; the first-run door; and the audit
+failing on a planted unguarded function).
+
+### Run it
+
+You need one real client login: accept a test proposal, or invite yourself
+from a test client's **Portal** tab with an address that is not on the team,
+and copy that login's id from Authentication → Users. Nothing persists.
+
+**1. The wall, swept from the catalog** (every table in `public`, as the client):
+```sql
+begin;
+select set_config('request.jwt.claims', json_build_object('sub','<THE CLIENT LOGIN ID>','role','authenticated')::text, true);
+set local role authenticated;
+do $$
+declare t text; n bigint;
+begin
+  for t in select c.relname from pg_class c join pg_namespace s on s.oid = c.relnamespace
+            where s.nspname = 'public' and c.relkind = 'r' order by 1 loop
+    begin execute format('select count(*) from public.%I', t) into n;
+    exception when insufficient_privilege then n := 0; end;
+    if n > 0 then raise exception 'THE CLIENT SEES % rows in %', n, t; end if;
+  end loop;
+  raise notice 'PORTAL WALL OK: the client sees 0 rows in every table in public';
+end $$;
+select count(*) from storage.objects;              -- expect: 0
+select role from crm_whoami();                     -- expect: none
+select portal_home()->>'company' as company,       -- expect: THEIR company
+       portal_home()->>'phase'   as phase;
+select jsonb_object_keys(portal_home());           -- expect exactly: checklist, company, config, converted_at, delivery,
+                                                   -- first_name, launched_at, lifecycle, onboarding, phase, phase_since, proposal
+select portal_documents()->'onboarding'->'answers'->>'tx.ein';  -- expect: ••••• and 4 digits, or null
+rollback;
+```
+
+**2. A team member gets no portal:** the same block with an **owner's** id.
+Expect: `portal_home()` null, and (unlike the client) the owner's own reads.
+
+**3. RLS-AUDIT.sql.** Expect `RLS-AUDIT OK`, now including "every security
+definer function a browser can call checks the team or the portal".
+
+| check | expected | result |
+|---|---|---|
+| the catalog sweep as the client | notice `PORTAL WALL OK` | |
+| `storage.objects` / `crm_whoami()` | 0 / `none` | |
+| `portal_home()` company / keys | their own / exactly the 12 listed | |
+| the EIN in `portal_documents()` | masked to last 4 | |
+| as an owner: `portal_home()` | null | |
+| `RLS-AUDIT.sql` | OK, with the function sweep | |
+
 ## Coverage, honestly
 
 Two tables were added in Aug 2026 and **neither is fully verified.** The gap is

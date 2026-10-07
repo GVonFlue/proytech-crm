@@ -130,7 +130,16 @@ console.log('\nwho holds which door');
   /* a listed set, widened on purpose: proposal-public.js sends the client their
      copy of an acceptance (Terms §18.2). It passes only the id of the proposal
      the token just accepted; the recipient is still read from the lead. */
-  ok('only proposal-send.js, proposal-public.js and onboarding-public.js use sendClientMail()', holders.sort().join() === 'onboarding-public.js,proposal-public.js,proposal-send.js', holders.join());
+  /* widened again for the client portal (B-1): _portal.js (the invite at
+     acceptance), portal-login.js (the sign-in link) and portal-admin.js (an
+     owner's invite / resend). All three pass a clientUserId, so the recipient
+     is the address on that login's own client_users row, never the request. */
+  const HOLDERS = '_portal.js,onboarding-public.js,portal-admin.js,portal-login.js,proposal-public.js,proposal-send.js';
+  ok('only the listed routes use sendClientMail()', holders.sort().join() === HOLDERS, holders.join());
+  for (const f of ['_portal.js', 'portal-login.js', 'portal-admin.js']) {
+    const src = (await fs.readFile(path.join(ROOT, 'api', f), 'utf8')).replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    ok(`  ${f} addresses portal mail by clientUserId, never with a to:`, /sendClientMail\(\{\s*clientUserId:/.test(src) && !/sendClientMail\(\{[^}]*\bto\s*:/.test(src));
+  }
   const onb = await fs.readFile(path.join(ROOT, 'api/onboarding-public.js'), 'utf8');
   const onbCode = onb.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
   ok('onboarding-public.js never reads an address off the request', !/\bb\.(to|email|recipient)\b/.test(onbCode));

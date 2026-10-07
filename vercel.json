@@ -13,6 +13,10 @@
     {
       "source": "/onboarding/:slug",
       "destination": "/onboarding.html"
+    },
+    {
+      "source": "/portal",
+      "destination": "/portal.html"
     }
   ],
   "redirects": [
