@@ -134,6 +134,24 @@ export async function clientRecipientFor(proposalId) { return recipientVia('prop
 /** The same, for an onboarding: the email on the onboarding's lead. */
 export async function clientRecipientForOnboarding(onboardingId) { return recipientVia('onboardings', onboardingId); }
 
+/** A client portal login: the email ON ITS OWN client_users row (the
+ *  address the login was made for), and only while it is active. */
+export async function clientRecipientForPortalUser(clientUserId) {
+  if (!SUPA_URL || !SUPA_KEY) return { ok: false, reason: 'not_configured' };
+  const id = String(clientUserId || '');
+  if (!UUID.test(id)) return { ok: false, reason: 'not_found' };
+  try {
+    const r = await fetch(`${SUPA_URL}/rest/v1/client_users?id=eq.${id}&active=is.true&select=email`, { headers: { apikey: SUPA_KEY, authorization: `Bearer ${SUPA_KEY}` } });
+    const rows = r.ok ? await r.json() : null;
+    const to = Array.isArray(rows) && rows[0] ? String(rows[0].email || '').trim() : '';
+    if (!to) return { ok: false, reason: 'not_found' };
+    if (!isEmail(to)) return { ok: false, reason: 'no_email' };
+    return { ok: true, to };
+  } catch {
+    return { ok: false, reason: 'read_failed' };
+  }
+}
+
 /* `table` is one of two literals chosen by the two exports above, never by a
    caller, so it cannot be pointed at another table. */
 async function recipientVia(table, rowId) {
@@ -159,20 +177,22 @@ async function recipientVia(table, rowId) {
   }
 }
 
-/** Email ONE client: the client of a proposal, or of an onboarding. There is
- *  deliberately no `to`: anything else a caller passes is ignored, and the
- *  recipient is resolved here from the record's lead. Exactly one id.
- *  `replyTo` only sets where the client's reply goes. Never throws. Used by
- *  api/proposal-send.js (proposalId), api/proposal-public.js (proposalId: the
- *  client's copy of their acceptance) and api/onboarding-public.js
- *  (onboardingId), and nothing else; tests/clientmail.mjs holds that list. */
-export async function sendClientMail({ proposalId, onboardingId, subject, html, text, replyTo, tag = 'client-mail' } = {}) {
+/** Email ONE client: the client of a proposal, of an onboarding, or a client
+ *  portal login. There is deliberately no `to`: anything else a caller passes
+ *  is ignored, and the recipient is resolved here from the record (the lead's
+ *  email, or the portal login's own row). Exactly one id. `replyTo` only sets
+ *  where the client's reply goes. Never throws. Used by api/proposal-send.js
+ *  (proposalId), api/proposal-public.js (proposalId: the client's copy of
+ *  their acceptance; clientUserId: the portal invite), api/onboarding-public.js
+ *  (onboardingId), api/portal-login.js and api/portal-admin.js (clientUserId),
+ *  and nothing else; tests/clientmail.mjs holds that list. */
+export async function sendClientMail({ proposalId, onboardingId, clientUserId, subject, html, text, replyTo, tag = 'client-mail' } = {}) {
   try {
     const RESEND = process.env.RESEND_API_KEY;
     const FROM = process.env.NOTIFY_FROM;
     if (!RESEND || !FROM) return { ok: false, reason: 'not_configured' };
-    if (!!proposalId === !!onboardingId) return { ok: false, reason: 'not_found' };
-    const rc = proposalId ? await clientRecipientFor(proposalId) : await clientRecipientForOnboarding(onboardingId);
+    if ([proposalId, onboardingId, clientUserId].filter(Boolean).length !== 1) return { ok: false, reason: 'not_found' };
+    const rc = proposalId ? await clientRecipientFor(proposalId) : onboardingId ? await clientRecipientForOnboarding(onboardingId) : await clientRecipientForPortalUser(clientUserId);
     if (!rc.ok) return { ok: false, reason: rc.reason };
     const payload = { from: FROM, to: [rc.to], subject: String(subject || '').slice(0, 200), html: String(html || '') };
     if (text) payload.text = String(text);

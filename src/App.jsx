@@ -26,6 +26,7 @@ import ClientView from './ClientView';
 import ServiceAssign from './ServiceAssign';
 import Proposals, { OfferEditor } from './Proposals';
 import Onboarding, { ClientOnboarding } from './Onboarding';
+import PortalAccess from './PortalAccess';
 import { onboardingAppliedPatch, readOnbConfig } from './lib/onboarding';
 import { proposalEventsPatch, readOffer } from './lib/proposal';
 import { readLifecycle, productsOf, clockOf, dueItems, lifecyclePatch, waitingOn } from './lib/lifecycle';
@@ -5652,6 +5653,7 @@ export default function App(){
           view==='onboarding'?<Onboarding leads={leads} settings={settings} saveSettings={saveSettings} apiPost={apiPost} onboardings={onboardings} proposals={proposals} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openLead={openLead} selected={onbSel} setSelected={setOnbSel}/>:
           view==='proposals'?<Proposals leads={leads} settings={settings} apiPost={apiPost} me={me} openLead={openLead} proposals={proposals} reload={refreshProposals} onSaved={refreshProposals} noteLead={(id,sentOn)=>{ const l=leadsRef.current.find(x=>x.id===id); if(l) updateLead(id,{activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:`Proposal deleted by ${me||'an owner'}${sentOn?` (it was sent ${sentOn})`:''}.`,who:me},...(l.activities||[])]}); }}/>:
           view==='clients'?<Clients lcRows={lcRows} labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
+            renderPortal={isOwner?(c=><PortalAccess lead={c} apiPost={apiPost}/>):null}
             renderOnboarding={onboardingOn?(c=><ClientOnboarding lead={c} onboardings={onboardings} settings={settings} apiPost={apiPost} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openOnboarding={id=>{setOnbSel(id);setPage('onboarding');}}/>):null}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
@@ -8575,7 +8577,7 @@ function ClientBoard({lcRows,clients,settings,onCard,setClientPhase,stages,proje
     </div>);})}</div>);
 }
 
-function Clients({lcRows,labelServices,leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue,renderOnboarding}){
+function Clients({renderPortal,lcRows,labelServices,leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue,renderOnboarding}){
   /* off by default: hidden items should stay out of the way, but you need a way
      back to them or switching one off would be one-directional */
   const [showSkipped,setShowSkipped]=useState(false);
@@ -8629,7 +8631,7 @@ function Clients({lcRows,labelServices,leads,stages,settings,open,toggleOnboardi
                  onClose={()=>setExpand(null)} openRecord={open}
                  updateLead={updateLead} setClientPhase={setClientPhase}
                  toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
-                 toggleProjectMilestone={toggleProjectMilestone} renderOnboarding={renderOnboarding}/>; })()}
+                 toggleProjectMilestone={toggleProjectMilestone} renderOnboarding={renderOnboarding} renderPortal={renderPortal}/>; })()}
     </>}
   </>);
 }

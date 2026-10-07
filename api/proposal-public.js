@@ -4,6 +4,7 @@ import { appUrl, calendarTz } from './_google.js';
 // sendMail() reaches the owners allowlist and nobody else (_mail.js); esc is
 // the shared HTML escape.
 import { sendMail, sendClientMail, esc } from './_mail.js';
+import { inviteAtAcceptance } from './_portal.js';
 import { proposalLink, proposalBase } from './proposal-send.js';
 // the token rule is defined once, in the shared library the CRM also uses
 import { TOKEN_RE, hasLegal, fmtWhen } from '../src/lib/proposal.js';
@@ -152,7 +153,12 @@ export default async function handler(req, res) {
           <p style="margin:0"><a href="${esc(appUrl())}" style="color:#2B4DE0">Open the CRM</a></p></div>`,
       });
     }
-    if (result === 'accepted') await sendClientCopy(t, row.body, name, plan);
+    if (result === 'accepted') {
+      const pid = await sendClientCopy(t, row.body, name, plan);
+      /* the client's portal login and its invite, from the lead's own email
+         (api/_portal.js). Fail-soft: the acceptance stands whatever this does. */
+      if (pid) await inviteAtAcceptance(pid, ((row.body || {}).company || {}).name || '');
+    }
     res.status(200).json({ ok: true, result, onboardingUrl, paymentUrl });
     return;
   }
@@ -173,11 +179,12 @@ async function sendClientCopy(token, body, name, plan) {
   try {
     const r = await fetch(`${SUPA_URL}/rest/v1/proposals?token=eq.${encodeURIComponent(token)}&select=id,accepted_at`, { headers: H() });
     const row = r.ok ? (await r.json())[0] : null;
-    if (!row || !row.id) { console.error('[proposal-public] client copy: proposal id not found'); return; }
+    if (!row || !row.id) { console.error('[proposal-public] client copy: proposal id not found'); return null; }
     const mail = clientAcceptedEmail({ body, name, plan, acceptedAt: row.accepted_at, link: proposalLink(proposalBase(), token, (body || {}).client), tz: calendarTz() });
     const sent = await sendClientMail({ proposalId: row.id, subject: mail.subject, html: mail.html, text: mail.text, tag: 'proposal-accepted' });
     if (!sent.ok) console.error('[proposal-public] client copy not sent:', sent.reason);
-  } catch (e) { console.error('[proposal-public] client copy failed:', String((e && e.message) || e).slice(0, 200)); }
+    return row.id;
+  } catch (e) { console.error('[proposal-public] client copy failed:', String((e && e.message) || e).slice(0, 200)); return null; }
 }
 
 /** "You're in" confirmation for the client: what they accepted, when, the

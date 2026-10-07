@@ -82,6 +82,8 @@ Supabase sign-ups switched off.
 | `proposal-send.js` | ✅ `guard({requireOwner})` | mails through `sendClientMail()`, which takes a proposal id, **not an address**, and reads the recipient from the lead server-side. The **only** place a client link is built: `{PROPOSAL_URL or APP_URL}/p/<client-slug>#t=<token>` (an https `PROPOSAL_URL` only; anything else falls back). Mode `peek` returns a published proposal's link and changes nothing. The slug is cosmetic: no route reads it — see below |
 | `proposal-public.js` | ❌ none — by design, token-gated | the client has no account. See below |
 | `onboarding-public.js` | ❌ none — by design, token-gated | the client has no account. Reads and writes one onboarding through service-role-only definer functions; uploads go to a server-chosen path and are checked by their bytes; client mail by onboarding id, never an address. See below |
+| `portal-login.js` | ❌ none — public by design | the client portal's sign-in. See *The client portal* below |
+| `portal-admin.js` | ✅ `guard({requireOwner})` | the owner's controls for a client's portal logins: list, invite, resend, remove (switches the row off and bans the login). See below |
 | `team-login.js` | ✅ `guard({requireOwner})` | creates a new team member's LOGIN through the Supabase admin API (service key), email confirmed, so it works with sign-ups OFF. Never the public `/auth/v1/signup`. The `crm_users` row is still written by the owner's browser under the owner-only RLS policy |
 | `onboarding-admin.js` | ✅ `guard({requireOwner})` | signed download links, the client link, and delete (files before the row). See below |
 
@@ -137,6 +139,35 @@ logged and the acceptance stands.
 
 Proven by `tests/proposalroutes.mjs` and `tests/proposallegal.mjs`, and by
 `VERIFY-RLS.md` §12 and §12b against a real database.
+
+### The client portal (B-1): `portal-login.js`, `portal-admin.js`, and the invite at acceptance
+
+A client signs in to `/portal` with an email link and sees their own build.
+What they can read is decided in Postgres, not by any route:
+`portal_home()` / `portal_documents()` find the lead from the session alone
+(`portal_lead()`: an active `client_users` row, never a CRM user), take no
+argument, and return named fields only (PORTAL-MIGRATION.sql; proven table by
+table and function by function in `tests/portaldb.mjs` and VERIFY-RLS §17).
+The routes only make and send links.
+
+- **`portal-login.js` (public).** The reply is byte-identical for every email,
+  known or not, so the page cannot be used to learn who has a portal. A link
+  is made (Supabase admin `generate_link`) only for an **active** client login
+  that is not a CRM user, and emailed through `sendClientMail({ clientUserId })`
+  to the address **on that row**. `redirect_to` is fixed by the server
+  (`PORTAL_URL`, else `APP_URL/portal`). Sign-ups are off, so nothing is ever
+  created here. Rate-limited per IP (5 per 15 minutes) and per day.
+- **At acceptance (`proposal-public.js` → `_portal.js inviteAtAcceptance`).**
+  The address is the lead's own (`portal_invite_target`), never the request's.
+  The login is made with an invite link and tied to the lead by
+  `portal_link_client`, which refuses a CRM user and refuses to move a login
+  from one client to another. Once only; fail-soft.
+- **`portal-admin.js` (owner).** List, invite (the owner types the address;
+  every later email goes to that row), resend, remove. Remove sets
+  `active=false` (the portal reads nothing for them from that moment) and bans
+  the login at Supabase so its session cannot refresh.
+
+Proven by `tests/portalroutes.mjs`.
 
 **The proposals domain.** When `PROPOSAL_URL` points at
 `proposals.getproytech.com`, `vercel.json` serves only the client pages on

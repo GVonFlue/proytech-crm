@@ -14,7 +14,7 @@
 -- Twice in one day this database was found wide open by a check that had
 -- always passed.
 --
---   23 Aug 2026, eight content tables: RLS on, one policy each, expression
+--   23 Aug 2026, eight content tables: RLS on, one policy each, expression
 --   `true`. Every authenticated session had full read/write/delete on pricing,
 --   unpublished marketing and the AI spend ledger.
 --
@@ -138,6 +138,7 @@ declare
   no_policy   text;
   open_storage text;
   public_buckets text;
+  open_functions text;
 begin
   ------------------------------------------------- 2a. permissive `true` anywhere
   -- The shape found twice on 23 Aug 2026. ONE of these on a table overrides
@@ -224,6 +225,35 @@ begin
     end if;
   end if;
 
+  ------------------------------------------------- 2e. FUNCTIONS (Oct 2026)
+  -- A `security definer` function runs as its owner and bypasses RLS, so the
+  -- GRANT and the function's own check ARE the access control. Supabase
+  -- grants EXECUTE on new functions to anon and authenticated by default, and
+  -- "authenticated" is not "on the team": a stray login, and every client of
+  -- the portal, is authenticated (AUTH-LISTED-2026-10, PORTAL-MIGRATION).
+  --   RAISES on: a definer function in `public` that anon or authenticated
+  --              can execute, unless its body checks one of the gates
+  --                crm_listed()  is_owner()   (a team member / an owner)
+  --                portal_lead()               (a client, own lead only)
+  --              or it is one of the identity helpers below, each of which
+  --              answers only "who is the caller" about the caller.
+  --   Server-only functions (granted to service_role, revoked from anon and
+  --   authenticated) are not listed: a browser cannot call them.
+  select string_agg(format('%s(%s)  anon=%s authenticated=%s', p.proname, pg_get_function_identity_arguments(p.oid),
+                           has_function_privilege('anon', p.oid, 'execute'), has_function_privilege('authenticated', p.oid, 'execute')),
+                    E'\n  ' order by p.proname)
+    into open_functions
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.prosecdef
+     and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))
+     and p.proname not in ('crm_whoami', 'is_owner', 'crm_listed', 'crm_active', 'no_users', 'my_pools', 'portal_lead')
+     and position('crm_listed()' in p.prosrc) = 0
+     and position('is_owner()' in p.prosrc) = 0
+     and position('portal_lead()' in p.prosrc) = 0;
+  if open_functions is not null then
+    raise exception E'RLS-AUDIT FAILED: security definer functions a browser can call with no team or portal check:\n  %\nEach bypasses RLS. Gate it on crm_listed()/is_owner() (team) or portal_lead() (client), or revoke it from anon and authenticated.', open_functions;
+  end if;
+
   if rls_off is not null then
     raise exception E'RLS-AUDIT FAILED: row level security is OFF on:\n  %\nThese are governed only by GRANTs, and Supabase grants anon and authenticated by default.', rls_off;
   end if;
@@ -234,7 +264,8 @@ begin
 
   raise notice '----------------------------------------------------------------';
   raise notice 'RLS-AUDIT OK: every table in public has RLS on, no permissive policy';
-  raise notice 'anywhere evaluates to true, and every storage policy names a bucket.';
+  raise notice 'anywhere evaluates to true, every storage policy names a bucket, and';
+  raise notice 'every security definer function a browser can call checks the team or the portal.';
   raise notice 'Read section 1 anyway — this';
   raise notice 'proves nothing is WIDE open, not that every expression is RIGHT.';
   raise notice '----------------------------------------------------------------';
