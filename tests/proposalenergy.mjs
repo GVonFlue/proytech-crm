@@ -75,7 +75,8 @@ console.log('\n1. the AI copy rules');
   ok('short, punchy, a coach who believes in them', /Short, punchy sentences with momentum/.test(SYSTEM) && /a coach who believes in them/.test(SYSTEM));
   ok('headline: an energizing line about their outcome, not a project title', /headline: a short, energizing line about THEIR outcome[^\n]*not a project title/.test(SYSTEM));
   ok('whyNow: momentum from starting now, never pressure or fake urgency', /whyNow:[^\n]*momentum they gain by starting now[^\n]*never pressure or fake urgency/.test(SYSTEM));
-  ok('KEPT: only facts from the notes', /1\. Use ONLY facts in the notes and client details\. Never invent a number/.test(SYSTEM));
+  /* rule 1 now names the recordings too (Oct 2026, "fast to scope"): the client's own words are a fact source; inventing is still forbidden */
+  ok('KEPT: only facts from the notes and recordings', /1\. Use ONLY facts in the notes, the recordings and the client details\.[^\n]*Never invent a number/.test(SYSTEM));
   ok('KEPT: no prices', /2\. NEVER mention a price, a dollar amount, a discount, a deposit or a payment term\./.test(SYSTEM));
   ok('KEPT: never promise results', /3\. Never promise a specific number of jobs, leads or revenue\./.test(SYSTEM));
   ok('KEPT: never name the meeting type', /4\. Do not name the type of meeting the notes came from\./.test(SYSTEM));

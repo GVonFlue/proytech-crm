@@ -84,7 +84,9 @@ globalThis.fetch = async (url, opts = {}) => {
 const hit = async body => { const r = { code: 0, body: null }; r.status = c => { r.code = c; return r; }; r.json = b => { r.body = b; return r; }; r.setHeader = () => {}; r.end = () => r;
   await SEND.default({ method: 'POST', headers: { 'x-forwarded-for': '9.9.9.9', authorization: 'Bearer good-owner' }, socket: {}, body }, r); return r.body || {}; };
 const READY = { client: { name: 'Jordan Reed', company: 'Reed Realty Group' },
-  quote: { packageId: 'growth-os', items: [{ id: 'growth-os', name: 'Growth OS', kind: 'package' }] },
+  /* a sendable proposal (Oct 2026): priced items, a point of contact, the legal block */
+  quote: { packageId: 'growth-os', items: [{ id: 'growth-os', name: 'Growth OS', kind: 'package', setup: 3000, monthly: 299 }], setup: 3000, monthly: 299 },
+  contacts: [{ name: 'Logan' }], legal: { termsUrl: 'https://agency.test/terms', privacyUrl: 'https://agency.test/privacy', version: '2026-10-04' },
   copy: { plan: { goal: 'g', numbers: [1, 2, 3].map(i => ({ label: 'l' + i, value: 'v' })), levers: ['a', 'b', 'c'] }, gaps: [1, 2, 3].map(i => ({ title: 'g' + i })), build: [{ title: 'Site', item: 'growth-os' }] } };
 const ID = '11111111-1111-4111-8111-111111111111';
 

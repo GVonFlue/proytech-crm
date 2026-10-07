@@ -36,17 +36,25 @@ const READY = {
     gaps: [{ title: 'Leads wait', text: 'x' }, { title: 'Follow up stops', text: 'x' }, { title: 'Numbers in five places', text: 'x' }],
     build: [{ title: 'A custom website', tag: 'new', text: 'x', item: 'growth-os' }, { title: 'Automations', tag: 'new', text: 'x', item: 'automations' }],
   },
+  contacts: [{ name: 'Logan', phone: '555' }],
+  legal: { termsUrl: 'https://agency.test/terms', privacyUrl: 'https://agency.test/privacy', version: '2026-10-04' },
 };
 const R = (body, o = {}) => readiness(body, { mode: 'email', leadEmail: 'client@client.test', reviewed: true, ...o });
 const failing = r => r.checks.filter(c => !c.ok).map(c => c.key);
-/* one broken copy per rule */
+/* one broken copy per rule. REQUIRED rules block a send; RECOMMENDED ones
+   (Oct 2026: "fast to scope") only advise, so a client who said no numbers
+   still gets a proposal, written in words. */
 const BREAK = {
   package: b => { b.quote.packageId = ''; },
+  contact: b => { b.contacts = []; },
+  legal: b => { delete b.legal; },
+  build: b => { b.copy.build[0].item = ''; },
+};
+const ADVISE = {
   goal: b => { b.copy.plan.goal = '   '; },
   numbers: b => { b.copy.plan.numbers = b.copy.plan.numbers.slice(0, 2); },
   levers: b => { b.copy.plan.levers = b.copy.plan.levers.slice(0, 2); },
   gaps: b => { b.copy.gaps = b.copy.gaps.slice(0, 2); },
-  build: b => { b.copy.build[0].item = ''; },
 };
 /* the same rule from the other side: nothing to build at all (server too) */
 const BREAK_EMPTY_BUILD = b => { b.copy.build = []; };
@@ -55,20 +63,26 @@ console.log('\nreadiness(): every rule');
 {
   const r = R(READY);
   ok('a complete proposal is ready', r.ok && r.missing.length === 0, failing(r));
-  ok('the rules are the eight named', READY_RULES.join() === 'package,goal,numbers,levers,gaps,build,email,reviewed');
+  ok('the rules: six required, four recommended', READY_RULES.join() === 'package,contact,legal,build,email,reviewed,goal,numbers,levers,gaps');
   ok('every check has a label a person can read', r.checks.every(c => c.label && c.label.length > 8));
   for (const [key, brk] of Object.entries(BREAK)) {
     const b = clone(READY); brk(b); const x = R(b);
     ok(`fails ${key}, and ONLY ${key}`, !x.ok && failing(x).join() === key, failing(x));
   }
+  for (const [key, brk] of Object.entries(ADVISE)) {
+    const b = clone(READY); brk(b); const x = R(b);
+    ok(`${key} missing: STILL ready, and advised`, x.ok && x.advice.join() === key && !x.missing.includes(key), JSON.stringify({ ok: x.ok, advice: x.advice, missing: x.missing }));
+  }
   ok('package: an add-on alone is not a package', !R({ ...clone(READY), quote: { ...READY.quote, packageId: 'automations' } }).ok);
   ok('package: no quote at all fails', failing(R({ copy: READY.copy })).includes('package'));
-  ok('numbers: 3 counts, a blank one does not', R(READY).ok && !R({ ...clone(READY), copy: { ...READY.copy, plan: { ...READY.copy.plan, numbers: [...READY.copy.plan.numbers.slice(0, 2), { label: 'x', value: '' }] } } }).ok);
-  ok('numbers: more than 3 is fine', R({ ...clone(READY), copy: { ...READY.copy, plan: { ...READY.copy.plan, numbers: [...READY.copy.plan.numbers, { label: 'Close', value: '1 in 5' }] } } }).ok);
-  ok('levers: 4 is not exactly 3', failing(R({ ...clone(READY), copy: { ...READY.copy, plan: { ...READY.copy.plan, levers: [...READY.copy.plan.levers, 'Four'] } } })).join() === 'levers');
+  ok('numbers: 3 counts, a blank one does not (advice, not a block)', !R(READY).advice.includes('numbers') && R({ ...clone(READY), copy: { ...READY.copy, plan: { ...READY.copy.plan, numbers: [...READY.copy.plan.numbers.slice(0, 2), { label: 'x', value: '' }] } } }).advice.includes('numbers'));
+  ok('numbers: more than 3 is fine', !R({ ...clone(READY), copy: { ...READY.copy, plan: { ...READY.copy.plan, numbers: [...READY.copy.plan.numbers, { label: 'Close', value: '1 in 5' }] } } }).advice.length);
+  ok('levers: 4 is not exactly 3', R({ ...clone(READY), copy: { ...READY.copy, plan: { ...READY.copy.plan, levers: [...READY.copy.plan.levers, 'Four'] } } }).advice.join() === 'levers');
+  ok('package: every item needs its prices', failing(R((() => { const b = clone(READY); delete b.quote.items[1].monthly; return b; })())).join() === 'package');
+  ok('NO numbers at all still sends: words, not an invented figure', R((() => { const b = clone(READY); b.copy.plan.numbers = []; return b; })()).ok);
   const gapsOf = n => ({ ...clone(READY), copy: { ...READY.copy, gaps: Array.from({ length: n }, (_, i) => ({ title: 'Gap ' + i, text: 'x' })) } });
-  ok('gaps: 3, 4 and 5 pass', [3, 4, 5].every(n => R(gapsOf(n)).ok));
-  ok('gaps: 2 and 6 fail', [2, 6].every(n => failing(R(gapsOf(n))).join() === 'gaps'));
+  ok('gaps: 3, 4 and 5 pass', [3, 4, 5].every(n => !R(gapsOf(n)).advice.length));
+  ok('gaps: 2 and 6 are advised, never blocked', [2, 6].every(n => R(gapsOf(n)).ok && R(gapsOf(n)).advice.join() === 'gaps'));
   ok('build: an item linked to something NOT bought fails', failing(R({ ...clone(READY), copy: { ...READY.copy, build: [{ title: 'SEO', item: 'seo' }] } })).join() === 'build');
   {
     const none = R({ ...clone(READY), copy: { ...READY.copy, build: [] } });
@@ -154,13 +168,18 @@ console.log('\nproposal-send refuses a proposal that fails ANY rule');
   reset(clone(READY), 'not-an-email');
   r = await hit({ id: DB.id, reviewed: true, mode: 'link' });
   ok('  but a link needs no email', r.ok === true && !!r.link);
-  reset((() => { const b = clone(READY); b.copy.gaps = []; b.copy.plan.levers = []; return b; })());
+  reset((() => { const b = clone(READY); b.contacts = []; delete b.legal; return b; })());
   r = await hit({ id: DB.id, reviewed: true, ...EMAIL });
-  ok('the refusal names every failing rule, in words', r.ok === false && /3 to 5 gaps/.test(r.error) && /exactly 3 levers/.test(r.error), r.error);
+  ok('the refusal names every failing rule, in words', r.ok === false && /point of contact/i.test(r.error) && /terms of service/i.test(r.error) && !/numbers|levers|gaps/i.test(r.error), r.error);
+  for (const [key, brk] of Object.entries(ADVISE)) {
+    const b = clone(READY); brk(b); reset(b);
+    r = await hit({ id: DB.id, reviewed: true, ...EMAIL });
+    ok(`${key} missing: it SENDS (recommended, not required)`, r.ok === true && sent.length === 1, JSON.stringify(r));
+  }
   /* the server checks the STORED body, not what the browser says */
-  reset((() => { const b = clone(READY); b.copy.plan.goal = ''; return b; })());
+  reset((() => { const b = clone(READY); delete b.legal; return b; })());
   r = await hit({ id: DB.id, reviewed: true, ...EMAIL, body: READY, copy: READY.copy, ready: true });
-  ok('a request cannot vouch for itself: the stored body is what is checked', r.ok === false && (r.missing || []).includes('goal') && patches.length === 0);
+  ok('a request cannot vouch for itself: the stored body is what is checked', r.ok === false && (r.missing || []).includes('legal') && patches.length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed\n`);

@@ -47,7 +47,10 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
   const X = (path, i, what) => edit && <button type="button" className="pd-x" aria-label={`Remove ${what}`} onClick={() => drop(path, i)}>×</button>;
   const Add = (path, blank, label) => edit && <button type="button" className="pd-add" onClick={() => push(path, blank)}>+ {label}</button>;
   const plan = c.plan || {};
-  const hasPlan = edit || !!(plan.goal || (plan.numbers || []).length || (plan.levers || []).length);
+  /* no goal, no section: "Where you're headed" with nothing under the heading
+     reads as a template someone forgot to fill in. Numbers and levers alone
+     do not carry it; the goal is the point of the section. */
+  const hasPlan = edit || !!String(plan.goal || '').trim();
   let sec = 0; const no = () => String(++sec).padStart(2, '0');
   const validLine = expiresAt ? `Valid until ${fmtDay(expiresAt)}` : `Valid ${body.validDays || 7} days from the date it is sent`;
 

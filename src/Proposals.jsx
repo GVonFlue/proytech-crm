@@ -48,7 +48,7 @@ const blankSel = (offer) => {
   return { packageId: pkg ? pkg.id : '', addonIds: [], prices: {}, seats: pkg ? pkg.seatsIncluded : 0, prepay: true };
 };
 
-export default function Proposals({ leads, settings, apiPost, me, openLead, proposals, reload, onSaved, noteLead }) {
+export default function Proposals({ leads, settings, apiPost, me, openLead, proposals, reload, onSaved, noteLead, pockets, mlogs }) {
   const { offer, missing } = useMemo(() => readOffer(settings), [settings]);
   const [cur, setCur] = useState(null);           // the proposal being built or viewed
   const [filter, setFilter] = useState('all');
@@ -61,7 +61,7 @@ export default function Proposals({ leads, settings, apiPost, me, openLead, prop
     <p>Run <code>PROPOSALS-MIGRATION.sql</code> in Supabase, then reload. Nothing else is affected.</p></div>);
 
   if (cur) return <Builder key={cur.id || cur.token} start={cur} offer={offer} missing={missing} leads={leads}
-    leadsById={leadsById} apiPost={apiPost} me={me} openLead={openLead} noteLead={noteLead}
+    leadsById={leadsById} apiPost={apiPost} me={me} openLead={openLead} noteLead={noteLead} pockets={pockets} mlogs={mlogs}
     onBack={() => { setCur(null); reload && reload(); }} onSaved={onSaved} />;
 
   const all = proposals || [];
@@ -150,7 +150,7 @@ export function quoteFor(start, offer, sel) {
   return quote(offer, sel);
 }
 
-function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLead, onBack, onSaved, noteLead }) {
+function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLead, onBack, onSaved, noteLead, pockets, mlogs }) {
   const frozen = !!(start.status && start.status !== 'draft');
   const startBody = start.body || {};
   const sq = startBody.quote || {};
@@ -174,6 +174,9 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
   });
   const [notes, setNotes] = useState(start.notes || '');
   const [copy, setCopy] = useState(startBody.copy || null);
+  /* the Pocket recordings this draft is written from: IDS only, kept on the
+     owner-only row (source_pocket_ids), never in the body */
+  const [sources, setSources] = useState(() => (Array.isArray(start.source_pocket_ids) ? start.source_pocket_ids : []).slice(0, 3));
   const [warnings, setWarnings] = useState([]);
   const [edit, setEdit] = useState(false);
   const [busy, setBusy] = useState('');
@@ -207,11 +210,11 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
   const generate = async () => {
     if (!lead) return say('err', 'Pick the client first.');
     if (!q.ok) return say('err', q.error);
-    if (notes.trim().length < 40) return say('err', 'Add a few more notes first. The proposal is only as specific as what you give it.');
+    if (notes.trim().length < (sources.length ? 10 : 40)) return say('err', sources.length ? 'Add a line about what we are doing for them.' : 'Add a few more notes, or attach a Pocket recording. The proposal is only as specific as what you give it.');
     setBusy('gen'); setMsg(null);
     try {
       const r = await apiPost('/api/proposal-draft', {
-        client: clientOf(lead), notes, validDays,
+        client: clientOf(lead), notes, validDays, recordingIds: sources,
         ownerName: String(me || '').split(' ')[0], agency: offer.company.name,
         items: chosen.map(c => ({ id: c.id, name: c.name, kind: c.kind, summary: c.summary, includes: c.includes })),
       });
@@ -219,7 +222,10 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
       if (!j.ok) { say('err', j.error || 'The draft did not come back. Try again.'); return; }
       // link each build entry to what was bought (readiness rule 'build')
       const { copy: c, warnings: w } = cleanCopy(j.draft, chosen.map(x => ({ id: x.id, name: x.name })));
-      setCopy(c); setWarnings(w); say('ok', 'Draft ready. Read it through, edit anything, then save or send.');
+      /* the server dropped any number nobody actually said (groundNumbers) */
+      const dropped = Number(j.droppedNumbers) || 0;
+      setCopy(c); setWarnings(dropped ? [...w, `Removed ${dropped} number${dropped === 1 ? '' : 's'} the client never said. Only their own numbers go in.`] : w);
+      say('ok', 'Draft ready. Read it through, edit anything, then save or send.');
     } catch { say('err', 'Could not reach the server.'); }
     finally { setBusy(''); }
   };
@@ -229,7 +235,7 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
     if (!body) { say('err', !lead ? 'Pick the client first.' : !q.ok ? q.error : 'Generate the draft first.'); return null; }
     setBusy('save');
     try {
-      const nid = await db.saveProposal({ id, lead_id: leadId, token, body, notes, valid_days: validDays });
+      const nid = await db.saveProposal({ id, lead_id: leadId, token, body, notes, valid_days: validDays, source_pocket_ids: sources });
       setId(nid); onSaved && onSaved(); say('ok', 'Saved.'); return nid;
     } catch (e) { say('err', e.message || 'Could not save.'); return null; }
     finally { setBusy(''); }
@@ -354,9 +360,10 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
         {q.ok ? <div className="pp-total">Setup <b>{usd(q.setup)}</b> · deposit <b>{usd(q.deposit)}</b> · monthly <b>{usd(q.monthly)}</b>{q.prepay ? <> · prepay <b>{usd(q.prepay.total)}</b></> : null}</div>
           : <div className="pp-total err">{q.error}</div>}
 
-        <label className="pp-l">Your notes from the meeting</label>
-        <textarea className="pp-notes" rows={9} value={notes} onChange={e => setNotes(e.target.value)}
-          placeholder="Their goal, their numbers, what is not working, what they want, what they said. The more specific, the better the proposal. Nothing here is shown to the client." />
+        <label className="pp-l">What we're doing for them</label>
+        <textarea className="pp-notes" rows={4} value={notes} onChange={e => setNotes(e.target.value)} aria-label="What we're doing for them"
+          placeholder="A line or two: what we are building and why. Attach the meeting below and the AI takes their goals, pains and numbers from what they actually said. Nothing here is shown to the client." />
+        <RecordingPicker pockets={pockets} mlogs={mlogs} leadId={leadId} value={sources} onChange={setSources} />
         <div className="pp-acts">
           <button className="btn btn-p" onClick={generate} disabled={!!busy}><Sparkles size={15} />{busy === 'gen' ? 'Writing…' : copy ? 'Regenerate' : 'Generate proposal'}</button>
           <button className="btn btn-g" onClick={save} disabled={!!busy || !body}>{busy === 'save' ? 'Saving…' : 'Save draft'}</button>
@@ -367,7 +374,9 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
       <div className="pp-preview">
         {!body && <div className="card pp-empty pd-noprint">{!lead ? 'Pick a client to start.' : !q.ok ? q.error : 'Add your notes and press Generate. The proposal renders here for review.'}</div>}
         {body && <>
-          {st !== 'accepted' && <ReadyChecklist link={readyLink} email={readyEmail} reviewed={reviewed} onReviewed={setReviewed} />}
+          {st !== 'accepted' && <ReadyChecklist link={readyLink} email={readyEmail} reviewed={reviewed} onReviewed={setReviewed}
+            onAddNumbers={frozen ? null : () => { setEdit(true); setCopy(c => { const cc = c || {}; const pl = cc.plan || {}; const have = (pl.numbers || []).filter(n => n && (n.label || n.value)); return { ...cc, plan: { ...pl, numbers: [...have, ...Array.from({ length: Math.max(1, 3 - have.length) }, () => ({ label: '', value: '' }))] } }; });
+              setTimeout(() => { const el = document.querySelector('.pd-nums'); el && el.scrollIntoView && el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 60); }} />}
           <div className="pp-bar pd-noprint">
             {!frozen && <button className={'btn btn-sm ' + (edit ? 'btn-p' : 'btn-g')} onClick={() => setEdit(e => !e)}>{edit ? 'Done editing' : 'Edit text'}</button>}
             <button className="btn btn-g btn-sm" onClick={printPdf}><Download size={14} />Download PDF</button>
@@ -404,13 +413,15 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
 /* READY TO SEND. One row per rule from lib/proposal readiness(): a tick, or
    what is missing. Send stays disabled until every row passes; the server
    checks the same rules again and refuses if they do not. */
-export function ReadyChecklist({ link, email, reviewed, onReviewed }) {
-  const rows = email.checks;            // email mode = every rule, link's + the email one
+export function ReadyChecklist({ link, email, reviewed, onReviewed, onAddNumbers }) {
+  const all = email.checks;                     // email mode = every rule, link's + the email one
+  const rows = all.filter(c => c.level !== 'recommended');
+  const advice = all.filter(c => c.level === 'recommended' && !c.ok);
   const done = rows.filter(c => c.ok).length;
   return (<div className={'pp-ready pd-noprint' + (email.ok ? ' ok' : link.ok ? ' part' : '')}>
     <div className="pp-ready-h">
       <div><div className="pp-kick">Ready to send</div>
-        <b>{email.ok ? 'Everything checks out. Send it.' : link.ok ? 'Ready as a link. Add an email to the lead to send it by email.' : `${rows.length - done} thing${rows.length - done === 1 ? '' : 's'} to fix before this can go out`}</b></div>
+        <b>{email.ok ? 'Everything required checks out. Send it.' : link.ok ? 'Ready as a link. Add an email to the lead to send it by email.' : `${rows.length - done} thing${rows.length - done === 1 ? '' : 's'} to fix before this can go out`}</b></div>
       <span className="pp-ready-n">{done}/{rows.length}</span>
     </div>
     <ul>{rows.map(c => (<li key={c.key} className={c.ok ? 'ok' : 'no'}>
@@ -418,8 +429,45 @@ export function ReadyChecklist({ link, email, reviewed, onReviewed }) {
       <span>{c.label}{c.key === 'email' ? <em> (email only)</em> : null}</span>
       {c.detail && <small>{c.detail}</small>}
     </li>))}</ul>
+    {/* RECOMMENDED, never blocking: a client who said no numbers gets a
+        proposal in words, not one held until somebody invents a figure */}
+    {advice.length > 0 && <div className="pp-advice" role="note">
+      <b>Stronger with numbers</b>
+      <span>{advice.map(c => c.label + (c.detail ? ` (${c.detail})` : '')).join(' · ')}. Optional: it can go out without them.</span>
+      {onAddNumbers && advice.some(c => c.key === 'numbers') && <button className="btn btn-g btn-sm" onClick={onAddNumbers}>Add numbers</button>}
+    </div>}
     <label className="pp-ready-tick"><input type="checkbox" checked={!!reviewed} onChange={e => onReviewed(e.target.checked)} />
       I've read every section of this proposal, as the client will see it.</label>
+  </div>);
+}
+
+/* Attach the meeting: this lead's recordings first (linked through what was
+   made from them: a meeting log on this lead carries sourcePocketId), then a
+   search over recent recordings by title and summary. Up to 3. IDs only: the
+   draft route reads the transcripts itself, server-side. */
+export function RecordingPicker({ pockets, mlogs, leadId, value, onChange }) {
+  const [q, setQ] = useState('');
+  const list = Array.isArray(pockets) ? pockets : [];
+  if (!list.length) return <div className="pp-hint">No Pocket recordings yet. When there are, attach the meeting here and the draft is written from what they said.</div>;
+  const linkedIds = new Set((Array.isArray(mlogs) ? mlogs : []).filter(l => l && l.leadId === leadId && l.sourcePocketId).map(l => l.sourcePocketId));
+  const linked = list.filter(r => linkedIds.has(r.id));
+  const needle = q.trim().toLowerCase();
+  const found = needle ? list.filter(r => !linkedIds.has(r.id) && `${r.title || ''} ${r.summary || ''}`.toLowerCase().includes(needle)).slice(0, 8) : [];
+  const chosen = new Set(value || []);
+  const toggle = id => onChange(chosen.has(id) ? [...chosen].filter(x => x !== id) : chosen.size >= 3 ? [...chosen] : [...chosen, id]);
+  const when = r => { const t = Date.parse(r.createdAt || r.received_at); return Number.isFinite(t) ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; };
+  const mins = r => (r.duration ? `${Math.max(1, Math.round(Number(r.duration) / 60))} min` : '');
+  const Row = r => (<label key={r.id} className={'pp-rec' + (chosen.has(r.id) ? ' on' : '')}>
+    <input type="checkbox" checked={chosen.has(r.id)} disabled={!chosen.has(r.id) && chosen.size >= 3} onChange={() => toggle(r.id)} aria-label={`Attach ${r.title || 'recording'}`} />
+    <span><b>{r.title || 'Untitled recording'}</b><em>{[when(r), mins(r)].filter(Boolean).join(' · ')}</em></span></label>);
+  const extra = [...chosen].filter(id => !linkedIds.has(id) && !found.some(r => r.id === id)).map(id => list.find(r => r.id === id)).filter(Boolean);
+  return (<div className="pp-recs">
+    <label className="pp-l">Attach Pocket recording(s)</label>
+    {linked.length ? <div className="pp-rec-list">{linked.map(Row)}</div> : <div className="pp-hint">No recordings are linked to this lead yet. Search below.</div>}
+    {extra.length > 0 && <div className="pp-rec-list">{extra.map(Row)}</div>}
+    <input className="pp-rec-q" type="search" placeholder="Search recent recordings" aria-label="Search recordings" value={q} onChange={e => setQ(e.target.value)} />
+    {needle && (found.length ? <div className="pp-rec-list">{found.map(Row)}</div> : <div className="pp-hint">No recording matches "{q}".</div>)}
+    <div className="pp-hint">{chosen.size ? `${chosen.size} attached. Their goals, pains and any numbers they said come from these.` : 'Up to 3. Owner only: the transcript is read by the server and never goes into the proposal.'}</div>
   </div>);
 }
 
@@ -827,6 +875,16 @@ export const PROPOSALS_CSS = `
 /* ---- ready to send: the proposal standard, on the review screen ---- */
 .pp-ready{background:#fff;border:1px solid #DCE5F4;border-left:4px solid #E5484D;border-radius:14px;padding:14px 16px;margin-bottom:12px}
 .pp-ready.part{border-left-color:#E8A400}
+.pp-advice{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:10px 0 2px;padding:10px 12px;border-radius:10px;background:#FFF7DD;border:1px solid #F1D47A;font-size:13px;color:#5C4A00}
+.pp-advice b{color:#4A3B00}
+.pp-advice .btn{margin-left:auto}
+.pp-recs{margin-top:10px}
+.pp-rec-list{display:flex;flex-direction:column;gap:6px;margin:6px 0}
+.pp-rec{display:flex;gap:10px;align-items:flex-start;border:1px solid #DCE5F4;border-radius:10px;padding:8px 10px;cursor:pointer;background:#fff}
+.pp-rec.on{border-color:#2B4DE0;background:#F3F6FF}
+.pp-rec b{display:block;font-size:13.5px;color:#061431}
+.pp-rec em{font-style:normal;font-size:12px;color:#56637F}
+.pp-rec-q{width:100%;font:inherit;font-size:14px;border:1px solid #DCE5F4;border-radius:10px;padding:8px 10px;margin:4px 0}
 .pp-ready.ok{border-left-color:#1f8a55;background:linear-gradient(90deg,rgba(61,187,126,.07),#fff 40%)}
 .pp-ready-h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px}
 .pp-ready-h b{display:block;font-family:"Space Grotesk",Inter,sans-serif;font-size:16px;color:#061431;margin-top:4px}
