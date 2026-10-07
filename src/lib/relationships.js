@@ -18,7 +18,9 @@
      text, email, meeting, coffee, event, intro, referral, a note they wrote)
      or a meeting marked held. Never typed separately.
    - Next touch due = last touch + cadence. A manual follow-up date wins when
-     it is SOONER ("call him Tuesday"); it never pushes the cadence later.
+     it is SOONER ("call him Tuesday"); it never pushes the cadence later. A
+     date that a touch has already met (touched on or after it) is done and
+     no longer counts, or logging the touch could never clear it.
      Never contacted = due now.
    - Overdue = due before today. Due this week = today through today + 6.
    - Birthdays (any key date whose label says birthday) show 3 days ahead.
@@ -85,8 +87,17 @@ export function nextTouch(r, cfg, today) {
   let due, source;
   if (!last) { due = t; source = 'never'; }
   else { due = addDays(last, cad.days); source = 'cadence'; }
-  if (fu && fu < due) { due = fu; source = 'followUp'; }
+  /* a date counts until somebody touches on or after it */
+  if (fu && (!last || fu > last) && fu < due) { due = fu; source = 'followUp'; }
   return { due, last, lastTs, cadence: cad.days, cadenceSource: cad.source, source, daysLate: Math.max(0, between(due, t)) };
+}
+
+/** The one due date the Follow-Up page reads. A relationship is due by
+ *  nextTouch (the cadence, or a sooner date not yet met); a business lead by
+ *  its follow-up date, as it always was. null = nothing due. */
+export function dueOn(l, cfg, today) {
+  if (l && l.isRelationship) return nextTouch(l, cfg, today).due;
+  return /^\d{4}-\d{2}-\d{2}$/.test(String((l && l.followUp) || '')) ? l.followUp : null;
 }
 
 /** The birthday showing for this record inside BIRTHDAY_AHEAD days, or null. */
