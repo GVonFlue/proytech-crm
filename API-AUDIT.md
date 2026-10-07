@@ -99,6 +99,20 @@ The client opening a proposal has no login, so a session is impossible here. The
 so it never reaches a server log or a referrer, and checked against a strict
 43-character shape before any database call.
 
+**Oct 2026: the onboarding at acceptance.** On an acceptance (and a return
+visit to an accepted proposal) it creates the client's onboarding. It asks
+`onboarding_for_proposal()` first. If that fails it logs the database's error
+and **inserts the onboarding itself with the service key**: the same row,
+only for a proposal whose status is `accepted` (read from the row, not the
+request), one per proposal through `onboardings.proposal_id`'s unique key,
+and a token from Node's `crypto.randomBytes(32)`. The request still names
+nothing but the proposal token. The function had failed on every call in
+production: on Supabase pgcrypto is in `extensions`, outside its
+`search_path` (`ONBOARDING-ACCEPT-FIX-2026-10.sql`). If both fail, or the
+accepted package is not in the onboarding product map, **the owners are
+emailed** (`sendMail`, owners only). Proven by `tests/onboardingaccept.mjs`
+and, on Postgres, `tests/onbrlsdb.mjs`.
+
 What it can do, all through **security-definer functions callable only by the
 service role** (`PROPOSALS-MIGRATION.sql`; anon and authenticated have no
 execute grant):
