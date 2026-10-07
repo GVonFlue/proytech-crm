@@ -1351,18 +1351,18 @@ const CSS=`
    anything that needs a person — which is why the follow-up module is gold and
    turns red once it is overdue.
    ========================================================================== */
-/* THE DARK RULE, applied to a second screen.
+/* THE DARK RULE, RETIRED. These tokens belong to the lead view's dark skin
+   only, which no screen uses since the lead record moved to the light design
+   (.modal.leadfs, e4ceebe); it is kept "one class away".
 
-   Dark when the app is telling you something; light when you are telling the
-   app. The lead view assembles a briefing, so it is dark. Relationships answers
-   "who is going quiet", which is judgment rather than a list you typed, so it
-   is dark too. The Leads table, Clients, Meetings, Money and Settings stay
-   light — you drive those.
-
-   The tokens are shared rather than copied, so a second surface cannot drift
-   into a slightly different navy. Each surface still paints its own ground:
-   .modal.lead fills a viewport, .relsurface sits inside the page body. */
-.modal.lead,.relsurface{
+   History, so the next change is a decision and not an accident: this block
+   once argued that Relationships should be dark too ("judgment rather than a
+   list you typed") and shared these tokens with it. THE LIGHT RULE (b82fb0a)
+   had made it light, the 1 Oct uploads made it dark again through these shared
+   tokens, and on 6 Oct 2026 Garrett chose light, from both rendered side by
+   side. Relationships now has its own tokens (RELATIONSHIPS, LIGHT), so this
+   block cannot change it. */
+.modal.lead{
   --arc:#38BDF8; --arc2:#7FD8FF; --arc3:#EAFBFF; --cob:#2B4DE0;
   --gold:#E0A22B; --gold2:#F2C55C; --hot:#C1352B; --ok:#3FB978; --ok2:#7FE3AC;
   --plate:#0F1433; --plate2:#0A0E27; --plate3:#05071A;
@@ -1425,26 +1425,23 @@ const CSS=`
    picker painting its own white is a light box in the middle of one — which is
    exactly what tests/leadcontrast.mjs caught. Same tokens as everything else
    here, so the second surface cannot drift into a slightly different navy. */
-.modal.lead .pp-face,.relsurface .pp-face{
+.modal.lead .pp-face{
   background:rgba(56,189,248,.05);border-color:var(--line-hi);color:var(--ink-hi)}
-.modal.lead .pp-face:hover,.relsurface .pp-face:hover{border-color:rgba(56,189,248,.45)}
-.modal.lead .pp-face svg,.relsurface .pp-face svg,
-.modal.lead .pp-search svg,.relsurface .pp-search svg{color:var(--dim)}
-.modal.lead .pp-val.none,.relsurface .pp-val.none{color:var(--faint)}
-.modal.lead .pp-open,.relsurface .pp-open{
+.modal.lead .pp-face:hover{border-color:rgba(56,189,248,.45)}
+.modal.lead .pp-face svg,.modal.lead .pp-search svg{color:var(--dim)}
+.modal.lead .pp-val.none{color:var(--faint)}
+.modal.lead .pp-open{
   background:var(--plate2);border-color:rgba(56,189,248,.45);
   box-shadow:0 22px 52px -20px rgba(0,0,0,.85)}
-.modal.lead .pp-search,.relsurface .pp-search{border-bottom-color:var(--line)}
-.modal.lead .pp-search input,.relsurface .pp-search input{
+.modal.lead .pp-search{border-bottom-color:var(--line)}
+.modal.lead .pp-search input{
   background:none;border:none;color:var(--ink-hi)}
-.modal.lead .pp-row,.relsurface .pp-row{color:var(--ink)}
-.modal.lead .pp-row.hi,.relsurface .pp-row.hi{background:rgba(56,189,248,.14)}
-.modal.lead .pp-row.none,.relsurface .pp-row.none,
-.modal.lead .pp-row.blank,.relsurface .pp-row.blank{color:var(--dim)}
-.modal.lead .pp-group,.relsurface .pp-group{color:var(--faint)}
-.modal.lead .pp-empty,.relsurface .pp-empty,
-.modal.lead .pp-more,.relsurface .pp-more{color:var(--dim)}
-.modal.lead .pp-more,.relsurface .pp-more{border-top-color:var(--line)}
+.modal.lead .pp-row{color:var(--ink)}
+.modal.lead .pp-row.hi{background:rgba(56,189,248,.14)}
+.modal.lead .pp-row.none,.modal.lead .pp-row.blank{color:var(--dim)}
+.modal.lead .pp-group{color:var(--faint)}
+.modal.lead .pp-empty,.modal.lead .pp-more{color:var(--dim)}
+.modal.lead .pp-more{border-top-color:var(--line)}
 .modal.lead .m-x{color:var(--arc2);border-color:var(--line-hi);background:rgba(56,189,248,.05)}
 .modal.lead .m-x:hover{background:rgba(56,189,248,.14)}
 
@@ -2228,7 +2225,8 @@ const CSS=`
 /* ===========================================================================
    RELATIONSHIPS, PAINTED.
 
-   Same grammar as the lead view, same tokens, and the same split inside it:
+   Same grammar as the lead view, and the same split inside it. (Its own
+   tokens, not the lead view's, since Oct 2026: see RELATIONSHIPS, LIGHT.)
 
      lit edge + glow  =  the app telling you something
      flat, no glow    =  where you do work
@@ -2246,95 +2244,125 @@ const CSS=`
    harness cannot resolve is a paint that cannot be verified. Learned the hard
    way on the lead view, where the first cut silently changed nothing.
    ======================================================================== */
-.relsurface{background:radial-gradient(900px 380px at 50% -18%,rgba(56,189,248,.14),transparent 62%),
+
+/* ===========================================================================
+   RELATIONSHIPS, LIGHT (THE LIGHT RULE, b82fb0a / e5530ca, restored).
+
+   Relationships is light like every page you drive: white plates, ink text,
+   and ONE signal, the needs-attention strip. It used to share its colour
+   tokens with the lead view's dark skin (one rule named both), so
+   on 1 Oct one upload turning those tokens navy turned this page navy too,
+   with no decision behind it. These rules and tokens are its OWN now: nothing
+   here is shared with '.modal.lead', and the retired skin cannot reach it.
+   tests/relscontrast.mjs holds every text to 3:1 and asserts the surface is
+   light. VISUAL ONLY: what Relationships tracks is unchanged.
+   ======================================================================== */
+.relsurface{--arc:${COBALT}; --arc2:${COBALT}; --arc3:${INK}; --cob:${COBALT};
+  --gold:#A8680F; --gold2:#B7791F; --hot:#C1352B; --ok:#1F9D55; --ok2:#1a7d46;
+  --plate:#FFFFFF; --plate2:#FFFFFF; --plate3:#F7F7FB;
+  --ink:#2E2A4A; --ink-hi:${INK}; --ink-mid:#3B3470; --ink-lo:#77738F;
+  --dim:#6E6A8A; --faint:#85819F;
+  --line:#ECEDF3; --line-hi:#DCDDEA;
+  color:var(--ink);}
+.relsurface .pp-face{background:rgba(43,77,224,0.028);border-color:var(--line-hi);color:var(--ink-hi)}
+.relsurface .pp-face:hover{border-color:rgba(43,77,224,0.405)}
+.relsurface .pp-face svg,.relsurface .pp-search svg{color:var(--dim)}
+.relsurface .pp-val.none{color:var(--faint)}
+.relsurface .pp-open{background:var(--plate2);border-color:rgba(43,77,224,0.405);
+  box-shadow:0 22px 52px -20px rgba(24,21,48,0.14)}
+.relsurface .pp-search{border-bottom-color:var(--line)}
+.relsurface .pp-search input{background:none;border:none;color:var(--ink-hi)}
+.relsurface .pp-row{color:var(--ink)}
+.relsurface .pp-row.hi{background:rgba(43,77,224,0.077)}
+.relsurface .pp-row.none,.relsurface .pp-row.blank{color:var(--dim)}
+.relsurface .pp-group{color:var(--faint)}
+.relsurface .pp-empty,.relsurface .pp-more{color:var(--dim)}
+.relsurface .pp-more{border-top-color:var(--line)}
+.relsurface{background:radial-gradient(900px 380px at 50% -18%,rgba(43,77,224,0.077),transparent 62%),
   linear-gradient(180deg,var(--plate) 0%,var(--plate2) 60%,var(--plate3) 100%);
   border:1px solid var(--line);border-radius:16px;padding:16px;margin:-4px 0 0}
-/* the gradient's middle stop as a plain colour, in its own rule, for the same
-   reason the work values below are written out: jsdom drops the rule above
-   (a var() gradient) whole, so the contrast suite measured this surface as
-   white. A browser paints the gradient over it and looks the same. */
-.relsurface{background-color:#0A0E27}
-
-/* ---- SIGNAL: needs attention ---- */
 .relsurface .needs-att{background:linear-gradient(180deg,rgba(224,162,43,.13),rgba(224,162,43,.03));
   border:1px solid rgba(224,162,43,.34);box-shadow:0 0 34px -20px var(--gold)}
-.relsurface .na-top{color:#F1DFBB}
+.relsurface .na-top{color:var(--ink-hi)}
 .relsurface .na-top svg{color:var(--gold2)}
-.relsurface .na-tot{background:rgba(224,162,43,.2);color:#F6E7C8}
+.relsurface .na-tot{background:rgba(224,162,43,.2);color:var(--ink-hi)}
 .relsurface .na-h{color:var(--dim)}
-.relsurface .na-n{background:rgba(56,189,248,.14);color:var(--ink-mid)}
-.relsurface .na-col.over .na-h{color:#FFC9C2}
-.relsurface .na-col.over .na-n{background:rgba(193,53,43,.24);color:#FFC9C2}
-.relsurface .na-col.today .na-h{color:#F6E7C8}
-.relsurface .na-col.today .na-n{background:rgba(224,162,43,.22);color:#F6E7C8}
+.relsurface .na-n{background:rgba(43,77,224,0.077);color:var(--ink-mid)}
+.relsurface .na-col.over .na-h{color:var(--ink-hi)}
+.relsurface .na-col.over .na-n{background:rgba(193,53,43,.24);color:var(--ink-hi)}
+.relsurface .na-col.today .na-h{color:var(--ink-hi)}
+.relsurface .na-col.today .na-n{background:rgba(224,162,43,.22);color:var(--ink-hi)}
 .relsurface .na-col.quiet .na-h{color:var(--arc2)}
-.relsurface .na-col.quiet .na-n{background:rgba(56,189,248,.18);color:var(--ink-hi)}
-.relsurface .na-row{background:rgba(5,7,26,.42);border:1px solid rgba(56,189,248,.14)}
-.relsurface .na-row:hover{border-color:var(--line-hi);background:rgba(56,189,248,.09)}
+.relsurface .na-col.quiet .na-n{background:rgba(43,77,224,0.08);color:var(--ink-hi)}
+.relsurface .na-row{background:rgba(24,21,48,0.025);border:1px solid rgba(24,21,48,.1)}
+.relsurface .na-row:hover{border-color:var(--line-hi);background:rgba(43,77,224,0.05)}
 .relsurface .na-name{color:var(--ink-hi)}
 .relsurface .na-why{color:var(--dim)}
 .relsurface .na-more{color:var(--dim)}
-
-/* ---- WORK: the tier columns ---- */
-.relsurface .rel-tier{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
-.relsurface .rel-tier.on{border-color:var(--line-hi);background:rgba(5,7,26,.5)}
+.relsurface .rel-tier{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);box-shadow:none}
+.relsurface .rel-tier.on{border-color:var(--line-hi);background:rgba(24,21,48,0.03)}
 .relsurface .rt-head{border-bottom:1px solid var(--line)}
 .relsurface .rt-top{color:var(--ink-hi)}
-.relsurface .rt-count{background:rgba(56,189,248,.14);color:var(--ink-mid)}
+.relsurface .rt-count{background:rgba(43,77,224,0.077);color:var(--ink-mid)}
 .relsurface .rt-d{color:var(--dim)}
-.relsurface .rt-person:hover{background:rgba(56,189,248,.09)}
+.relsurface .rt-person:hover{background:rgba(43,77,224,0.05)}
 .relsurface .rt-pn{color:var(--ink-hi)}
 .relsurface .rt-pc{color:var(--dim)}
 .relsurface .rt-empty{color:var(--dim)}
 .relsurface .rt-foot{border-top:1px solid var(--line);color:var(--dim);background:transparent}
 .relsurface .rt-foot:hover{color:var(--ink-hi)}
-
-/* ---- WORK: tables, toolbar, groups ---- */
-.relsurface .card{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
-/* .tbl-wrap paints its own white ground and a light drop shadow — the exact
-   shape that hid the meeting card in the lead view, caught here by the surface
-   pass rather than by looking. */
-.relsurface .tbl-wrap{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
+.relsurface .card{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);box-shadow:none}
+.relsurface .tbl-wrap{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);box-shadow:none}
 .relsurface .card .tbl-wrap{background:transparent;border:0}
-.relsurface .tbl th{background:rgba(5,7,26,.5);color:var(--dim);border-bottom-color:var(--line)}
-.relsurface .tbl td{border-bottom-color:rgba(56,189,248,.1);color:var(--ink-mid)}
-.relsurface .tbl tbody tr:hover{background:rgba(56,189,248,.07)}
+.relsurface .tbl th{background:rgba(24,21,48,0.03);color:var(--dim);border-bottom-color:var(--line)}
+.relsurface .tbl td{border-bottom-color:rgba(24,21,48,.1);color:var(--ink-mid)}
+.relsurface .tbl tbody tr:hover{background:rgba(43,77,224,0.039)}
 .relsurface .namecell{color:var(--ink-hi)}
 .relsurface .subcell{color:var(--dim)}
 .relsurface .empty{color:var(--dim)}
-.relsurface .searchbox{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .searchbox{background:rgba(24,21,48,0.025);border:1px solid var(--line)}
 .relsurface .searchbox input{background:transparent;color:var(--ink-hi)}
 .relsurface .searchbox input::placeholder{color:var(--dim)}
 .relsurface .searchbox svg{color:var(--dim)}
-.relsurface .selctl{background:rgba(5,7,26,.42);border:1px solid var(--line);color:var(--ink-mid)}
-.relsurface .seg{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .selctl{background:rgba(24,21,48,0.025);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .seg{background:rgba(24,21,48,0.025);border:1px solid var(--line)}
 .relsurface .seg button{color:var(--dim);background:transparent}
-.relsurface .seg button.on{background:rgba(56,189,248,.2);color:var(--ink-hi)}
+.relsurface .seg button.on{background:rgba(43,77,224,0.08);color:var(--ink-hi)}
 .relsurface .rel-netline{color:var(--dim)}
-.relsurface .rel-clearf{background:rgba(56,189,248,.1);border:1px solid var(--line-hi);color:var(--ink-mid)}
+.relsurface .rel-clearf{background:rgba(43,77,224,0.055);border:1px solid var(--line-hi);color:var(--ink-mid)}
 .relsurface .rel-ghead{border-bottom:1px solid var(--line)}
 .relsurface .rel-gname{color:var(--arc2)}
 .relsurface .rel-gname.plain{color:var(--ink-mid)}
-.relsurface .rel-gcount{background:rgba(56,189,248,.14);color:var(--ink-mid)}
-.relsurface .rel-chip{background:rgba(56,189,248,.12);border:1px solid var(--line);color:var(--ink-mid)}
-.relsurface .tier-pick{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .rel-gcount{background:rgba(43,77,224,0.077);color:var(--ink-mid)}
+.relsurface .rel-chip{background:rgba(43,77,224,0.066);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .tier-pick{background:rgba(24,21,48,0.025);border:1px solid var(--line)}
 .relsurface .tier-pick select{background:transparent;color:var(--ink-mid)}
 .relsurface .tier-pick option{background:var(--plate2);color:var(--ink-hi)}
-
-/* ---- the two row readouts ---- */
 .relsurface .since{color:var(--ink-mid)}
 .relsurface .since.warm{color:var(--gold2)}
-.relsurface .since.cold{color:#FF9E93}
-.relsurface .since.never{color:#FF9E93}
+.relsurface .since.cold{color:var(--hot)}
+.relsurface .since.never{color:var(--hot)}
 .relsurface .refct{color:var(--dim)}
 .relsurface .refct b{color:var(--ink-hi)}
 .relsurface .refct i{color:var(--dim)}
-.relsurface .refct em{color:rgba(127,216,255,.62)}
-/* the due pill, which arrives from the light theme */
-.relsurface .due{background:rgba(5,7,26,.42);border:1px solid var(--line);color:var(--ink-mid)}
-.relsurface .due.over{background:rgba(193,53,43,.18);border-color:rgba(193,53,43,.45);color:#FFC9C2}
-.relsurface .due.today{background:rgba(224,162,43,.18);border-color:rgba(224,162,43,.45);color:#F6E7C8}
-.relsurface .due.soon{background:rgba(56,189,248,.14);border-color:var(--line-hi);color:var(--ink-hi)}
+.relsurface .refct em{color:var(--arc)}
+.relsurface .due{background:rgba(24,21,48,0.025);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .due.over{background:rgba(193,53,43,.18);border-color:rgba(193,53,43,.45);color:var(--ink-hi)}
+.relsurface .due.today{background:rgba(224,162,43,.18);border-color:rgba(224,162,43,.45);color:var(--ink-hi)}
+.relsurface .due.soon{background:rgba(43,77,224,0.077);border-color:var(--line-hi);color:var(--ink-hi)}
+.relsurface{background:transparent;border:0;box-shadow:none;padding:0;color:${INK}}
+.relsurface::before,.relsurface::after{display:none}
+.relsurface .rel-tier,.relsurface .rel-tier.on,.relsurface .card,.relsurface .tbl-wrap,.relsurface .searchbox,.relsurface .selctl,.relsurface .seg,.relsurface .tier-pick,.relsurface .na-row{background:#fff;border-color:#E8E9F2}
+.relsurface .rel-tier.on{border-color:#C9D1F5;box-shadow:0 0 0 3px rgba(43,77,224,.08)}
+.relsurface .tbl th{background:#FAFAFD}
+.relsurface .searchbox input,.relsurface .tier-pick select,.relsurface .seg button{border:0;box-shadow:none;background:transparent}
+.relsurface .seg button.on{background:#EEF1FD;color:${COBALT}}
+.relsurface .needs-att{background:#fff;border-color:#F0DDB5;box-shadow:inset 3px 0 0 var(--gold)}
+.relsurface input,.relsurface select,.relsurface textarea{background:#fff;border:1px solid #E2E3EE;color:${INK}}
+.relsurface input:focus,.relsurface select:focus{border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.12)}
+.relsurface .due.over{border:0}
+
+
 .rel-tier{display:flex;flex-direction:column;min-height:280px;background:#fff;border:1.5px solid #EAEBF2;border-radius:14px;overflow:hidden;position:relative;transition:.14s}
 .rel-tier::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc);z-index:1}
 .rel-tier:hover{border-color:var(--tc)}
