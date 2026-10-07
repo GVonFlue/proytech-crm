@@ -1460,7 +1460,7 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
               {k:'stage', l:'Stage',    v:st.label||'—', dot:st.color},
               {k:'pri',   l:'Priority', v:(PRIORITIES[draft.priority]||{}).label||'—',
                 dot:(PRIORITIES[draft.priority]||{}).color},
-              {k:'qual',  l:'Source',   v:draft.source||'—'},
+              {k:'qual',  l:'Arrived via', v:draft.source||'—'},
               {k:'qual',  l:'Owner',    v:draft.owner||'—'},
               {k:'qual',  l:'Type',     v:draft.businessType&&draft.businessType!=='—'?draft.businessType:'—'},
               {k:'qual',  l:'Close',    v:draft.expectedClose?fmtDate(draft.expectedClose):'—'},
@@ -1499,7 +1499,11 @@ export function Modal({lead,isNew,newRel,inbound,settings,stages,addOption,me,my
           ['svc','Service',Target,(draft.serviceInterest||[]).length||''],
           ['type','Intro',Users,''],
           ['deal','Deal',DollarSign,''],
-          ['spon','Sponsors',Award,'']].map(([k,label,Ic,badge])=>(
+          ['spon','Sponsors',Award,''],
+          /* A relationship's Referrals (given, received, setup won, MRR) had
+             no jump, and the full-screen record shows one section at a time,
+             so it could not be reached at all. */
+          ...(draft.isRelationship?[['refer','Referrals',Handshake,'']]:[])].map(([k,label,Ic,badge])=>(
           <button key={k} className={'mj'+(panel===k?' on':'')} onClick={()=>jumpTo(k)}><Ic size={13}/>{label}{badge!==''&&<i>{badge}</i>}</button>
         ))}
       </div>}
