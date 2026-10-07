@@ -1594,9 +1594,14 @@ receipt. Those are the two ways this goes wrong quietly.
 ## 16. Signed in is not on the team (after AUTH-LISTED-2026-10.sql)
 
 A Supabase login with **no `crm_users` row** (a stray account today, a client
-of the portal tomorrow) must get nothing from the CRM. Before this migration
-`leads_all` used `crm_active()`, which is **true** for such a login, so it could
-insert leads it owned and then read, edit and delete them; `crm_team()` and
+of the portal tomorrow) must get nothing from the CRM. Production had **five**
+policies on `leads` (read by RLS-AUDIT on 7 Oct 2026): `leads_all` (ALL) and
+`leads_select` / `leads_insert` / `leads_update`, each on `crm_active()`, which
+is **true** for such a login, plus `leads_delete` (owner-only, made moot by
+`leads_all` covering DELETE). So such a login could insert leads it owned and
+then read, edit and delete them, and a rep could delete their own leads. The
+migration drops every policy on `leads` and creates four: select / insert /
+update for listed team members, delete for owners only; `crm_team()` and
 `crm_leaderboard()` returned the team list and each rep's conversion counts to
 any login; `kb_mark_read()` wrote for any login. Now each requires
 `crm_listed()` (a row, and active). Nothing changes for the team.
@@ -1629,6 +1634,9 @@ pools' leads, `crm_team()` the team.
 | stray login: `crm_team()` / `crm_leaderboard()` | 0 / 0 | |
 | stray login: insert a lead it owns | ERROR: new row violates row-level security | |
 | a rep: leads / crm_team | their own and their pools' / the team | |
+| a rep: delete their own lead | DELETE 0 (owner only) | |
+| policies on `leads` | exactly 4: leads_select, leads_insert, leads_update, leads_delete; none mentions crm_active() | |
+| `POLICY-SWEEP-2026-10.sql` | no row with `crm_active_alone = true`; every `not_in_repo = true` row explained | |
 | `RLS-AUDIT.sql` | RLS-AUDIT OK | |
 
 ## Coverage, honestly

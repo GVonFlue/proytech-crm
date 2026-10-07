@@ -130,12 +130,17 @@ console.log('\napi/team-login.js: adding a team member, with sign-ups OFF');
 console.log('\nAUTH-LISTED-2026-10.sql (shape; tests/authlisteddb.mjs runs it)');
 {
   const sql = read('AUTH-LISTED-2026-10.sql');
-  const pol = sql.slice(sql.indexOf('create policy leads_all'), sql.indexOf(');', sql.indexOf('with check', sql.indexOf('create policy leads_all'))));
-  ok('leads_all requires crm_listed(), both ways, and no longer crm_active()', (pol.match(/crm_listed\(\)/g) || []).length === 2 && !/crm_active\(\)/.test(pol), pol.slice(0, 200));
+  const sec = sql.slice(sql.indexOf('-- ---- 1. leads'), sql.indexOf('-- ---- 2.'));
+  ok('every policy on leads is dropped from the catalog, whatever its name (production had five)', /for p in select polname from pg_policy where polrelid = 'public\.leads'::regclass loop\s*execute format\('drop policy %I on leads'/.test(sec));
+  ok('four created: select, insert, update on crm_listed(), delete owner-only', ['leads_select on leads for select', 'leads_insert on leads for insert', 'leads_update on leads for update', 'leads_delete on leads for delete'].every(x => sec.includes('create policy ' + x)) && (sec.match(/create policy/g) || []).length === 4);
+  ok('no crm_active() in any of them', !/crm_active\(\)/.test(sec.replace(/--[^\n]*/g, '')));
+  ok('delete is owner-only', /leads_delete on leads for delete using \(\s*no_users\(\) or \( crm_listed\(\) and is_owner\(\) \)\)/.test(sec));
+  ok('the self-check refuses: not exactly 4, any crm_active(), any policy without crm_listed()/is_owner(), a non-owner delete', /should have exactly 4 policies/.test(sql) && /crm_active\(\) still on leads/.test(sql) && /requires neither crm_listed\(\) nor is_owner\(\)/.test(sql) && /leads_delete is not owner-only/.test(sql));
   ok('crm_team, crm_leaderboard and kb_mark_read check crm_listed()', ['crm_team', 'crm_leaderboard', 'kb_mark_read'].every(f => { const i = sql.indexOf(`create or replace function ${f}`); return i > 0 && /crm_listed\(\)/.test(sql.slice(i, sql.indexOf('$$;', i))); }));
   ok('one transaction that verifies itself', /^begin;$/m.test(sql) && /^commit;$/m.test(sql) && sql.indexOf('AUTH-LISTED OK') < sql.indexOf('commit;'));
   const mig = read('MIGRATION.sql');
-  ok('MIGRATION.sql says the same (re-running it cannot reopen leads)', /create policy leads_all[\s\S]*?crm_listed\(\) and \([\s\S]*?crm_listed\(\) and \(/.test(mig) && mig.indexOf('create or replace function crm_listed()') < mig.indexOf('create policy leads_all'));
+  const msec = mig.slice(mig.indexOf("for p in select polname from pg_policy where polrelid = 'public.leads'"), mig.indexOf('drop policy if exists users_read'));
+  ok('MIGRATION.sql creates the same four and drops whatever else is there (re-running it cannot reopen leads)', msec.length > 0 && (msec.match(/create policy leads_(select|insert|update|delete)/g) || []).length === 4 && !/crm_active\(\)/.test(msec.replace(/--[^\n]*/g, '')) && mig.indexOf('create or replace function crm_listed()') < mig.indexOf('create policy leads_select'));
   ok('  and so do TEAM-MIGRATION.sql and REP-ACTIVITY-MIGRATION.sql', /where u\.active and crm_listed\(\)/.test(read('TEAM-MIGRATION.sql')) && /if not crm_listed\(\) then/.test(read('REP-ACTIVITY-MIGRATION.sql')));
 }
 

@@ -6,11 +6,12 @@
 --   (a stray account today; a client of the portal tomorrow) must get nothing
 --   from the CRM. Three places still treated any login as enough:
 --
---   1. leads_all. crm_active() is TRUE for a login with no crm_users row
---      (coalesce(..., true)), and `owner_id = auth.uid()` then let such a
---      login INSERT leads it owned and read, edit and delete them. It could
---      not see anyone else's lead, but it could write into the table.
---      Now: crm_listed() (a row, and active) instead of crm_active().
+--   1. leads. Its policies used crm_active(), which is TRUE for a login with
+--      no crm_users row (coalesce(..., true)), and `owner_id = auth.uid()`
+--      then let such a login INSERT leads it owned and read, edit and delete
+--      them. It could not see anyone else's lead, but it could write into
+--      the table. Now: one set of four policies on crm_listed() (a row, and
+--      active), delete owner-only. See section 1 for what production had.
 --   2. crm_team() and crm_leaderboard() returned every active team member's
 --      name and role, and each rep's conversion counts, to any login.
 --      Now: nothing unless the caller is listed.
@@ -34,21 +35,41 @@
 
 begin;
 
--- ---- 1. leads: a listed, active team member, or first-run mode --------------
-drop policy if exists leads_all on leads;
-create policy leads_all on leads for all using (
+-- ---- 1. leads: ONE consistent set, whatever was there before ---------------
+-- Production had FIVE policies on leads, not the one MIGRATION.sql creates:
+-- leads_all (ALL), leads_select, leads_insert, leads_update (each the same
+-- crm_active() expression) and leads_delete (owner-only). Permissive policies
+-- are ORed, so every one of the four carried the hole, and leads_all (ALL)
+-- also let a rep DELETE their own lead, which made leads_delete decoration.
+-- Every policy on the table is dropped by name from the catalog (so a sixth
+-- that nobody listed goes too), and four are created:
+--   select / insert / update   a listed, active team member: an owner, or the
+--                              lead's owner, or a rep in the lead's pool
+--   delete                     an owner only (the app already says "Only an
+--                              owner can delete a lead"; now Postgres does)
+-- first-run mode (no_users(): nobody set up yet) keeps working as before.
+do $$
+declare p record;
+begin
+  for p in select polname from pg_policy where polrelid = 'public.leads'::regclass loop
+    execute format('drop policy %I on leads', p.polname);
+  end loop;
+end $$;
+
+create policy leads_select on leads for select using (
   no_users() or ( crm_listed() and (
-    is_owner()
-    or owner_id = auth.uid()
-    or (pool is not null and pool = any (my_pools()))
-  ))
+    is_owner() or owner_id = auth.uid() or (pool is not null and pool = any (my_pools())) )));
+create policy leads_insert on leads for insert with check (
+  no_users() or ( crm_listed() and (
+    is_owner() or owner_id = auth.uid() or (pool is not null and pool = any (my_pools())) )));
+create policy leads_update on leads for update using (
+  no_users() or ( crm_listed() and (
+    is_owner() or owner_id = auth.uid() or (pool is not null and pool = any (my_pools())) ))
 ) with check (
   no_users() or ( crm_listed() and (
-    is_owner()
-    or owner_id = auth.uid()
-    or (pool is not null and pool = any (my_pools()))
-  ))
-);
+    is_owner() or owner_id = auth.uid() or (pool is not null and pool = any (my_pools())) )));
+create policy leads_delete on leads for delete using (
+  no_users() or ( crm_listed() and is_owner() ));
 
 -- ---- 2. the team list and the leaderboard: team members only ---------------
 create or replace function crm_team()
@@ -104,31 +125,48 @@ grant execute on function kb_mark_read(text, text) to authenticated;
 
 -- ---- verify, and refuse to commit anything else ------------------------------
 do $$
-declare q text; c text;
+declare n int; bad text;
 begin
-  select pg_get_expr(polqual, polrelid), pg_get_expr(polwithcheck, polrelid) into q, c
-    from pg_policy where polrelid = 'public.leads'::regclass and polname = 'leads_all';
-  if q is null or position('crm_listed()' in q) = 0 or position('crm_listed()' in c) = 0
-     or position('crm_active()' in q) > 0 or position('crm_active()' in c) > 0 then
-    raise exception 'AUTH-LISTED: leads_all does not require crm_listed(): % / %', q, c;
-  end if;
-  if (select count(*) from pg_policy where polrelid = 'public.leads'::regclass) <> 1 then
-    raise exception 'AUTH-LISTED: leads has more than one policy; read every one (RLS-AUDIT.sql)';
+  -- exactly the four, each for its own command
+  select count(*) into n from pg_policy where polrelid = 'public.leads'::regclass;
+  if n <> 4 then raise exception 'AUTH-LISTED: leads should have exactly 4 policies, has %', n; end if;
+  select string_agg(polname || ':' || polcmd::text, ', ' order by polname) into bad from pg_policy
+   where polrelid = 'public.leads'::regclass
+     and (polname::text, polcmd::text) not in (('leads_select','r'), ('leads_insert','a'), ('leads_update','w'), ('leads_delete','d'));
+  if bad is not null then raise exception 'AUTH-LISTED: unexpected policy on leads: %', bad; end if;
+  -- NO policy on leads mentions crm_active(), and every expression requires
+  -- crm_listed() or is_owner()
+  select string_agg(polname, ', ') into bad from pg_policy
+   where polrelid = 'public.leads'::regclass
+     and (position('crm_active()' in coalesce(pg_get_expr(polqual, polrelid), '')) > 0
+       or position('crm_active()' in coalesce(pg_get_expr(polwithcheck, polrelid), '')) > 0);
+  if bad is not null then raise exception 'AUTH-LISTED: crm_active() still on leads: %', bad; end if;
+  select string_agg(polname, ', ') into bad from pg_policy
+   where polrelid = 'public.leads'::regclass
+     and ((polqual is not null and position('crm_listed()' in pg_get_expr(polqual, polrelid)) = 0 and position('is_owner()' in pg_get_expr(polqual, polrelid)) = 0)
+       or (polwithcheck is not null and position('crm_listed()' in pg_get_expr(polwithcheck, polrelid)) = 0 and position('is_owner()' in pg_get_expr(polwithcheck, polrelid)) = 0));
+  if bad is not null then raise exception 'AUTH-LISTED: a leads policy requires neither crm_listed() nor is_owner(): %', bad; end if;
+  -- the delete policy is owner-only: is_owner() and no owner_id/pool branch
+  if exists (select 1 from pg_policy where polrelid = 'public.leads'::regclass and polname = 'leads_delete'
+             and (position('owner_id' in pg_get_expr(polqual, polrelid)) > 0 or position('is_owner()' in pg_get_expr(polqual, polrelid)) = 0)) then
+    raise exception 'AUTH-LISTED: leads_delete is not owner-only';
   end if;
   if position('crm_listed()' in (select prosrc from pg_proc where proname = 'crm_team')) = 0
      or position('crm_listed()' in (select prosrc from pg_proc where proname = 'crm_leaderboard')) = 0
      or position('crm_listed()' in (select prosrc from pg_proc where proname = 'kb_mark_read')) = 0 then
     raise exception 'AUTH-LISTED: a function is missing its crm_listed() check';
   end if;
-  raise notice 'AUTH-LISTED OK: leads, crm_team, crm_leaderboard and kb_mark_read require a listed team member.';
+  raise notice 'AUTH-LISTED OK: leads has 4 policies (select/insert/update for listed team members, delete for owners), none uses crm_active(); crm_team, crm_leaderboard and kb_mark_read require a listed team member.';
 end $$;
 
 commit;
 
 -- ---- read back -------------------------------------------------------------
-select polname, pg_get_expr(polqual, polrelid) as using_expr, pg_get_expr(polwithcheck, polrelid) as check_expr
+select polname, polcmd, pg_get_expr(polqual, polrelid) as using_expr, pg_get_expr(polwithcheck, polrelid) as check_expr
   from pg_policy where polrelid = 'public.leads'::regclass;
--- Expect 1 row, leads_all, with crm_listed() (not crm_active()) in both.
+-- Expect 4 rows: leads_delete (no_users() OR (crm_listed() AND is_owner())),
+-- leads_insert, leads_select, leads_update (crm_listed() AND (is_owner() OR
+-- owner_id = auth.uid() OR pool ...)). crm_active() appears in none.
 select proname, position('crm_listed()' in prosrc) > 0 as checks_listed
   from pg_proc where proname in ('crm_team', 'crm_leaderboard', 'kb_mark_read') order by 1;
 -- Expect 3 rows, checks_listed true.
