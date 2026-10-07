@@ -11,11 +11,12 @@ const B_rs = bundleName('rs');
 
    What is asserted here:
 
-     the strip      overdue, due today, and GONE QUIET, across every tier and
-                    above the grouping. The third bucket is the point: overdue
-                    reads followUp, so a relationship with no date set can never
-                    appear in it however long it has been silent — which is the
-                    exact failure the page existed to fix.
+     the strip      lib/relationships reachOut (Oct 2026): OVERDUE (past last
+                    touch + cadence, a sooner follow-up date, or never
+                    contacted), DUE THIS WEEK, and BIRTHDAYS 3 days ahead, A
+                    tier first, above the grouping. It replaced overdue / due
+                    today / gone quiet; a relationship with no date set still
+                    surfaces, because the cadence is its due date.
      coldest first  each tier column is ordered by silence, never-contacted at
                     the top, because that is the only ordering that makes the
                     column actionable.
@@ -24,8 +25,9 @@ const B_rs = bundleName('rs');
      the no-op      the column footer said "Tap to list all 7" while all 7 were
                     already listed above it.
 
-   Thresholds are COLD_DAYS — 30/60/90 by tier — and the fixture is built around
-   them: one champion just inside, one just outside, one never contacted.
+   Cadence is A 14 / B 30 / C 90 days (no relCadence saved, so the defaults),
+   and the fixture is built around it: one A inside, one outside, one never
+   contacted, one whose follow-up date is further out than its cadence.
 */
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
@@ -66,15 +68,16 @@ const rel = (o) => ({ company:'Co', owner:'Garrett', owner_id:'u_owner', isRelat
   createdAt: ago(400), meetings:[], deals:[], payments:[], custom:{}, serviceInterest:[],
   labels:[], keyDates:[], activities:[], ...o });
 
-/* Champions allow 30 days, B allows 60, New allows 90. */
+/* A every 14 days, B every 30, C every 90. */
 const RELS = [
-  /* quiet: a champion silent 45 days with no follow-up date */
+  /* overdue: an A silent 45 days with no follow-up date */
   rel({ id:'r1', name:'Quiet Champion', relTier:'champion', activities:[call(45)] }),
-  /* NOT quiet: a champion silent 45 days but with a date ahead of them */
+  /* STILL overdue: silent 45 days with a date 6 days out. The follow-up date
+     wins only when it is SOONER than the cadence; it never buys more time. */
   rel({ id:'r2', name:'Scheduled Champion', relTier:'champion', followUp: iso(6), activities:[call(45)] }),
-  /* NOT quiet: silent 20 days, inside the champion limit */
-  rel({ id:'r3', name:'Fresh Champion', relTier:'champion', activities:[call(20)] }),
-  /* quiet: never contacted at all */
+  /* due this week: touched 10 days ago, due in 4 */
+  rel({ id:'r3', name:'Fresh Champion', relTier:'champion', activities:[call(10)] }),
+  /* overdue: never contacted at all */
   rel({ id:'r4', name:'Never Contacted', relTier:'champion', activities:[] }),
   /* THE MACHINE-NOTE TRAP: last real touch 200 days ago, but a "Follow-up
      cleared." was written yesterday. Counting any activity as contact would
@@ -123,26 +126,22 @@ const nav = [...el.querySelectorAll('.nav-i')].find(e => /^Relationships$/.test(
 await click(nav); await settle(200);
 
 const T = () => el.textContent || '';
-const bucket = k => [...el.querySelectorAll('.na-col.' + k + ' .na-row')].map(r => (r.querySelector('.na-name')||{}).textContent || '');
+const bucket = k => [...el.querySelectorAll('.needs-att .ro-grp.' + k + ' .ro-row')].map(r => (r.querySelector('.ro-name')||{}).textContent || '');
 
-console.log('\nthe needs-attention strip');
+console.log('\nthe needs-attention strip (lib/relationships reachOut)');
 ok('the strip is on the page', !!el.querySelector('.needs-att'), T().slice(0, 120));
-ok('overdue: the one with a past date', JSON.stringify(bucket('over')) === JSON.stringify(['Overdue Date']),
-   JSON.stringify(bucket('over')));
-ok('due today: the one due today', JSON.stringify(bucket('today')) === JSON.stringify(['Due Today']),
-   JSON.stringify(bucket('today')));
-
-const quiet = bucket('quiet');
-console.log('\ngone quiet — the bucket overdue-only would have missed');
-ok('a champion silent past its 30 days is quiet', quiet.includes('Quiet Champion'), JSON.stringify(quiet));
-ok('never contacted is quiet', quiet.includes('Never Contacted'), JSON.stringify(quiet));
-ok('a machine note does NOT count as contact',
-   quiet.includes('Bookkeeping Only'),
-   'last real touch 200d ago, "Follow-up cleared." yesterday: ' + JSON.stringify(quiet));
-ok('someone with a date ahead of them is not quiet', !quiet.includes('Scheduled Champion'), JSON.stringify(quiet));
-ok('someone inside their tier limit is not quiet', !quiet.includes('Fresh Champion'), JSON.stringify(quiet));
-ok('never-contacted sorts above the merely cold',
-   quiet.indexOf('Never Contacted') < quiet.indexOf('Quiet Champion'), JSON.stringify(quiet));
+const over = bucket('overdue'), week = bucket('week');
+ok('overdue: past cadence, a past date, never contacted, A tier first',
+   JSON.stringify(over) === JSON.stringify(['Never Contacted', 'Quiet Champion', 'Scheduled Champion', 'Bookkeeping Only', 'Overdue Date']),
+   JSON.stringify(over));
+ok('due this week: the A due in 4 days, then the C whose date is today',
+   JSON.stringify(week) === JSON.stringify(['Fresh Champion', 'Due Today']), JSON.stringify(week));
+ok('a follow-up date further out than the cadence does not hide someone', over.includes('Scheduled Champion'), JSON.stringify(over));
+ok('a machine note does NOT count as contact', over.includes('Bookkeeping Only'),
+   'last real touch 200d ago, "Follow-up cleared." yesterday: ' + JSON.stringify(over));
+ok('never-contacted sorts first in its tier', over.indexOf('Never Contacted') < over.indexOf('Quiet Champion'), JSON.stringify(over));
+ok('someone well inside their cadence is not listed', !over.includes('Introduced Person') && !week.includes('Introduced Person'));
+ok('every row can log a touch', el.querySelectorAll('.needs-att .ro-row .lt-b').length === over.length + week.length);
 
 console.log('\nthe tier columns');
 const champCol = [...el.querySelectorAll('.rel-tier')][0];
