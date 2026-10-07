@@ -1278,13 +1278,15 @@ const CSS=`
 .svc-opt.custom b{color:#6B6885}
 .dh-svc{border:1px solid #E1E2EC;border-radius:7px;padding:3px 6px;font:inherit;font-size:12px;color:${INK};background:#fff;max-width:170px}
 .dh-svc.unset{border-color:#F0C9A8;background:#FFF7F0;color:#B4541E}
-/* THE PROYTECH PLATE on the lead header. Navy band, blue and orange circuit
+/* THE PROYTECH PLATE on the lead header, and on the client record's header
+   (.cv-head.plate: the circuit art the client record carried before the 1 Oct
+   uploads dropped it, now drawn by these same rules rather than a copy). Navy band, blue and orange circuit
    traces glowing off it: the same art direction as the shirt back and the
    site, where the logo always sits on a navy band. Header only. The record
    below stays white, so the light decision holds where the work is read.
    The traces are a static inline SVG (no request, no JS) and fade out under
    the name so the text never sits on a busy line. */
-.m-head.plate{position:relative;overflow:hidden;border-bottom:none;
+.m-head.plate,.cv-head.plate{position:relative;overflow:hidden;border-bottom:none;
   background:radial-gradient(ellipse 55% 140% at 60% 50%,rgba(19,56,222,.34),transparent 70%),
              linear-gradient(180deg,#030628 0%,#000110 100%);
   --dim:#8F9AC4}
@@ -1292,18 +1294,18 @@ const CSS=`
    gradient above over it and looks the same, but jsdom drops a rule whose
    background it cannot parse, whole, so a background-color inside that rule
    never reached the contrast suite and it measured white text on white. */
-.m-head.plate{background-color:#030628}
-.m-head.plate::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
+.m-head.plate,.cv-head.plate{background-color:#030628}
+.m-head.plate::before,.cv-head.plate::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:0;
   background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2000 200' preserveAspectRatio='xMaxYMid slice'%3E%3Cdefs%3E%3Cfilter id='g' x='-5%25' y='-50%25' width='110%25' height='200%25'%3E%3CfeGaussianBlur stdDeviation='2.2' result='b'/%3E%3CfeMerge%3E%3CfeMergeNode in='b'/%3E%3CfeMergeNode in='SourceGraphic'/%3E%3C/feMerge%3E%3C/filter%3E%3C/defs%3E%3Cg filter='url(%23g)' fill='none' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1119,12 1079,12 1039,12 1039,12 979,12 959,32 919,32 909,42 769,42'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1196,20 1296,20 1304,12 1444,12 1524,12 1524,12 1604,12 1664,12 1664,12 1704,12 1704,12 1744,12'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1131,30 1031,30 1021,20 961,20 931,50 831,50 731,50 721,40 581,40 571,50'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1164,42 1304,42 1384,42 1414,72 1514,72 1614,72 1634,52 1734,52'/%3E%3Cpolyline stroke='%2338BDF8' stroke-opacity='.8' points='1124,44 1024,44 994,74 914,74 894,94 834,94 734,94 724,104 664,104 654,114 594,114 584,124 484,124'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1216,54 1276,54 1286,44 1346,44 1386,44 1406,24 1486,24 1516,54 1596,54 1676,54'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1117,64 1077,64 1057,84 957,84 927,114 827,114 817,104 717,104 687,134 647,134 617,104 577,104 437,104'/%3E%3Cpolyline stroke='%2338BDF8' stroke-opacity='.8' points='1176,74 1316,74 1326,64 1426,64 1526,64 1536,74 1596,74'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1150,80 1110,80 1100,90 960,90 820,90 790,60 710,60 690,40 630,40 600,70'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1214,88 1274,88 1334,88 1354,108 1394,108 1474,108 1504,78 1644,78'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1137,96 1077,96 1067,106 987,106 967,86 887,86 847,86 807,86'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1171,106 1251,106 1271,126 1371,126 1411,126 1471,126 1511,126 1541,156 1601,156 1741,156'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1152,114 1112,114 1072,114 1052,94 992,94 932,94 912,74 772,74'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1186,122 1226,122 1306,122 1446,122 1586,122'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1127,132 1087,132 1027,132 967,132 937,162 897,162 817,162 677,162 637,162 597,162'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1195,138 1235,138 1265,108 1345,108 1375,138 1435,138 1515,138'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1132,150 1032,150 1012,170 972,170 872,170 862,180 802,180'/%3E%3Cpolyline stroke='%2338BDF8' stroke-opacity='.8' points='1168,156 1228,156 1268,156 1278,166 1338,166 1360,188 1460,188 1480,168 1560,168 1570,178 1650,178'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1139,164 999,164 989,154 929,154 889,154 879,164 819,164 799,144 719,144 689,174 609,174'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1164,170 1204,170 1284,170 1294,160 1374,160 1474,160 1494,180 1634,180'/%3E%3Cpolyline stroke='%23FB6926' stroke-opacity='.8' points='1153,180 1093,180 1083,170 1003,170 863,170 783,170 763,150 683,150 603,150 573,120 433,120 373,120'/%3E%3Cpolyline stroke='%233D6BFF' stroke-opacity='.8' points='1201,186 1301,186 1303,188 1383,188 1443,188 1463,168 1543,168 1603,168 1623,188 1683,188'/%3E%3Ccircle cx='769' cy='42' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1744' cy='12' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='571' cy='50' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1734' cy='52' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='484' cy='124' r='3.6' stroke='%2338BDF8' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1676' cy='54' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='437' cy='104' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1596' cy='74' r='3.6' stroke='%2338BDF8' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='600' cy='70' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1644' cy='78' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='807' cy='86' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1741' cy='156' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='772' cy='74' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1586' cy='122' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='597' cy='162' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1515' cy='138' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='802' cy='180' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1650' cy='178' r='3.6' stroke='%2338BDF8' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='609' cy='174' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1634' cy='180' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='373' cy='120' r='3.6' stroke='%23FB6926' stroke-width='1.6' fill='%23000110'/%3E%3Ccircle cx='1683' cy='188' r='3.6' stroke='%233D6BFF' stroke-width='1.6' fill='%23000110'/%3E%3C/g%3E%3C/svg%3E") right center/cover no-repeat;
   -webkit-mask-image:linear-gradient(90deg,rgba(0,0,0,.14) 0%,rgba(0,0,0,.14) 24%,#000 48%,#000 100%);
           mask-image:linear-gradient(90deg,rgba(0,0,0,.14) 0%,rgba(0,0,0,.14) 24%,#000 48%,#000 100%)}
-.m-head.plate::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;pointer-events:none;
+.m-head.plate::after,.cv-head.plate::after{content:'';position:absolute;left:0;right:0;bottom:0;height:2px;pointer-events:none;
   background:linear-gradient(90deg,#1338DE 0%,#38BDF8 58%,#FB6926 100%)}
-.m-head.plate>*{position:relative;z-index:1}
+.m-head.plate>*,.cv-head.plate>*{position:relative;z-index:1}
 .m-head.plate h2{color:#fff}
 .m-head.plate .co{color:#B7C4FF}
 .m-head.plate .meta{color:#7D88B5}
-.m-head.plate .m-x{background:rgba(255,255,255,.08);color:#DCE3FF;border:1px solid rgba(120,150,255,.18)}
+.m-head.plate .m-x,.cv-head.plate .m-x{background:rgba(255,255,255,.08);color:#DCE3FF;border:1px solid rgba(120,150,255,.18)}
 .m-head.plate .m-x:hover{background:rgba(255,255,255,.16)}
 .m-head.plate .mf{background:rgba(3,6,40,.72);border-color:rgba(98,130,255,.26);backdrop-filter:blur(2px)}
 .m-head.plate .mf:hover{border-color:#38BDF8;background:rgba(19,56,222,.35)}
@@ -1349,18 +1351,18 @@ const CSS=`
    anything that needs a person — which is why the follow-up module is gold and
    turns red once it is overdue.
    ========================================================================== */
-/* THE DARK RULE, applied to a second screen.
+/* THE DARK RULE, RETIRED. These tokens belong to the lead view's dark skin
+   only, which no screen uses since the lead record moved to the light design
+   (.modal.leadfs, e4ceebe); it is kept "one class away".
 
-   Dark when the app is telling you something; light when you are telling the
-   app. The lead view assembles a briefing, so it is dark. Relationships answers
-   "who is going quiet", which is judgment rather than a list you typed, so it
-   is dark too. The Leads table, Clients, Meetings, Money and Settings stay
-   light — you drive those.
-
-   The tokens are shared rather than copied, so a second surface cannot drift
-   into a slightly different navy. Each surface still paints its own ground:
-   .modal.lead fills a viewport, .relsurface sits inside the page body. */
-.modal.lead,.relsurface{
+   History, so the next change is a decision and not an accident: this block
+   once argued that Relationships should be dark too ("judgment rather than a
+   list you typed") and shared these tokens with it. THE LIGHT RULE (b82fb0a)
+   had made it light, the 1 Oct uploads made it dark again through these shared
+   tokens, and on 6 Oct 2026 Garrett chose light, from both rendered side by
+   side. Relationships now has its own tokens (RELATIONSHIPS, LIGHT), so this
+   block cannot change it. */
+.modal.lead{
   --arc:#38BDF8; --arc2:#7FD8FF; --arc3:#EAFBFF; --cob:#2B4DE0;
   --gold:#E0A22B; --gold2:#F2C55C; --hot:#C1352B; --ok:#3FB978; --ok2:#7FE3AC;
   --plate:#0F1433; --plate2:#0A0E27; --plate3:#05071A;
@@ -1423,26 +1425,23 @@ const CSS=`
    picker painting its own white is a light box in the middle of one — which is
    exactly what tests/leadcontrast.mjs caught. Same tokens as everything else
    here, so the second surface cannot drift into a slightly different navy. */
-.modal.lead .pp-face,.relsurface .pp-face{
+.modal.lead .pp-face{
   background:rgba(56,189,248,.05);border-color:var(--line-hi);color:var(--ink-hi)}
-.modal.lead .pp-face:hover,.relsurface .pp-face:hover{border-color:rgba(56,189,248,.45)}
-.modal.lead .pp-face svg,.relsurface .pp-face svg,
-.modal.lead .pp-search svg,.relsurface .pp-search svg{color:var(--dim)}
-.modal.lead .pp-val.none,.relsurface .pp-val.none{color:var(--faint)}
-.modal.lead .pp-open,.relsurface .pp-open{
+.modal.lead .pp-face:hover{border-color:rgba(56,189,248,.45)}
+.modal.lead .pp-face svg,.modal.lead .pp-search svg{color:var(--dim)}
+.modal.lead .pp-val.none{color:var(--faint)}
+.modal.lead .pp-open{
   background:var(--plate2);border-color:rgba(56,189,248,.45);
   box-shadow:0 22px 52px -20px rgba(0,0,0,.85)}
-.modal.lead .pp-search,.relsurface .pp-search{border-bottom-color:var(--line)}
-.modal.lead .pp-search input,.relsurface .pp-search input{
+.modal.lead .pp-search{border-bottom-color:var(--line)}
+.modal.lead .pp-search input{
   background:none;border:none;color:var(--ink-hi)}
-.modal.lead .pp-row,.relsurface .pp-row{color:var(--ink)}
-.modal.lead .pp-row.hi,.relsurface .pp-row.hi{background:rgba(56,189,248,.14)}
-.modal.lead .pp-row.none,.relsurface .pp-row.none,
-.modal.lead .pp-row.blank,.relsurface .pp-row.blank{color:var(--dim)}
-.modal.lead .pp-group,.relsurface .pp-group{color:var(--faint)}
-.modal.lead .pp-empty,.relsurface .pp-empty,
-.modal.lead .pp-more,.relsurface .pp-more{color:var(--dim)}
-.modal.lead .pp-more,.relsurface .pp-more{border-top-color:var(--line)}
+.modal.lead .pp-row{color:var(--ink)}
+.modal.lead .pp-row.hi{background:rgba(56,189,248,.14)}
+.modal.lead .pp-row.none,.modal.lead .pp-row.blank{color:var(--dim)}
+.modal.lead .pp-group{color:var(--faint)}
+.modal.lead .pp-empty,.modal.lead .pp-more{color:var(--dim)}
+.modal.lead .pp-more{border-top-color:var(--line)}
 .modal.lead .m-x{color:var(--arc2);border-color:var(--line-hi);background:rgba(56,189,248,.05)}
 .modal.lead .m-x:hover{background:rgba(56,189,248,.14)}
 
@@ -2226,7 +2225,8 @@ const CSS=`
 /* ===========================================================================
    RELATIONSHIPS, PAINTED.
 
-   Same grammar as the lead view, same tokens, and the same split inside it:
+   Same grammar as the lead view, and the same split inside it. (Its own
+   tokens, not the lead view's, since Oct 2026: see RELATIONSHIPS, LIGHT.)
 
      lit edge + glow  =  the app telling you something
      flat, no glow    =  where you do work
@@ -2244,95 +2244,125 @@ const CSS=`
    harness cannot resolve is a paint that cannot be verified. Learned the hard
    way on the lead view, where the first cut silently changed nothing.
    ======================================================================== */
-.relsurface{background:radial-gradient(900px 380px at 50% -18%,rgba(56,189,248,.14),transparent 62%),
+
+/* ===========================================================================
+   RELATIONSHIPS, LIGHT (THE LIGHT RULE, b82fb0a / e5530ca, restored).
+
+   Relationships is light like every page you drive: white plates, ink text,
+   and ONE signal, the needs-attention strip. It used to share its colour
+   tokens with the lead view's dark skin (one rule named both), so
+   on 1 Oct one upload turning those tokens navy turned this page navy too,
+   with no decision behind it. These rules and tokens are its OWN now: nothing
+   here is shared with '.modal.lead', and the retired skin cannot reach it.
+   tests/relscontrast.mjs holds every text to 3:1 and asserts the surface is
+   light. VISUAL ONLY: what Relationships tracks is unchanged.
+   ======================================================================== */
+.relsurface{--arc:${COBALT}; --arc2:${COBALT}; --arc3:${INK}; --cob:${COBALT};
+  --gold:#A8680F; --gold2:#B7791F; --hot:#C1352B; --ok:#1F9D55; --ok2:#1a7d46;
+  --plate:#FFFFFF; --plate2:#FFFFFF; --plate3:#F7F7FB;
+  --ink:#2E2A4A; --ink-hi:${INK}; --ink-mid:#3B3470; --ink-lo:#77738F;
+  --dim:#6E6A8A; --faint:#85819F;
+  --line:#ECEDF3; --line-hi:#DCDDEA;
+  color:var(--ink);}
+.relsurface .pp-face{background:rgba(43,77,224,0.028);border-color:var(--line-hi);color:var(--ink-hi)}
+.relsurface .pp-face:hover{border-color:rgba(43,77,224,0.405)}
+.relsurface .pp-face svg,.relsurface .pp-search svg{color:var(--dim)}
+.relsurface .pp-val.none{color:var(--faint)}
+.relsurface .pp-open{background:var(--plate2);border-color:rgba(43,77,224,0.405);
+  box-shadow:0 22px 52px -20px rgba(24,21,48,0.14)}
+.relsurface .pp-search{border-bottom-color:var(--line)}
+.relsurface .pp-search input{background:none;border:none;color:var(--ink-hi)}
+.relsurface .pp-row{color:var(--ink)}
+.relsurface .pp-row.hi{background:rgba(43,77,224,0.077)}
+.relsurface .pp-row.none,.relsurface .pp-row.blank{color:var(--dim)}
+.relsurface .pp-group{color:var(--faint)}
+.relsurface .pp-empty,.relsurface .pp-more{color:var(--dim)}
+.relsurface .pp-more{border-top-color:var(--line)}
+.relsurface{background:radial-gradient(900px 380px at 50% -18%,rgba(43,77,224,0.077),transparent 62%),
   linear-gradient(180deg,var(--plate) 0%,var(--plate2) 60%,var(--plate3) 100%);
   border:1px solid var(--line);border-radius:16px;padding:16px;margin:-4px 0 0}
-/* the gradient's middle stop as a plain colour, in its own rule, for the same
-   reason the work values below are written out: jsdom drops the rule above
-   (a var() gradient) whole, so the contrast suite measured this surface as
-   white. A browser paints the gradient over it and looks the same. */
-.relsurface{background-color:#0A0E27}
-
-/* ---- SIGNAL: needs attention ---- */
 .relsurface .needs-att{background:linear-gradient(180deg,rgba(224,162,43,.13),rgba(224,162,43,.03));
   border:1px solid rgba(224,162,43,.34);box-shadow:0 0 34px -20px var(--gold)}
-.relsurface .na-top{color:#F1DFBB}
+.relsurface .na-top{color:var(--ink-hi)}
 .relsurface .na-top svg{color:var(--gold2)}
-.relsurface .na-tot{background:rgba(224,162,43,.2);color:#F6E7C8}
+.relsurface .na-tot{background:rgba(224,162,43,.2);color:var(--ink-hi)}
 .relsurface .na-h{color:var(--dim)}
-.relsurface .na-n{background:rgba(56,189,248,.14);color:var(--ink-mid)}
-.relsurface .na-col.over .na-h{color:#FFC9C2}
-.relsurface .na-col.over .na-n{background:rgba(193,53,43,.24);color:#FFC9C2}
-.relsurface .na-col.today .na-h{color:#F6E7C8}
-.relsurface .na-col.today .na-n{background:rgba(224,162,43,.22);color:#F6E7C8}
+.relsurface .na-n{background:rgba(43,77,224,0.077);color:var(--ink-mid)}
+.relsurface .na-col.over .na-h{color:var(--ink-hi)}
+.relsurface .na-col.over .na-n{background:rgba(193,53,43,.24);color:var(--ink-hi)}
+.relsurface .na-col.today .na-h{color:var(--ink-hi)}
+.relsurface .na-col.today .na-n{background:rgba(224,162,43,.22);color:var(--ink-hi)}
 .relsurface .na-col.quiet .na-h{color:var(--arc2)}
-.relsurface .na-col.quiet .na-n{background:rgba(56,189,248,.18);color:var(--ink-hi)}
-.relsurface .na-row{background:rgba(5,7,26,.42);border:1px solid rgba(56,189,248,.14)}
-.relsurface .na-row:hover{border-color:var(--line-hi);background:rgba(56,189,248,.09)}
+.relsurface .na-col.quiet .na-n{background:rgba(43,77,224,0.08);color:var(--ink-hi)}
+.relsurface .na-row{background:rgba(24,21,48,0.025);border:1px solid rgba(24,21,48,.1)}
+.relsurface .na-row:hover{border-color:var(--line-hi);background:rgba(43,77,224,0.05)}
 .relsurface .na-name{color:var(--ink-hi)}
 .relsurface .na-why{color:var(--dim)}
 .relsurface .na-more{color:var(--dim)}
-
-/* ---- WORK: the tier columns ---- */
-.relsurface .rel-tier{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
-.relsurface .rel-tier.on{border-color:var(--line-hi);background:rgba(5,7,26,.5)}
+.relsurface .rel-tier{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);box-shadow:none}
+.relsurface .rel-tier.on{border-color:var(--line-hi);background:rgba(24,21,48,0.03)}
 .relsurface .rt-head{border-bottom:1px solid var(--line)}
 .relsurface .rt-top{color:var(--ink-hi)}
-.relsurface .rt-count{background:rgba(56,189,248,.14);color:var(--ink-mid)}
+.relsurface .rt-count{background:rgba(43,77,224,0.077);color:var(--ink-mid)}
 .relsurface .rt-d{color:var(--dim)}
-.relsurface .rt-person:hover{background:rgba(56,189,248,.09)}
+.relsurface .rt-person:hover{background:rgba(43,77,224,0.05)}
 .relsurface .rt-pn{color:var(--ink-hi)}
 .relsurface .rt-pc{color:var(--dim)}
 .relsurface .rt-empty{color:var(--dim)}
 .relsurface .rt-foot{border-top:1px solid var(--line);color:var(--dim);background:transparent}
 .relsurface .rt-foot:hover{color:var(--ink-hi)}
-
-/* ---- WORK: tables, toolbar, groups ---- */
-.relsurface .card{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
-/* .tbl-wrap paints its own white ground and a light drop shadow — the exact
-   shape that hid the meeting card in the lead view, caught here by the surface
-   pass rather than by looking. */
-.relsurface .tbl-wrap{background:rgba(5,7,26,.34);border:1px solid rgba(56,189,248,.13);box-shadow:none}
+.relsurface .card{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);box-shadow:none}
+.relsurface .tbl-wrap{background:rgba(24,21,48,0.02);border:1px solid rgba(24,21,48,.1);box-shadow:none}
 .relsurface .card .tbl-wrap{background:transparent;border:0}
-.relsurface .tbl th{background:rgba(5,7,26,.5);color:var(--dim);border-bottom-color:var(--line)}
-.relsurface .tbl td{border-bottom-color:rgba(56,189,248,.1);color:var(--ink-mid)}
-.relsurface .tbl tbody tr:hover{background:rgba(56,189,248,.07)}
+.relsurface .tbl th{background:rgba(24,21,48,0.03);color:var(--dim);border-bottom-color:var(--line)}
+.relsurface .tbl td{border-bottom-color:rgba(24,21,48,.1);color:var(--ink-mid)}
+.relsurface .tbl tbody tr:hover{background:rgba(43,77,224,0.039)}
 .relsurface .namecell{color:var(--ink-hi)}
 .relsurface .subcell{color:var(--dim)}
 .relsurface .empty{color:var(--dim)}
-.relsurface .searchbox{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .searchbox{background:rgba(24,21,48,0.025);border:1px solid var(--line)}
 .relsurface .searchbox input{background:transparent;color:var(--ink-hi)}
 .relsurface .searchbox input::placeholder{color:var(--dim)}
 .relsurface .searchbox svg{color:var(--dim)}
-.relsurface .selctl{background:rgba(5,7,26,.42);border:1px solid var(--line);color:var(--ink-mid)}
-.relsurface .seg{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .selctl{background:rgba(24,21,48,0.025);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .seg{background:rgba(24,21,48,0.025);border:1px solid var(--line)}
 .relsurface .seg button{color:var(--dim);background:transparent}
-.relsurface .seg button.on{background:rgba(56,189,248,.2);color:var(--ink-hi)}
+.relsurface .seg button.on{background:rgba(43,77,224,0.08);color:var(--ink-hi)}
 .relsurface .rel-netline{color:var(--dim)}
-.relsurface .rel-clearf{background:rgba(56,189,248,.1);border:1px solid var(--line-hi);color:var(--ink-mid)}
+.relsurface .rel-clearf{background:rgba(43,77,224,0.055);border:1px solid var(--line-hi);color:var(--ink-mid)}
 .relsurface .rel-ghead{border-bottom:1px solid var(--line)}
 .relsurface .rel-gname{color:var(--arc2)}
 .relsurface .rel-gname.plain{color:var(--ink-mid)}
-.relsurface .rel-gcount{background:rgba(56,189,248,.14);color:var(--ink-mid)}
-.relsurface .rel-chip{background:rgba(56,189,248,.12);border:1px solid var(--line);color:var(--ink-mid)}
-.relsurface .tier-pick{background:rgba(5,7,26,.42);border:1px solid var(--line)}
+.relsurface .rel-gcount{background:rgba(43,77,224,0.077);color:var(--ink-mid)}
+.relsurface .rel-chip{background:rgba(43,77,224,0.066);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .tier-pick{background:rgba(24,21,48,0.025);border:1px solid var(--line)}
 .relsurface .tier-pick select{background:transparent;color:var(--ink-mid)}
 .relsurface .tier-pick option{background:var(--plate2);color:var(--ink-hi)}
-
-/* ---- the two row readouts ---- */
 .relsurface .since{color:var(--ink-mid)}
 .relsurface .since.warm{color:var(--gold2)}
-.relsurface .since.cold{color:#FF9E93}
-.relsurface .since.never{color:#FF9E93}
+.relsurface .since.cold{color:var(--hot)}
+.relsurface .since.never{color:var(--hot)}
 .relsurface .refct{color:var(--dim)}
 .relsurface .refct b{color:var(--ink-hi)}
 .relsurface .refct i{color:var(--dim)}
-.relsurface .refct em{color:rgba(127,216,255,.62)}
-/* the due pill, which arrives from the light theme */
-.relsurface .due{background:rgba(5,7,26,.42);border:1px solid var(--line);color:var(--ink-mid)}
-.relsurface .due.over{background:rgba(193,53,43,.18);border-color:rgba(193,53,43,.45);color:#FFC9C2}
-.relsurface .due.today{background:rgba(224,162,43,.18);border-color:rgba(224,162,43,.45);color:#F6E7C8}
-.relsurface .due.soon{background:rgba(56,189,248,.14);border-color:var(--line-hi);color:var(--ink-hi)}
+.relsurface .refct em{color:var(--arc)}
+.relsurface .due{background:rgba(24,21,48,0.025);border:1px solid var(--line);color:var(--ink-mid)}
+.relsurface .due.over{background:rgba(193,53,43,.18);border-color:rgba(193,53,43,.45);color:var(--ink-hi)}
+.relsurface .due.today{background:rgba(224,162,43,.18);border-color:rgba(224,162,43,.45);color:var(--ink-hi)}
+.relsurface .due.soon{background:rgba(43,77,224,0.077);border-color:var(--line-hi);color:var(--ink-hi)}
+.relsurface{background:transparent;border:0;box-shadow:none;padding:0;color:${INK}}
+.relsurface::before,.relsurface::after{display:none}
+.relsurface .rel-tier,.relsurface .rel-tier.on,.relsurface .card,.relsurface .tbl-wrap,.relsurface .searchbox,.relsurface .selctl,.relsurface .seg,.relsurface .tier-pick,.relsurface .na-row{background:#fff;border-color:#E8E9F2}
+.relsurface .rel-tier.on{border-color:#C9D1F5;box-shadow:0 0 0 3px rgba(43,77,224,.08)}
+.relsurface .tbl th{background:#FAFAFD}
+.relsurface .searchbox input,.relsurface .tier-pick select,.relsurface .seg button{border:0;box-shadow:none;background:transparent}
+.relsurface .seg button.on{background:#EEF1FD;color:${COBALT}}
+.relsurface .needs-att{background:#fff;border-color:#F0DDB5;box-shadow:inset 3px 0 0 var(--gold)}
+.relsurface input,.relsurface select,.relsurface textarea{background:#fff;border:1px solid #E2E3EE;color:${INK}}
+.relsurface input:focus,.relsurface select:focus{border-color:${COBALT};box-shadow:0 0 0 3px rgba(43,77,224,.12)}
+.relsurface .due.over{border:0}
+
+
 .rel-tier{display:flex;flex-direction:column;min-height:280px;background:#fff;border:1.5px solid #EAEBF2;border-radius:14px;overflow:hidden;position:relative;transition:.14s}
 .rel-tier::before{content:'';position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--tc);z-index:1}
 .rel-tier:hover{border-color:var(--tc)}
@@ -3157,6 +3187,9 @@ tr.tx-derived td{background:color-mix(in srgb,${COBALT} 2.5%,#fff)}
 .cv-sub{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:12.5px;color:#A8AAC6;margin-top:6px}
 .cv-phase{color:#fff;font-weight:700;font-size:11px;padding:2px 9px;border-radius:20px}
 .cv-head-a{display:flex;gap:8px;align-items:center;flex:none}
+/* the client record's close button was white on #F0F1F7 (invisible) since the
+   dark skin it was written for was retired; on the plate it takes the lead
+   header's translucent button (rule above, .cv-head.plate .m-x) */
 .cv-head-a .m-x{color:#fff}
 .cv-head-a .phase-sel{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.2)}
 .cv-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:20px 26px 40px}
@@ -6251,8 +6284,6 @@ function Dashboard({lcRows,markDue,labelServices,leads,stages,open,tagBooked,set
              undated:rows.filter(r=>inScope('undated',r)&&needsDate(r.m)).length }; })();
   const Name=({l})=><span className="drow-t" onClick={()=>open(l.id)}>{personLabel(l)}</span>;
   const Empty=({t})=><div className="empty" style={{padding:'18px 4px'}}>{t}</div>;
-  const stageData=stages.filter(s=>s.open).map(s=>({name:s.label,Leads:m.byStage[s.key]?.count||0,color:s.color}));
-  const revMix=[{name:'Closed Setup',value:m.wonValue},{name:'Annual MRR',value:m.mrr*12}].filter(d=>d.value>0);
   const followUps=[...m.overdue,...m.dueWeek].sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||'')).slice(0,8);
   /* ---- THE FOUR CHARTS -------------------------------------------------
      Twelve months, monthly. Not weekly: at this volume a weekly line is a

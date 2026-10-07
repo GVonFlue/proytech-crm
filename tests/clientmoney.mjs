@@ -76,6 +76,13 @@ const openClient=async name=>{
 console.log('\none closed deal, paid in full');
 await openClient('Chris Waipa');
 ok('the client dashboard opens', !!document.querySelector('.modal.leadfs.client'));
+/* the header carries the PLATE, the circuit art on navy that the lead header
+   has: the 1 Oct uploads dropped it from the client record without a word */
+{ const h=document.querySelector('.modal.leadfs.client .cv-head');
+  const bg=h&&dom.window.getComputedStyle(h).backgroundColor;
+  const x=h&&h.querySelector('.m-x'); const xs=x&&dom.window.getComputedStyle(x);
+  ok('  and its close button is visible on it (not white on a white button)', !!xs&&xs.backgroundColor!=='rgb(240, 241, 247)', xs&&(xs.backgroundColor+' / '+xs.color));
+  ok('the client header carries the plate (circuit art on navy)', !!h&&h.classList.contains('plate')&&/rgb\(3, 6, 40\)/.test(bg||''), h&&(h.className+' '+bg)); }
 ok('contracted is the one deal', (stat('contracted')||{}).v==='$2,499', JSON.stringify(stat('contracted')));
 ok('and counts it as one deal, not zero', /^1 deal$/.test((stat('contracted')||{}).s||''), JSON.stringify(stat('contracted')));
 ok('collected is the one payment', (stat('collected')||{}).v==='$2,499', JSON.stringify(stat('collected')));

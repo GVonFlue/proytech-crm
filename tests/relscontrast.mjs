@@ -12,7 +12,7 @@
 */
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
-import { contrast, MIN } from './contrast.mjs';
+import { contrast, MIN, parseColor, luminance } from './contrast.mjs';
 
 const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',
   { url: 'https://crm.test/', pretendToBeVisual: true });
@@ -125,6 +125,35 @@ await pick('Grouped');
 const champFoot = el.querySelector('.rel-tier .rt-foot');
 if (champFoot) { await click(champFoot); await settle(170); }
 sweep('tier-filtered');
+
+/* THE LIGHT RULE, asserted. Contrast alone could not see this: light-on-navy
+   and ink-on-white both pass 3:1, which is how Relationships went navy end to
+   end on 1 Oct without a single test noticing. Garrett chose light on 6 Oct
+   2026 from both rendered side by side; this is what holds that decision.
+     - the surface's ground is light (white), not a navy plate
+     - its text tokens are ink (dark), not the dark skin's pale text
+     - the needs-attention strip is the one signal: a warm tint, not white
+     - in the source, no selector list styles .relsurface together with the
+       retired .modal.lead skin, so that skin can never repaint this page */
+{
+  const r = surface();
+  const lum = c => { const p = parseColor(c); return p ? luminance(p.rgb) : null; };
+  /* the ground a person sees: under THE LIGHT RULE the surface paints no
+     plate of its own (transparent) and sits on the light page, so walk up to
+     the first ancestor that paints a colour */
+  let g = r, ground = null;
+  for (; g; g = g.parentElement) { const c = dom.window.getComputedStyle(g).backgroundColor; const p = parseColor(c); if (p && p.a > 0.5) { ground = c; break; } }
+  ok('THE LIGHT RULE: the Relationships surface is light', lum(ground) !== null && lum(ground) > 0.85, ground);
+  const ink = r && dom.window.getComputedStyle(r).getPropertyValue('--ink-hi').trim();
+  ok('  its text token is ink, not pale', lum(ink) !== null && lum(ink) < 0.1, ink);
+  const na = r && r.querySelector('.needs-att');
+  const nag = na && dom.window.getComputedStyle(na).backgroundImage + ' ' + dom.window.getComputedStyle(na).backgroundColor;
+  ok('  the needs-attention strip is tinted, the one signal on the page', !!na && /rgb|gradient/.test(nag || '') && !/rgba\(0, 0, 0, 0\)\s*$/.test(nag || ''), nag);
+  const src = fs.readFileSync('src/App.jsx', 'utf8');
+  const shared = [...src.matchAll(/([^{}]*)\{/g)].map(m => m[1].split('*/').pop().trim())
+    .filter(sel => /\.relsurface/.test(sel) && /\.modal\.lead\b/.test(sel));
+  ok('  and no selector shares .relsurface with the retired .modal.lead skin', shared.length === 0, shared.slice(0, 3).join(' | '));
+}
 
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
