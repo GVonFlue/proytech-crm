@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_rr = bundleName('rr');
 /* WHAT A REP'S SCREENS MAY WRITE, NOW THAT app_settings IS OWNER-ONLY.
    ============================================================================
 
@@ -76,8 +79,8 @@ const out = await esbuild.build({ entryPoints: [path.join(root, 'src/App.jsx')],
   loader: { '.js': 'jsx', '.jsx': 'jsx' }, external: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'],
   define: { 'import.meta.env': '__ENV__' }, banner: { js: 'const __ENV__={MODE:"test",DEV:false,PROD:true};' },
   plugins: [{ name: 'stub', setup(b) { b.onResolve({ filter: /(^|\/)lib\/supabase$/ }, () => ({ path: path.join(here, 'stub-supabase.js') })); } }], logLevel: 'silent' });
-fs.writeFileSync(path.join(here, '.brr.mjs'), out.outputFiles[0].text);
-const mod = await import('./.brr.mjs?v=' + Date.now());
+fs.writeFileSync(path.join(here, B_rr), out.outputFiles[0].text);
+const mod = await import('./'+B_rr+'?v=' + Date.now());
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
 const { act } = await import('react');
@@ -166,7 +169,7 @@ console.log('\nthe gate itself');
 }
 
 await act(async () => { rootEl.unmount(); });
-try { fs.unlinkSync(path.join(here, '.brr.mjs')); } catch {}
+try { fs.unlinkSync(path.join(here, B_rr)); } catch {}
 console.error = origErr;
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_gs = bundleName('gs');
 /* The Google Calendar status is fetched for the person who signed in.
    ============================================================================
 
@@ -73,7 +76,7 @@ const out = await esbuild.build({ entryPoints:['src/App.jsx'], bundle:true, writ
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   plugins:[{ name:'stub', setup(b){ b.onResolve({filter:/(^|\/)lib\/supabase$/}, () => ({ path: path.resolve('tests/stub-supabase.js') })); } }],
   logLevel:'silent' });
-fs.writeFileSync('tests/.bgs.mjs', out.outputFiles[0].text);
+fs.writeFileSync('tests/'+B_gs, out.outputFiles[0].text);
 
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
@@ -91,7 +94,7 @@ globalThis.__SETTINGS_WRITES__ = []; globalThis.__USER_WRITES__ = [];
 globalThis.__SIGNED_OUT__ = true;
 const el = document.getElementById('root');
 const root = createRoot(el);
-await act(async () => { root.render(React.createElement((await import('./.bgs.mjs?v=' + Date.now())).default)); });
+await act(async () => { root.render(React.createElement((await import('./'+B_gs+'?v=' + Date.now())).default)); });
 await settle(250);
 
 ok('signed out, the sign-in screen is up', !el.querySelector('.nav-i'));

@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_sl = bundleName('sl');
 /* THE PAGE BEHIND A MODAL MUST NOT SCROLL.
    ============================================================================
 
@@ -34,8 +37,8 @@ const built = await esbuild.build({ entryPoints:['src/lib/scrolllock.js'], bundl
   format:'esm', loader:{'.js':'js'}, external:['react'],
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   logLevel:'silent' });
-fs.writeFileSync('tests/.bsl.mjs', built.outputFiles[0].text);
-const L = await import('./.bsl.mjs?v=' + Date.now());
+fs.writeFileSync('tests/'+B_sl, built.outputFiles[0].text);
+const L = await import('./'+B_sl+'?v=' + Date.now());
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }

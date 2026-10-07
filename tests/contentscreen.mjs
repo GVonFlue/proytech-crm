@@ -1,3 +1,5 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
 /* THE CONTENT STUDIO SCREEN, MOUNTED FOR REAL.
    ============================================================================
 
@@ -163,7 +165,7 @@ async function mount(flagOn, who = 'owner') {
     }],
     logLevel: 'silent',
   });
-  const file = path.join(here, '.bcs' + (++bundleN) + '.mjs');
+  const file = path.join(here, bundleName('cs' + (++bundleN)));   // per-process, deleted on exit
   fs.writeFileSync(file, out.outputFiles[0].text);
   const mod = await import('./' + path.basename(file) + '?v=' + Date.now());
   const el = document.getElementById('root');

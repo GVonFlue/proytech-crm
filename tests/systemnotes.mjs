@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_sn = bundleName('sn');
 /* Machine notes are not human contact — and the list cannot go stale quietly.
    ============================================================================
 
@@ -30,9 +33,9 @@ const built = await esbuild.build({ entryPoints:['src/lib/lead.js'], bundle:true
   format:'esm', jsx:'automatic', loader:{'.js':'jsx'},
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   logLevel:'silent' });
-fs.writeFileSync('tests/.bsn.mjs', built.outputFiles[0].text);
+fs.writeFileSync('tests/'+B_sn, built.outputFiles[0].text);
 const { isSystemNote, isRealTouch, lastTouch, daysSinceTouch, SYS_NOTE } =
-  await import('./.bsn.mjs?v=' + Date.now());
+  await import('./'+B_sn+'?v=' + Date.now());
 
 let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { if (c) { pass++; console.log('  ok  ' + n); }

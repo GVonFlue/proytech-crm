@@ -1,3 +1,7 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_proj = bundleName('proj');
+const B_projlib = bundleName('projlib');
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
 const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://crm.test/',pretendToBeVisual:true});
@@ -23,9 +27,9 @@ globalThis.fetch=async u=>String(u).includes('google-status')
    bundle it the way tests/onepredicate.mjs does. */
 const libOut=await esbuild.build({entryPoints:['src/lib/lead.js'],bundle:true,write:false,format:'esm',jsx:'automatic',
   loader:{'.js':'jsx'},define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},logLevel:'silent'});
-fs.writeFileSync('tests/.bprojlib.mjs',libOut.outputFiles[0].text);
+fs.writeFileSync('tests/'+B_projlib,libOut.outputFiles[0].text);
 const { withDefaultTracks, activeTracks, trackForLabel, newProject, projectProgress,
-  boardProjects, DEFAULT_DELIVERY_TRACKS, clientOverall } = await import('./.bprojlib.mjs?v='+Date.now());
+  boardProjects, DEFAULT_DELIVERY_TRACKS, clientOverall } = await import('./'+B_projlib+'?v='+Date.now());
 
 const ago=n=>new Date(Date.now()-n*864e5).toISOString();
 const client=(o)=>({stage:'signed',owner:'Garrett',isClient:true,convertedAt:'2026-07-01',createdAt:ago(80),activities:[],meetings:[],deals:[],dealValue:0,...o});
@@ -49,8 +53,8 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.bproj.mjs',out.outputFiles[0].text);
-const mod=await import('./.bproj.mjs?v='+Date.now());
+fs.writeFileSync('tests/'+B_proj,out.outputFiles[0].text);
+const mod=await import('./'+B_proj+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');

@@ -1,3 +1,7 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_pl = bundleName('pl');
+const B_pl_entry_JSX = bundleName('pl-entry', '.jsx');
 /* THE CLIENT LINK, AND THE DOMAIN IT LIVES ON.
    ============================================================================
 
@@ -102,12 +106,12 @@ console.log('\nproposal-send: the one place links are built');
 
 console.log('\nthe client page reads the token, whatever the path');
 {
-  const e = path.join(ROOT, 'tests/.bpl-entry.jsx');
+  const e = path.join(ROOT, 'tests/'+B_pl_entry_JSX);
   fs.writeFileSync(e, `export { tokenFromHash } from '../src/proposal/main.jsx';`);
   globalThis.__NO_MOUNT__ = true;
   const b = await esbuild.build({ entryPoints: [e], bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic', loader: { '.js': 'jsx' },
     external: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'], logLevel: 'error' });
-  const o = path.join(ROOT, 'tests/.bpl.mjs'); fs.writeFileSync(o, b.outputFiles[0].text);
+  const o = path.join(ROOT, 'tests/'+B_pl); fs.writeFileSync(o, b.outputFiles[0].text);
   const { tokenFromHash } = await import(o + '?' + Date.now()); fs.unlinkSync(e); fs.unlinkSync(o);
   for (const href of [`https://proposals.getproytech.com/p/reed-realty-group#t=${T}`, `https://proposals.getproytech.com/p/a-wrong-slug#t=${T}`, `https://proytech-crm.vercel.app/proposal.html#t=${T}`])
     ok(`token read from ${href.split('#')[0].replace(/^https:\/\//, '')}`, tokenFromHash(new URL(href).hash) === T);

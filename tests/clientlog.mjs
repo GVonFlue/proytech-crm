@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_cl = bundleName('cl');
 /* Client meeting logs — asserts on WHAT REACHES THE DATABASE.
 
    The whole design rests on two claims that a green build cannot check:
@@ -79,8 +82,8 @@ const out=await esbuild.build({entryPoints:[path.join(root,'src/App.jsx')],bundl
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.join(here,'stub-supabase.js')}));}}],
  logLevel:'silent'});
 /* written beside this file so `import 'react'` still resolves up the tree */
-fs.writeFileSync(path.join(here,'.bcl.mjs'),out.outputFiles[0].text);
-const mod=await import('./.bcl.mjs?v='+Date.now());
+fs.writeFileSync(path.join(here,B_cl),out.outputFiles[0].text);
+const mod=await import('./'+B_cl+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');

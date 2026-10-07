@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_onbpage = bundleName('onbpage');
 /* THE CLIENT'S ONBOARDING PAGE: what it shows, what it saves, and what it
    never ships.
 
@@ -38,7 +41,7 @@ const code = built.outputFiles[0].text;
 ok('the portal bundle has no database client', !/supabase|createClient/.test(code));
 ok('  and none of the CRM', !/LeadView|ServiceAssign|dealRows|owedBy|ProposalDoc/.test(code));
 ok('  and none of the prompt builder (that runs on the server)', !/Website build:|complianceLines/.test(code));
-fs.writeFileSync('tests/.bonbpage.mjs', code);
+fs.writeFileSync('tests/'+B_onbpage, code);
 
 const TOK = 'Ab_-'.repeat(10) + 'xyz';
 const VIEW = (over = {}) => ({
@@ -63,7 +66,7 @@ const boot = async (hash, server) => {
   globalThis.fetch = async (u, o = {}) => { const b = JSON.parse(o.body || '{}'); calls.push({ u: String(u), b, keepalive: !!o.keepalive }); const r = server(b, calls); return { status: r.status || 200, json: async () => r.body }; };
   globalThis.XMLHttpRequest = class { constructor() { this.upload = {}; } open(m, u) { this.m = m; this.u = u; } setRequestHeader() {}
     send(body) { puts.push({ m: this.m, u: this.u, body }); setTimeout(() => { this.upload.onprogress && this.upload.onprogress({ lengthComputable: true, loaded: 1, total: 1 }); this.status = 200; this.onload(); }, 5); } };
-  const { Portal } = await import('./.bonbpage.mjs?v=' + Math.random());
+  const { Portal } = await import('./'+B_onbpage+'?v=' + Math.random());
   const React = (await import('react')).default; const { createRoot } = await import('react-dom/client'); const { act } = await import('react');
   const root = createRoot(document.getElementById('root'));
   await act(async () => { root.render(React.createElement(Portal)); });
@@ -240,6 +243,6 @@ console.log('\nthe palette');
   ok('no hex outside theme.js in the portal screens', ['Screens.jsx', 'Section.jsx', 'Fields.jsx', 'main.jsx'].every(f => !/#[0-9a-fA-F]{6}\b/.test(fs.readFileSync('src/onboarding/' + f, 'utf8'))));
 }
 
-fs.unlinkSync('tests/.bonbpage.mjs');
+fs.unlinkSync('tests/'+B_onbpage);
 console.log(`\nonboardingpage: ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

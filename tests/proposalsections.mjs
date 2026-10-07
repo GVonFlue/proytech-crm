@@ -1,3 +1,7 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_ps = bundleName('ps');
+const B_ps_entry_JSX = bundleName('ps-entry', '.jsx');
 /* ONLY THE SECTIONS THAT APPLY TO WHAT IS BEING BOUGHT.
    ============================================================================
 
@@ -16,14 +20,14 @@ let pass = 0, fail = 0;
 const ok = (n, c, x = '') => { c ? (pass++, console.log('  ok  ' + n)) : (fail++, console.log('  FAIL ' + n + (x ? ' — ' + String(x).slice(0, 300) : ''))); };
 const clone = v => JSON.parse(JSON.stringify(v));
 
-const entry = path.join(ROOT, 'tests/.bps-entry.jsx');
+const entry = path.join(ROOT, 'tests/'+B_ps_entry_JSX);
 fs.writeFileSync(entry, `import React from 'react'; import { renderToStaticMarkup } from 'react-dom/server';
 import ProposalDoc from '../src/ProposalDoc.jsx'; import * as P from '../src/lib/proposal.js';
 export const render = body => renderToStaticMarkup(React.createElement(ProposalDoc, { body }));
 export { P };`);
 const built = await esbuild.build({ entryPoints: [entry], bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic',
   loader: { '.js': 'jsx' }, external: ['react', 'react-dom', 'react-dom/server', 'react/jsx-runtime'], logLevel: 'error' });
-const out = path.join(ROOT, 'tests/.bps.mjs'); fs.writeFileSync(out, built.outputFiles[0].text);
+const out = path.join(ROOT, 'tests/'+B_ps); fs.writeFileSync(out, built.outputFiles[0].text);
 const { render, P } = await import(out + '?' + Date.now());
 fs.unlinkSync(entry); fs.unlinkSync(out);
 

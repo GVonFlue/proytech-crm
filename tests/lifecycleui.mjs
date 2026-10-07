@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_lcui = bundleName('lcui');
 /* THE CLIENT LIFECYCLE IN THE REAL APP, AS AN OWNER.
    ============================================================================
 
@@ -61,9 +64,9 @@ const out = await esbuild.build({ entryPoints: ['src/App.jsx'], bundle: true, wr
   define: { 'import.meta.env': '__ENV__' }, banner: { js: 'const __ENV__={MODE:"test",DEV:false,PROD:true};' },
   plugins: [{ name: 'stub', setup(b) { b.onResolve({ filter: /(^|\/)lib\/supabase$/ }, () => ({ path: path.resolve('tests/stub-supabase.js') })); } }],
   logLevel: 'silent' });
-fs.writeFileSync('tests/.blcui.mjs', out.outputFiles[0].text);
-const mod = await import('./.blcui.mjs?v=' + Date.now());
-fs.unlinkSync('tests/.blcui.mjs');
+fs.writeFileSync('tests/'+B_lcui, out.outputFiles[0].text);
+const mod = await import('./'+B_lcui+'?v=' + Date.now());
+fs.unlinkSync('tests/'+B_lcui);
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
 const { act } = await import('react');

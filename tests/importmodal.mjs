@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_im = bundleName('im');
 /* The CSV import modal with a WIDE file.
 
    THE BUG: .modal is a flex COLUMN with max-height:90vh and overflow:hidden.
@@ -62,7 +65,7 @@ const out = await esbuild.build({ entryPoints:['src/App.jsx'], bundle:true, writ
   define:{'import.meta.env':'__ENV__'}, banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
   plugins:[{ name:'stub', setup(b){ b.onResolve({filter:/(^|\/)lib\/supabase$/}, () => ({ path: path.resolve('tests/stub-supabase.js') })); } }],
   logLevel:'silent' });
-fs.writeFileSync('tests/.bim.mjs', out.outputFiles[0].text);
+fs.writeFileSync('tests/'+B_im, out.outputFiles[0].text);
 
 const React = (await import('react')).default;
 const { createRoot } = await import('react-dom/client');
@@ -81,7 +84,7 @@ const pickSel = async (sel, v) => { const st = Object.getOwnPropertyDescriptor(d
 
 const el = document.getElementById('root');
 const root = createRoot(el);
-await act(async () => { root.render(React.createElement((await import('./.bim.mjs?v=' + Date.now())).default)); });
+await act(async () => { root.render(React.createElement((await import('./'+B_im+'?v=' + Date.now())).default)); });
 await settle(160);
 
 const btn = re => [...el.querySelectorAll('button')].find(b => re.test((b.textContent || '').trim()));

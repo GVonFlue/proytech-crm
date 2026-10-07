@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_kb = bundleName('kb');
 /* PLAYBOOK — asserts on WHAT REACHES THE DATABASE AND THE NETWORK.
 
    The security model is the feature, and most of it is enforced in Postgres:
@@ -156,8 +159,8 @@ const out=await esbuild.build({entryPoints:[path.join(root,'src/App.jsx')],bundl
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.join(here,'stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync(path.join(here,'.bkb.mjs'),out.outputFiles[0].text);
-const mod=await import('./.bkb.mjs?v='+Date.now());
+fs.writeFileSync(path.join(here,B_kb),out.outputFiles[0].text);
+const mod=await import('./'+B_kb+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');

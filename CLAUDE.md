@@ -117,6 +117,24 @@ repo dishonest about itself.
 
 ---
 
+## Testing
+
+Standing rules. This laptop overheats, and every session in this repo shares it.
+
+- **Test parallelism stays at 2.** Never raise it: not in `tests/all.mjs`, not
+  in `tests/clockguard.mjs`, not in anything new that spawns test processes.
+- **Only ONE full test run at a time, across all sessions.** Before `npm test`,
+  run `pgrep -fl "tests/all.mjs"`. If another run is going, wait for it, and
+  run only targeted suites (`node tests/<suite>.mjs`) in the meantime.
+- **Prefer targeted suites while building.** Run the full suite once, before
+  opening a PR.
+- **A bundle a suite writes into `tests/` takes its name from
+  `tests/tmpbundle.mjs`** (unique per process, deleted on exit), never a fixed
+  `tests/.bNAME.mjs`. `tests/bundlehygiene.mjs` enforces it, and `tests/all.mjs`
+  fails a run that leaves one behind.
+
+---
+
 ## Reporting
 
 - **Report test counts with units. Never quote a file count and an assertion

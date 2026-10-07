@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_a = bundleName('a');
 import fs from 'fs'; import path from 'path';
 import { JSDOM } from 'jsdom'; import esbuild from 'esbuild';
 const dom=new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>',{url:'https://crm.test/',pretendToBeVisual:true});
@@ -28,8 +31,8 @@ const out=await esbuild.build({entryPoints:['src/App.jsx'],bundle:true,write:fal
  define:{'import.meta.env':'__ENV__'},banner:{js:'const __ENV__={MODE:"test",DEV:false,PROD:true};'},
  plugins:[{name:'stub',setup(b){b.onResolve({filter:/(^|\/)lib\/supabase$/},()=>({path:path.resolve('tests/stub-supabase.js')}));}}],
  logLevel:'silent'});
-fs.writeFileSync('tests/.ba.mjs',out.outputFiles[0].text);
-const mod=await import('./.ba.mjs?v='+Date.now());
+fs.writeFileSync('tests/'+B_a,out.outputFiles[0].text);
+const mod=await import('./'+B_a+'?v='+Date.now());
 const React=(await import('react')).default;
 const {createRoot}=await import('react-dom/client');
 const {act}=await import('react');

@@ -1,3 +1,6 @@
+/* per-process bundle names, deleted on exit: tests/tmpbundle.mjs */
+import { bundleName } from './tmpbundle.mjs';
+const B_lc = bundleName('lc');
 /* THE CLIENT LIFECYCLE: stages, the 14-day clock, automatic due dates.
    ============================================================================
 
@@ -30,9 +33,9 @@ import { test, eq, ok, report } from './assert.mjs';
 const built = await esbuild.build({ entryPoints: ['src/lib/lead.js'], bundle: true, write: false,
   format: 'esm', jsx: 'automatic', loader: { '.js': 'jsx' },
   define: { 'import.meta.env': '__ENV__' }, banner: { js: 'const __ENV__={MODE:"test",DEV:false,PROD:true};' }, logLevel: 'silent' });
-fs.writeFileSync('tests/.blc.mjs', built.outputFiles[0].text);
-const LEAD = await import('./.blc.mjs?v=' + Date.now());
-fs.unlinkSync('tests/.blc.mjs');
+fs.writeFileSync('tests/'+B_lc, built.outputFiles[0].text);
+const LEAD = await import('./'+B_lc+'?v=' + Date.now());
+fs.unlinkSync('tests/'+B_lc);
 const { DEFAULT_DELIVERY_TRACKS } = LEAD;
 
 const tracks = DEFAULT_DELIVERY_TRACKS;
