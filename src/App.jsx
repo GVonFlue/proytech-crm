@@ -30,7 +30,7 @@ import { onboardingAppliedPatch, readOnbConfig } from './lib/onboarding';
 import { proposalEventsPatch, readOffer } from './lib/proposal';
 import { readLifecycle, productsOf, clockOf, dueItems, lifecyclePatch, waitingOn } from './lib/lifecycle';
 import { LifecycleStrip, WhatsDue, LifecycleSettings, LIFECYCLE_CSS } from './Lifecycle';
-import { readCadence, cadenceOf, nextTouch, reachOut, coldByCadence, tierOf, tierMeta, tierLetter, REL_TIER_DESC, touchActivity } from './lib/relationships';
+import { readCadence, cadenceOf, nextTouch, dueOn, reachOut, coldByCadence, tierOf, tierMeta, tierLetter, REL_TIER_DESC, touchActivity } from './lib/relationships';
 import { LogTouch, ReachOutList, ReachOutCard, CadenceSettings, REL_CADENCE_CSS } from './RelCadence';
 import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, collectedByService, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
@@ -5643,7 +5643,7 @@ export default function App(){
           view==='jarvis'?<Jarvis leads={scoped} stages={stages} settings={settings} tasks={myTasks} me={me} myUid={myUid} rep={rep} myPools={myPools} teamNames={teamNames} money={jvMoney} addActivity={addActivity} upsertTask={upsertTask} updateLead={updateLead} openLead={openLead} kb={kbAi}/>:
           view==='dash'?<Dashboard labelServices={isOwner?()=>setSvcAssign(true):null} pockets={pockets} openPocket={setPocketId} txns={txns} payouts={payouts} invoices={invoices} leads={scopedMoney} stages={stages} open={openLead} saveSettings={saveSettings} tagBooked={tagBooked} setMeetingStatus={setMeetingStatus} setMeetingTime={setMeetingTime} tagMeetingType={tagMeetingType} rels={scoped.filter(l=>l.isRelationship)} settings={settings} events={events} goEvents={()=>setPage('events')} rep={rep} me={me} myUser={repUser||myUser} myUid={myUid} board={boardRows} ack={ackOnboarding} goBoard={()=>setPage('board')} team={users} approve={setCommission} openRep={isOwner?openRep:null} lcRows={lcRows} markDue={markDue} relsOn={canSee('rels')} logTouch={logTouch}/>:
           view==='board'?<Leaderboard rows={boardRows} meId={myUid} rep={rep} users={users}/>:
-          view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools}/>:
+          view==='followup'?<FollowUp leads={scoped} stages={stages} open={openLead} updateLead={updateLead} me={me} settings={settings} addActivity={addActivity} rep={rep} myPools={myPools} logTouch={logTouch}/>:
           view==='tasks'?<Tasks tasks={myTasks} leads={scoped} me={me} upsertTask={upsertTask} deleteTask={deleteTask} saveTasks={saveScopedTasks} open={openLead} rep={rep}/>:
           view==='activity'?<Activity leads={scoped} tasks={myTasks} me={me} open={openLead} rep={rep}/>:
           view==='pipeline'?<Pipeline leads={scopedMoney} stages={stages} open={openLead} updateLead={updateLead} settings={settings} clients={scopedMoney.filter(l=>l.isClient&&(l.clientPhase||'intake')!=='churned')} setClientPhase={setClientPhase} rep={rep}/>:
@@ -5907,19 +5907,25 @@ function useMetrics(leads,stages,settings,txns){
 
 /* ===================== DASHBOARD ===================== */
 /* ===================== FOLLOW-UP ===================== */
-function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPools}){
+function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPools,logTouch}){
   const [leaving,setLeaving]=useState({});
   const [cleared,setCleared]=useState(0);
   const t=todayISO();
   const canAll=!rep&&teamAccess(settings,me)==='all';
   const [view,setView]=useState('mine');
   useEffect(()=>{ if(!canAll&&view==='all') setView('mine'); },[canAll,view]);
-  const isDue=l=>l.followUp&&daysUntil(l.followUp)<=0;
+  /* ONE DUE DATE, the one Reach out uses (lib/relationships dueOn). A
+     relationship is due by its cadence or a sooner date it has not met yet,
+     so one that is due by cadence alone is here too; a business lead is due
+     by its follow-up date, as before. */
+  const cfg=useMemo(()=>readCadence(settings),[settings]);
+  const dueOf=l=>dueOn(l,cfg,t);
+  const isDue=l=>{ const d=dueOf(l); return !!d&&daysUntil(d)<=0; };
   const counts={mine:leads.filter(l=>isDue(l)&&l.owner===me).length,pool:leads.filter(l=>isDue(l)&&isPoolLead(l,rep?myPools:null)).length,all:leads.filter(isDue).length};
-  const due=scopeLeads(leads,view,me,rep?myPools:null).filter(isDue).sort((a,b)=>(a.followUp||'').localeCompare(b.followUp||''));
+  const due=scopeLeads(leads,view,me,rep?myPools:null).filter(isDue).sort((a,b)=>(dueOf(a)||'').localeCompare(dueOf(b)||''));
   const ids=due.map(l=>l.id);
-  const overdue=due.filter(l=>daysUntil(l.followUp)<0);
-  const today=due.filter(l=>daysUntil(l.followUp)===0);
+  const overdue=due.filter(l=>daysUntil(dueOf(l))<0);
+  const today=due.filter(l=>daysUntil(dueOf(l))===0);
   const remaining=due.length;
   const total=remaining+cleared;
   const pct=total?Math.round(cleared/total*100):0;
@@ -5937,17 +5943,22 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
     setTimeout(()=>updateLead(l.id,{followUp:p.date,nextSteps:p.note.trim()}),430);
   };
   const QUICK=[['Tomorrow',1],['+3 days',3],['Next week',7],['+2 weeks',14]];
-  const Card=({l})=>{ const d=daysUntil(l.followUp); const od=d<0; const lv=!!leaving[l.id];
-    const lastTouch=(l.activities||[]).find(a=>a.type&&a.type!=='Note');
+  const Card=({l})=>{ const d=daysUntil(dueOf(l)); const od=d<0; const lv=!!leaving[l.id];
+    const nt=l.isRelationship?nextTouch(l,cfg,t):null;
+    /* lib/lead lastTouch, the clock every other screen reads. This card took
+       the first non-Note activity instead, so a no-answer dial or an
+       app-written row could read as "last touch" here and nowhere else. */
+    const lt=lastTouch(l);
     const pend=pending&&pending.id===l.id?pending:null;
     return (<div key={l.id} className={'fu-card'+(od?' od':'')+(lv?' leaving':'')} onClick={()=>!lv&&!pend&&open(l.id,ids)}>
       <div className="fu-top">
         <div style={{minWidth:0}}><div className="fu-name">{l.name||'(no name)'}</div><div className="subcell">{l.company||l.businessType||'—'}</div></div>
-        <span className={'badge '+(od?'inv-overdue':'inv-sent')}>{od?Math.abs(d)+'d overdue':'Due today'}</span>
+        <span className={'badge '+(od?'inv-overdue':'inv-sent')}>{nt&&nt.source==='never'?'Never contacted':od?Math.abs(d)+'d overdue':'Due today'}</span>
       </div>
+      {nt&&nt.source!=='followUp'&&<div className="fu-meta">{nt.source==='never'?'A relationship nobody has contacted yet':`Every ${nt.cadence} days · ${tierMeta(tierOf(l))[1]}`}</div>}
       {view!=='mine'&&<div className="fu-owner">{isPoolLead(l,rep?myPools:null)?<button className="claim-btn" onClick={e=>{e.stopPropagation();updateLead(l.id,{owner:me});}}><UserCheck size={13}/>Claim</button>:<span className="own-badge">{l.owner||'—'}</span>}</div>}
       {l.nextSteps?<div className="fu-plan"><StickyNote size={13}/><span>{l.nextSteps}</span></div>:null}
-      <div className="fu-meta">{l.nextAction||'Follow up'}{lastTouch?' · last touch '+fmtDate(lastTouch.ts):''}</div>
+      <div className="fu-meta">{l.nextAction||'Follow up'}{lt?' · last touch '+fmtDate(lt):' · never contacted'}</div>
       <div className="fu-act" onClick={e=>e.stopPropagation()}>
         {pend?(<div className="fu-next">
           <div className="fu-next-h"><CheckCircle2 size={13} color={GREEN}/>Next follow-up <b>{fmtDate(pend.date)}</b></div>
@@ -5964,10 +5975,14 @@ function FollowUp({leads,stages,open,updateLead,me,settings,addActivity,rep,myPo
             {l.email&&<a className="fu-ic" href={'mailto:'+l.email} title="Email"><Mail size={15}/></a>}
             {!l.phone&&!l.email&&<span className="subcell" style={{fontSize:11}}>no contact info</span>}
           </div>
+          {/* A relationship is cleared by a touch, not by a later date: under
+              the one rule a later date never postpones the cadence, so date
+              chips here would look like they worked and do nothing. */}
+          {l.isRelationship&&logTouch?<LogTouch name={l.name} onLog={(k,n)=>{ logTouch(l.id,k,n); setCleared(c=>c+1); }}/>:
           <div className="fu-chips">
             {QUICK.map(([lbl,n])=><button key={lbl} className="fu-chip" onClick={()=>startNext(l,addDays(t,n))}>{lbl}</button>)}
             <label className="fu-chip fu-date" title="Pick a date"><CalendarClock size={13}/><input type="date" min={t} onClick={e=>e.stopPropagation()} onChange={e=>startNext(l,e.target.value)}/></label>
-          </div>
+          </div>}
         </>)}
       </div>
     </div>);
