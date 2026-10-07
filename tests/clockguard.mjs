@@ -22,7 +22,6 @@
    Seen red: putting monthpicker's dAgo back to toISOString() fails under
    America/Chicago at 23:30. */
 import { spawn } from 'node:child_process';
-import { cpus } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,10 +48,10 @@ function one({ s, tz, now }) {
   });
 }
 
-/* the same lanes rule as tests/all.mjs: leave a core free, never fewer than
-   two, never more than eight. Each child boots jsdom, and unbounded
-   parallelism on a small runner would push a passing suite past its timeout. */
-const LANES = Math.max(2, Math.min(8, (cpus()?.length || 4) - 1));
+/* Two, like tests/all.mjs, and for the same reason: these lanes run inside one
+   of all.mjs's, so the two counts multiply. Each child boots jsdom, and on a
+   small runner the extra parallelism pushes a passing suite past its timeout. */
+const LANES = 2;
 const results = [];
 let next = 0;
 await Promise.all(Array.from({ length: LANES }, async () => { while (next < runs.length) { const r = runs[next++]; results.push(await one(r)); } }));

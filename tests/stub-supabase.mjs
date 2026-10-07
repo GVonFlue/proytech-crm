@@ -48,6 +48,14 @@ export const db = {
   async upsertEvent(ev) { rec('upsertEvent', { id: ev.id }); S().events.push(clone(ev)); },
   async deleteEvent(id) { rec('deleteEvent', { id }); S().events = S().events.filter(e => e.id !== id); },
 
+  /* Proposals, onboardings and installs: read-only and empty unless a test
+     seeds them. Missing, they threw on every owner boot — caught and logged
+     by App.jsx, so noise rather than a failure (see getMeetingLogs below for
+     the version of this that hung a suite). */
+  async listProposals() { return clone(S().proposals || []); },
+  async listOnboardings() { return clone(S().onboardings || []); },
+  async getInstalls() { return clone(S().installs || []); },
+
   /* Meeting Log. Absent until now, which is why tests/dom.test.mjs hung rather
      than failed: App.jsx boots with db.getMeetingLogs(), the missing method
      threw inside a passive effect, <App> unmounted, and the runner sat waiting

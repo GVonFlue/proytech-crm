@@ -16,7 +16,7 @@
    Run with:  npm i --no-save jsdom && node tests/run.mjs                     */
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
-import { writeFileSync, mkdtempSync } from 'node:fs';
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -96,6 +96,7 @@ function bundle() {
       logLevel: 'silent',
     });
     const dir = mkdtempSync(join(tmpdir(), 'proytech-test-'));
+    process.on('exit', () => rmSync(dir, { recursive: true, force: true }));
     const file = join(dir, 'app.mjs');
     writeFileSync(file, out.outputFiles[0].text);
     return file;

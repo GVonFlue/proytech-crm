@@ -29,7 +29,6 @@
    exactly like a passing one.                                                */
 import { readdir } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
-import { cpus } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -73,11 +72,14 @@ const HELPERS = new Set([
 /* Overridable so the hang path can be exercised quickly, and so a slower CI
    runner can be given more room without editing this file. */
 const PER_FILE_TIMEOUT_MS = Number(process.env.TEST_TIMEOUT_MS) || 90_000;
-/* a few files are many runs in one: clockguard is 48 child processes, four at
+/* a few files are many runs in one: clockguard is 48 child processes, two at
    a time, and inside a busy full run it needs longer than a single suite */
 const LONGER = { 'clockguard.mjs': 6 };
-/* Leave the machine a core to breathe on; never fewer than two lanes. */
-const LANES = Math.max(2, Math.min(8, (cpus()?.length || 4) - 1));
+/* Fixed at two, not cores-1. clockguard fans out its own lanes inside one of
+   these, so cores-1 here meant ~14 jsdom processes on an 8-core laptop: load
+   average 50, a fanless machine throttling, and nine suites killed at the
+   timeout that pass alone. Two here and two in clockguard tops out at four. */
+const LANES = 2;
 
 /* TEST_SKIP=a.mjs,b.mjs leaves named files out, LOUDLY: they are listed as
    SKIPPED and never counted as passing. CI uses it once, for clockguard in
