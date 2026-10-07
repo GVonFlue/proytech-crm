@@ -120,6 +120,8 @@ console.log('\na deposit ticked now');
 console.log('\nSettings → Client emails');
 {
   await nav('Settings'); await settle(200);
+  /* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+  { const tl = document.querySelector('[data-tile="client-emails"]'); if (tl) await click(tl); await settle(150); }
   const card = [...el.querySelectorAll('.card')].find(c => /Client emails/.test(c.querySelector('.sec-title') ? c.querySelector('.sec-title').textContent : ''));
   ok('the card is on the owner\'s Settings', !!card);
   ok('  never saved: all four named, off', !!card && /Never switched on, so off/.test(card.textContent) && /"You're locked in", "We saved your seat", Day-10 call task, "Launch Day Ticket"/.test(card.textContent), card && card.textContent.slice(0, 300));

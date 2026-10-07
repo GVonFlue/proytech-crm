@@ -305,6 +305,8 @@ console.log('\nthe Pocket import panel in Settings');
   const nav = [...document.querySelectorAll('.nav-i')].find(e => (e.textContent || '').trim() === 'Settings');
   if (nav) await click(nav); await settle(200);
   ok('Settings opened', /Sections/.test(txt()), txt().slice(0, 160));
+  /* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+  { const tl = document.querySelector('[data-tile="pocket"]'); if (tl) await click(tl); await settle(150); }
   ok('the Pocket panel is there', /predate it/.test(txt()), 'panel copy');
   ok('it says re-running is safe', /never duplicated/.test(txt()));
 
