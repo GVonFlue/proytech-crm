@@ -96,6 +96,8 @@ ok('the built-in labels survived', sw&&sw.options.labels.includes('Military')&&s
 
 console.log('\nSettings can edit the list');
 await nav('Settings'); await settle(120);
+/* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+{ const tl = document.querySelector('[data-tile="dropdowns"]'); if (tl) await click(tl); await settle(150); }
 const body=document.body.textContent||'';
 ok('a Labels editor exists', /Labels \(Military, Police/.test(body), body.slice(0,200));
 ok('it is seeded with the defaults, not empty', /Veteran/.test(body));

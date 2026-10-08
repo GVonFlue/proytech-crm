@@ -35,6 +35,8 @@ import { readCadence, cadenceOf, nextTouch, dueOn, reachOut, coldByCadence, tier
 import { LogTouch, ReachOutList, ReachOutCard, CadenceSettings, REL_CADENCE_CSS } from './RelCadence';
 import { SourcesView, SourcesTop, SOURCES_CSS } from './Sources';
 import { ClientEmailSettings, CLIENT_EMAILS_CSS } from './ClientEmails';
+import { SettingsGrid, SettingsPanelHead, tileById, SETTINGS_TILES_CSS } from './SettingsTiles';
+import { readSwitches as readEmailSwitches } from './lib/clientemails';
 import { monthKeys, collectedByMonth, mrrByMonth, soldByService, serviceRevenue, collectedByService, cashByMonth } from './lib/charts';
 import { meetingLogsOf } from './lib/meetinglog';
 import Playbook from './Playbook';
@@ -4311,7 +4313,9 @@ export default function App(){
   const [invId,setInvId]=useState(null);
   const [installs,setInstalls]=useState([]);
   const [settings,setSettings]=useState({logo:'',logoSize:34,options:DEFAULT_OPTIONS,stages:DEFAULT_STAGES,customFields:[],leadColumns:DEFAULT_LEAD_COLS,deliveryTracks:DEFAULT_DELIVERY_TRACKS,invoicing:DEFAULT_INVOICING,team:DEFAULT_TEAM,clientPhases:DEFAULT_CLIENT_PHASES,pools:[],modulesV:0,notifyEmails:''});
-  const [page,setPage]=useState('dash');
+  /* a deep link to a settings tile (?settings=<id>, SettingsTiles.jsx) opens
+     Settings; a rep cannot see Settings, so canSee() still sends them home */
+  const [page,setPage]=useState(()=>{ try{ return new URLSearchParams(window.location.search).get('settings')?'settings':'dash'; }catch{ return 'dash'; } });
   /* which Relationships view to open on: the dashboard's Lead source ROI
      card opens Sources; anything else opens the page as it was */
   const [relStart,setRelStart]=useState(null);
@@ -5638,7 +5642,7 @@ export default function App(){
     moveNav(navOrder.indexOf(navDrag),navOrder.indexOf(key)); setNavDrag(null); };
   const navItems=navOrder.map(k=>NAV.find(([kk])=>kk===k)).filter(Boolean).filter(([k])=>canSee(k));
 
-  return (<><style>{CSS+LIFECYCLE_CSS+REL_CADENCE_CSS+SOURCES_CSS+CLIENT_EMAILS_CSS}</style><div className="pt">
+  return (<><style>{CSS+LIFECYCLE_CSS+REL_CADENCE_CSS+SOURCES_CSS+CLIENT_EMAILS_CSS+SETTINGS_TILES_CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <SidebarArt/>
@@ -9776,7 +9780,10 @@ function TeamCard({users,settings,saveSettings,saveUser,removeUser,claimOwner,re
       {msg.pw&&<div style={{marginTop:8,display:'flex',gap:8,flexWrap:'wrap'}}>
         <button className="btn btn-g btn-sm" onClick={()=>reset(msg.email)}><KeyRound size={14}/>Email them a set-password link instead</button></div>}
     </div>}
-    <div className="subcell" style={{marginTop:12}}>Creating a login needs <b>Email</b> sign-ups enabled in Supabase → Authentication → Providers, with <b>Confirm email</b> off (otherwise Supabase won't hand back the user id we need).</div>
+    {/* Was "Creating a login needs Email sign-ups enabled in Supabase…". Untrue
+        since #104: the server makes the login (api/team-login.js, admin API),
+        which works with sign-ups OFF, and leaving them off is the point. */}
+    <div className="subcell" style={{marginTop:12}}>The login is created by the server, so Supabase sign-ups can stay <b>off</b> (they should: with them on, anyone can make an account). Their email is marked confirmed; there is nothing to switch on in Supabase.</div>
 
     <div className="rep-pay-toggle" onClick={()=>saveSettings({...settings,repPayments:!settings.repPayments})}>
       <span className={'sw '+(settings.repPayments?'on':'')}><b/></span>
@@ -9883,12 +9890,53 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
   const exportAll=()=>{const data={app:'proytech-crm',version:4,exportedAt:new Date().toISOString(),leads,settings,invoices};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=`proytech-crm-backup-${todayISO()}.json`;a.click();URL.revokeObjectURL(u);};
   const importAll=e=>{const f=e.target.files?.[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.leads)throw 0;if(window.confirm(`Restore ${d.leads.length} leads from this backup? This replaces everything currently in the CRM.`)){saveLeads(d.leads);if(d.settings)saveSettings({logo:d.settings.logo||'',logoSize:d.settings.logoSize||34,options:{...DEFAULT_OPTIONS,...(d.settings.options||{})},stages:d.settings.stages?.length?d.settings.stages:DEFAULT_STAGES,customFields:d.settings.customFields||[],team:d.settings.team||DEFAULT_TEAM,clientPhases:d.settings.clientPhases||DEFAULT_CLIENT_PHASES,goals:{...DEFAULT_GOALS,...(d.settings.goals||{})},huddle:d.settings.huddle||null,modules:Array.isArray(d.settings.modules)?d.settings.modules:undefined,modulesV:num(d.settings.modulesV),pools:Array.isArray(d.settings.pools)?d.settings.pools:[],notifyEmails:d.settings.notifyEmails||'',leadColumns:d.settings.leadColumns||DEFAULT_LEAD_COLS,deliveryTracks:d.settings.deliveryTracks?.length?d.settings.deliveryTracks:DEFAULT_DELIVERY_TRACKS,...(Array.isArray(d.settings.services)?{services:d.settings.services}:{}),invoicing:{...DEFAULT_INVOICING,...(d.settings.invoicing||{}),biz:{...DEFAULT_INVOICING.biz,...((d.settings.invoicing||{}).biz||{})}}});if(saveInvoices)saveInvoices(Array.isArray(d.invoices)?d.invoices:[]);window.alert('Backup restored.');}}catch(err){window.alert('That file is not a valid ProyTech backup.');}};r.readAsText(f);e.target.value='';};
 
-  return (<>
+  /* each tile's status line, from the same reader its card uses */
+  const tileStatus=(()=>{ const sw=readEmailSwitches(settings); const on=['lockedIn','seat','stall','ticket'].filter(k=>sw[k].on).length;
+    const cad=readCadence(settings); const lc=readLifecycle(settings); const mods=modList(settings);
+    const active=(users||[]).filter(u=>u.active!==false); const emails=String(settings.notifyEmails||'').split(',').map(x=>x.trim()).filter(x=>x.includes('@'));
+    return {
+      brand: settings.logo?{text:'Logo set',tone:'ok'}:{text:'No logo yet',tone:'off'},
+      sections: {text:`${mods.length} of ${ALL_MODULES.length} tabs on`},
+      team: {text:`${active.length} ${active.length===1?'person':'people'} can sign in`},
+      'rep-pay': {text:`${active.filter(u=>u.role==='rep').length} reps`},
+      alerts: emails.length?{text:`Emails ${emails.length} ${emails.length===1?'person':'people'}`,tone:'ok'}:{text:'Off',tone:'off'},
+      stages: {text:`${(settings.stages||[]).length||'Default'} stages`},
+      proposals: readOffer(settings).offer?{text:'Offer set up',tone:'ok'}:{text:'Not set up',tone:'warn'},
+      invoicing: settings.invoicing?{text:'Set up',tone:'ok'}:{text:'Using defaults',tone:'warn'},
+      lifecycle: lc.fellBack&&lc.fellBack.length?{text:'Using defaults',tone:'warn'}:{text:'Customised',tone:'ok'},
+      'client-emails': {text:`${on} of 4 on`,tone:on?'ok':'off'},
+      cadence: cad.fellBack.length===3?{text:'Using defaults (14 / 30 / 90 days)',tone:'warn'}:{text:`A ${cad.days.champion} · B ${cad.days.b} · C ${cad.days.new} days`,tone:'ok'},
+      google: gcal&&gcal.connected?{text:'Connected',tone:'ok'}:{text:'Not connected',tone:'warn'},
+      fields: {text:(settings.customFields||[]).length?`${settings.customFields.length} fields`:'None yet',tone:(settings.customFields||[]).length?'':'off'},
+    }; })();
+  /* WHICH TILE IS OPEN lives in the URL (?settings=<tile id>), beside the
+     record's ?lead=: a tile can be linked to, Back returns to the grid, and a
+     reload stays put. The hash is not used: it belongs to the sign-in links.
+     A tile this person may not see (owner-only) or an unknown id is the grid. */
+  const readTile=()=>{ try{ const id=new URLSearchParams(window.location.search).get('settings')||''; const t=tileById(id);
+    return t&&(isOwner||!t.owner)?t:null; }catch{ return null; } };
+  const [tile,setTile]=useState(readTile);
+  const setUrl=(id,push)=>{ try{ const u=new URL(window.location.href); if(id) u.searchParams.set('settings',id); else u.searchParams.delete('settings');
+    window.history[push?'pushState':'replaceState']({settings:id||null},'',u.pathname+u.search); }catch{} };
+  const flashTo=hit=>{ if(!hit) return; setTimeout(()=>{ const n=String(hit).toLowerCase();
+    const el=[...document.querySelectorAll('.st-panel label, .st-panel .sec-title, .st-panel .ch-sub, .st-panel b, .st-panel h3')].find(x=>(x.textContent||'').toLowerCase().includes(n));
+    const card=el&&(el.closest('.card')||el); if(!card) return; card.scrollIntoView({block:'center'}); card.classList.add('st-flash'); setTimeout(()=>card.classList.remove('st-flash'),1700); },60); };
+  const openTile=(id,hit)=>{ const t=tileById(id); if(!t) return; setTile(t); setUrl(id,true); window.scrollTo&&window.scrollTo(0,0); flashTo(hit); };
+  const closeTile=()=>{ setTile(null); setUrl('',true); };
+  const show=k=>!!tile&&tile.cards.includes(k);
+  useEffect(()=>{ const onPop=()=>setTile(readTile()); window.addEventListener('popstate',onPop);
+    /* leaving Settings drops the parameter, so it never follows you to another page */
+    return ()=>{ window.removeEventListener('popstate',onPop); setUrl('',false); }; },[]);
+  return (<div className={tile?'st-panel':''}>
+    {/* THE GRID, or ONE tile's cards (SettingsTiles.jsx). Layout only: every
+        card below is the card it always was, gated by show(), so a tile
+        renders exactly the cards TILES lists for it and nothing else. */}
+    {tile?<SettingsPanelHead tile={tile} onBack={closeTile}/>:<SettingsGrid isOwner={isOwner} status={tileStatus} onOpen={openTile}/>}
     {/* team & roles — owner-only */}
-    {isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassign={reassignLeads} me={me} myUid={myUid} noUsers={noUsers} openRep={openRep}/>}
+    {show('team')&&isOwner&&<TeamCard users={users||[]} settings={settings} saveSettings={saveSettings} saveUser={saveUser} removeUser={removeUser} claimOwner={claimOwner} reassign={reassignLeads} me={me} myUid={myUid} noUsers={noUsers} openRep={openRep}/>}
 
     {/* conversion alerts */}
-    {isOwner&&<div className="card" style={{marginBottom:18}}>
+    {show('alerts')&&isOwner&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><Bell size={15}/>Conversion alerts</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Every rep conversion always lands in <b>Awaiting onboarding</b> on your dashboard. Add addresses here and it gets emailed too.</div>
       <div className="field full"><label>Email these people on every conversion</label>
@@ -9898,7 +9946,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
     </div>}
 
     {/* legacy name-based lead visibility (still drives Mine / Pool / All) */}
-    {(()=>{ const people=(settings.options?.owner||OWNERS).filter(o=>o!==POOL_OWNER);
+    {show('visibility')&&(()=>{ const people=(settings.options?.owner||OWNERS).filter(o=>o!==POOL_OWNER);
       const setAccess=(name,access)=>{ const t=(settings.team||[]).filter(x=>x.name!==name); saveSettings({...settings,team:[...t,{name,access}]}); };
       return (<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><Users size={15}/>Team &amp; lead visibility</div>
@@ -9917,7 +9965,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
     </div>); })()}
 
     {/* monthly goals */}
-    {(()=>{ const G=goalsOf(settings);
+    {show('goals')&&(()=>{ const G=goalsOf(settings);
       const setGoal=(k,v)=>saveSettings({...settings,goals:{...G,[k]:Math.max(0,num(v))}});
       const anySet=Object.values(G).some(v=>num(v)>0);
       return (<div className="card" style={{marginBottom:18}}>
@@ -9932,7 +9980,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       </div>); })()}
 
     {/* which meeting types count toward conversion ratios */}
-    {(()=>{ const ex=ratioExcludeOf(settings);
+    {show('ratio')&&(()=>{ const ex=ratioExcludeOf(settings);
       const toggle=k=>{ const next=ex.includes(k)?ex.filter(x=>x!==k):[...ex,k];
         saveSettings({...settings,ratioExcludeTypes:next}); };
       const counted=MEETING_TYPES.filter(t=>!ex.includes(t));
@@ -9951,7 +9999,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       </div>); })()}
 
     {/* modules */}
-    {(()=>{ const on=modList(settings);
+    {show('modules')&&(()=>{ const on=modList(settings);
       const toggle=k=>{ const next=on.includes(k)?on.filter(x=>x!==k):[...on,k]; saveSettings({...settings,modules:next}); };
       return (<div className="card" style={{marginBottom:18}}>
         <div className="sec-title"><LayoutDashboard size={15}/>Sections</div>
@@ -9972,24 +10020,24 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
     {/* AUDIT #23. Sorting which money paid for the WORK and which paid for the
         MONTH. Above the Pocket panel because it is fixing wrong numbers rather
         than adding a feature. */}
-    {isOwner&&<PaymentReview leads={leads} updateLead={updateLead}/>}
+    {show('paymentReview')&&isOwner&&<PaymentReview leads={leads} updateLead={updateLead}/>}
 
-    {isOwner&&<PocketImport pockets={pockets} onDone={refreshPockets}/>}
+    {show('pocket')&&isOwner&&<PocketImport pockets={pockets} onDone={refreshPockets}/>}
 
-    {isOwner&&<RepPay reps={(users||[]).filter(u=>u.role==='rep'&&u.active!==false)} leads={leads}
+    {show('repPay')&&isOwner&&<RepPay reps={(users||[]).filter(u=>u.role==='rep'&&u.active!==false)} leads={leads}
       payouts={payouts} me={me} updateLead={updateLead} addPayout={addPayout}/>}
 
     {/* google calendar */}
-    <div className="card" style={{marginBottom:18}}>
+    {show('gcal')&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><CalendarClock size={15}/>Google Calendar</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Connect a Google account so meetings you book on a lead post automatically to that calendar. Use <b>admin@getproytech.com</b> when the Google sign-in appears.</div>
       {gcal&&gcal.connected
         ? <div className="gcal-on"><div className="gcal-dot"/><div><b>Connected{gcal.email?` — ${gcal.email}`:''}</b><div className="subcell">Meetings booked on a lead land here automatically.</div></div><button className="btn btn-g btn-sm" style={{marginLeft:'auto'}} onClick={onDisconnectGcal}>Disconnect</button></div>
         : <div className="gcal-off"><button className="btn btn-p" onClick={()=>{window.location.href='/api/google-auth';}}><CalendarClock size={15}/>Connect Google Calendar</button><span className="subcell">You’ll approve once, then you’re set.</span></div>}
-    </div>
+    </div>}
 
     {/* client phases */}
-    {(()=>{ const phases=stdPhases(settings);
+    {show('phases')&&(()=>{ const phases=stdPhases(settings);
       const savePhases=next=>saveSettings({...settings,clientPhases:next});
       const patch=(i,p)=>{const n=phases.map((x,j)=>j===i?{...x,...p}:x);savePhases(n);};
       const move=(i,dir)=>{const j=i+dir;if(j<0||j>=phases.length)return;const n=phases.slice();[n[i],n[j]]=[n[j],n[i]];savePhases(n);};
@@ -10007,12 +10055,12 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       </div>))}</div>
       <button className="linkbtn" onClick={()=>savePhases(DEFAULT_CLIENT_PHASES)}>Reset to defaults</button>
     </div>); })()}
-    {isOwner&&<LifecycleSettings settings={settings} saveSettings={saveSettings} team={(users||[]).length?(users||[]).filter(u=>u.active!==false).map(u=>u.name):BRAND.team}/>}
-    {isOwner&&<CadenceSettings settings={settings} saveSettings={saveSettings}/>}
-    {isOwner&&<ClientEmailSettings settings={settings} saveSettings={saveSettings}/>}
+    {show('lifecycle')&&isOwner&&<LifecycleSettings settings={settings} saveSettings={saveSettings} team={(users||[]).length?(users||[]).filter(u=>u.active!==false).map(u=>u.name):BRAND.team}/>}
+    {show('cadence')&&isOwner&&<CadenceSettings settings={settings} saveSettings={saveSettings}/>}
+    {show('clientEmails')&&isOwner&&<ClientEmailSettings settings={settings} saveSettings={saveSettings}/>}
 
     {/* logo */}
-    <div className="card" style={{marginBottom:18}}>
+    {show('logo')&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><ImageIcon size={15}/>Brand / Logo</div>
       {settings.logo&&<div style={{marginBottom:14,padding:'16px',background:INK,borderRadius:12,display:'inline-block'}}><img src={settings.logo} alt="logo" style={{maxHeight:(settings.logoSize||34),maxWidth:(settings.logoSize||34)*5,objectFit:'contain',display:'block'}}/></div>}
       <label className="logo-drop"><ImageIcon size={22} style={{marginBottom:6}}/><div style={{fontWeight:600}}>{settings.logo?'Replace logo':'Upload your ProyTech logo'}</div><div style={{fontSize:12,marginTop:4}}>PNG or SVG, transparent background ideal</div><input type="file" accept="image/*" onChange={onLogo} style={{display:'none'}}/></label>
@@ -10021,10 +10069,10 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
         <input type="range" min="20" max="90" step="1" value={settings.logoSize||34} onChange={e=>saveSettings({...settings,logoSize:Number(e.target.value)})}/>
       </div>}
       {settings.logo&&<button className="btn btn-d" style={{marginTop:12}} onClick={()=>saveSettings({...settings,logo:''})}><Trash2 size={15}/>Remove logo</button>}
-    </div>
+    </div>}
 
     {/* invoicing defaults */}
-    {(()=>{ const iv=settings.invoicing||DEFAULT_INVOICING; const biz=iv.biz||DEFAULT_INVOICING.biz; const setIv=patch=>saveSettings({...settings,invoicing:{...iv,...patch}}); const setBiz=patch=>setIv({biz:{...biz,...patch}});
+    {show('invoicing')&&(()=>{ const iv=settings.invoicing||DEFAULT_INVOICING; const biz=iv.biz||DEFAULT_INVOICING.biz; const setIv=patch=>saveSettings({...settings,invoicing:{...iv,...patch}}); const setBiz=patch=>setIv({biz:{...biz,...patch}});
       return (<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><Receipt size={15}/>Invoicing</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Your business details and defaults. These fill in automatically on every new invoice.</div>
@@ -10058,22 +10106,22 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
 
     {/* SERVICES AND PRICING. The catalog the deal picker reads. Its own card,
         above the dropdowns, because it carries money and they do not. */}
-    <div className="card" style={{marginBottom:18}}>
+    {show('services')&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><DollarSign size={15}/>Services &amp; pricing</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>What you sell. The price here is optional and only a guide: it shows as a hint when you add a deal, and you type the real price for each client on the deal itself. Nothing here ever changes a deal's value.</div>
       <ServiceCatalogEditor services={servicesOf(settings)} onChange={a=>saveSettings({...settings,services:a})}/>
-    </div>
+    </div>}
 
     {/* PROPOSALS: the offer the proposal builder prices from. JSON, validated
         by the same reader the builder uses. PROPOSAL-OFFER.json is an example. */}
-    <div className="card" style={{marginBottom:18}}>
+    {show('proposals')&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><FileText size={15}/>Proposals</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Your packages, add-ons, prices, terms and the standard sections every proposal uses. Prices here are the starting point; you set what you quoted on each proposal.</div>
       <OfferEditor settings={settings} saveSettings={saveSettings} isOwner={isOwner}/>
-    </div>
+    </div>}
 
     {/* dropdown options */}
-    <div className="card" style={{marginBottom:18}}>
+    {show('options')&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><SlidersHorizontal size={15}/>Dropdown Options</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Add or remove the choices that appear in every lead. Applies everywhere instantly.</div>
       <OptionEditor label="Service Interest" items={settings.options.service} onChange={a=>setOptions('service',a)}/>
@@ -10111,31 +10159,31 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <OptionEditor label="Labels (Military, Police, Fire…)" items={labelVocab(settings)} onChange={a=>setOptions('labels',a)}/>
       <OptionEditor label="Key date types (Birthday, anniversaries…)" items={dateVocab(settings)} onChange={a=>setOptions('keyDates',a)}/>
       <OptionEditor label="Owner" items={settings.options.owner||OWNERS} onChange={a=>setOptions('owner',a)}/>
-    </div>
+    </div>}
 
     {/* stages */}
-    <div className="card" style={{marginBottom:18}}>
+    {show('stages')&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><Layers size={15}/>Pipeline Stages</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Rename, recolor, reorder, or add stages. Mark one or more as <b>Won</b> (counts as closed revenue) or <b>Lost</b>.</div>
       <StageEditor stages={settings.stages} onChange={s=>saveSettings({...settings,stages:s})}/>
-    </div>
+    </div>}
 
     {/* delivery tracks */}
-    <div className="card" style={{marginBottom:18}}>
+    {show('tracks')&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><Rocket size={15}/>Delivery Tracks</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>The fulfillment steps clients move through after converting. Each track shows only for clients who bought a matching service.</div>
       <DeliveryEditor tracks={settings.deliveryTracks||DEFAULT_DELIVERY_TRACKS} services={[...new Set([...servicesOf(settings).map(x=>x.name),...(settings.options.service||[])])]} onChange={t=>saveSettings({...settings,deliveryTracks:t})}/>
-    </div>
+    </div>}
 
     {/* custom fields */}
-    <div className="card" style={{marginBottom:18}}>
+    {show('customFields')&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><List size={15}/>Custom Fields</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Add your own columns to every lead. Toggle "show in table" to put them on the Leads page.</div>
       <CustomFieldEditor fields={settings.customFields||[]} onChange={f=>saveSettings({...settings,customFields:f})}/>
-    </div>
+    </div>}
 
     {/* backup */}
-    <div className="card" style={{marginBottom:18}}>
+    {show('backup')&&<div className="card" style={{marginBottom:18}}>
       <div className="sec-title"><FileText size={15}/>Backup & Restore</div>
       <div className="ch-sub" style={{marginTop:-8,marginBottom:14}}>Download a full snapshot (every lead, note, setting, and custom field) — or restore one. Save these regularly.</div>
       <div style={{display:'flex',gap:10,flexWrap:'wrap'}}>
@@ -10143,12 +10191,8 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
         <label className="btn btn-g" style={{cursor:'pointer'}}><Upload size={15}/>Restore from backup<input type="file" accept="application/json,.json" onChange={importAll} style={{display:'none'}}/></label>
         <button className="btn btn-d" onClick={()=>{if(window.confirm('Reset to the sample demo leads? Export a backup first if you want to keep current data.'))saveLeads(seed());}}><Trash2 size={15}/>Reset to seed leads</button>
       </div>
-    </div>
-
-    <div className="note">
-      <b>This preview saves to your browser.</b> The next step wires it to Supabase so you and Logan share one live board with separate logins — and your data lives in the database, not the code, so future redeploys can never wipe a single lead. Keep exporting JSON backups as your offline safety net.
-    </div>
-  </>);
+    </div>}
+  </div>);
 }
 
 /* Rows of name + price. Edits are held locally and saved on blur or Enter,

@@ -529,6 +529,8 @@ console.log('\n#23 before the review: Justus owes less than he does');
 console.log('\n#23 the review screen proposes, with reasons, and refuses to guess');
 {
   await nav('Settings'); await settle(320);
+  /* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+  { const tl = document.querySelector('[data-tile="sort-payments"]'); if (tl) await click(tl); await settle(150); }
   const t=norm();
   ok('the Payments panel is there', /Payments · \d+ client/.test(t), t.match(/Payments ·.{0,60}/)?.[0]);
   ok('  and says the money does not move', /The money does not move/.test(t));

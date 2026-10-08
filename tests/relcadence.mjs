@@ -294,6 +294,8 @@ const rowNamed = (sel, name) => () => [...document.querySelectorAll(sel)].find(r
 console.log('\nSettings → Relationship cadence');
 {
   await nav('Settings'); await settle(160);
+  /* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+  { const tl = document.querySelector('[data-tile="cadence"]'); if (tl) await click(tl); await settle(150); }
   const card = [...el.querySelectorAll('.card')].find(c => /Relationship cadence/.test(c.textContent));
   ok('the card is on the owner\'s Settings', !!card);
   ok('  and names every tier that fell back, with its number', !!card && /built-in default for:\s*A tier \(14 days\), B tier \(30 days\), C tier \(90 days\)/.test(card.textContent), card && card.textContent.slice(0, 400));
