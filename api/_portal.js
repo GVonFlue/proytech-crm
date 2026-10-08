@@ -23,6 +23,33 @@ import { sendClientMail, esc } from './_mail.js';
 
 const H = () => ({ apikey: SUPA_KEY, authorization: `Bearer ${SUPA_KEY}`, 'content-type': 'application/json' });
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The CLIENT behind a request (B-2): the bearer token is checked by Supabase
+ * Auth (which login) AND, with that same token, by Postgres's portal_lead()
+ * (which client, if any: an active client login, never a CRM user). Both or
+ * nothing; any failure is "no". The lead comes from the session, never from
+ * the request body. -> { ok, uid, leadId }
+ */
+export async function clientOf(req) {
+  const m = /^Bearer\s+([A-Za-z0-9._-]{20,4096})$/.exec(String((req && req.headers && req.headers.authorization) || ''));
+  if (!m || !SUPA_URL || !SUPA_KEY) return { ok: false };
+  const token = m[1];
+  try {
+    const u = await fetch(`${SUPA_URL}/auth/v1/user`, { headers: { apikey: SUPA_KEY, authorization: `Bearer ${token}` } });
+    if (!u.ok) return { ok: false };
+    const uj = await u.json().catch(() => null);
+    const uid = uj && uj.id;
+    if (!UUID.test(String(uid || ''))) return { ok: false };
+    const r = await fetch(`${SUPA_URL}/rest/v1/rpc/portal_lead`, { method: 'POST', headers: { apikey: SUPA_KEY, authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: '{}' });
+    if (!r.ok) return { ok: false };
+    const lead = await r.json().catch(() => null);
+    if (typeof lead !== 'string' || !lead) return { ok: false };
+    return { ok: true, uid, leadId: lead };
+  } catch { return { ok: false }; }
+}
+
 /** Where every magic link lands. Fixed by the server. */
 export function portalUrl() {
   const p = String(process.env.PORTAL_URL || '').trim().replace(/\/+$/, '');

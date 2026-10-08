@@ -28,15 +28,18 @@ import { SUPA_KEY, SUPA_URL } from './_env.js';
 // and the first real upload are the proof.
 
 export const BUCKET = 'onboarding';
+/* The site-review screenshots and images (REVIEW-MIGRATION.sql): images
+   only, 10 MB, no policy. Every helper below takes { bucket } for it. */
+export const REVIEW_BUCKET = 'review';
 const H = () => ({ apikey: SUPA_KEY, authorization: `Bearer ${SUPA_KEY}` });
 const enc = p => String(p).split('/').map(encodeURIComponent).join('/');
 const base = () => `${SUPA_URL}/storage/v1`;
 
 /** -> { ok, url } with an absolute URL the browser PUTs the file to. */
-export async function signUpload(path) {
+export async function signUpload(path, { bucket = BUCKET } = {}) {
   if (!SUPA_URL || !SUPA_KEY) return { ok: false, reason: 'not_configured' };
   try {
-    const r = await fetch(`${base()}/object/upload/sign/${BUCKET}/${enc(path)}`, {
+    const r = await fetch(`${base()}/object/upload/sign/${bucket}/${enc(path)}`, {
       method: 'POST', headers: { ...H(), 'content-type': 'application/json', 'x-upsert': 'false' }, body: '{}',
     });
     const j = await r.json().catch(() => ({}));
@@ -48,10 +51,10 @@ export async function signUpload(path) {
 /** The first `n` bytes and the total size. Reads one chunk and cancels, so a
  *  50 MB video is not pulled into the function to check four bytes.
  *  -> { ok, head: Uint8Array, size: number|null } */
-export async function head(path, n = 64) {
+export async function head(path, n = 64, { bucket = BUCKET } = {}) {
   if (!SUPA_URL || !SUPA_KEY) return { ok: false, reason: 'not_configured' };
   try {
-    const r = await fetch(`${base()}/object/authenticated/${BUCKET}/${enc(path)}`, { headers: { ...H(), range: `bytes=0-${n - 1}` } });
+    const r = await fetch(`${base()}/object/authenticated/${bucket}/${enc(path)}`, { headers: { ...H(), range: `bytes=0-${n - 1}` } });
     if (!r.ok) return { ok: false, reason: r.status === 404 || r.status === 400 ? 'missing' : 'read_failed' };
     const cr = r.headers.get('content-range') || '';
     const m = /\/(\d+)\s*$/.exec(cr);
@@ -70,11 +73,11 @@ export async function head(path, n = 64) {
 }
 
 /** Delete objects. Never throws; returns whether Storage said yes. */
-export async function remove(paths) {
+export async function remove(paths, { bucket = BUCKET } = {}) {
   const list = (Array.isArray(paths) ? paths : []).filter(Boolean);
   if (!list.length || !SUPA_URL || !SUPA_KEY) return { ok: !list.length };
   try {
-    const r = await fetch(`${base()}/object/${BUCKET}`, {
+    const r = await fetch(`${base()}/object/${bucket}`, {
       method: 'DELETE', headers: { ...H(), 'content-type': 'application/json' }, body: JSON.stringify({ prefixes: list }),
     });
     return { ok: r.ok };
@@ -84,12 +87,12 @@ export async function remove(paths) {
 /** Five-minute signed links. `download` names force a download (sensitive
  *  documents and contact lists, and SVG, which must never render inline on
  *  the storage domain). -> { ok, links: {path: url} } */
-export async function signDownloads(paths, { expiresIn = 300, download = {} } = {}) {
+export async function signDownloads(paths, { expiresIn = 300, download = {}, bucket = BUCKET } = {}) {
   const list = (Array.isArray(paths) ? paths : []).filter(Boolean);
   if (!list.length) return { ok: true, links: {} };
   if (!SUPA_URL || !SUPA_KEY) return { ok: false, reason: 'not_configured' };
   try {
-    const r = await fetch(`${base()}/object/sign/${BUCKET}`, {
+    const r = await fetch(`${base()}/object/sign/${bucket}`, {
       method: 'POST', headers: { ...H(), 'content-type': 'application/json' }, body: JSON.stringify({ expiresIn, paths: list }),
     });
     const j = await r.json().catch(() => null);

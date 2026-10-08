@@ -18,6 +18,7 @@ import ProposalDoc, { PROPOSAL_CSS } from '../ProposalDoc';
 import { SECTIONS, fieldLabel, fieldOptions, ctxOf } from '../lib/onboarding';
 import { PORTAL_CSS } from './theme';
 import { greetingFor, homeModel, CLIENT_STAGES } from './view';
+import Review, { REVIEW_CSS } from './Review';
 
 const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const fmt = s => { if (!s) return ''; const d = new Date(String(s).slice(0, 10) + 'T12:00:00'); return isNaN(d) ? '' : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
@@ -143,7 +144,9 @@ export function Portal({ client, now = new Date() }) {
   const [session, setSession] = useState(undefined);
   const [home, setHome] = useState(undefined);
   const [docs, setDocs] = useState(null);
-  const [tab, setTab] = useState('home');
+  /* an email's "Review my site" button lands on ?go=review */
+  const [tab, setTab] = useState(() => (typeof window !== 'undefined' && /[?&]go=review\b/.test(window.location.search) ? 'review' : 'home'));
+  const [review, setReview] = useState(null);
   const [note, setNote] = useState('');
   useEffect(() => {
     /* an expired or used link comes back with an error in the fragment */
@@ -158,28 +161,35 @@ export function Portal({ client, now = new Date() }) {
     let alive = true;
     client.rpc('portal_touch').then(() => {}, () => {});
     client.rpc('portal_home').then(({ data, error }) => { if (alive) setHome(error ? false : data || false); });
+    /* the review drives Home's review items too; a database without B-2 yet
+       answers an error, and the portal works as before */
+    client.rpc('portal_review').then(({ data, error }) => { if (alive) setReview(error ? null : data || null); }, () => {});
     return () => { alive = false; };
   }, [session, client]);
+  const reloadReview = () => client.rpc('portal_review').then(({ data, error }) => { if (!error) setReview(data || null); }, () => {});
   useEffect(() => {
     if (tab !== 'documents' || docs || !session) return;
     client.rpc('portal_documents').then(({ data }) => setDocs(data || { proposals: [], onboarding: null }));
   }, [tab, docs, session, client]);
-  const m = useMemo(() => (home ? homeModel(home, iso(now)) : null), [home, now]);
-  const signOut = async () => { await client.auth.signOut(); setHome(null); setDocs(null); };
+  const m = useMemo(() => (home ? homeModel(home, iso(now), review) : null), [home, now, review]);
+  const signOut = async () => { await client.auth.signOut(); setHome(null); setDocs(null); setReview(null); };
 
   if (session === undefined || (session && home === undefined)) return (<><style>{PORTAL_CSS}</style><div className="empty">Loading…</div></>);
   if (!session) return (<><style>{PORTAL_CSS}</style><SignIn note={note} /></>);
   if (home === false || !m) return (<><style>{PORTAL_CSS}</style><div className="empty"><h2>This sign-in isn't connected to a client portal.</h2>
     <p>If you think it should be, reply to any email from us.</p><button className="pt-me" onClick={signOut}>Sign out</button></div></>);
   return (<>
-    <style>{PORTAL_CSS + PROPOSAL_CSS}</style>
+    <style>{PORTAL_CSS + PROPOSAL_CSS + REVIEW_CSS}</style>
     <div className="pt-top"><div className="pt-brand">{home.config && home.config.company_name ? home.config.company_name : 'Client portal'}</div>
       <div className="r"><span className="hide">{m.company} · Client Portal</span><button className="pt-me" onClick={signOut} title="Sign out">{m.firstName || 'You'} · Sign out</button></div></div>
     <nav className="pt-tabs" role="tablist">
       <button role="tab" aria-selected={tab === 'home'} className={tab === 'home' ? 'on' : ''} onClick={() => setTab('home')}>Home</button>
+      <button role="tab" aria-selected={tab === 'review'} className={tab === 'review' ? 'on' : ''} onClick={() => setTab('review')}>Review{review && review.rounds && review.rounds.some(r => !r.submitted_at) && !review.approval ? ' ●' : ''}</button>
       <button role="tab" aria-selected={tab === 'documents'} className={tab === 'documents' ? 'on' : ''} onClick={() => setTab('documents')}>Documents</button>
     </nav>
-    <div className="pt-wrap">{tab === 'home' ? <Home m={m} now={now} /> : <Documents docs={docs} />}</div>
+    <div className="pt-wrap">{tab === 'home' ? <Home m={m} now={now} />
+      : tab === 'review' ? <Review client={client} session={session} review={review || { rounds: [], notes: [], included: 2 }} reload={reloadReview} products={m.products} firstName={m.firstName} />
+      : <Documents docs={docs} />}</div>
   </>);
 }
 

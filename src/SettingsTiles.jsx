@@ -59,6 +59,7 @@ export const TILES = [
 
   { id: 'client-phases', group: 'clients', icon: KanbanSquare, title: 'Client phases', desc: 'The columns of the client board', cards: ['phases'], keys: ['phase', 'client board', 'columns'] },
   { id: 'lifecycle', group: 'clients', icon: CalendarClock, title: 'Client lifecycle', desc: 'Who builds, and the 14-day clock\'s dates', cards: ['lifecycle'], owner: true, keys: ['builder', 'lifecycle', 'clock', 'due dates', 'template'] },
+  { id: 'site-review', group: 'clients', icon: Eye, title: 'Site review', desc: 'The preview hosts the client portal may show for review', cards: ['siteReview'], owner: true, keys: ['site review', 'preview', 'host', 'vercel', 'revision', 'markup'] },
   { id: 'delivery', group: 'clients', icon: Rocket, title: 'Delivery tracks', desc: 'Website, Suite and other build checklists', cards: ['tracks'], keys: ['delivery', 'track', 'milestone'] },
 
   { id: 'client-emails', group: 'emails', icon: Mail, title: 'Client emails', desc: 'Locked in, saved your seat, Launch Day ticket, day-10 task', cards: ['clientEmails'], owner: true, keys: ['email', 'locked in', 'saved your seat', 'launch day ticket', 'reminder', 'day 10'] },

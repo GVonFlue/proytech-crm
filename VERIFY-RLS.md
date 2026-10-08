@@ -1816,6 +1816,124 @@ Pass is `[]` or a permission error.
 | CRM: deposit tick on a test client | one email, a note; no second on re-tick | |
 | CRM: submit the test onboarding | one ticket; the owners' email too | |
 
+## 19. Site review and markup (after REVIEW-MIGRATION.sql)
+
+A client reviews their preview site inside `/portal`, pins notes to it,
+submits rounds (Terms 3.4) and approves it. Four tables, **all owner-read and
+server-write**, the `client_emails` pattern:
+
+| table | owner | rep | client | anon | the server (service role) |
+|---|---|---|---|---|---|
+| `review_sites`, `review_rounds`, `review_notes`, `site_approvals` | read | nothing | nothing | nothing | everything |
+
+What a client's browser can call, and nothing else:
+
+- `portal_review()`: their own review, named fields only, no storage path, no
+  author id, no IP. Starts from `portal_lead()`, takes no argument.
+- `portal_note_save(jsonb)`: a note into **their own open round**, or the
+  comment of one of its drafts. Starts from `portal_lead()`; the round is
+  found, never passed.
+
+Every other review function is **service_role only** and takes the login id
+the server took from a session it verified (`api/portal-review.js`), finding
+the lead itself (`review_client`). `review_summary()` (the lifecycle dates)
+answers an owner only. Postgres also holds three locks no route can undo:
+an approval can never change or be deleted; once a round is submitted the
+client's words, pin and files on its notes are frozen (only status, reason
+and done date change, and a note cannot be deleted); one open round per
+client. The `review` bucket is private, images only, with no storage policy.
+
+**Status: NOT YET RUN against the real install.** Proven locally against real
+Postgres by `tests/reviewdb.mjs` (PGlite: every write tried as client, rep and
+owner; client A against client B; a removed client; a CRM user; the server
+functions from a browser; rounds, the freeze, the approval lock, the dates,
+RLS-AUDIT, the rollback) and by `tests/portaldb.mjs`, whose catalog sweep now
+includes the review tables and functions.
+
+### Run it
+
+You need the real client login from §17 (its id from Authentication → Users)
+and an owner's and a rep's auth uid. Nothing persists.
+
+**0. Run `REVIEW-MIGRATION.sql`.** Pass is: no error and the notice
+`REVIEW OK`. Its read-back: 4 policy rows, each `r` (SELECT) with
+`(crm_listed() AND is_owner())`; `browser_can` true only for `portal_review`,
+`portal_note_save` and `review_summary`; the bucket `review, false, 10485760`.
+
+**1. Run `RLS-AUDIT.sql`.** Pass is: `RLS-AUDIT OK`. Its §2f now raises if any
+review table gets a write policy or a read that does not require an owner.
+
+**2. As the client** (one transaction, rolled back):
+```sql
+begin;
+select set_config('request.jwt.claims', json_build_object('sub','<THE CLIENT LOGIN ID>','role','authenticated')::text, true);
+set local role authenticated;
+select count(*) from review_notes;                                   -- expect: 0
+insert into review_notes (lead_id, round_id, comment) values ('x', gen_random_uuid(), 'x');  -- expect: ERROR, permission denied
+select portal_review()->>'preview_url';                              -- expect: THEIR preview link, or null
+select jsonb_object_keys(portal_review());                           -- expect exactly: approval, dates, hosts, included, notes, preview_url, rounds
+select portal_note_save('{"path":"/","comment":"verify"}');          -- expect: ERROR no_open_round (unless an owner sent a round)
+select review_submit('<THE CLIENT LOGIN ID>');                       -- expect: ERROR, permission denied
+select review_approve('<THE CLIENT LOGIN ID>', 'X', '1.1.1.1', 'x'); -- expect: ERROR, permission denied
+select count(*) from review_summary();                               -- expect: 0
+rollback;
+```
+
+**3. As a rep:** the same block with the rep's uid. Expect `count` 0,
+`portal_review()` null, and `review_summary()` 0 rows.
+
+**4. As an owner:** `select count(*) from review_sites;` is the number of
+clients with a preview link, `review_summary()` returns one row per client
+with a review, and `insert into review_sites ...` is still refused.
+
+**5. The locks** (as the service role, i.e. the SQL editor's default; rolled back):
+```sql
+begin;
+update site_approvals set typed_name = typed_name;   -- expect: ERROR "A site approval is permanent" (or 0 rows if none yet)
+update review_notes n set comment = comment || '!' from review_rounds r
+ where r.id = n.round_id and r.submitted_at is not null;   -- expect: ERROR "only its status, reason and done date change" (or 0 rows)
+rollback;
+```
+
+**6. Through the API, with the anon key:**
+```
+curl -s "$SUPABASE_URL/rest/v1/review_notes?select=*" -H "apikey: $ANON_KEY" -H "authorization: Bearer $ANON_KEY"
+curl -s -X POST "$SUPABASE_URL/rest/v1/rpc/portal_review" -H "apikey: $ANON_KEY" -H "authorization: Bearer $ANON_KEY"
+```
+Pass is `[]` or a permission error for the first, and a permission error for
+the second.
+
+**7. End to end** (a TEST client whose portal login is your own address, a
+preview deployed on an allowed host with the review script and without
+Deployment Protection):
+- CRM → the client → **Review**: paste the preview link, Save, **Send for
+  review**. Pass is: one "Your site is ready for review" email per active
+  portal login; the client moves from Build to Review.
+- Portal → Review: the preview shows, "Leave a note" turns on, a tap opens the
+  note box with a screenshot. Save two notes, Submit round. Pass is: "We got
+  your notes" at the client's address, a note to the owners, and the CRM's
+  "Client feedback due (round 1)" done.
+- Open the same preview link directly in a browser tab: no toolbar, no pins,
+  nothing changed (the script is inert outside the portal).
+- CRM: mark one note done and one won't do (with a reason), Copy revision
+  prompt. Pass is: the prompt lists only open notes, quotes the client's
+  words, and its screenshot links open.
+- Portal: Approve my site with your name. Pass is: the approval in the CRM
+  with the time and IP; "Client approval" done; no further notes possible.
+
+### Results (fill in when run)
+
+| check | expected | result |
+|---|---|---|
+| migration, then the read-back | `REVIEW OK`; 4 owner SELECT policies; 3 browser functions; private bucket | |
+| RLS-AUDIT.sql | OK, with the review tables in 2f | |
+| client: tables / portal_review keys / server functions | 0 and denied / exactly the 7 keys / denied | |
+| rep: tables / portal_review / review_summary | 0 / null / 0 rows | |
+| owner: read / write | rows / denied | |
+| the locks | approval permanent; submitted notes frozen | |
+| anon key | `[]` or error; rpc denied | |
+| end to end | the emails, the dates, the prompt, the approval | |
+
 ## Coverage, honestly
 
 Two tables were added in Aug 2026 and **neither is fully verified.** The gap is
@@ -1827,6 +1945,7 @@ different for each, and in opposite halves:
 | `rep_notes` (§11) | no | **partly** — SELECT and INSERT only |
 | `onboardings`, `onboarding_files` (§14) | **yes**, on PGlite only | **yes**, on PGlite only. Not yet on Supabase |
 | Storage: `receipts`, `site-media` (§15) | **yes**, on PGlite only | **yes**, on PGlite only. Not yet on Supabase |
+| Site review: `review_sites`, `review_rounds`, `review_notes`, `site_approvals`, the `review` bucket (§19) | **yes**, on PGlite only | **yes**, on PGlite only. Not yet on Supabase |
 
 Neither section should be read as a completed proof. `kb_reads` knows what its
 policy *says* and not what it *does*; `rep_notes` knows what two operations

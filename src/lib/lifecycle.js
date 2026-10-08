@@ -35,6 +35,7 @@
                     owners:{id:name} }
    Everything else is derived. */
 import { launchState, ctxOf, addCalendarDays, addBusinessDays, productsFor, PRODUCTS } from './onboarding.js';
+import { REVIEW_DONE } from './review.js';
 
 const S = (v, n = 200) => (v == null ? '' : String(v)).slice(0, n);
 const A = v => (Array.isArray(v) ? v : []);
@@ -188,7 +189,7 @@ const stageIdx = k => (FLOW.includes(k) ? FLOW.indexOf(k) : SIDE.includes(k) ? F
 
 /** Every item this client has (the stages they have reached), with its due
  *  date, done date, owner and where it lives. */
-export function dueItems(lead, { onboarding, proposal, launchDays, today, cfg, tracks, products, contact } = {}) {
+export function dueItems(lead, { onboarding, proposal, launchDays, today, cfg, tracks, products, contact, review } = {}) {
   const l = lead || {};
   const t = day(today);
   const lc = O(l.lifecycle);
@@ -210,7 +211,10 @@ export function dueItems(lead, { onboarding, proposal, launchDays, today, cfg, t
       /* a date someone typed onto the item's home wins over the computed one */
       const typed = dueOf(home.entry);
       const due = it.excluded ? null : typed || computed;
-      const done = doneOf(home.entry) || (it.doneOn === 'launched' ? launchedOn(l) || null : null);
+      /* a review date from the portal (REVIEW-MIGRATION review_dates) completes
+         its item the way a tick does; a tick typed by hand still wins */
+      const fromReview = REVIEW_DONE[it.id] ? day(O(review)[REVIEW_DONE[it.id]] || '') || null : null;
+      const done = doneOf(home.entry) || fromReview || (it.doneOn === 'launched' ? launchedOn(l) || null : null);
       const owner = O(lc.owners)[it.id] || (it.owner === 'contact' ? contact : c.builder) || l.owner || '';
       return { id: it.id, stage: it.stage, label: it.label, due, computed, typed: !!typed, done, owner, home, excluded: !!it.excluded,
         overdue: !done && !!due && due < t, pauseWhenLate: !!it.pauseWhenLate };

@@ -158,7 +158,7 @@ export function safeHttps(u) {
 const cents = v => Math.round(v * 100);
 const dollars = c => c / 100;
 
-/* sel: { packageId, addonIds:[], prices:{ [id]:{ setup, monthly } }, seats, prepay }
+/* sel: { packageId, addonIds:[], prices:{ [id]:{ setup, monthly } }, seats, prepay, revisionRounds }
    Returns { ok, error, items, ... }. A price that is blank or not a number is
    an ERROR, never a zero: a missing price that renders as $0 is the bug that
    looks exactly like a decision. */
@@ -180,6 +180,12 @@ export function quote(offer, sel) {
   }
   /* seats: the package carries the rule. An install with no seat rule has
      seatsIncluded 0 and no extra-seat line at all. */
+  /* Terms 3.4: "the revision rounds stated in the proposal; if none are
+     stated, two". Blank states none (the portal then counts two); anything
+     else must be a whole number 0..10, never a guess. */
+  const rr = s.revisionRounds;
+  const statesRounds = rr !== undefined && rr !== null && rr !== '';
+  if (statesRounds && !(Number.isInteger(num(rr)) && num(rr) >= 0 && num(rr) <= 10)) return { ok: false, error: 'Revision rounds must be a whole number from 0 to 10, or blank for the Terms default (2).' };
   const seats = Math.max(0, Math.floor(num(s.seats) || 0));
   const extraSeats = pkg.seatsIncluded > 0 ? Math.max(0, seats - pkg.seatsIncluded) : 0;
   const seatMonthlyC = extraSeats * cents(pkg.extraSeat);
@@ -199,6 +205,7 @@ export function quote(offer, sel) {
     setup: dollars(setupC), monthly: dollars(monthlyC),
     depositPct: offer.depositPct, deposit: dollars(depositC), balance: dollars(setupC - depositC),
     prepay: pre ? { months: pre.months, free: pre.free, total: dollars(prepayC), saves: dollars(monthlyC * pre.free) } : null,
+    ...(statesRounds ? { revisionRounds: num(rr) } : {}),
   };
 }
 

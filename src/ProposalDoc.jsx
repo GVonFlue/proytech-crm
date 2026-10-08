@@ -133,6 +133,7 @@ export default function ProposalDoc({ body, edit = false, onCopy, expiresAt, acc
           <div className="pd-big">{usd(q.setup)}</div>
           <div className="pd-small">One time. {q.items.map(it => it.name).join(' + ')}.</div>
           <div className="pd-split">{q.depositPct}% at signing: <b>{usd(q.deposit)}</b><br />{100 - q.depositPct}% at launch: <b>{usd(q.balance)}</b></div>
+          {Number.isInteger(q.revisionRounds) && <div className="pd-small">{q.revisionRounds === 0 ? 'Design changes after the first version are quoted.' : `Includes ${q.revisionRounds} round${q.revisionRounds === 1 ? '' : 's'} of revisions on the design; more are quoted.`}</div>}
           {q.monthly > 0 && <><div className="pd-pl" style={{ marginTop: 14 }}>Then</div>
             <div className="pd-big">{usd(q.monthly)}<small>/mo</small></div>
             <div className="pd-small">Starts at launch, not before.{q.extraSeats > 0 ? ` Includes ${q.extraSeats} extra seat${q.extraSeats === 1 ? '' : 's'} at ${usd(q.extraSeat)}/mo each.` : (q.seatsIncluded > 0 ? ` Up to ${q.seatsIncluded} seats included.` : '')}</div></>}

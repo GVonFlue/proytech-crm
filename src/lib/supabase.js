@@ -434,6 +434,14 @@ export const db = {
   /* CLIENT EMAILS (CLIENT-EMAILS-MIGRATION.sql): which onboarding emails the
      server has claimed or sent, per lead. Owners read; nobody writes from
      here (server-write only). null = migration not run, said once. */
+  /** Site review (B-2): per client, the dates the lifecycle reads (round 1
+   *  feedback, revisions done, approved). review_summary() answers an owner
+   *  only. null when REVIEW-MIGRATION.sql has not been run. */
+  async reviewSummary() {
+    const { data, error } = await supabase.rpc('review_summary');
+    if (error) { console.warn('[review_summary]', error.message); return null; }
+    return data || [];
+  },
   async listClientEmails() {
     const { data, error } = await supabase.from('client_emails').select('lead_id,kind,claimed_at,sent_at,detail');
     if (error) { console.warn('[client_emails]', error.message); return null; }

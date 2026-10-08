@@ -26,6 +26,7 @@ import {
   SECTIONS, has, isGrowth, visibleSections, shownFields, fieldById, fieldLabel, answerText, stillNeeded,
   pipelineFor, sectionTitle, productLine, FILE_SLOTS, missingRequired,
 } from './onboarding.js';
+import { reviewScriptTag, DEFAULT_HOSTS } from './review.js';
 
 const A = v => (Array.isArray(v) ? v : []);
 
@@ -165,9 +166,27 @@ export function websitePrompt({ answers, ctx, files = [], checklist = {}, cfg = 
       '- Local SEO basics: title and description per page, LocalBusiness schema, NAP identical to the Google profile.',
       '- City or area pages only where the content is real and distinct. No doorway pages with the city name swapped.',
     ]),
+    block('Preview builds: client review', reviewLines(cfg)),
     block('Assets', fileLines(files)),
     block('Still needed and open questions for kickoff', neededLines(ctx, answers, files, checklist, cfg)),
   ].join('\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+/* Every preview build is review-ready (client portal B-2, spec B4): the
+   client reviews it inside their portal, which only works when the preview
+   carries the review script from the PORTAL's origin and can load in a
+   frame. cfg.reviewOrigin is the portal's origin (the server's PORTAL_URL on
+   submit, the CRM's own origin on Regenerate); cfg.reviewHosts the allowed
+   preview hosts (Settings → Site review). */
+export function reviewLines(cfg = {}) {
+  const origin = String(cfg.reviewOrigin || '').replace(/\/+$/, '');
+  const hosts = Array.isArray(cfg.reviewHosts) && cfg.reviewHosts.length ? cfg.reviewHosts : DEFAULT_HOSTS;
+  return [
+    origin ? `- Every PREVIEW build includes this tag, just before </body>: \`${reviewScriptTag(origin)}\`` : '- Every PREVIEW build includes the review script from the client portal (`<portal origin>/review.js`, with `defer`), just before </body>.',
+    '- PREVIEW BUILDS ONLY. The production site never carries it. (Outside the client portal it does nothing, but it does not belong on a live site.)',
+    `- Publish previews on an allowed preview host (${hosts.join(', ')}), reachable without a password or deployment protection, and with no X-Frame-Options or frame-ancestors header that stops the portal showing it in a frame.`,
+    '- Give sections, headings and buttons stable ids where you can: the client\'s notes point at elements, and stable ids keep each note on the right element after revisions.',
+  ];
 }
 
 /* ---------- the Business Suite prompt ---------- */

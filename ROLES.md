@@ -326,7 +326,17 @@ on the sign-in page whenever they need one. No password, ever.
 - **You manage access on the client's Portal tab** (owners only): who can sign
   in and when they last did, invite another person (an office manager), send
   a fresh link, or remove someone, which signs them out for good.
-- **A rep sees none of it.**
+- **Site review (Review tab, owners only).** Paste the client's preview link
+  and press **Send for review**: every portal login of that client gets "Your
+  site is ready for review". In their portal they tap anything on the preview
+  and leave a note on it, then submit the round ("We got your notes"). You
+  work the notes on the Review tab (done, or won't do with a reason the client
+  sees) and **Copy revision prompt** for the Claude project that built the
+  site. The proposal's "Revision rounds" (else 2, Terms 3.4) are included;
+  after that the client can ask for a change round, and you quote it. "Approve
+  my site" records their typed name, the time and their IP, permanently. What
+  they wrote is frozen once a round is submitted. (VERIFY-RLS §19.)
+- **A rep sees none of it**, review notes and approvals included.
 
 ## Turning someone off
 

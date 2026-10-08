@@ -66,6 +66,9 @@ const HELPERS = new Set([
   'clientemailsdb.mjs',   // a TOOL, not a test: runs CLIENT-EMAILS-MIGRATION on
                           // real Postgres (PGlite). tests/clientemails.mjs is the
                           // half CI always runs.
+  'reviewdb.mjs',         // a TOOL, not a test: REVIEW-MIGRATION (site review, B-2)
+                          // on PGlite: client isolation, the locks, the rounds.
+                          // tests/reviewsql.mjs is the half CI always runs.
   'onbrlsdb.mjs',         // a TOOL, not a test: runs ONBOARDING-MIGRATION against
                           // real Postgres (PGlite). tests/onbsql.mjs is the half
                           // CI always runs.

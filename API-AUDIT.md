@@ -84,6 +84,8 @@ Supabase sign-ups switched off.
 | `onboarding-public.js` | ❌ none — by design, token-gated | the client has no account. Reads and writes one onboarding through service-role-only definer functions; uploads go to a server-chosen path and are checked by their bytes; client mail by onboarding id, never an address. See below |
 | `portal-login.js` | ❌ none — public by design | the client portal's sign-in. See *The client portal* below |
 | `portal-admin.js` | ✅ `guard({requireOwner})` | the owner's controls for a client's portal logins: list, invite, resend, remove (switches the row off and bans the login). See below |
+| `portal-review.js` | ✅ a **client** portal session (`_portal.js clientOf`: Supabase Auth + `portal_lead()`), plus `guard()` limits | site review (B-2): submit a round, ask for a quoted change round, approve (IP from this server), delete a draft note, image uploads to server-chosen paths. See *Site review* below |
+| `review-admin.js` | ✅ `guard({requireOwner})` | the owner's side of site review: preview URL, "Send for review", note status, image links. See below |
 | `team-login.js` | ✅ `guard({requireOwner})` | creates a new team member's LOGIN through the Supabase admin API (service key), email confirmed, so it works with sign-ups OFF. Never the public `/auth/v1/signup`. The `crm_users` row is still written by the owner's browser under the owner-only RLS policy |
 | `onboarding-admin.js` | ✅ `guard({requireOwner})` | signed download links, the client link, and delete (files before the row). See below |
 | `client-email.js` | ✅ `guard({requireOwner})` | the CRM calls it after a deposit tick, with a lead id only; sends "You're locked in" once through `sendClientMail()` (onboarding id, **no address**). See *The client emails* |
@@ -184,6 +186,38 @@ The routes only make and send links.
   the login at Supabase so its session cannot refresh.
 
 Proven by `tests/portalroutes.mjs`.
+
+### Site review (B-2): `portal-review.js`, `review-admin.js`, and `/review.js`
+
+A client reviews their preview site inside the portal, pins notes to it,
+submits rounds (Terms 3.4) and approves it. Every review table is
+**server-write-only and owner-read** (REVIEW-MIGRATION.sql; RLS-AUDIT 2f). A
+client's browser can call exactly two things: `portal_review()` (read, named
+fields, no storage path) and `portal_note_save()` (a note in **their own open
+round**), both starting from `portal_lead()` with no lead argument.
+
+- **`portal-review.js` (a client session, not public).** `clientOf(req)` checks
+  the bearer token with Supabase Auth (which login) and asks `portal_lead()`
+  with that same token (which client); both or a 401. The lead is never read
+  from the body. Every write is a service_role-only function that takes the
+  **login id** and finds the lead itself (`review_client`). The approval's IP
+  and browser are the ones this server saw (`ipOf`), so a client cannot write
+  their own. Uploads: one signed URL per path the server chose
+  (`<lead>/<note>-<kind>-<12 random>.<ext>`), checked by its first bytes
+  afterwards (`fileKindOk`), images only, 10 MB, into the private `review`
+  bucket. Emails go through `_review.js` → `sendClientMail({ clientUserId })`.
+- **`review-admin.js` (owner).** The preview URL must be https and on a host
+  Settings → Site review allows (default `*.vercel.app`). A note's status can
+  change only once its round is submitted, and Postgres freezes everything
+  the client wrote at that moment (`review_notes_lock`). An approval cannot be
+  changed or deleted by anyone (`site_approvals_lock`).
+- **`/review.js` (a static file the preview site loads).** Inert unless it is
+  framed, the parent's origin is the origin the script was served from, and
+  the portal's hello names the page's exact host. It holds no token, reads no
+  cookie, and posts only to that one origin.
+
+Proven by `tests/reviewroutes.mjs`, `tests/reviewscript.mjs`,
+`tests/reviewsql.mjs`, `tests/reviewdb.mjs` (PGlite, local) and VERIFY-RLS §19.
 
 **The proposals domain.** When `PROPOSAL_URL` points at
 `proposals.getproytech.com`, `vercel.json` serves only the client pages on
