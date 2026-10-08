@@ -33,7 +33,7 @@ const gated = [...page.matchAll(/\{show\('([A-Za-z]+)'\)&&/g)].map(m => m[1]);
 { const t = await esbuild.build({ ...BUILD, entryPoints: ['src/SettingsTiles.jsx'], external: ['react', 'react/jsx-runtime', 'lucide-react'] }); fs.writeFileSync('tests/' + B_tiles, t.outputFiles[0].text); }
 const T = await import('./' + B_tiles + '?v=' + Date.now());
 const inTiles = T.TILES.flatMap(t => t.cards);
-ok('the page gates 23 cards, each once', gated.length === 23 && new Set(gated).size === 23, gated.join());
+ok('the page gates 24 cards, each once (the onboarding portal\'s since Oct 2026)', gated.length === 24 && new Set(gated).size === 24, gated.join());
 ok('every gated card is in a tile', gated.every(k => inTiles.includes(k)), gated.filter(k => !inTiles.includes(k)).join());
 ok('  and in exactly one', inTiles.length === new Set(inTiles).size, inTiles.join());
 ok('no tile names a card the page does not have', inTiles.every(k => gated.includes(k)), inTiles.filter(k => !gated.includes(k)).join());
@@ -57,7 +57,8 @@ globalThis.fetch = async u => String(u).includes('google-status') ? { ok: true, 
 globalThis.__USERS__ = [{ id: 'u_owner', name: 'Garrett', email: 'admin@getproytech.com', role: 'owner', pools: [], commission_pct: 0, appointment_rate: 0, active: true, tabs: [], goal_conversions: 0, nav_order: [] }];
 globalThis.__TEAM__ = [{ id: 'u_owner', name: 'Garrett', role: 'owner' }];
 globalThis.__LEADS__ = [];
-globalThis.__SETTINGS__ = { modules: ['dash', 'leads', 'rels', 'clients', 'settings'], modulesV: 9, options: {}, pools: ['General'],
+globalThis.__ONBOARDINGS__ = [];
+globalThis.__SETTINGS__ = { modules: ['dash', 'leads', 'rels', 'clients', 'onboarding', 'settings'], modulesV: 9, options: {}, pools: ['General'],
   stages: [{ key: 'new', label: 'New', color: '#6B73C9', prob: .1, open: true, won: false, lost: false }] };
 globalThis.__WRITES__ = []; globalThis.__MANY__ = []; globalThis.__MLOGS__ = []; globalThis.__SETTINGS_WRITES__ = []; globalThis.__USER_WRITES__ = [];
 { const app = await esbuild.build({ ...BUILD, entryPoints: ['src/App.jsx'], external: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'],
@@ -83,7 +84,7 @@ ok('  and only its card', cards().length === 1, JSON.stringify(cards()));
 console.log('\nthe grid');
 await click(el.querySelector('.st-back'));
 ok('"All settings" returns to the grid and drops the parameter', !!el.querySelector('.st-wrap') && !el.querySelector('.st-panel') && param() === null, window.location.search);
-ok('  nine areas, all 23 tiles', el.querySelectorAll('.st-group').length === 9 && el.querySelectorAll('.st-tile').length === 23, el.querySelectorAll('.st-tile').length);
+ok('  nine areas, all 24 tiles', el.querySelectorAll('.st-group').length === 9 && el.querySelectorAll('.st-tile').length === 24, el.querySelectorAll('.st-tile').length);
 ok('  and no settings card until a tile is opened', el.querySelectorAll('.main .card, main .card').length === 0 || ![...el.querySelectorAll('.card')].some(c => c.closest('.st-wrap') === null && !c.closest('.nav, aside')));
 ok('  status lines are there (client emails: 0 of 4 on)', /0 of 4 on/.test(el.querySelector('[data-tile="client-emails"]').textContent));
 ok('the phone shortcuts name every area', el.querySelectorAll('.st-areas .st-area').length === 9);
@@ -102,7 +103,7 @@ console.log('\neach tile opens only its own cards');
     await click(el.querySelector('.st-back'));
   }
   ok('every tile shows exactly its own card(s), with its id in the URL', bad.length === 0, bad.join('\n        '));
-  ok('  and no card shows under two tiles', [...seen.keys()].length === 23, [...seen.keys()].length);
+  ok('  and no card shows under two tiles', [...seen.keys()].length === 24, [...seen.keys()].length);
 }
 
 console.log('\nBack and search');
@@ -125,6 +126,17 @@ await settle(900);
 ok('opening and closing every tile wrote no setting', globalThis.__SETTINGS_WRITES__.length === writesBefore, globalThis.__SETTINGS_WRITES__.length - writesBefore);
 await click(el.querySelector('[data-tile="team"]'));
 ok('the Team card no longer says sign-ups must be on', !/sign-ups enabled/.test(el.textContent) && /sign-ups can stay off/i.test(el.textContent));
+
+console.log('\nthe onboarding portal\'s settings live in Settings');
+{
+  await click(el.querySelector('.st-back'));
+  ok('a tile for them, under Clients & Onboarding, saying what is on a default', !!el.querySelector('#st-g-clients [data-tile="onboarding-portal"]') && /Never saved: using defaults/.test(el.querySelector('[data-tile="onboarding-portal"]').textContent));
+  await click([...document.querySelectorAll('.nav-i')].find(e => (e.textContent || '').trim() === 'Onboarding')); await settle(200);
+  ok('the Onboarding page no longer has the settings editor', !document.querySelector('textarea[aria-label="Portal settings JSON"]') && !!document.querySelector('.onbd-moved'));
+  ok('  it points to Settings, and warns while a default is in use', /built-in default/.test(document.querySelector('.onbd-moved').textContent));
+  await click([...document.querySelectorAll('.onbd-moved button')].find(b => /Open in Settings/.test(b.textContent))); await settle(200);
+  ok('"Open in Settings" lands on that tile, with the editor', param() === 'onboarding-portal' && /Onboarding portal/.test((el.querySelector('.st-title') || {}).textContent || '') && /Portal settings/.test(el.querySelector('.st-panel').textContent), window.location.search);
+}
 
 root.unmount();
 console.log(`\n${pass} passed, ${fail} failed\n`);
