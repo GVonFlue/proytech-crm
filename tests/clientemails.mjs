@@ -58,7 +58,7 @@ console.log('\nthe record (CLIENT-EMAILS-MIGRATION.sql, as text)');
   ok('no insert / update / delete / all policy anywhere', !/create policy[^;]+for (insert|update|delete|all)/i.test(sql));
   ok('unique (lead_id, kind)', /unique\s*\(\s*lead_id\s*,\s*kind\s*\)/i.test(sql));
   ok('anon and authenticated lose every write grant', /revoke all on client_emails from anon/i.test(sql) && /revoke insert, update, delete, truncate on client_emails from authenticated/i.test(sql));
-  ok('RLS-AUDIT.sql checks it', /c\.relname in \('client_emails'\)/.test(fs.readFileSync('RLS-AUDIT.sql', 'utf8')));
+  ok('RLS-AUDIT.sql checks it', /c\.relname in \('client_emails'[,)]/.test(fs.readFileSync('RLS-AUDIT.sql', 'utf8')));
 }
 
 /* -------------------------------------------------------------- the schedule */

@@ -63,7 +63,8 @@ await db.exec(`alter table auth.users add column if not exists last_sign_in_at t
 const ORDER = ['MIGRATION.sql', 'TEAM-MIGRATION.sql', 'REP-PAY-MIGRATION.sql', 'WHOAMI-RATE.sql', 'REP-PROFILE-MIGRATION.sql', 'KB-MIGRATION.sql',
   'REP-ACTIVITY-MIGRATION.sql', 'MEETING-MIGRATION.sql', 'POCKET-MIGRATION.sql', 'PAYMENT-METHOD-MIGRATION.sql', 'JARVIS-MIGRATION.sql',
   'PROPOSALS-MIGRATION.sql', 'PROPOSALS-LEGAL-MIGRATION.sql', 'PROPOSALS-ARCHIVE-MIGRATION.sql', 'ONBOARDING-MIGRATION.sql',
-  'LIFECYCLE-MIGRATION.sql', 'RLS-TIGHTEN-2026-10.sql', 'STORAGE-TIGHTEN-2026-10.sql', 'AUTH-LISTED-2026-10.sql', 'PORTAL-MIGRATION.sql'];
+  'LIFECYCLE-MIGRATION.sql', 'RLS-TIGHTEN-2026-10.sql', 'STORAGE-TIGHTEN-2026-10.sql', 'AUTH-LISTED-2026-10.sql', 'PORTAL-MIGRATION.sql',
+  'CLIENT-EMAILS-MIGRATION.sql', 'REVIEW-MIGRATION.sql'];
 for (const f of ORDER) { const e = await run(read(f)); ok(f, e === '', e); }
 ok('PORTAL-MIGRATION.sql again (re-running is safe)', (await run(read('PORTAL-MIGRATION.sql'))) === '');
 
@@ -130,7 +131,8 @@ console.log('\nTHE SWEEP: every function a browser can execute, as client A');
        and not exists (select 1 from pg_depend dp where dp.objid = p.oid and dp.deptype = 'e') order by 1`)).rows;
   ok(`${fns.length} functions a signed-in account can execute`, fns.length >= 10, fns.map(f => f.proname).join(', '));
   /* what each may return to a client: everything else must be empty/false/null or refuse */
-  const MAY = { portal_home: 1, portal_documents: 1, portal_lead: 1, crm_whoami: 1, crm_active: 1 };
+  /* portal_review (B-2) reads the caller's own review; tests/reviewdb.mjs proves A never sees B */
+  const MAY = { portal_home: 1, portal_documents: 1, portal_lead: 1, portal_review: 1, crm_whoami: 1, crm_active: 1 };
   const leaks = [];
   for (const f of fns) {
     const nulls = Array.from({ length: f.pronargs }, () => 'null').join(',');

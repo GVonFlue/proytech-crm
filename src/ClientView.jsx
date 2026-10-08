@@ -62,6 +62,8 @@ export default function ClientView({
   renderOnboarding,
   /* the Portal tab: rendered by App for an OWNER only (null otherwise) */
   renderPortal,
+  /* the Review tab (site review, B-2): rendered by App for an OWNER only */
+  renderReview,
 }) {
   const [tab, setTab] = useState('delivery');
   if (!lead) return null;
@@ -250,6 +252,7 @@ export default function ClientView({
             <button className={'seg-b ' + (tab === 'activity' ? 'on' : '')} onClick={() => setTab('activity')}>Activity</button>
             {renderOnboarding && <button className={'seg-b ' + (tab === 'onboarding' ? 'on' : '')} onClick={() => setTab('onboarding')}>Onboarding</button>}
             {renderPortal && <button className={'seg-b ' + (tab === 'portal' ? 'on' : '')} onClick={() => setTab('portal')}>Portal</button>}
+            {renderReview && <button className={'seg-b ' + (tab === 'review' ? 'on' : '')} onClick={() => setTab('review')}>Review</button>}
           </div>
 
           {/* --------------------------------------------------- delivery */}
@@ -374,6 +377,7 @@ export default function ClientView({
           {/* --------------------------------------------------- activity */}
           {tab === 'onboarding' && renderOnboarding && renderOnboarding(l)}
           {tab === 'portal' && renderPortal && renderPortal(l)}
+          {tab === 'review' && renderReview && renderReview(l)}
           {tab === 'activity' && (
             <div className="cv-card">
               {!acts.length ? <div className="empty">Nothing logged yet.</div>

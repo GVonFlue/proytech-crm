@@ -35,7 +35,7 @@ function tracksFromTemplate(template) {
 }
 
 /** Everything Home shows, from portal_home(), as of `today` (YYYY-MM-DD). */
-export function homeModel(h, today) {
+export function homeModel(h, today, review) {
   if (!h) return null;
   const ck = O(h.checklist);
   const { onbSkip, ...ticks } = ck;
@@ -48,7 +48,9 @@ export function homeModel(h, today) {
   const products = productsOf({ onboarding: h.onboarding, proposal: p, productMap: cfgIn.product_map, trackKeys: [] });
   const ld = h.proposal && Number.isInteger(h.proposal.launch_days) ? h.proposal.launch_days : Number.isInteger(cfgIn.launch_days) ? cfgIn.launch_days : null;
   const contacts = A(h.proposal && h.proposal.contacts);
-  const ctx = { onboarding: h.onboarding ? { ...h.onboarding } : null, proposal: p, products, launchDays: ld, today, cfg, tracks: tracksFromTemplate(template), contact: (contacts[0] && contacts[0].name) || '' };
+  /* review dates from portal_review() (B-2): round 1 submitted, revisions done,
+     approved complete their items here exactly as in the CRM */
+  const ctx = { onboarding: h.onboarding ? { ...h.onboarding } : null, proposal: p, products, launchDays: ld, today, cfg, tracks: tracksFromTemplate(template), contact: (contacts[0] && contacts[0].name) || '', review: O(review && review.dates) };
   const clock = clockOf(lead, ctx);
   const items = dueItems(lead, ctx).filter(i => !i.excluded);
   const waiting = waitingOn(lead, clock, items);
@@ -56,7 +58,7 @@ export function homeModel(h, today) {
   const q = O(h.proposal && h.proposal.quote);
   const deposit = Number(q.deposit) || 0, setup = Number(q.setup) || 0;
   return {
-    firstName: h.first_name || '', company: h.company || '', stage, stageLine: STAGE_LINE[stage],
+    firstName: h.first_name || '', company: h.company || '', stage, stageLine: STAGE_LINE[stage], products,
     clock, items, waiting, contacts,
     packageLine: q.packageName || A(q.items).map(i => i && i.name).filter(Boolean).join(' + '),
     billing: h.proposal ? { depositPct: q.depositPct || null, deposit, paid: !!(ticks.deposit_paid && (ticks.deposit_paid.done || typeof ticks.deposit_paid === 'string')) || A(onbSkip).includes('deposit_paid'),

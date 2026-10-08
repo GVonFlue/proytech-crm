@@ -260,7 +260,9 @@ begin
   -- a hole even if its expression looks right, and the read policy must
   -- require an owner. client_emails is the record that makes each client
   -- email send once: a write path from a browser could delete a claim and
-  -- re-send, or claim one so it never sends.
+  -- re-send, or claim one so it never sends. The site-review tables (B-2,
+  -- REVIEW-MIGRATION.sql) are the same: a client writes through portal
+  -- functions, an owner through api/review-admin.js, never a policy.
   --   RAISES on: a non-SELECT policy, or a SELECT policy not naming is_owner().
   declare
     srv text;
@@ -274,7 +276,7 @@ begin
       join pg_class c on c.oid = p.polrelid
       join pg_namespace n on n.oid = c.relnamespace
      where n.nspname = 'public'
-       and c.relname in ('client_emails')
+       and c.relname in ('client_emails', 'review_sites', 'review_rounds', 'review_notes', 'site_approvals')
        and (p.polcmd <> 'r' or coalesce(pg_get_expr(p.polqual, p.polrelid), '') !~ 'is_owner\(\)');
     if srv is not null then
       raise exception E'RLS-AUDIT FAILED: a server-write-only table has a write policy, or a read not limited to owners:\n  %', srv;
@@ -293,7 +295,7 @@ begin
   raise notice 'RLS-AUDIT OK: every table in public has RLS on, no permissive policy';
   raise notice 'anywhere evaluates to true, every storage policy names a bucket, and';
   raise notice 'every security definer function a browser can call checks the team or the portal, and';
-  raise notice 'server-write-only tables (client_emails) have no write policy.';
+  raise notice 'server-write-only tables (client_emails, the site-review tables) have no write policy.';
   raise notice 'Read section 1 anyway — this';
   raise notice 'proves nothing is WIDE open, not that every expression is RIGHT.';
   raise notice '----------------------------------------------------------------';

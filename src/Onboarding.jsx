@@ -22,6 +22,7 @@
    signed links (onboarding-admin `files`); sensitive files never get one.
    ========================================================================== */
 import React, { useEffect, useMemo, useState } from 'react';
+import { readReview } from './lib/review';
 import { Copy, Download, RefreshCw, Link2, Trash2, Plus, X, CheckCircle2, AlertTriangle, Pencil, Rocket } from 'lucide-react';
 import {
   ctxOf, readOnbConfig, progress, stillNeeded, missingRequired, launchState, checklistState, requiredAccess, visibleSections,
@@ -232,7 +233,8 @@ export function OnboardingDetail({ o, lead, settings, apiPost, reload, toggleChe
     setMsg(null);
     const j = await admin(apiPost, { action: 'files', id: o.id });
     const withPaths = j && j.ok ? j.files : sm.files;
-    const outputs = buildOutputs({ row: o, answers: sm.answers, ctx: sm.ctx, files: withPaths, checklist: sm.checklist, cfg });
+    /* the review tag points at THIS app's origin, where /portal and /review.js live (B-2) */
+    const outputs = buildOutputs({ row: o, answers: sm.answers, ctx: sm.ctx, files: withPaths, checklist: sm.checklist, cfg: { ...cfg, reviewOrigin: window.location.origin, reviewHosts: readReview(settings).hosts } });
     try { await db.updateOnboarding(o.id, { outputs }); setMsg({ kind: 'ok', text: 'Prompts regenerated from the current answers and files.' }); reload(); }
     catch (e) { setMsg({ kind: 'err', text: e.message }); }
   };

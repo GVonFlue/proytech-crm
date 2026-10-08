@@ -45,7 +45,7 @@ const FILTERS = ['all', 'draft', 'sent', 'viewed', 'accepted', 'expired'];
 
 const blankSel = (offer) => {
   const pkg = offer && offer.packages[0];
-  return { packageId: pkg ? pkg.id : '', addonIds: [], prices: {}, seats: pkg ? pkg.seatsIncluded : 0, prepay: true };
+  return { packageId: pkg ? pkg.id : '', addonIds: [], prices: {}, seats: pkg ? pkg.seatsIncluded : 0, prepay: true, revisionRounds: '' };
 };
 
 export default function Proposals({ leads, settings, apiPost, me, openLead, proposals, reload, onSaved, noteLead, pockets, mlogs }) {
@@ -160,7 +160,7 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
   const [sel, setSel] = useState(() => start.body ? {
     packageId: sq.packageId, addonIds: (sq.items || []).filter(i => i.kind === 'addon').map(i => i.id),
     prices: Object.fromEntries((sq.items || []).map(i => [i.id, { setup: i.setup, monthly: i.monthly }])),
-    seats: sq.seats || 0, prepay: !!sq.prepay,
+    seats: sq.seats || 0, prepay: !!sq.prepay, revisionRounds: Number.isInteger(sq.revisionRounds) ? sq.revisionRounds : '',
   } : blankSel(offer));
   const [validDays, setValidDays] = useState(start.valid_days || (offer && offer.validDays) || 7);
   /* POINT OF CONTACT, chosen per proposal: one person or all of them. A
@@ -349,6 +349,7 @@ function Builder({ start, offer, missing, leads, leadsById, apiPost, me, openLea
         </div>))}
         {pkg && pkg.seatsIncluded > 0 && <div className="pp-price"><span>Seats</span>
           <label><input type="number" min={pkg.seatsIncluded} value={sel.seats} onChange={e => setSel(s => ({ ...s, seats: e.target.value }))} aria-label="Seats" /><em>{pkg.seatsIncluded} included, then {usd(pkg.extraSeat)}/mo each</em></label></div>}
+        <div className="pp-price"><span>Revision rounds</span><label><input type="number" min="0" max="10" placeholder="2" value={sel.revisionRounds ?? ''} onChange={e => setSel(s => ({ ...s, revisionRounds: e.target.value }))} aria-label="Revision rounds" /><em>blank: 2, the Terms default (3.4); shown on the proposal when set</em></label></div>
         {offer && offer.prepay && <label className="pp-check"><input type="checkbox" checked={sel.prepay} onChange={e => setSel(s => ({ ...s, prepay: e.target.checked }))} />
           Offer the {offer.prepay.months}-month prepay ({offer.prepay.free} months free)</label>}
         <label className="pp-l">Point of contact</label>

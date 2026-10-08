@@ -6,9 +6,9 @@
        the launch date from lib/lifecycle (the CRM's own functions), what is
        waiting on them, billing from their own proposal, the crew
      - a client never sees the words At Risk: it reads as Active
-     - only Home and Documents exist (Review, Billing, Messages and Onboarding
-       are later steps, and are not dead tabs)
-     - the page asks Postgres for portal_touch / portal_home /
+     - only Home, Review (B-2) and Documents exist (Billing, Messages and
+       Onboarding are later steps, and are not dead tabs)
+     - the page asks Postgres for portal_touch / portal_home / portal_review /
        portal_documents with NO arguments: it sends no id to aim with
      - Documents: the accepted proposal, the Terms version with its links,
        the onboarding answers with the EIN as the database masked it
@@ -88,8 +88,8 @@ console.log('\nHome');
   const crew = document.querySelector('.crew');
   ok('the crew, with tap-to-call, text and email', crew && crew.querySelector('a[href="tel:9132374403"]') && crew.querySelector('a[href="sms:9132374403"]') && crew.querySelector('a[href="mailto:logan@agency.test"]'));
   const tabs = [...document.querySelectorAll('.pt-tabs button')].map(b => txt(b));
-  ok('only Home and Documents (no dead tabs for later steps)', tabs.join() === 'Home,Documents', tabs.join());
-  ok('it asked for portal_touch and portal_home, with NO arguments', c.rpcs.map(r => r.name).sort().join() === 'portal_home,portal_touch' && c.rpcs.every(r => r.args === undefined), JSON.stringify(c.rpcs));
+  ok('only Home, Review and Documents (no dead tabs for later steps)', tabs.join() === 'Home,Review,Documents', tabs.join());
+  ok('it asked for portal_touch, portal_home and portal_review, with NO arguments', c.rpcs.map(r => r.name).sort().join() === 'portal_home,portal_review,portal_touch' && c.rpcs.every(r => r.args === undefined), JSON.stringify(c.rpcs));
   await click([...document.querySelectorAll('.pt-tabs button')].find(b => /Documents/.test(b.textContent)));
   const d = txt(document.body);
   ok('Documents: the accepted proposal, read-only', /Your 48-home year/.test(d) && /Accepted by Jordan Reed/.test(d));

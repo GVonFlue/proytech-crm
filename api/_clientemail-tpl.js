@@ -238,3 +238,50 @@ export function launchIcs({ company, agency, target, uid, now }) {
     'TRANSP:TRANSPARENT', 'END:VEVENT', 'END:VCALENDAR'];
   return lines.join('\r\n') + '\r\n';
 }
+
+/* --------------------------------- 4. "Your site is ready for review" (B-2) */
+/* The two review emails are SENT by api/review-admin.js ("Send for review")
+   and api/portal-review.js (a submitted round), each through
+   api/_review.js, addressed by portal login id: the address is that login's own. */
+const roundWord = (round, included) => (round && (round.extra || (Number.isInteger(included) && round.number > included))
+  ? `Change round ${round.number} (quoted)` : `Round ${round ? round.number : 1}${Number.isInteger(included) ? ` of ${included}` : ''}`);
+
+/** d: {agency, logo, base, contact, first, company, link, round:{number, extra}, included} */
+export function reviewReady(d) {
+  const label = roundWord(d.round, d.included);
+  const body = steps([['1', 'Open your site', 'In your portal'], ['2', 'Tap and note', 'Right on the page'], ['3', 'Submit the round', 'We get to work']])
+    + `<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div>`
+    + ticketRows([['Review', label], ['Love it as it is?', 'Approve it in the portal']])
+    + button(d.link, 'Review my site →', 'Your notes save as you go');
+  const subject = `👀 Your site is ready for review${d.first ? ', ' + d.first : ''}`;
+  const html = shell({ preheader: `${d.company || 'Your site'} is ready for you to look over. Tap anything you want changed and leave a note.`, logo: d.logo, agency: d.agency,
+    kicker: `${label}${d.company ? ' · ' + d.company : ''}`, h1a: 'Your site is ready.', h1b: 'Tell us what to change.',
+    sub: 'Open it in your portal, tap anything you want changed, and leave a note right on it. When you are done, submit the round.', body,
+    sign: signature(d.base, d.contact, d.agency, d.contact && d.contact.phone ? `Questions? Text me at ${d.contact.phone}.` : 'Questions? Just reply to this email.') });
+  const text = [`Your site is ready for review${d.first ? ', ' + d.first : ''}.`, '', `${label}.`,
+    'Open it in your portal, tap anything you want changed and leave a note right on it. When you are done, submit the round.', '',
+    'Review my site:', d.link, '', 'Love it as it is? Approve it in the portal.', '', d.contact && d.contact.name ? `${d.contact.name} · ${d.agency}` : d.agency].join('\n');
+  return { subject, html, text };
+}
+
+/* --------------------------------------- 5. "We got your notes" (B-2) */
+/** d: {agency, logo, base, contact, first, company, link, round:{number, extra}, included, count} */
+export function notesReceived(d) {
+  const label = roundWord(d.round, d.included);
+  const n = Number(d.count) || 0;
+  const left = d.round && !d.round.extra && Number.isInteger(d.included) ? Math.max(0, d.included - d.round.number) : null;
+  const rows = [['Notes received', `${n} change${n === 1 ? '' : 's'}`], ['Round', label]];
+  if (left !== null) rows.push(['Included rounds left', String(left)]);
+  const body = ticketRows(rows)
+    + steps([['✓', 'Notes in', 'Done. Thank you.'], ['2', 'We revise', 'Change by change'], ['3', 'Your next look', 'We email you']])
+    + `<div style="height:14px;line-height:14px;font-size:0">&nbsp;</div>`
+    + button(d.link, 'See my notes →', 'Track each one as we work through them');
+  const subject = `✅ We got your notes${d.first ? ', ' + d.first : ''}`;
+  const html = shell({ preheader: `${n} change${n === 1 ? '' : 's'} received. We are on it.`, logo: d.logo, agency: d.agency,
+    kicker: `${label} submitted${d.company ? ' · ' + d.company : ''}`, h1a: 'We got your notes.', h1b: "We're on it.",
+    sub: 'Every note is logged against the exact spot you marked. You can watch each one get done in your portal.', body,
+    sign: signature(d.base, d.contact, d.agency, 'We will email you when the next version is ready.') });
+  const text = [`We got your notes${d.first ? ', ' + d.first : ''}. We're on it.`, '', ...rows.map(r => `${r[0]}: ${r[1]}`), '',
+    'See your notes:', d.link, '', 'We will email you when the next version is ready.', '', d.contact && d.contact.name ? `${d.contact.name} · ${d.agency}` : d.agency].join('\n');
+  return { subject, html, text };
+}

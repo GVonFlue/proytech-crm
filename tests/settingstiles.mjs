@@ -33,7 +33,7 @@ const gated = [...page.matchAll(/\{show\('([A-Za-z]+)'\)&&/g)].map(m => m[1]);
 { const t = await esbuild.build({ ...BUILD, entryPoints: ['src/SettingsTiles.jsx'], external: ['react', 'react/jsx-runtime', 'lucide-react'] }); fs.writeFileSync('tests/' + B_tiles, t.outputFiles[0].text); }
 const T = await import('./' + B_tiles + '?v=' + Date.now());
 const inTiles = T.TILES.flatMap(t => t.cards);
-ok('the page gates 23 cards, each once', gated.length === 23 && new Set(gated).size === 23, gated.join());
+ok('the page gates 24 cards, each once (Site review, B-2, is the 24th)', gated.length === 24 && new Set(gated).size === 24, gated.join());
 ok('every gated card is in a tile', gated.every(k => inTiles.includes(k)), gated.filter(k => !inTiles.includes(k)).join());
 ok('  and in exactly one', inTiles.length === new Set(inTiles).size, inTiles.join());
 ok('no tile names a card the page does not have', inTiles.every(k => gated.includes(k)), inTiles.filter(k => !gated.includes(k)).join());
@@ -83,7 +83,7 @@ ok('  and only its card', cards().length === 1, JSON.stringify(cards()));
 console.log('\nthe grid');
 await click(el.querySelector('.st-back'));
 ok('"All settings" returns to the grid and drops the parameter', !!el.querySelector('.st-wrap') && !el.querySelector('.st-panel') && param() === null, window.location.search);
-ok('  nine areas, all 23 tiles', el.querySelectorAll('.st-group').length === 9 && el.querySelectorAll('.st-tile').length === 23, el.querySelectorAll('.st-tile').length);
+ok('  nine areas, all 24 tiles', el.querySelectorAll('.st-group').length === 9 && el.querySelectorAll('.st-tile').length === 24, el.querySelectorAll('.st-tile').length);
 ok('  and no settings card until a tile is opened', el.querySelectorAll('.main .card, main .card').length === 0 || ![...el.querySelectorAll('.card')].some(c => c.closest('.st-wrap') === null && !c.closest('.nav, aside')));
 ok('  status lines are there (client emails: 0 of 4 on)', /0 of 4 on/.test(el.querySelector('[data-tile="client-emails"]').textContent));
 ok('the phone shortcuts name every area', el.querySelectorAll('.st-areas .st-area').length === 9);
@@ -102,7 +102,7 @@ console.log('\neach tile opens only its own cards');
     await click(el.querySelector('.st-back'));
   }
   ok('every tile shows exactly its own card(s), with its id in the URL', bad.length === 0, bad.join('\n        '));
-  ok('  and no card shows under two tiles', [...seen.keys()].length === 23, [...seen.keys()].length);
+  ok('  and no card shows under two tiles', [...seen.keys()].length === 24, [...seen.keys()].length);
 }
 
 console.log('\nBack and search');

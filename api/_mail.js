@@ -185,7 +185,8 @@ async function recipientVia(table, rowId) {
  *  (proposalId), api/proposal-public.js (proposalId: the client's copy of
  *  their acceptance; clientUserId: the portal invite), api/onboarding-public.js
  *  (onboardingId), api/portal-login.js and api/portal-admin.js (clientUserId),
- *  api/_clientemail.js (onboardingId: the onboarding emails), and nothing
+ *  api/_clientemail.js (onboardingId: the onboarding emails), api/_review.js
+ *  (clientUserId: the site-review emails), and nothing
  *  else; tests/clientmail.mjs holds that list.
  *  `attachments` (Oct 2026, the Launch Day .ics): at most 2, each a plain file
  *  name and base64 content under 100 KB. Anything else is dropped, never sent:

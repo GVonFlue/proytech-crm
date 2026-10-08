@@ -44,7 +44,11 @@ for (const f of files.sort()) {
   const src = await fs.readFile(path.join(root, 'api', f), 'utf8');
   const guarded = /guard\(req,\s*res/.test(src) && /require(Auth|Owner):\s*true/.test(src);
   const signed  = /timingSafeEqual|createHmac/.test(src);
-  if (guarded || signed) { ok(f + ' checks the caller', true); continue; }
+  /* a CLIENT route (portal B-2): guard() for the limits, then the caller must
+     hold a portal session, checked by Supabase Auth and portal_lead()
+     (api/_portal.js clientOf), and refused before anything else runs */
+  const client  = /guard\(req,\s*res/.test(src) && /const me = await clientOf\(req\);\s*\n\s*if \(!me\.ok\) return send\(401/.test(src);
+  if (guarded || signed || client) { ok(f + ' checks the caller' + (client ? ' (a portal client session)' : ''), true); continue; }
   open.push(f);
   ok(f + ' is a DOCUMENTED exception, not a new hole', !!KNOWN_OPEN[f],
      'no auth and not in KNOWN_OPEN — add auth, or justify it here and in API-AUDIT.md');

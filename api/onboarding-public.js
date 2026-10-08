@@ -16,6 +16,8 @@ import {
   missingRequired, stillNeeded, progress, checklistState, launchState, onboardingUrl, productLine, MAX_FILE_BYTES,
 } from '../src/lib/onboarding.js';
 import { buildOutputs } from '../src/lib/onboarding-prompts.js';
+import { readReview } from '../src/lib/review.js';
+import { portalUrl } from './_portal.js';
 
 // api/onboarding-public.js — the onboarding portal's only way in.
 //
@@ -261,7 +263,10 @@ export default async function handler(req, res) {
     const ctx = ctxOf(row, answers, cfg);
     const missing = missingRequired(ctx, answers, row.files || [], cfg);
     if (missing.length) { res.status(400).json({ ok: false, missing, error: 'A few required answers are still empty: ' + missing.map(m => m.label).join(', ') + '.' }); return; }
-    const outputs = buildOutputs({ row, answers, ctx, files: row.files || [], checklist: row.checklist, cfg });
+    /* the website prompt's review tag comes from the PORTAL's origin, and the
+       hosts from Settings → Site review (B-2) */
+    const reviewCfg = { reviewOrigin: (() => { try { return new URL(portalUrl()).origin; } catch { return ''; } })(), reviewHosts: readReview(await readSettings()).hosts };
+    const outputs = buildOutputs({ row, answers, ctx, files: row.files || [], checklist: row.checklist, cfg: { ...cfg, ...reviewCfg } });
     const got = await rpc('onboarding_submit', { p_token: t, p_outputs: outputs });
     const r = got.ok ? String(got.data || '') : 'error';
     if (r === 'rights') { res.status(400).json({ ok: false, error: 'Tick the box to confirm you own or have permission to use what you uploaded.' }); return; }

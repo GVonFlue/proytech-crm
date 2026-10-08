@@ -31,6 +31,7 @@ import { onboardingAppliedPatch, readOnbConfig } from './lib/onboarding';
 import { proposalEventsPatch, readOffer } from './lib/proposal';
 import { readLifecycle, productsOf, clockOf, dueItems, lifecyclePatch, waitingOn } from './lib/lifecycle';
 import { LifecycleStrip, WhatsDue, LifecycleSettings, LIFECYCLE_CSS } from './Lifecycle';
+import ReviewAdmin, { ReviewSettings } from './ReviewAdmin';
 import { readCadence, cadenceOf, nextTouch, dueOn, reachOut, coldByCadence, tierOf, tierMeta, tierLetter, REL_TIER_DESC, touchActivity } from './lib/relationships';
 import { LogTouch, ReachOutList, ReachOutCard, CadenceSettings, REL_CADENCE_CSS } from './RelCadence';
 import { SourcesView, SourcesTop, SOURCES_CSS } from './Sources';
@@ -4660,6 +4661,12 @@ export default function App(){
   /* which client emails the server has claimed (api/_clientemail.js); owner
      read only. undefined = not loaded, null = migration not run */
   const [clientEmails,setClientEmails]=useState(undefined);
+  /* site review (B-2): lead id → {feedback_at, revised_at, approved_at}, the
+     dates that complete the lifecycle's review items. Owner only. */
+  const [reviewSum,setReviewSum]=useState(null);
+  const refreshReview=async()=>{ if(typeof db.reviewSummary!=='function') return; const rows=await db.reviewSummary(); setReviewSum(Array.isArray(rows)?new Map(rows.map(r=>[r.lead_id,r])):null); };
+  useEffect(()=>{ if(isOwner&&loaded) refreshReview(); // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[isOwner,loaded]);
   const [onbSel,setOnbSel]=useState(null);
   /* `loaded`: applying a submit needs the leads in memory; polling before
      they arrive finds no lead and would wait a full minute to try again */
@@ -4667,6 +4674,7 @@ export default function App(){
   const refreshOnboardings=async()=>{
     const list=await db.listOnboardings(); setOnboardings(list);
     if(typeof db.listClientEmails==='function') setClientEmails(await db.listClientEmails());
+    refreshReview();
     if(!Array.isArray(list)) return list;
     /* todayISO, the LOCAL date every other checklist tick uses: a UTC date
        would stamp tomorrow on an evening submit */
@@ -5403,10 +5411,10 @@ export default function App(){
       /* the days the proposal promised, else the offer's; null, never a guessed 14 */
       const launchDays=Number.isInteger(body.launchDays)?body.launchDays:(Number.isInteger(offer.launchDays)?offer.launchDays:null);
       const contact=(Array.isArray(body.contacts)&&body.contacts[0]&&body.contacts[0].name)||l.owner||'';
-      const c={onboarding:onb,proposal:prop,products,launchDays,contact,cfg:lcCfg,tracks,today};
+      const c={onboarding:onb,proposal:prop,products,launchDays,contact,cfg:lcCfg,tracks,today,review:(reviewSum&&reviewSum.get(l.id))||null};
       const clock=clockOf(l,c); const items=dueItems(l,c);
       return {lead:l,ctx:c,clock,items,waiting:waitingOn(l,clock,items)}; });
-  },[isOwner,leads,onboardings,proposals,settings,lcCfg]);
+  },[isOwner,leads,onboardings,proposals,settings,lcCfg,reviewSum]);
   const lcReady=loaded&&isOwner&&(!proposalsOn||proposals!==undefined)&&(!onboardingOn||onboardings!==undefined);
   /* the automatic moves, pauses and due dates: one patch per client through
      updateLead (ENGINEERING §3). lifecyclePatch is idempotent, so applying
@@ -5709,6 +5717,7 @@ export default function App(){
           view==='proposals'?<Proposals pockets={pockets} mlogs={mlogs} leads={leads} settings={settings} apiPost={apiPost} me={me} openLead={openLead} proposals={proposals} reload={refreshProposals} onSaved={refreshProposals} noteLead={(id,sentOn)=>{ const l=leadsRef.current.find(x=>x.id===id); if(l) updateLead(id,{activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:`Proposal deleted by ${me||'an owner'}${sentOn?` (it was sent ${sentOn})`:''}.`,who:me},...(l.activities||[])]}); }}/>:
           view==='clients'?<Clients lcRows={lcRows} labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
             renderPortal={isOwner?(c=><PortalAccess lead={c} apiPost={apiPost}/>):null}
+            renderReview={isOwner?(c=><ReviewAdmin lead={c} apiPost={apiPost} settings={settings} onChanged={refreshReview} onOpened={id=>{ const x=leadsRef.current.find(y=>y&&y.id===id); if(x&&(x.clientPhase||'intake')==='build') setClientPhase(id,'review'); }}/>):null}
             renderOnboarding={onboardingOn?(c=><ClientOnboarding lead={c} onboardings={onboardings} settings={settings} apiPost={apiPost} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openOnboarding={id=>{setOnbSel(id);setPage('onboarding');}}/>):null}/>:
           view==='invoices'?<Invoices invoices={invoices} leads={bizLeads} settings={settings} onNew={newInvoice} open={id=>setInvId(id)}/>:
           
@@ -8632,7 +8641,7 @@ function ClientBoard({lcRows,clients,settings,onCard,setClientPhase,stages,proje
     </div>);})}</div>);
 }
 
-function Clients({renderPortal,lcRows,labelServices,leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue,renderOnboarding}){
+function Clients({renderPortal,renderReview,lcRows,labelServices,leads,stages,settings,open,toggleOnboarding,setOnboardingDue,assignOnboarding,toggleSkip,team,setClientPhase,addCustomPhase,removeCustomPhase,setProject,setProjectPhase,toggleProjectMilestone,removeProject,updateLead,invoices,toggleMilestone,setMilestoneDue,renderOnboarding}){
   /* off by default: hidden items should stay out of the way, but you need a way
      back to them or switching one off would be one-directional */
   const [showSkipped,setShowSkipped]=useState(false);
@@ -8686,7 +8695,7 @@ function Clients({renderPortal,lcRows,labelServices,leads,stages,settings,open,t
                  onClose={()=>setExpand(null)} openRecord={open}
                  updateLead={updateLead} setClientPhase={setClientPhase}
                  toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
-                 toggleProjectMilestone={toggleProjectMilestone} renderOnboarding={renderOnboarding} renderPortal={renderPortal}/>; })()}
+                 toggleProjectMilestone={toggleProjectMilestone} renderOnboarding={renderOnboarding} renderPortal={renderPortal} renderReview={renderReview}/>; })()}
     </>}
   </>);
 }
@@ -10056,6 +10065,7 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       <button className="linkbtn" onClick={()=>savePhases(DEFAULT_CLIENT_PHASES)}>Reset to defaults</button>
     </div>); })()}
     {show('lifecycle')&&isOwner&&<LifecycleSettings settings={settings} saveSettings={saveSettings} team={(users||[]).length?(users||[]).filter(u=>u.active!==false).map(u=>u.name):BRAND.team}/>}
+    {show('siteReview')&&isOwner&&<ReviewSettings settings={settings} saveSettings={saveSettings}/>}
     {show('cadence')&&isOwner&&<CadenceSettings settings={settings} saveSettings={saveSettings}/>}
     {show('clientEmails')&&isOwner&&<ClientEmailSettings settings={settings} saveSettings={saveSettings}/>}
 
