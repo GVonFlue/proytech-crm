@@ -161,7 +161,7 @@ console.log('\nthe CRM: owners only');
 {
   const app = fs.readFileSync('src/App.jsx', 'utf8');
   ok('App renders the Review tab for an owner only', /renderReview=\{isOwner\?\(c=><ReviewAdmin /.test(app));
-  ok('  and Settings → Site review for an owner only', /\{isOwner&&<ReviewSettings settings=\{settings\} saveSettings=\{saveSettings\}\/>\}/.test(app));
+  ok('  and Settings → Site review for an owner only', /\{show\('siteReview'\)&&isOwner&&<ReviewSettings settings=\{settings\} saveSettings=\{saveSettings\}\/>\}/.test(app) && /id: 'site-review'[^}]*owner: true/.test(fs.readFileSync('src/SettingsTiles.jsx', 'utf8')));
   ok('the lifecycle reads the review dates', /review:\(reviewSum&&reviewSum\.get\(l\.id\)\)\|\|null/.test(app));
   const cv = fs.readFileSync('src/ClientView.jsx', 'utf8');
   ok('ClientView shows the tab only when App hands it the renderer', /\{renderReview && <button/.test(cv) && /\{tab === 'review' && renderReview && renderReview\(l\)\}/.test(cv));
