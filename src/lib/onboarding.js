@@ -815,6 +815,30 @@ export function readOnbConfig(settings, offer) {
   };
 }
 
+/* THE PRODUCT MAP AS A FORM (Settings → Onboarding portal, Oct 2026). The
+   saved shape is unchanged: settings.onboarding.productMap, {itemId:
+   [products]}, read by readOnbConfig above (which keeps only real products).
+   productMapRows() lays the offer's packages and add-ons beside it;
+   setMapping() returns the next map with one checkbox flipped, keeping every
+   other key, including ids the offer no longer has. */
+export function productMapRows(offer, savedMap) {
+  const map = savedMap && typeof savedMap === 'object' && !Array.isArray(savedMap) ? savedMap : {};
+  const row = it => { const ps = PRODUCTS.filter(p => A(map[it.id]).includes(p)); return { id: S(it.id, 60), name: S(it.name, 120) || S(it.id, 60), products: ps, unmapped: !ps.length }; };
+  const packages = A(offer && offer.packages).filter(x => x && x.id).map(row);
+  const addons = A(offer && offer.addons).filter(x => x && x.id).map(row);
+  const known = new Set([...packages, ...addons].map(r => r.id));
+  return { packages, addons, extra: Object.keys(map).filter(k => !known.has(k)), unmappedPackages: packages.filter(r => r.unmapped).map(r => r.name) };
+}
+export function setMapping(savedMap, id, product, on) {
+  const map = savedMap && typeof savedMap === 'object' && !Array.isArray(savedMap) ? { ...savedMap } : {};
+  if (!PRODUCTS.includes(product) || !S(id, 60)) return map;
+  const cur = new Set(A(map[id]).filter(p => PRODUCTS.includes(p)));
+  if (on) cur.add(product); else cur.delete(product);
+  const next = PRODUCTS.filter(p => cur.has(p));
+  if (next.length) map[id] = next; else delete map[id];
+  return map;
+}
+
 /** Offer item ids (a proposal's quote) -> portal products, via productMap. */
 export function productsFor(itemIds, productMap) {
   const out = new Set();

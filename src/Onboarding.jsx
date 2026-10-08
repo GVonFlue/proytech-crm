@@ -26,7 +26,7 @@ import { Copy, Download, RefreshCw, Link2, Trash2, Plus, X, CheckCircle2, AlertT
 import {
   ctxOf, readOnbConfig, progress, stillNeeded, missingRequired, launchState, checklistState, requiredAccess, visibleSections,
   shownFields, sectionTitle, sectionIcon, fieldLabel, answerText, cleanAnswers, productsFor, productLine, PRODUCTS, INDUSTRIES,
-  DEFAULT_PRODUCT_NAMES, FILE_SLOTS, longDate, shortDate,
+  DEFAULT_PRODUCT_NAMES, FILE_SLOTS, longDate, shortDate, productMapRows, setMapping,
 } from './lib/onboarding';
 import { buildOutputs } from './lib/onboarding-prompts';
 import { readOffer, newToken } from './lib/proposal';
@@ -365,22 +365,54 @@ function CreateForm({ leads, proposals, onboardings, settings, onDone, onCancel 
    is in Settings. The card is unchanged and is rendered THERE (App's
    SettingsPage); this page keeps a pointer to it. */
 export function ConfigCard({ settings, saveSettings }) {
-  const { fellBack } = useOnbConfig(settings);
+  const { fellBack, config: cfg, offer } = useOnbConfig(settings);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(() => JSON.stringify(settings.onboarding || DEFAULT_ONB_CONFIG, null, 2));
   const [err, setErr] = useState('');
+  const [mapErr, setMapErr] = useState('');
   const warn = fellBack.filter(f => !['pipelines', 'tiles'].includes(f));
+  /* the raw editor follows what is saved while it is closed, so a form save
+     and the JSON never disagree */
+  useEffect(() => { if (!open) setText(JSON.stringify(settings.onboarding || DEFAULT_ONB_CONFIG, null, 2)); }, [settings.onboarding, open]);
   const save = async () => {
     setErr('');
     let v; try { v = JSON.parse(text); } catch { setErr('That is not valid JSON.'); return; }
     if (!v || typeof v !== 'object' || Array.isArray(v)) { setErr('The portal settings are one JSON object.'); return; }
     try { await saveSettings({ ...settings, onboarding: v }); setOpen(false); } catch (e) { setErr(e.message || 'Could not save.'); }
   };
+  /* THE PRODUCT MAP AS A FORM: which portal sections each offered package
+     and add-on brings. Same storage as the JSON (settings.onboarding
+     .productMap), one checkbox per save. */
+  const savedMap = (settings.onboarding && settings.onboarding.productMap) || {};
+  const rows = productMapRows(offer, savedMap);
+  const flip = async (id, p, on) => {
+    setMapErr('');
+    try { await saveSettings({ ...settings, onboarding: { ...(settings.onboarding || {}), productMap: setMapping(savedMap, id, p, on) } }); }
+    catch (e) { setMapErr(e.message || 'Could not save.'); }
+  };
+  const Row = r => (<div key={r.id} className={'pm-row' + (r.unmapped ? ' none' : '')} data-item={r.id}>
+    <span className="pm-name"><b>{r.name}</b>{r.name !== r.id ? <i>{r.id}</i> : null}</span>
+    <span className="pm-boxes">{PRODUCTS.map(p => (<label key={p} className="pm-box">
+      <input type="checkbox" checked={r.products.includes(p)} onChange={e => flip(r.id, p, e.target.checked)} aria-label={`${r.name}: ${cfg.productNames[p] || p}`} />{cfg.productNames[p] || p}</label>))}</span>
+  </div>);
   return (<div className={'card onbd-card' + (warn.length ? ' onbd-warn' : '')}>
-    <div className="toolbar"><div className="sec-title" style={{ margin: 0 }}>Portal settings</div>
-      <button className="btn btn-g btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setOpen(!open)}>{open ? 'Close' : 'Edit'}</button></div>
+    <div className="toolbar"><div className="sec-title" style={{ margin: 0 }}>Portal settings</div></div>
     {warn.length > 0 ? <div className="onbd-mute">Using a built-in default for: <b>{warn.join(', ')}</b>. {warn.includes('onboarding') ? 'The portal settings have never been saved.' : ''}{warn.includes('offer.launchDays') ? ' Launch days come from the offer (Settings → Proposals).' : ''}</div>
       : <div className="onbd-mute">Licensing state, product mapping and the kickoff link are set. People and launch days come from the offer.</div>}
+
+    <div className="pm">
+      <div className="pm-h">Product map</div>
+      <div className="onbd-mute" style={{ marginBottom: 8 }}>Which onboarding sections a client gets when they accept each package and add-on in your offer (Settings → Proposals).</div>
+      {rows.unmappedPackages.length > 0 && <div className="pm-warn" role="alert"><AlertTriangle size={14} /><span>No sections chosen for <b>{rows.unmappedPackages.join(', ')}</b>. A client who accepts {rows.unmappedPackages.length === 1 ? 'it' : 'one'} gets sections guessed from the name, and you get an email asking you to set this.</span></div>}
+      {!rows.packages.length && <div className="onbd-mute">Your offer has no packages yet. Add them in Settings → Proposals.</div>}
+      {rows.packages.length > 0 && <><div className="pm-sub">Packages</div>{rows.packages.map(Row)}</>}
+      {rows.addons.length > 0 && <><div className="pm-sub">Add-ons</div>{rows.addons.map(Row)}</>}
+      {rows.extra.length > 0 && <div className="onbd-mute" style={{ marginTop: 6 }}>Also mapped, but not in your offer now: {rows.extra.join(', ')} (kept; edit under Advanced).</div>}
+      {mapErr && <div className="pp-msg err"><AlertTriangle size={15} /><span>{mapErr}</span></div>}
+    </div>
+
+    <div className="toolbar" style={{ marginTop: 10 }}>
+      <button className="btn btn-g btn-sm" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide advanced' : 'Advanced: edit as JSON'}</button></div>
     {open && <>
       <textarea className="onbd-prompt" value={text} onChange={e => setText(e.target.value)} aria-label="Portal settings JSON" />
       {err && <div className="pp-msg err"><AlertTriangle size={15} /><span>{err}</span></div>}
@@ -450,6 +482,17 @@ export function ClientOnboarding({ lead, onboardings, settings, apiPost, reload,
 
 const EMBED_CSS = `.ob.ob-embed{min-height:0;background:none;padding:4px 0}`;
 export const ONBD_CSS = `
+.pm{margin-top:12px;border-top:1px dashed #E3E5EF;padding-top:10px}
+.pm-h{font-weight:700;font-size:13.5px;color:#14122B;margin-bottom:2px}
+.pm-sub{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#56607A;margin:10px 0 4px}
+.pm-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border:1px solid #ECEEF5;border-radius:10px;padding:8px 10px;margin-bottom:6px;background:#fff}
+.pm-row.none{border-color:#F2D9A6;background:#FFFBF2}
+.pm-name{display:flex;flex-direction:column;gap:1px;min-width:0}
+.pm-name b{font-size:13.5px;color:#14122B}
+.pm-name i{font-style:normal;font-size:11.5px;color:#5F6680}
+.pm-boxes{display:flex;gap:12px;flex-wrap:wrap}
+.pm-box{display:inline-flex;align-items:center;gap:5px;font-size:13px;color:#3A4160;cursor:pointer}
+.pm-warn{display:flex;gap:8px;align-items:flex-start;background:#FFF6E6;border:1px solid #F2D9A6;color:#8A5A12;border-radius:10px;padding:8px 10px;font-size:12.5px;margin-bottom:8px}
 .onbd-moved{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;font-size:13px;color:#56607A;background:#F6F7FC;border:1px solid #E3E6F2;border-radius:12px;padding:9px 12px;margin-bottom:14px}
 .onbd-moved.warn{background:#FFF6E6;border-color:#F2D9A6;color:#8A5A12}
 .onbd-head{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}
