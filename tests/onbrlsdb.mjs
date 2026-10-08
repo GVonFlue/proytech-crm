@@ -57,9 +57,14 @@ alter default privileges in schema public grant all on tables to anon, authentic
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
 grant all on all tables in schema public to anon, authenticated, service_role;`;
 
-/* pgcrypto (gen_random_bytes) ships with PGlite as an opt-in extension */
+/* pgcrypto (gen_random_bytes) ships with PGlite as an opt-in extension.
+   INSTALLED IN `extensions`, THE WAY SUPABASE INSTALLS IT (Oct 2026). Installed
+   in public, as this tool used to, gen_random_bytes was findable from a
+   function pinned to `search_path = public`, so onboarding_for_proposal()
+   passed here and failed on every call in production. */
 const { pgcrypto } = await import('@electric-sql/pglite/contrib/pgcrypto');
 const db = new PGlite({ extensions: { pgcrypto } });
+await db.exec('create schema extensions; create extension pgcrypto schema extensions;');
 await db.exec(SUPABASE);
 await db.exec(read('MIGRATION.sql'));
 await db.exec(read('PROPOSALS-MIGRATION.sql'));
@@ -96,6 +101,23 @@ e = await run(MIG);
 ok('runs again (re-running is safe)', e === '', e);
 e = await run(read('RLS-AUDIT.sql'));
 ok('RLS-AUDIT.sql still passes', e === '', e);
+
+console.log('\nthe Oct 2026 bug: gen_random_bytes lives in `extensions` on Supabase');
+{
+  /* the function as it shipped: pinned to public alone */
+  const OLD = MIG.slice(MIG.indexOf('create or replace function onboarding_for_proposal'), MIG.indexOf('end $$;', MIG.indexOf('create or replace function onboarding_for_proposal')) + 7)
+    .replace('set search_path = public, extensions as', 'set search_path = public as');
+  await run(OLD);
+  const broken = await run(`select * from onboarding_for_proposal('${T('ACC')}','{website}','x')`);
+  ok('the function as it shipped FAILS here, as in production', /gen_random_bytes/.test(broken), broken || '(it did not fail)');
+  ok('  and created nothing', (await db.query(`select count(*)::int n from onboardings`)).rows[0].n === 0);
+  e = await run(read('ONBOARDING-ACCEPT-FIX-2026-10.sql'));
+  ok('ONBOARDING-ACCEPT-FIX-2026-10.sql runs', e === '', e);
+  ok('  and pins search_path to public, extensions', JSON.stringify((await db.query(`select proconfig from pg_proc where proname='onboarding_for_proposal'`)).rows[0].proconfig) === '["search_path=public, extensions"]');
+  ok('  still service-role only', !(await db.query(`select has_function_privilege('authenticated','onboarding_for_proposal(text,text[],text)','execute') a`)).rows[0].a);
+  e = await run(read('ONBOARDING-ACCEPT-FIX-2026-10.sql'));
+  ok('  re-running it is safe', e === '', e);
+}
 
 console.log('\nevery policy, read');
 const pols = (await db.query(`select c.relname t, p.polname n, p.polcmd cmd, p.polpermissive perm,

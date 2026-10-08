@@ -154,8 +154,12 @@ console.log('\nproposal-public — accepting');
   ok('a valid acceptance is recorded', r.code === 200 && r.body.result === 'accepted' && DB[0].status === 'accepted');
   ok('with the typed name, the plan and the caller\'s IP', DB[0].accepted_name === 'Dee Client' && DB[0].accepted_plan === 'annual' && DB[0].accepted_ip === '9.8.7.6');
   ok('it hands back the onboarding link for their package', r.body.onboardingUrl === 'https://forms.test/g');
-  ok('the owners are emailed, and only the owners', sent.length === 1 && sent[0].to.every(x => /@agency\.test$/.test(x)) && !sent[0].to.includes('dee@dee.co'), sent[0] && sent[0].to);
-  ok('the email tells them to send the payment link', /payment link/i.test(sent[0].html));
+  /* Since Oct 2026 the owners may also get "no onboarding was created" or
+     "package not in your product map" (this fake has neither an onboarding
+     nor a product map): every one of them goes to the owners only. */
+  const accMail = sent.find(m => /accepted their proposal/.test(m.subject || ''));
+  ok('the owners are emailed, and only the owners', !!accMail && sent.every(m => m.to.every(x => /@agency\.test$/.test(x)) && !m.to.includes('dee@dee.co')), JSON.stringify(sent.map(m => [m.subject, m.to])));
+  ok('the email tells them to send the payment link', !!accMail && /payment link/i.test(accMail.html));
   sent = [];
   r = await hit(pub, { t: T('open'), action: 'accept', name: 'Someone Else', agree: true });
   ok('accepting twice is "already", not a second acceptance', r.body.result === 'already' && DB[0].accepted_name === 'Dee Client');

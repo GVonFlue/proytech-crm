@@ -290,9 +290,12 @@ end $$;
 -- "You're in" screen) returns the same onboarding. Products are computed by
 -- the route from the offer's productMap and checked here against the
 -- vocabulary by the column's own constraint.
+-- search_path includes `extensions`: on Supabase pgcrypto (gen_random_bytes)
+-- lives there, not in public, and with public alone this function failed on
+-- every call (fixed Oct 2026: ONBOARDING-ACCEPT-FIX-2026-10.sql).
 create or replace function onboarding_for_proposal(p_token text, p_products text[], p_package text)
 returns table (token text, client jsonb)
-language plpgsql security definer volatile set search_path = public as $$
+language plpgsql security definer volatile set search_path = public, extensions as $$
 #variable_conflict use_column
 declare pr proposals%rowtype;
 begin
