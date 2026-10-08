@@ -360,7 +360,11 @@ function CreateForm({ leads, proposals, onboardings, settings, onDone, onCancel 
 }
 
 /* ------------------------------------------------------------ config */
-function ConfigCard({ settings, saveSettings }) {
+/* PORTAL SETTINGS (licensing state, product map, kickoff link, pipelines,
+   tiles) live in Settings → Onboarding portal since Oct 2026, so every setting
+   is in Settings. The card is unchanged and is rendered THERE (App's
+   SettingsPage); this page keeps a pointer to it. */
+export function ConfigCard({ settings, saveSettings }) {
   const { fellBack } = useOnbConfig(settings);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState(() => JSON.stringify(settings.onboarding || DEFAULT_ONB_CONFIG, null, 2));
@@ -388,8 +392,8 @@ function ConfigCard({ settings, saveSettings }) {
 }
 
 /* ------------------------------------------------------------ the tab */
-export default function Onboarding({ leads, settings, saveSettings, apiPost, onboardings, proposals, reload, toggleChecklist, openLead, selected, setSelected }) {
-  const { config: cfg } = useOnbConfig(settings);
+export default function Onboarding({ leads, settings, saveSettings, apiPost, onboardings, proposals, reload, toggleChecklist, openLead, selected, setSelected, openSettings }) {
+  const { config: cfg, fellBack: onbFellBack } = useOnbConfig(settings);
   const [creating, setCreating] = useState(false);
   const byId = useMemo(() => Object.fromEntries(A(leads).map(l => [l.id, l])), [leads]);
   if (onboardings === undefined) return <div className="empty">Loading…</div>;
@@ -407,7 +411,13 @@ export default function Onboarding({ leads, settings, saveSettings, apiPost, onb
     </div>);
   }
   return (<div><style>{ANSWERS_CSS + ONBD_CSS}</style>
-    <ConfigCard settings={settings} saveSettings={saveSettings} />
+    {/* the portal settings moved to Settings → Onboarding portal; a fallback
+        still warns here, where the onboardings are */}
+    {(() => { const warn = onbFellBack.filter(f => !['pipelines', 'tiles'].includes(f));
+      return (<div className={'onbd-moved' + (warn.length ? ' warn' : '')}>
+        <span>{warn.length ? <>Portal settings are using a built-in default for <b>{warn.join(', ')}</b>.</> : 'Portal settings (licensing state, product map, kickoff link) are in Settings.'}</span>
+        {openSettings && <button className="btn btn-g btn-sm" onClick={() => openSettings('onboarding-portal')}>Open in Settings</button>}
+      </div>); })()}
     {creating ? <CreateForm leads={leads} proposals={proposals} onboardings={onboardings} settings={settings} onCancel={() => setCreating(false)} onDone={() => { setCreating(false); reload(); }} />
       : <div className="toolbar" style={{ marginBottom: 12 }}><div className="sec-title" style={{ margin: 0 }}><Rocket size={15} />Onboardings</div>
         <button className="btn btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setCreating(true)}><Plus size={14} />New onboarding</button></div>}
@@ -439,7 +449,9 @@ export function ClientOnboarding({ lead, onboardings, settings, apiPost, reload,
 }
 
 const EMBED_CSS = `.ob.ob-embed{min-height:0;background:none;padding:4px 0}`;
-const ONBD_CSS = `
+export const ONBD_CSS = `
+.onbd-moved{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:space-between;font-size:13px;color:#56607A;background:#F6F7FC;border:1px solid #E3E6F2;border-radius:12px;padding:9px 12px;margin-bottom:14px}
+.onbd-moved.warn{background:#FFF6E6;border-color:#F2D9A6;color:#8A5A12}
 .onbd-head{display:flex;gap:14px;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}
 .onbd-status{display:flex;gap:10px;align-items:center;font-size:13px;color:#56637F}
 .onbd-sub{font-size:13px;color:#56637F;margin-top:4px}

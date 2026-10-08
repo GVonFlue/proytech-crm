@@ -25,7 +25,7 @@ import MassOutreach from './MassOutreach';
 import ClientView from './ClientView';
 import ServiceAssign from './ServiceAssign';
 import Proposals, { OfferEditor } from './Proposals';
-import Onboarding, { ClientOnboarding } from './Onboarding';
+import Onboarding, { ClientOnboarding, ConfigCard as OnboardingConfigCard, ONBD_CSS } from './Onboarding';
 import PortalAccess from './PortalAccess';
 import { onboardingAppliedPatch, readOnbConfig } from './lib/onboarding';
 import { proposalEventsPatch, readOffer } from './lib/proposal';
@@ -5642,7 +5642,7 @@ export default function App(){
     moveNav(navOrder.indexOf(navDrag),navOrder.indexOf(key)); setNavDrag(null); };
   const navItems=navOrder.map(k=>NAV.find(([kk])=>kk===k)).filter(Boolean).filter(([k])=>canSee(k));
 
-  return (<><style>{CSS+LIFECYCLE_CSS+REL_CADENCE_CSS+SOURCES_CSS+CLIENT_EMAILS_CSS+SETTINGS_TILES_CSS}</style><div className="pt">
+  return (<><style>{CSS+LIFECYCLE_CSS+REL_CADENCE_CSS+SOURCES_CSS+CLIENT_EMAILS_CSS+SETTINGS_TILES_CSS+ONBD_CSS}</style><div className="pt">
     {sbOpen&&<div className="scrim" onClick={()=>setSbOpen(false)}/>}
     <aside className={'sb '+(sbOpen?'open':'')}>
       <SidebarArt/>
@@ -5705,7 +5705,7 @@ export default function App(){
             saveSettings={saveSettings} me={me} updateLead={updateLead} rep={rep} myPools={myPools}
             users={users} addActivity={addActivity} LeadTable={Leads}/>:
           view==='rels'?<Relationships leads={scoped} open={openLead} updateLead={updateLead} settings={settings} logTouch={logTouch} stages={stages} isOwner={isOwner} startView={relStart} clearStart={()=>setRelStart(null)}/>:
-          view==='onboarding'?<Onboarding leads={leads} settings={settings} saveSettings={saveSettings} apiPost={apiPost} onboardings={onboardings} proposals={proposals} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openLead={openLead} selected={onbSel} setSelected={setOnbSel}/>:
+          view==='onboarding'?<Onboarding leads={leads} openSettings={id=>{ try{ const u=new URL(window.location.href); u.searchParams.set('settings',id); window.history.pushState({settings:id},'',u.pathname+u.search); }catch{} setPage('settings'); }} settings={settings} saveSettings={saveSettings} apiPost={apiPost} onboardings={onboardings} proposals={proposals} reload={refreshOnboardings} toggleChecklist={toggleOnboarding} openLead={openLead} selected={onbSel} setSelected={setOnbSel}/>:
           view==='proposals'?<Proposals pockets={pockets} mlogs={mlogs} leads={leads} settings={settings} apiPost={apiPost} me={me} openLead={openLead} proposals={proposals} reload={refreshProposals} onSaved={refreshProposals} noteLead={(id,sentOn)=>{ const l=leadsRef.current.find(x=>x.id===id); if(l) updateLead(id,{activities:[{id:uid(),ts:new Date().toISOString(),type:'Note',text:`Proposal deleted by ${me||'an owner'}${sentOn?` (it was sent ${sentOn})`:''}.`,who:me},...(l.activities||[])]}); }}/>:
           view==='clients'?<Clients lcRows={lcRows} labelServices={isOwner?()=>setSvcAssign(true):null} leads={bizLeads} stages={stages} settings={settings} open={openLead} toggleOnboarding={toggleOnboarding} setOnboardingDue={setOnboardingDue} assignOnboarding={assignOnboarding} toggleSkip={toggleOnbSkip} team={teamNames} setClientPhase={setClientPhase} addCustomPhase={addCustomPhase} removeCustomPhase={removeCustomPhase} setProject={setProject} setProjectPhase={setProjectPhase} toggleProjectMilestone={toggleProjectMilestone} removeProject={removeProject} updateLead={updateLead} invoices={invoices} toggleMilestone={toggleMilestone} setMilestoneDue={setMilestoneDue}
             renderPortal={isOwner?(c=><PortalAccess lead={c} apiPost={apiPost}/>):null}
@@ -9905,6 +9905,8 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       invoicing: settings.invoicing?{text:'Set up',tone:'ok'}:{text:'Using defaults',tone:'warn'},
       lifecycle: lc.fellBack&&lc.fellBack.length?{text:'Using defaults',tone:'warn'}:{text:'Customised',tone:'ok'},
       'client-emails': {text:`${on} of 4 on`,tone:on?'ok':'off'},
+      'onboarding-portal': (()=>{ const fb=readOnbConfig(settings,readOffer(settings).offer).fellBack.filter(f=>!['pipelines','tiles'].includes(f));
+        return fb.includes('onboarding')?{text:'Never saved: using defaults',tone:'warn'}:fb.includes('productMap')?{text:'Product map not set',tone:'warn'}:fb.includes('kickoffUrl')?{text:'Kickoff link not set',tone:'warn'}:fb.length?{text:`Using defaults for ${fb.length}`,tone:'warn'}:{text:'Set up',tone:'ok'}; })(),
       cadence: cad.fellBack.length===3?{text:'Using defaults (14 / 30 / 90 days)',tone:'warn'}:{text:`A ${cad.days.champion} · B ${cad.days.b} · C ${cad.days.new} days`,tone:'ok'},
       google: gcal&&gcal.connected?{text:'Connected',tone:'ok'}:{text:'Not connected',tone:'warn'},
       fields: {text:(settings.customFields||[]).length?`${settings.customFields.length} fields`:'None yet',tone:(settings.customFields||[]).length?'':'off'},
@@ -10055,6 +10057,9 @@ function SettingsPage({settings,saveSettings,leads,saveLeads,invoices,saveInvoic
       </div>))}</div>
       <button className="linkbtn" onClick={()=>savePhases(DEFAULT_CLIENT_PHASES)}>Reset to defaults</button>
     </div>); })()}
+    {/* the onboarding portal's settings, moved here from the Onboarding page
+        (unchanged card: Onboarding.jsx ConfigCard) */}
+    {show('onboardingConfig')&&isOwner&&<OnboardingConfigCard settings={settings} saveSettings={saveSettings}/>}
     {show('lifecycle')&&isOwner&&<LifecycleSettings settings={settings} saveSettings={saveSettings} team={(users||[]).length?(users||[]).filter(u=>u.active!==false).map(u=>u.name):BRAND.team}/>}
     {show('cadence')&&isOwner&&<CadenceSettings settings={settings} saveSettings={saveSettings}/>}
     {show('clientEmails')&&isOwner&&<ClientEmailSettings settings={settings} saveSettings={saveSettings}/>}

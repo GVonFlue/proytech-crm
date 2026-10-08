@@ -20,7 +20,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Image as ImageIcon, LayoutDashboard, SlidersHorizontal, List, Users, Wallet, Bell, Target, Layers, DollarSign, FileText,
-  CalendarCheck, Receipt, ArrowLeftRight, KanbanSquare, CalendarClock, Rocket, Mail, HeartHandshake, Mic, Eye, HardDriveDownload, Search, ChevronRight, ArrowLeft,
+  CalendarCheck, ClipboardList, Receipt, ArrowLeftRight, KanbanSquare, CalendarClock, Rocket, Mail, HeartHandshake, Mic, Eye, HardDriveDownload, Search, ChevronRight, ArrowLeft,
 } from 'lucide-react';
 
 export const GROUPS = [
@@ -58,6 +58,7 @@ export const TILES = [
   { id: 'sort-payments', group: 'money', icon: ArrowLeftRight, title: 'Sort payments', desc: 'Which money paid for the work and which for the retainer', cards: ['paymentReview'], owner: true, keys: ['payment', 'setup', 'retainer', 'sort'] },
 
   { id: 'client-phases', group: 'clients', icon: KanbanSquare, title: 'Client phases', desc: 'The columns of the client board', cards: ['phases'], keys: ['phase', 'client board', 'columns'] },
+  { id: 'onboarding-portal', group: 'clients', icon: ClipboardList, title: 'Onboarding portal', desc: 'Licensing state, product map, kickoff link, pipelines', cards: ['onboardingConfig'], owner: true, keys: ['portal', 'product map', 'productMap', 'kickoff', 'kickoff link', 'licensing', 'state', 'pipelines', 'onboarding'] },
   { id: 'lifecycle', group: 'clients', icon: CalendarClock, title: 'Client lifecycle', desc: 'Who builds, and the 14-day clock\'s dates', cards: ['lifecycle'], owner: true, keys: ['builder', 'lifecycle', 'clock', 'due dates', 'template'] },
   { id: 'delivery', group: 'clients', icon: Rocket, title: 'Delivery tracks', desc: 'Website, Suite and other build checklists', cards: ['tracks'], keys: ['delivery', 'track', 'milestone'] },
 
