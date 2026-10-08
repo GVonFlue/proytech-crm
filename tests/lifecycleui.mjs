@@ -146,9 +146,14 @@ console.log('\nthe client card');
 console.log('\nSettings → Client lifecycle');
 {
   await nav('Settings');
+  /* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+  { const tl = document.querySelector('[data-tile="lifecycle"]'); if (tl) await click(tl); await new Promise(r => setTimeout(r, 150)); }
   const t = txt(document.body);
   ok('the card is there, with the builder', /Client lifecycle/.test(t) && !!document.querySelector('select[aria-label="Builder"]'));
   ok('  and every template stage with its dates', !!document.querySelector('input[aria-label="Day: site_v1"]') && /no date/.test(t));
+  { const bk = document.querySelector('.st-back'); if (bk) await click(bk); await new Promise(r => setTimeout(r, 100)); }
+  /* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+  { const tl = document.querySelector('[data-tile="client-phases"]'); if (tl) await click(tl); await new Promise(r => setTimeout(r, 150)); }
   ok('the Review stage is in the phase editor', [...document.querySelectorAll('.phase-label')].some(i => i.value === 'Review'));
 }
 

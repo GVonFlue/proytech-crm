@@ -58,6 +58,8 @@ const labelled=re=>[...document.querySelectorAll('.field')].find(f=>re.test((f.q
 
 console.log('\nreaching the team screen as owner');
 ok('Settings is reachable', await nav('Settings'));
+/* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+{ const tl = document.querySelector('[data-tile="team"]'); if (tl) await click(tl); await new Promise(r => setTimeout(r, 150)); }
 const teamTab=[...document.querySelectorAll('button,.seg-b,.set-tab')].find(b=>/^Team$/.test((b.textContent||'').trim()));
 if (teamTab) await click(teamTab);
 const rows=[...document.querySelectorAll('.tm-row')];

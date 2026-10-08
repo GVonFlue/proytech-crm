@@ -105,6 +105,8 @@ ok('and marked as recurring', w&&w.keyDates[0].annual===true);
 
 console.log('\nSettings can edit the types');
 await nav('Settings'); await settle(120);
+/* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+{ const tl = document.querySelector('[data-tile="dropdowns"]'); if (tl) await click(tl); await settle(150); }
 ok('a key date editor exists', /Key date types/.test(document.body.textContent||''));
 ok('seeded, not empty', /Wedding anniversary/.test(document.body.textContent||''));
 

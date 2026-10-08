@@ -100,6 +100,8 @@ ok('show rate admits nothing is unmarked here', show && !/unmarked/.test(show.d)
 
 console.log('\nSettings toggle');
 await nav('Settings');
+/* Settings is a grid of tiles now (SettingsTiles.jsx): open the one this card lives in */
+{ const tl = document.querySelector('[data-tile="sales-meetings"]'); if (tl) await click(tl); await new Promise(r => setTimeout(r, 150)); }
 /* scoped to the meeting-types card: "Onboarding" is both a meeting type and,
    since the onboarding portal, a module in Settings → Sections */
 const mtCard=[...document.querySelectorAll('.card')].find(c=>/What counts as a sales meeting/.test(c.textContent));
