@@ -821,6 +821,32 @@ export function productsFor(itemIds, productMap) {
   for (const id of A(itemIds)) for (const p of A((productMap || {})[id])) out.add(p);
   return PRODUCTS.filter(p => out.has(p));
 }
+/** Products for what was accepted, and NEVER nothing (Oct 2026). The offer's
+ *  productMap decides when it knows the items. When it knows none of them (a
+ *  package id the owner never mapped), the products are GUESSED from the
+ *  accepted items' ids and names, and `unmapped` names them so the caller can
+ *  tell the owners to add them to the map. With no clue at all, the guess is
+ *  Website + Business Suite: asking a client a few questions too many is
+ *  recoverable, an onboarding with no sections is not.
+ *  items: the proposal quote's items ({id, name, kind}). */
+export const GUESS_DEFAULT = ['website', 'suite'];
+export function productsForAccepted(items, productMap) {
+  const list = A(items).filter(Boolean);
+  const mapped = productsFor(list.map(i => i.id), productMap);
+  if (mapped.length) return { products: mapped, guessed: false, unmapped: [] };
+  const out = new Set();
+  for (const i of list) {
+    const t = `${S(i.id, 80)} ${S(i.name, 120)}`.toLowerCase();
+    if (/growth/.test(t)) { out.add('website'); out.add('suite'); }
+    if (/suite|crm/.test(t)) out.add('suite');
+    if (/web|site/.test(t)) out.add('website');
+    if (/automat/.test(t)) out.add('automations');
+  }
+  const guess = PRODUCTS.filter(p => out.has(p));
+  return { products: guess.length ? guess : GUESS_DEFAULT.slice(), guessed: true,
+    unmapped: list.map(i => S(i.name, 120) || S(i.id, 80)).filter(Boolean) };
+}
+
 /** "Growth OS", "Website + Automations"… the package name when the proposal
  *  gave one, else composed from the product names. */
 export function productLine(products, names = DEFAULT_PRODUCT_NAMES) {

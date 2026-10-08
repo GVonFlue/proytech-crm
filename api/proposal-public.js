@@ -11,7 +11,8 @@ import { TOKEN_RE, hasLegal, fmtWhen } from '../src/lib/proposal.js';
 // the onboarding created at acceptance: its config reader, link builder and
 // product mapping are the onboarding portal's own, so the two cannot disagree
 import { loadConfig, portalLink } from './onboarding-public.js';
-import { productsFor } from '../src/lib/onboarding.js';
+import { productsForAccepted } from '../src/lib/onboarding.js';
+import { randomBytes } from 'node:crypto';
 
 // api/proposal-public.js — the ONLY way in for someone without a login.
 //
@@ -50,12 +51,15 @@ export const PUBLIC_BODY_KEYS = ['client', 'company', 'preparedOn', 'validDays',
 const NOT_FOUND = 'This proposal link is not valid. Ask us for a fresh one.';
 const H = () => ({ apikey: SUPA_KEY, authorization: `Bearer ${SUPA_KEY}`, 'content-type': 'application/json' });
 
+/* A failed call says WHY (`detail`: PostgREST's message, or the network
+   error), so a caller can log it. It used to return a bare {ok:false}, and an
+   onboarding that could not be made left nothing in the log (Oct 2026). */
 async function rpc(fn, args) {
   try {
     const r = await fetch(`${SUPA_URL}/rest/v1/rpc/${fn}`, { method: 'POST', headers: H(), body: JSON.stringify(args) });
-    if (!r.ok) return { ok: false };
+    if (!r.ok) { const j = await r.json().catch(() => null); return { ok: false, detail: String((j && (j.message || j.hint || j.code)) || r.status).slice(0, 300) }; }
     return { ok: true, data: await r.json().catch(() => null) };
-  } catch { return { ok: false }; }
+  } catch (e) { return { ok: false, detail: String((e && e.message) || e).slice(0, 300) }; }
 }
 
 /** The display fields, picked by name. Exported so the test proves it. */
@@ -75,23 +79,85 @@ export function publicView(row) {
 }
 
 /* THE ONBOARDING, CREATED AT ACCEPTANCE. The "You're in" screen's "Start my
-   onboarding" button opens the onboarding made for THIS proposal: Postgres
-   creates it on first ask and returns the same one after (one per proposal,
-   and only for an accepted proposal: onboarding_for_proposal() in
-   ONBOARDING-MIGRATION.sql). Products come from the offer's productMap over
-   what was accepted. Returns '' when that cannot be done (the migration has
-   not run, the database is down), and the caller falls back to the offer's
-   static onboarding link, so accepting never fails because of onboarding. */
-export async function portalLinkFor(t, row) {
+   onboarding" button opens the onboarding made for THIS proposal: one per
+   proposal, only for an accepted proposal.
+
+   OCT 2026: IT NEVER SILENTLY FAILS. Every acceptance until then got no
+   onboarding: onboarding_for_proposal() made its token with
+   gen_random_bytes() under `search_path = public`, and on Supabase pgcrypto
+   lives in the `extensions` schema, so the function errored on every call
+   ("function gen_random_bytes(integer) does not exist"), rpc() returned a
+   bare {ok:false}, this returned '', and the client saw "we'll send your
+   onboarding link" with nothing in any log. ONBOARDING-ACCEPT-FIX-2026-10.sql
+   repairs the function. This no longer depends on it:
+     1. ask the function (logging its error if it fails)
+     2. if it fails, make the onboarding here with the service key: the same
+        row the function makes (proposal accepted, one per proposal through
+        the proposal_id unique key, a 256-bit token)
+     3. if that fails too, the owners are emailed and the caller falls back
+        to the static link
+   And the products are never empty: a package productMap does not know is
+   guessed from its name (lib/onboarding productsForAccepted), and the owners
+   are told which package to map. `isNew` (a fresh acceptance) is when the
+   owners hear about it; a return visit only logs. */
+const tokenNew = () => randomBytes(32).toString('base64url');
+async function onboardingDirect(t, products, pkg) {
+  const pr = await fetch(`${SUPA_URL}/rest/v1/proposals?token=eq.${encodeURIComponent(t)}&select=id,lead_id,status,created_by,body`, { headers: H() })
+    .then(r => (r.ok ? r.json() : null)).catch(() => null);
+  const p = Array.isArray(pr) ? pr[0] : null;
+  if (!p) return { ok: false, detail: 'proposal not found' };
+  if (p.status !== 'accepted') return { ok: false, detail: 'proposal not accepted' };
+  const client = (p.body && p.body.client) || {};
   try {
-    const items = (row && row.body && row.body.quote && Array.isArray(row.body.quote.items)) ? row.body.quote.items : [];
+    const ins = await fetch(`${SUPA_URL}/rest/v1/onboardings?on_conflict=proposal_id`, {
+      method: 'POST', headers: { ...H(), prefer: 'resolution=ignore-duplicates,return=representation' },
+      body: JSON.stringify({ lead_id: p.lead_id, proposal_id: p.id, token: tokenNew(), products, package_name: String(pkg || '').slice(0, 120), created_by: p.created_by || null }),
+    });
+    if (!ins.ok) { const j = await ins.json().catch(() => null); return { ok: false, detail: 'insert: ' + String((j && j.message) || ins.status).slice(0, 200) }; }
+    let rows = await ins.json().catch(() => []);
+    if (!Array.isArray(rows) || !rows[0]) {        /* it already existed: read the one there is */
+      rows = await fetch(`${SUPA_URL}/rest/v1/onboardings?proposal_id=eq.${p.id}&select=token`, { headers: H() }).then(r => (r.ok ? r.json() : [])).catch(() => []);
+    }
+    const tok = Array.isArray(rows) && rows[0] && rows[0].token;
+    return TOKEN_RE.test(String(tok || '')) ? { ok: true, token: tok, client } : { ok: false, detail: 'no token came back' };
+  } catch (e) { return { ok: false, detail: String((e && e.message) || e).slice(0, 200) }; }
+}
+async function tellOwners(subject, lines) {
+  await sendMail({ tag: 'proposal-public', subject, html: `<div style="font-family:-apple-system,Segoe UI,Inter,Arial,sans-serif;font-size:15px;color:#14122B;line-height:1.5">${lines.map(l => `<p style="margin:0 0 10px">${l}</p>`).join('')}<p style="margin:0"><a href="${esc(appUrl())}" style="color:#2B4DE0">Open the CRM</a></p></div>` }).catch(() => {});
+}
+export async function portalLinkFor(t, row, { isNew = false } = {}) {
+  const items = (row && row.body && row.body.quote && Array.isArray(row.body.quote.items)) ? row.body.quote.items : [];
+  const cl = (row && row.body && row.body.client) || {};
+  const who = cl.company || cl.name || 'A client';
+  try {
     const cfg = await loadConfig();
     const pkg = (items.find(i => i && i.kind === 'package') || items[0] || {}).name || '';
-    const got = await rpc('onboarding_for_proposal', { p_token: t, p_products: productsFor(items.map(i => i && i.id), cfg.productMap), p_package: String(pkg).slice(0, 120) });
-    const o = got.ok && Array.isArray(got.data) ? got.data[0] : null;
-    if (!o || !TOKEN_RE.test(String(o.token || ''))) return '';
+    const pr = productsForAccepted(items, cfg.productMap);
+    if (pr.guessed) console.error(`[proposal-public] ${who}: no productMap entry for ${pr.unmapped.join(', ') || '(no items)'}; guessed ${pr.products.join('+')}`);
+    let o = null;
+    const got = await rpc('onboarding_for_proposal', { p_token: t, p_products: pr.products, p_package: String(pkg).slice(0, 120) });
+    const first = got.ok && Array.isArray(got.data) ? got.data[0] : null;
+    if (first && TOKEN_RE.test(String(first.token || ''))) o = first;
+    else {
+      console.error(`[proposal-public] onboarding_for_proposal did not return an onboarding for ${who}:`, got.ok ? 'no row' : got.detail);
+      const d = await onboardingDirect(t, pr.products, pkg);
+      if (d.ok) o = d;
+      else console.error(`[proposal-public] direct onboarding create failed for ${who}:`, d.detail);
+    }
+    if (!o) {
+      if (isNew) await tellOwners(`No onboarding was created for ${who}`, [
+        `<b>${esc(who)}</b> accepted their proposal, but their onboarding could not be created, so the "You're in" screen fell back to your static onboarding link (or "we'll send it").`,
+        `Create it from the CRM: Onboarding, New onboarding. The reason is in the Vercel log for /api/proposal-public.`]);
+      return '';
+    }
+    if (pr.guessed && isNew) await tellOwners(`Check ${who}'s onboarding: package not in your product map`, [
+      `<b>${esc(who)}</b> accepted <b>${esc(pr.unmapped.join(', ') || 'a proposal with no items')}</b>, which your onboarding product map does not list.`,
+      `Their onboarding was created as <b>${esc(pr.products.join(' + '))}</b>. Check it on their Onboarding tab, and add the package to Settings → Onboarding → product map so the next one is exact.`]);
     return portalLink(o.client || (row.body && row.body.client), o.token);
-  } catch { return ''; }
+  } catch (e) {
+    console.error(`[proposal-public] onboarding for ${who} failed:`, String((e && e.message) || e).slice(0, 200));
+    return '';
+  }
 }
 
 export default async function handler(req, res) {
@@ -135,7 +201,7 @@ export default async function handler(req, res) {
   const paymentUrl = (row.body && row.body.paymentUrl) || '';
 
   if (result === 'accepted' || result === 'already') {
-    onboardingUrl = (await portalLinkFor(t, row)) || onboardingUrl;
+    onboardingUrl = (await portalLinkFor(t, row, { isNew: result === 'accepted' })) || onboardingUrl;
     if (result === 'accepted') {
       // Owners only: sendMail() with no `to` IS the owners allowlist, the same
       // call notify.js and coffee-book.js make. Soft: a mail failure must not

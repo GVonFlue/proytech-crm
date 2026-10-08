@@ -40,6 +40,10 @@ const OWNER = '00000000-0000-4000-8000-0000000000a1', REP = '00000000-0000-4000-
   STRAY = '00000000-0000-4000-8000-0000000000d1';
 
 const db = new PGlite({ extensions: { pgcrypto } });
+/* pgcrypto in `extensions`, the way Supabase installs it: a definer function
+   pinned to `search_path = public` cannot see it there (the Oct 2026
+   onboarding bug), and this tool must fail the same way production does */
+await db.exec('create schema if not exists extensions; create extension if not exists pgcrypto schema extensions;');
 const run = async sql => { try { await db.exec(sql); return ''; } catch (e) { try { await db.exec('rollback'); } catch {} return String(e.message || e); } };
 async function as(who, sql, params) {
   await db.exec('begin');
